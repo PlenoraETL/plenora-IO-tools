@@ -11,8 +11,8 @@
     "revisione": "6492733480237730c80a4bfeab713d23c6fa51cf"
   },
   "vendor_path": "vendor/parquet",
-  "file_count": 238,
-  "tree_sha256": "9523d76439b892c1b7e4fa1dacd1c5d859e9a7ceebdcc2070bdc56d10ee891ba",
+  "file_count": 240,
+  "tree_sha256": "d3f8b597aac98a04729119fc1e19b4c347f040104cf4e0c6d64b187ece4873c2",
   "functional_delta_files": [
     "src/arrow/array_reader/builder.rs",
     "src/arrow/array_reader/byte_array.rs",
@@ -54,8 +54,12 @@
     "src/file/reader.rs",
     "src/file/serialized_reader.rs",
     "src/file/statistics.rs",
+    "src/lib.rs",
     "src/parquet_thrift.rs",
+    "src/record/api.rs",
     "src/schema/types.rs",
+    "src/temporal.rs",
+    "src/temporal/tests.rs",
     "src/util/bit_util.rs",
     "src/util/test_common/mod.rs",
     "src/util/test_common/page_util.rs",

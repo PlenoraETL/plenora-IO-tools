@@ -304,7 +304,9 @@ def verifica(radice: Path) -> list[str]:
 
 
 def main() -> int:
+    from check_tempo_remoto import verify as verify_temporal
     esito = verifica(ROOT)
+    esito.extend(verify_temporal())
     errori = [e for e in esito if not e.startswith("__esclusi__")]
     esclusi = next(
         (int(e.removeprefix("__esclusi__")) for e in esito if e.startswith("__esclusi__")),

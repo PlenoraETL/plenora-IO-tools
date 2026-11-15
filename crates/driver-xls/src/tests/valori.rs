@@ -854,3 +854,38 @@ fn centomila_date_decimali_attraversano_il_parser_ooxml() {
         }
     }
 }
+
+#[test]
+fn tempo_remoto_excel_domain() {
+    use calamine::{ExcelDateTime, ExcelDateTimeType};
+    for epoch in [false, true] {
+        let convert = |v| {
+            super::super::date_native::convert(
+                ExcelDateTime::new(v, ExcelDateTimeType::DateTime, epoch),
+                epoch,
+                true,
+                false,
+            )
+        };
+        let limit = if epoch {
+            2_957_004.0f64
+        } else {
+            2_958_466.0f64
+        };
+        for v in [
+            -0.0,
+            -1.0,
+            f64::NAN,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::from_bits(1),
+            limit,
+            f64::from_bits(limit.to_bits() + 1),
+        ] {
+            assert!(convert(v).is_err(), "{epoch}: {v}");
+        }
+        assert!(convert(limit - 1.0).is_ok());
+        assert_eq!(convert(60.0).is_ok(), epoch);
+        assert_eq!(convert(0.0).is_ok(), epoch);
+    }
+}

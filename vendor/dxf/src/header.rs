@@ -344,7 +344,11 @@ mod tests {
                 CodePair::new_f64(40, 100.0),
             ],
         );
-        assert_eq!(Duration::from_secs(100), drawing.header.time_in_drawing);
+        // DXF elapsed time is days, not seconds.
+        assert_eq!(
+            Duration::from_secs(100 * 86_400),
+            drawing.header.time_in_drawing
+        );
     }
 
     #[test]

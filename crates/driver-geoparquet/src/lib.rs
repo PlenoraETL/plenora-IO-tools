@@ -818,6 +818,19 @@ fn valida_schema_arrow_incorporato(file: File, dimensione: u64, tetto: u64) -> R
             .map_err(|_| fmt_err(&PublicMessage::Curated(MSG_FOOTER_NON_VALIDO)))
     })?;
     let metadati = lettore.metadata();
+    // INT96 has no unambiguous, lossless Arrow timestamp mapping. Reject the
+    // entire file before schema conversion, projection or statistics pruning.
+    if metadati
+        .file_metadata()
+        .schema_descr()
+        .columns()
+        .iter()
+        .any(|c| c.physical_type() == parquet::basic::Type::INT96)
+    {
+        return Err(fmt_err(&PublicMessage::Curated(
+            "Parquet INT96 non supportato",
+        )));
+    }
 
     valida_metadati_thrift(metadati, dimensione)?;
 

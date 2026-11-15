@@ -209,3 +209,23 @@ fn character_accetta_solo_nul_finali_come_padding() {
         assert!(read(&path).is_err());
     }
 }
+
+#[test]
+fn tempo_remoto_dbf_dates() {
+    for payload in [
+        b"00000101",
+        b"00010101",
+        b"99991231",
+        b"20000229",
+        b"20230229",
+    ] {
+        let (_dir, path) = fixture(b'D', 0, payload, 0, None);
+        assert!(read(&path).is_ok());
+    }
+    for payload in [b"00000000", b"99999999", b"abcdefgh"] {
+        let (_dir, path) = fixture(b'D', 0, payload, 0, None);
+        assert!(read(&path).is_err(), "{payload:?}");
+    }
+    let (_dir, path) = fixture(b'D', 0, b"        ", 0, None);
+    assert!(read(&path).is_ok());
+}

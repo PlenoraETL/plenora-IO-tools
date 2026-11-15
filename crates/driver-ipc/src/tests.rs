@@ -1480,3 +1480,5 @@ fn una_definizione_oltre_il_tetto_e_un_limite_non_un_crs_malformato() {
     let sotto = definizione(&"a".repeat(1000));
     assert_eq!(categoria_in_apertura(file_con("sotto.arrow", sotto)), None);
 }
+
+mod tempo_remoto;

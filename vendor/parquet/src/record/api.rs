@@ -19,6 +19,7 @@
 
 use std::fmt;
 
+#[cfg(test)]
 use chrono::{TimeZone, Utc};
 use half::f16;
 use num_bigint::{BigInt, Sign};
@@ -933,61 +934,10 @@ impl fmt::Display for Field {
     }
 }
 
-/// Helper method to convert Parquet date into a string.
-/// Input `value` is a number of days since the epoch in UTC.
-/// Date is displayed in local timezone.
-#[inline]
-fn convert_date_to_string(value: i32) -> String {
-    static NUM_SECONDS_IN_DAY: i64 = 60 * 60 * 24;
-    let dt = Utc
-        .timestamp_opt(value as i64 * NUM_SECONDS_IN_DAY, 0)
-        .unwrap();
-    format!("{}", dt.format("%Y-%m-%d"))
-}
-
-/// Helper method to convert Parquet timestamp into a string.
-/// Input `value` is a number of milliseconds since the epoch in UTC.
-/// Datetime is displayed in UTC timezone.
-#[inline]
-fn convert_timestamp_millis_to_string(value: i64) -> String {
-    let dt = Utc.timestamp_millis_opt(value).unwrap();
-    format!("{}", dt.format("%Y-%m-%d %H:%M:%S%.3f %:z"))
-}
-
-/// Helper method to convert Parquet timestamp into a string.
-/// Input `value` is a number of microseconds since the epoch in UTC.
-/// Datetime is displayed in UTC timezone.
-#[inline]
-fn convert_timestamp_micros_to_string(value: i64) -> String {
-    let dt = Utc.timestamp_micros(value).unwrap();
-    format!("{}", dt.format("%Y-%m-%d %H:%M:%S%.6f %:z"))
-}
-
-/// Helper method to convert Parquet time (milliseconds since midnight) into a string.
-/// Input `value` is a number of milliseconds since midnight.
-/// Time is displayed in HH:MM:SS.sss format.
-#[inline]
-fn convert_time_millis_to_string(value: i32) -> String {
-    let total_ms = value as u64;
-    let hours = total_ms / (60 * 60 * 1000);
-    let minutes = (total_ms % (60 * 60 * 1000)) / (60 * 1000);
-    let seconds = (total_ms % (60 * 1000)) / 1000;
-    let millis = total_ms % 1000;
-    format!("{hours:02}:{minutes:02}:{seconds:02}.{millis:03}")
-}
-
-/// Helper method to convert Parquet time (microseconds since midnight) into a string.
-/// Input `value` is a number of microseconds since midnight.
-/// Time is displayed in HH:MM:SS.ssssss format.
-#[inline]
-fn convert_time_micros_to_string(value: i64) -> String {
-    let total_us = value as u64;
-    let hours = total_us / (60 * 60 * 1000 * 1000);
-    let minutes = (total_us % (60 * 60 * 1000 * 1000)) / (60 * 1000 * 1000);
-    let seconds = (total_us % (60 * 1000 * 1000)) / (1000 * 1000);
-    let micros = total_us % (1000 * 1000);
-    format!("{hours:02}:{minutes:02}:{seconds:02}.{micros:06}")
-}
+use crate::temporal::{
+    convert_date_to_string, convert_time_micros_to_string, convert_time_millis_to_string,
+    convert_timestamp_micros_to_string, convert_timestamp_millis_to_string,
+};
 
 /// Helper method to convert Parquet decimal into a string.
 /// We assert that `scale >= 0` and `precision >= scale`, which is enforced when

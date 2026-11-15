@@ -1,12 +1,7 @@
-use std::cmp::Ordering;
 use std::io;
 use std::io::Read;
-use std::time::Duration as StdDuration;
 
 use byteorder::{ByteOrder, LittleEndian};
-
-use chrono::prelude::*;
-use chrono::Duration as ChronoDuration;
 
 use encoding_rs::Encoding;
 
@@ -30,104 +25,10 @@ pub(crate) fn as_bool(v: i16) -> bool {
     v == 1
 }
 
-fn f64_to_adjusted_duration(f: f64) -> ChronoDuration {
-    let days_since_dublin = f - 2_415_020.0; // julian dublin offset, e.g., December 31, 1899 12:00AM
-    let secs_per_day = 24i64 * 60 * 60;
-    let seconds = days_since_dublin * secs_per_day as f64;
-    // functions consuming this need to use 1900/01/01 instead of 1899/12/31 as a base
-    // so we counter the extra day and leap second here
-    ChronoDuration::seconds(seconds as i64 - secs_per_day + 1)
-}
-
-fn epoch<T>(timezone: &T) -> DateTime<T>
-where
-    T: TimeZone,
-{
-    // this will never fail; unwrap is ok
-    timezone.with_ymd_and_hms(1900, 1, 1, 0, 0, 0).unwrap()
-}
-
-fn as_datetime<T>(timezone: &T, date: f64) -> DateTime<T>
-where
-    T: TimeZone,
-{
-    // dates are represented as the fractional number of days elapsed since December 31, 1899.
-    let epoch = epoch(timezone);
-    let duration = if date == 0.0 {
-        ChronoDuration::seconds(0)
-    } else {
-        let duration = f64_to_adjusted_duration(date);
-        match ChronoDuration::seconds(0).cmp(&duration) {
-            Ordering::Less => duration,
-            _ => ChronoDuration::seconds(0),
-        }
-    };
-    epoch + duration
-}
-
-pub(crate) fn as_datetime_local(date: f64) -> DateTime<Local> {
-    as_datetime(&Local, date)
-}
-
-pub(crate) fn as_datetime_utc(date: f64) -> DateTime<Utc> {
-    as_datetime(&Utc, date)
-}
-
-#[test]
-fn as_datetime_conversion_test() {
-    // from AutoDesk spec: 2451544.91568287 = 31 December 1999, 9:58:35PM
-    assert_eq!(
-        Local.with_ymd_and_hms(1999, 12, 31, 21, 58, 35).unwrap(),
-        as_datetime_local(2_451_544.915_682_87)
-    );
-}
-
-#[test]
-fn datetime_out_of_bounds_test() {
-    // these values are out of bounds for acceptable dates
-    let values = vec![2305814.964456019, 1799402.631122685];
-    for value in values {
-        assert_eq!(
-            Local.with_ymd_and_hms(1900, 1, 1, 0, 0, 0).unwrap(),
-            as_datetime_local(value)
-        )
-    }
-}
-
-fn as_double<T>(timezone: &T, date: DateTime<T>) -> f64
-where
-    T: TimeZone,
-{
-    let epoch = epoch(timezone);
-    let duration = date.signed_duration_since(epoch);
-    (duration.num_seconds() as f64 / 24.0 / 60.0 / 60.0) + 2_415_021f64
-}
-
-pub(crate) fn as_double_local(date: DateTime<Local>) -> f64 {
-    as_double(&Local, date)
-}
-
-pub(crate) fn as_double_utc(date: DateTime<Utc>) -> f64 {
-    as_double(&Utc, date)
-}
-
-#[test]
-#[allow(clippy::float_cmp)]
-fn as_double_conversion_test() {
-    // from AutoDesk spec: 2451544.91568287[04] = 31 December 1999, 9:58:35PM
-    assert_eq!(
-        2_451_544.915_682_870_4,
-        as_double_local(Local.with_ymd_and_hms(1999, 12, 31, 21, 58, 35).unwrap())
-    );
-}
-
-pub(crate) fn duration_as_double(duration: StdDuration) -> f64 {
-    duration.as_secs() as f64
-}
-
-pub(crate) fn as_duration(d: f64) -> StdDuration {
-    StdDuration::from_secs(d as u64)
-}
+pub(crate) use crate::temporal::{
+    as_datetime_local, as_datetime_utc, as_double_local, as_double_utc, as_duration,
+    duration_as_double,
+};
 
 pub(crate) fn as_uuid(s: String) -> Uuid {
     let mut reconstructed = String::new();

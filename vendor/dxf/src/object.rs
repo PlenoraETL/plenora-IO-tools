@@ -2,9 +2,6 @@
 
 use enum_primitive::FromPrimitive;
 use itertools::Itertools;
-use std::ops::Add;
-
-use chrono::Duration;
 
 use crate::{
     CodePair, Color, DataTableValue, DxfError, DxfResult, Point, SectionTypeSettings,
@@ -1468,9 +1465,7 @@ impl Object {
                         // after the version, 90 pairs come in julian_day/seconds_past_midnight duals
                         match julian_day {
                             Some(jd) => {
-                                let date = as_datetime_local(f64::from(jd));
-                                let date =
-                                    date.add(Duration::seconds(i64::from(pair.assert_i32()?)));
+                                let date = crate::temporal::sunstudy(jd, pair.assert_i32()?)?;
                                 ss.dates.push(date);
                                 julian_day = None;
                             }

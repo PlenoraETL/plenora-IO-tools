@@ -467,3 +467,28 @@ fn schema_sql_usa_il_confronto_degli_identificatori_sqlite() {
     let mut reader = ds.open_layer_reader(&richiesta(LayerId(0))).unwrap();
     assert_eq!(reader.next_batch().unwrap().unwrap().num_rows(), 1);
 }
+
+#[test]
+fn tempo_remoto_gpkg_text_preserved() {
+    for declared in ["DATE", "DATETIME"] {
+        for text in [
+            "0001-01-01",
+            "9999-12-31",
+            "10000-01-01",
+            "infinity",
+            "2023-02-29",
+        ] {
+            let mut builder = ColBuilder::new(&sqlite_declared_to_arrow(declared));
+            assert_eq!(builder.append(ValueRef::Text(text.as_bytes())), None);
+            let result = builder.finish();
+            assert_eq!(
+                result
+                    .as_any()
+                    .downcast_ref::<StringArray>()
+                    .unwrap()
+                    .value(0),
+                text
+            );
+        }
+    }
+}

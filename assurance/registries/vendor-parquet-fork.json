@@ -76,7 +76,11 @@
     "src/util/test_common/mod.rs": "Base main 6492733 (PR #125): Aggiorna le fixture unitarie alle dichiarazioni di pagina verificate.",
     "src/util/test_common/page_util.rs": "Base main 6492733 (PR #125): Genera dizionari PLAIN e conteggi v2 coerenti con gli zeri dei livelli di ripetizione.",
     "src/util/test_common/rand_gen.rs": "Base main 6492733 (PR #125): Comincia le pagine v2 su un confine di record.",
-    "tests/arrow_reader/int96_stats_roundtrip.rs": "Base main 6492733 (PR #125): Adegua la prova upstream ai controlli delle statistiche INT96."
+    "tests/arrow_reader/int96_stats_roundtrip.rs": "Base main 6492733 (PR #125): Adegua la prova upstream ai controlli delle statistiche INT96.",
+    "src/lib.rs": "I5/I7: I5/I7: one temporal module renders record DATE and timestamps without unwrap, rejects invalid time-of-day and emits explicit invalid-temporal diagnostics in Display and JSON. IO refuses INT96 before Arrow/projection/pruning; raw vendor INT96 methods retain upstream behavior.",
+    "src/record/api.rs": "I5/I7: I5/I7: one temporal module renders record DATE and timestamps without unwrap, rejects invalid time-of-day and emits explicit invalid-temporal diagnostics in Display and JSON. IO refuses INT96 before Arrow/projection/pruning; raw vendor INT96 methods retain upstream behavior.",
+    "src/temporal.rs": "I5/I7: I5/I7: one temporal module renders record DATE and timestamps without unwrap, rejects invalid time-of-day and emits explicit invalid-temporal diagnostics in Display and JSON. IO refuses INT96 before Arrow/projection/pruning; raw vendor INT96 methods retain upstream behavior.",
+    "src/temporal/tests.rs": "I5/I7: I5/I7: one temporal module renders record DATE and timestamps without unwrap, rejects invalid time-of-day and emits explicit invalid-temporal diagnostics in Display and JSON. IO refuses INT96 before Arrow/projection/pruning; raw vendor INT96 methods retain upstream behavior."
   },
   "di_questo_repository": [],
   "delta_di_packaging": [
@@ -116,5 +120,9 @@
     "qualificazione": "La base rifiuta DELTA_BINARY_PACKED, DELTA_LENGTH_BYTE_ARRAY e DELTA_BYTE_ARRAY, BYTE_STREAM_SPLIT e livelli BIT_PACKED, page index, bloom filter e salti/selezioni non qualificati. IO usa with_row_groups per il pruning, non selezioni di righe o skip_records. Adeguate le precedenti prove BSS e page index ai nuovi rifiuti. La campagna fuzz geoparquet_reader resta da eseguire.",
     "crc_e_codec": "default-features=false; arrow, snap, zstd, crc come data-tools; brotli, flate2-rust_backend e lz4 conservati per i codec gia supportati da IO. CRC verifica i checksum presenti, non ne impone la presenza; prova il_driver_verifica_crc_presente_e_ammette_crc_assente in tests/parquet_decoder.rs. crc32fast era gia nel grafo transitivo, nessun pin diretto artificiale."
   },
-  "compatibilita_arrow_60_1": "Politica plenora-data-tools PR #154: minimo autonomo >=60.1.0, <61 come patch di packaging, pin esatti =60.1.0 nel workspace. Parquet resta 60.0.0, senza rebase ne modifiche ai sorgenti del decoder. Tutti i Cargo.lock aggiornati con Cargo; time non compare nel lock autonomo vendor."
+  "compatibilita_arrow_60_1": "Politica plenora-data-tools PR #154: minimo autonomo >=60.1.0, <61 come patch di packaging, pin esatti =60.1.0 nel workspace. Parquet resta 60.0.0, senza rebase ne modifiche ai sorgenti del decoder. Tutti i Cargo.lock aggiornati con Cargo; time non compare nel lock autonomo vendor.",
+  "temporal_2026_11_15": {
+    "cambiamento": "I5/I7: one temporal module renders record DATE and timestamps without unwrap, rejects invalid time-of-day and emits explicit invalid-temporal diagnostics in Display and JSON. IO refuses INT96 before Arrow/projection/pruning; raw vendor INT96 methods retain upstream behavior.",
+    "prove": "temporal::tests::temporal_record_boundaries; driver-geoparquet tests::tempo_remoto"
+  }
 }

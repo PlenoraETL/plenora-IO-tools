@@ -1191,3 +1191,51 @@ per una differenza non spiegata o un reader base senza confronti identici;
 `--require-filegdb` rende obbligatorio anche il reader GDAL. L'unica eccezione
 C3-GP-DIM ha un oracolo indipendente e un test che rifiuta mutazioni di valori,
 metadati estranei e dimensionalita errata. Gli esiti Linux non sono anticipati.
+
+### Conversioni temporali da file esterni
+
+I moduli `vendor/dxf/src/temporal.rs`, `vendor/parquet/src/temporal.rs` e
+`vendor/gdal/src/temporal.rs` centralizzano le conversioni temporali dei fork.
+DXF accetta giorni giuliani civili negli anni 0001–9999: zero non indica
+un'epoca sostitutiva ed e' rifiutato. Le date si arrotondano al secondo piu'
+vicino; le durate TDINDWG/TDUSRTIMER sono giorni, convertiti in secondi
+binary64 e poi arrotondati al nanosecondo. Le ore locali ambigue o inesistenti
+sono rifiutate. SUNSTUDY richiede secondi nel giorno fra 0 e 86399.
+Un input non rappresentabile produce `InvalidTemporalValue` o il `ParseError`
+del decoder/iteratore, mai clamp a 1900.
+La fonte delle unita' e' la [specifica Autodesk](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-DXF/files/GUID-6942BAF3-095F-4217-9F61-6931975D3A64.htm).
+
+GeoParquet rifiuta l'intero file se una foglia dello schema fisico e' INT96,
+prima della conversione Arrow e prima di projection/pruning: anche una colonna
+non richiesta e statistiche min/max estreme ricevono il medesimo rifiuto.
+Le API raw INT96 del fork conservano il contratto upstream e non sono usate
+da IO dopo questa barriera. I riferimenti `arrow_reader/mod.rs:2587–2619`
+della raccolta iniziale erano test di array, non conversioni delle statistiche.
+I formatter record Parquet mantengono il dominio chrono per DATE/timestamp;
+fuori dominio emettono la diagnostica `<invalid temporal value>` in Display
+e come stringa JSON. TIME richiede [0, 86400) secondi nelle unita' del campo.
+Non si trasforma un valore invalido in null o epoch.
+
+Il setter datetime GDAL richiede anni locali 0001–9999, secondi interi e offset
+multipli di 900 secondi. Verifica l'offset prima degli accessori locali;
+UTC usa tzflag 100 (0 significa timezone sconosciuta). Non perde frazioni.
+DBF e GeoPackage mantengono i rispettivi percorsi testuali: il 29 febbraio
+2023 DBF e' conservato come testo, non certificato come data calendariale;
+GeoPackage conserva anche testo fuori calendario e rifiuta le coercizioni
+numeriche secondo l'affinita'. Excel conserva la validazione millisecondi
+1900/1904 esistente, compreso il rifiuto del giorno fittizio 1900-02-29.
+
+`check_prevalidazione_decoder.py` esegue anche `check_tempo_remoto.py`:
+la guardia riusa la classificazione prodotto/prove e vieta i costruttori
+panicking e gli unwrap calendariali nel perimetro dichiarato. E' una regola
+statica conservativa, non un'analisi di taint. Le sonde negative stanno in
+`test_check_tempo_remoto.py`. Nuovi converter XML DXF devono propagare Result.
+Le nuove fixture si rigenerano con i test `tempo_remoto` e l'opt-in locale
+`TEMPO_GENERATE_SEEDS=1`; i test ordinari non scrivono nel repository.
+
+La correzione temporale del 15 novembre 2026 richiede un nuovo congelamento
+della candidate 9.0.0 per decisione del titolare. Il cambiamento sotto
+`vendor/gdal/src` invalida profondita' fuzz FileGDB e ASan FileGDB; i nuovi
+test sotto `driver-shp/src` invalidano anche la profondita' Shapefile.
+Queste misure vanno ripetute sul codice definitivo, senza riallinearne a mano
+le impronte. Il fuzz breve locale a mutazione non le sostituisce.

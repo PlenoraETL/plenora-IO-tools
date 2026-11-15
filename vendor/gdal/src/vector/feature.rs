@@ -4,7 +4,7 @@ use std::{
     ptr, slice,
 };
 
-use chrono::{DateTime, Datelike, FixedOffset, LocalResult, NaiveDate, TimeZone, Timelike};
+use chrono::{DateTime, FixedOffset, LocalResult, NaiveDate, TimeZone};
 use gdal_sys::{OGRErr, OGRFeatureH, OGRFieldType, OGRLayerH};
 
 use crate::utils::{_last_null_pointer_err, _string, _string_array};
@@ -511,17 +511,8 @@ impl<'a> Feature<'a> {
         value: DateTime<FixedOffset>,
     ) -> Result<()> {
         let idx = field_idx.try_into()?;
-        let year = value.year() as c_int;
-        let month = value.month() as c_int;
-        let day = value.day() as c_int;
-        let hour = value.hour() as c_int;
-        let minute = value.minute() as c_int;
-        let second = value.second() as c_int;
-        let tzflag: c_int = if value.offset().local_minus_utc() == 0 {
-            0
-        } else {
-            100 + (value.offset().local_minus_utc() / (15 * 60))
-        };
+        let [year, month, day, hour, minute, second, tzflag] = crate::temporal::datetime(value)
+            .map_err(|_| GdalError::DateError("datetime outside exact OGR domain".into()))?;
 
         unsafe {
             gdal_sys::OGR_F_SetFieldDateTime(
@@ -912,3 +903,6 @@ mod tests {
         feature.unset_field(highway_idx).unwrap();
     }
 }
+
+#[cfg(test)]
+mod temporal_tests;

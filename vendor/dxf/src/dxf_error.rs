@@ -23,6 +23,7 @@ pub enum DxfError {
     InvalidBinaryFile,
     MalformedString,
     WrongItemType,
+    InvalidTemporalValue,
 }
 
 impl From<io::Error> for DxfError {
@@ -82,6 +83,9 @@ impl fmt::Display for DxfError {
             ),
             DxfError::InvalidBinaryFile => write!(formatter, "the binary file is invalid"),
             DxfError::MalformedString => write!(formatter, "the string is malformed"),
+            DxfError::InvalidTemporalValue => {
+                write!(formatter, "temporal value outside the supported domain")
+            }
             DxfError::WrongItemType => write!(formatter, "the specified item type is not correct"),
         }
     }

@@ -113,6 +113,36 @@
       "cambiamento": "`read_f` propagava un reale illeggibile come `0.0` (`unwrap_or`): ora propaga l'errore. Il DXB e' raggiungibile dal lettore completo, non dalla CLI, che lo rifiuta.",
       "trovato_da": "la seconda revisione di #23 (2026-10-05): la classe dei documenti accettati con dati mancanti o alterati senza errore.",
       "provato_da": "nessuna prova dedicata: il percorso e' fuori dalla CLI."
+    },
+    {
+      "file": "src/temporal.rs",
+      "cambiamento": "I1/I2/I3: temporal module validates civil Julian days in years 1..9999, rejects zero/nonfinite, checks local mapping and SUNSTUDY seconds; elapsed fields use days, rounded via binary64 seconds to nanoseconds; generated converters propagate Result.",
+      "provato_da": "driver-dxf tests::tempo_remoto; temporal::tests; fuzz/seeds/dxf_reader/tempo-*"
+    },
+    {
+      "file": "src/temporal/tests.rs",
+      "cambiamento": "I1/I2/I3: temporal module validates civil Julian days in years 1..9999, rejects zero/nonfinite, checks local mapping and SUNSTUDY seconds; elapsed fields use days, rounded via binary64 seconds to nanoseconds; generated converters propagate Result.",
+      "provato_da": "driver-dxf tests::tempo_remoto; temporal::tests; fuzz/seeds/dxf_reader/tempo-*"
+    },
+    {
+      "file": "src/header.rs",
+      "cambiamento": "I1/I2/I3: temporal module validates civil Julian days in years 1..9999, rejects zero/nonfinite, checks local mapping and SUNSTUDY seconds; elapsed fields use days, rounded via binary64 seconds to nanoseconds; generated converters propagate Result.",
+      "provato_da": "driver-dxf tests::tempo_remoto; temporal::tests; fuzz/seeds/dxf_reader/tempo-*"
+    },
+    {
+      "file": "src/dxf_error.rs",
+      "cambiamento": "I1/I2/I3: temporal module validates civil Julian days in years 1..9999, rejects zero/nonfinite, checks local mapping and SUNSTUDY seconds; elapsed fields use days, rounded via binary64 seconds to nanoseconds; generated converters propagate Result.",
+      "provato_da": "driver-dxf tests::tempo_remoto; temporal::tests; fuzz/seeds/dxf_reader/tempo-*"
+    },
+    {
+      "file": "spec/HeaderVariablesSpec.xml",
+      "cambiamento": "I1/I2/I3: temporal module validates civil Julian days in years 1..9999, rejects zero/nonfinite, checks local mapping and SUNSTUDY seconds; elapsed fields use days, rounded via binary64 seconds to nanoseconds; generated converters propagate Result.",
+      "provato_da": "driver-dxf tests::tempo_remoto; temporal::tests; fuzz/seeds/dxf_reader/tempo-*"
+    },
+    {
+      "file": "spec/ObjectsSpec.xml",
+      "cambiamento": "I1/I2/I3: temporal module validates civil Julian days in years 1..9999, rejects zero/nonfinite, checks local mapping and SUNSTUDY seconds; elapsed fields use days, rounded via binary64 seconds to nanoseconds; generated converters propagate Result.",
+      "provato_da": "driver-dxf tests::tempo_remoto; temporal::tests; fuzz/seeds/dxf_reader/tempo-*"
     }
   ],
   "invarianti_del_fork": [
@@ -455,5 +485,9 @@
       }
     ]
   },
-  "formattazione_rustfmt": "da quando il fork e' una dipendenza per percorso, `cargo fmt --all` lo raggiunge: le righe del delta che non erano nella forma di rustfmt sono state formattate (`src/code_pair_put_back.rs`, `src/drawing.rs`, `src/object.rs`, `src/thumbnail.rs`, `src/x_data.rs`). Solo spazi e a capo, nessun token cambiato, e tutti i file stanno gia' nel delta funzionale dichiarato."
+  "formattazione_rustfmt": "da quando il fork e' una dipendenza per percorso, `cargo fmt --all` lo raggiunge: le righe del delta che non erano nella forma di rustfmt sono state formattate (`src/code_pair_put_back.rs`, `src/drawing.rs`, `src/object.rs`, `src/thumbnail.rs`, `src/x_data.rs`). Solo spazi e a capo, nessun token cambiato, e tutti i file stanno gia' nel delta funzionale dichiarato.",
+  "temporal_2026_11_15": {
+    "cambiamento": "I1/I2/I3: temporal module validates civil Julian days in years 1..9999, rejects zero/nonfinite, checks local mapping and SUNSTUDY seconds; elapsed fields use days, rounded via binary64 seconds to nanoseconds; generated converters propagate Result.",
+    "prove": "driver-dxf tests::tempo_remoto; temporal::tests; fuzz/seeds/dxf_reader/tempo-*"
+  }
 }
