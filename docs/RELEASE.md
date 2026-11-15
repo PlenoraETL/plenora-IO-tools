@@ -2559,3 +2559,8 @@ registrano file non committati: l'identita della misura e il perimetro, non
 il solo SHA stampato. ASan: 181924 contatori su un modulo, zero sorgenti
 GDAL strumentati; il confine locale della libreria resta da controllare sulla VM.
 Queste misure non sono L2 o soak e non autorizzano il rilascio.
+
+Rimisura dopo la correzione del tempo (PR #98, su `dacf916`): Shapefile 35/35
+su 32 input, FileGDB 12/12 su 21, ASan 181700 contatori su un modulo, 47 file
+del wrapper Rust strumentati (nuovo modulo `temporal`), zero simboli del
+runtime in `libgdal.so.34`. Sostituisce i valori sopra per il nuovo congelamento.
