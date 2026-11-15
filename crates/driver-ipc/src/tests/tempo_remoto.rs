@@ -30,8 +30,8 @@ fn tempo_remoto_ipc_extreme_ticks_preserved() {
         .unwrap();
     let mut reader = ds
         .open_layer_reader(&ReadRequest {
-            cancellation: Default::default(),
-            layer: ds.layers()[0].id.clone(),
+            cancellation: CancellationToken::default(),
+            layer: ds.layers()[0].id,
             projected_fields: None,
             projection_mode: ProjectionMode::BestEffort,
             pruning_predicate: None,

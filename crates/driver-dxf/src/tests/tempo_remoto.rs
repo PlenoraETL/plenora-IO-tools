@@ -8,8 +8,8 @@ fn rejected(bytes: &[u8]) {
         ),
         "full: {full:?}; input: {bytes:?}"
     );
-    let result =
-        DrawingEntityReader::load(std::io::Cursor::new(bytes.to_vec())).and_then(|r| r.finish());
+    let result = DrawingEntityReader::load(std::io::Cursor::new(bytes.to_vec()))
+        .and_then(DrawingEntityReader::finish);
     assert!(matches!(
         result,
         Err(DxfError::InvalidTemporalValue | DxfError::ParseError(_))
@@ -61,9 +61,9 @@ fn tempo_remoto_sunstudy() {
         (i32::MIN, 0),
         (i32::MAX, 0),
         (0, 0),
-        (2451545, -1),
-        (2451545, 86400),
-        (5373484, i32::MAX),
+        (2_451_545, -1),
+        (2_451_545, 86400),
+        (5_373_484, i32::MAX),
     ] {
         rejected(format!("0\nSECTION\n2\nOBJECTS\n0\nSUNSTUDY\n90\n1\n90\n{day}\n90\n{seconds}\n0\nENDSEC\n0\nEOF\n").as_bytes());
     }
