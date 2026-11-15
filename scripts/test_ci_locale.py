@@ -171,7 +171,7 @@ class CiLocaleTests(unittest.TestCase):
                 self.assertEqual(ci.classify(job, step, self.root)[0], "NON ESEGUITO")
             self.assertEqual(ci.classify(job, job["steps"][1], self.root, True)[0], "NON ESEGUITO")
         with patch.object(ci, "host_os", return_value="Linux"):
-            self.assertEqual(ci.classify(job, job["steps"][0], self.root)[0], "SALTATO")
+            self.assertEqual(ci.classify(job, job["steps"][0], self.root)[0], "NON ESEGUITO")
 
     def test_mapping_table_and_versions(self):
         self.assertEqual(set(ci.ACTION_MAP.values()), {"checkout", "python", "rust", "cache"})
@@ -181,7 +181,7 @@ class CiLocaleTests(unittest.TestCase):
         plan = ci.derive(self.root)
         self.assertEqual(plan["jobs"][0]["steps"][0]["toolchain"]["python"], "0.1")
         _, receipt = self.run_plan(plan)
-        self.assertEqual(receipt["steps"][0]["status"], "FAIL")
+        self.assertEqual(receipt["steps"][0]["status"], "NON ESEGUITO")
         self.workflow([{"uses": "actions/checkout@pin", "with": {"repository": "remote/repo"}},
                        {"uses": "Swatinem/rust-cache@pin"}])
         _, receipt = self.run_plan(ci.derive(self.root))
@@ -253,14 +253,88 @@ class CiLocaleTests(unittest.TestCase):
         self.assertEqual(len(plan["jobs"]), 1)
         self.assertEqual(plan["jobs"][0]["reason"], "matrice senza combinazioni attive")
 
-    def test_timeout_and_start_error_are_fail(self):
+    def test_timeout_is_fail_but_start_error_is_not_executed(self):
         self.workflow([{"shell": "python", "run": "print('probe')"}])
         plan = ci.derive(self.root)
         import subprocess
         for error in (OSError("cannot start"), subprocess.TimeoutExpired("probe", 1)):
             with self.subTest(error=type(error).__name__), patch.object(ci.subprocess, "run", side_effect=error):
                 _, receipt = self.run_plan(plan)
-                self.assertEqual(receipt["steps"][0]["status"], "FAIL")
+                self.assertEqual(receipt["steps"][0]["status"], "FAIL" if isinstance(error, subprocess.TimeoutExpired) else "NON ESEGUITO")
+
+    def test_missing_yaml_has_install_hint_without_traceback(self):
+        import subprocess
+        result = subprocess.run([ci.sys.executable, "-S", str(ci.ROOT / "scripts/ci_locale.py"), "--piano"], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("requirements-ci-locale.txt", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertEqual((ci.ROOT / "requirements-ci-locale.txt").read_text().strip(), "PyYAML==6.0.3")
+
+    def test_network_policy_and_offline_execution(self):
+        self.assertEqual(ci.policy_env(False)["PIP_NO_INDEX"], "0")
+        self.assertEqual(ci.policy_env(False)["CARGO_NET_OFFLINE"], "false")
+        for command in ("python -m pip install jsonschema==4.26.0", "cargo fetch --locked", "curl https://example.invalid"):
+            self.workflow([{"run": command, "shell": "python"}])
+            plan = ci.derive(self.root)
+            with patch.object(ci, "host_os", return_value="Windows"), patch.object(ci, "git", return_value="abc"), contextlib.redirect_stdout(io.StringIO()):
+                path, receipt = ci.execute(plan, self.root, offline=True)
+            row = receipt["steps"][0]
+            self.assertEqual(row["status"], "NON ESEGUITO")
+            self.assertIn("offline", row["reason"])
+            self.assertIsNone(row["exit_code"])
+            self.assertEqual(json.loads(path.read_text())["network_mode"], "offline")
+        (self.root / "wheels").mkdir()
+        self.workflow([{"run": "python -m pip install --no-index --find-links wheels demo", "shell": "python"}])
+        job = ci.derive(self.root)["jobs"][0]
+        self.assertEqual(ci.preconditions(job, job["steps"][0], self.root, job["steps"][0]["run"], True), "")
+        self.workflow([{"run": "raise SystemExit(7)", "shell": "python"}])
+        with patch.object(ci, "host_os", return_value="Windows"), patch.object(ci, "git", return_value="abc"), contextlib.redirect_stdout(io.StringIO()):
+            _, receipt = ci.execute(ci.derive(self.root), self.root, offline=True)
+        self.assertEqual(receipt["steps"][0]["status"], "FAIL")
+
+    def test_declarative_environment_preconditions(self):
+        import subprocess
+        for command in ("pwsh script.ps1", "docker info", "cargo build --features gdal-backend"):
+            self.workflow([{"run": command}])
+            job = ci.derive(self.root)["jobs"][0]
+            with patch.object(ci.shutil, "which", return_value=None):
+                self.assertIn("assente", ci.preconditions(job, job["steps"][0], self.root, command, False))
+        source = self.root / "scripts/compare_historical_readers.py"
+        source.parent.mkdir()
+        source.write_text("BASELINE_REVISION = 'historical-tag'")
+        command = "python scripts/compare_historical_readers.py --old old --new new"
+        self.workflow([{"run": command}])
+        job = ci.derive(self.root)["jobs"][0]
+        with patch.object(ci, "git", side_effect=subprocess.CalledProcessError(1, "git")):
+            self.assertIn("storia/tag", ci.preconditions(job, job["steps"][0], self.root, command, False))
+        with patch.object(ci, "git", return_value="commit"):
+            self.assertIn("binario", ci.preconditions(job, job["steps"][0], self.root, command, False))
+            for name in ("old", "new"):
+                (self.root / name).touch()
+            self.assertEqual(ci.preconditions(job, job["steps"][0], self.root, command, False), "")
+
+    def test_setup_history_services_and_receipt_contract(self):
+        self.workflow([{"uses": "actions/checkout@pin", "with": {"fetch-depth": 0}}])
+        job = ci.derive(self.root)["jobs"][0]
+        with patch.object(ci, "git", return_value="true"):
+            self.assertIn("shallow", ci.preconditions(job, job["steps"][0], self.root, "", False))
+        self.workflow([{"uses": "actions-rust-lang/setup-rust-toolchain@pin", "with": {"toolchain": "1.98.1", "components": "clippy"}}])
+        job = ci.derive(self.root)["jobs"][0]
+        with patch.object(ci.shutil, "which", return_value="rustup"), patch.object(ci.subprocess, "check_output", return_value=""):
+            self.assertIn("toolchain Rust assente", ci.preconditions(job, job["steps"][0], self.root, "", False))
+        with patch.object(ci.shutil, "which", return_value="rustup"), patch.object(ci.subprocess, "check_output", side_effect=["1.98.1-host", "rustfmt-host"]):
+            self.assertIn("componente Rust assente", ci.preconditions(job, job["steps"][0], self.root, "", False))
+        self.workflow([{"run": "print('ok')", "shell": "python"}], services={"db": {"image": "postgres"}})
+        _, receipt = self.run_plan(ci.derive(self.root))
+        self.assertEqual(receipt["steps"][0]["status"], "NON ESEGUITO")
+        self.workflow([{"run": "print('ok')", "shell": "python"}])
+        _, receipt = self.run_plan(ci.derive(self.root))
+        self.assertEqual(receipt["schema"], 2)
+        self.assertEqual(receipt["network_mode"], "online")
+        self.assertEqual(receipt["exit_code"], 0)
+        self.assertEqual(receipt["steps"][0]["environment"]["PIP_NO_INDEX"], "0")
+        for field in ("sha", "dirty", "sources", "selected_jobs", "started_at", "finished_at", "final_sha", "counts"):
+            self.assertIn(field, receipt)
 
     def test_discovery_registers_script_and_tests(self):
         from scripts import check_prove_fonte_unica as proofs

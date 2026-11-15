@@ -22,7 +22,11 @@ import sys
 import time
 import uuid
 
-import yaml
+try:
+    import yaml
+except ImportError:
+    print("CI locale: manca PyYAML. Installare: python -m pip install -r requirements-ci-locale.txt", file=sys.stderr)
+    raise SystemExit(2) from None
 
 try:
     from .ci_locale_expr import Unsupported, evaluate, partial, render, truth
@@ -53,6 +57,86 @@ SHELLS = {
 }
 PUBLISH = re.compile(r"\b(?:cargo\s+publish\b|npm\s+publish\b|twine\s+upload\b|gh\s+(?:release|api)\b|git\s+push\b)")
 LIVE = re.compile(r"\b(?:docker|podman|vagrant|virsh|VBoxManage|psql|mysql|mongosh)\b", re.I)
+
+# Tabella di adattamenti, non elenco dei gate: estendere qui per la famiglia.
+PRECONDITIONS = (
+    (r"\b(?:sudo|apt-get|brew|choco)\b", "provisioning", "provisioning di sistema riservato alla CI"),
+    (r"\bgdal-config\b|--features[ =]+gdal-backend|--require-filegdb", "tool", "gdal-config"),
+    (r"\bdocker\b", "tool", "docker"),
+    (r"\bpwsh\b", "tool", "pwsh"),
+    (r"\bcargo\b", "tool", "cargo"),
+    (r"\bgit\b", "tool", "git"),
+    (r"scripts/compare_historical_readers\.py.*--old", "historical", "scripts/compare_historical_readers.py"),
+)
+
+
+def policy_env(offline):
+    return {"CARGO_BUILD_JOBS": "4", "CARGO_INCREMENTAL": "0",
+            "CARGO_NET_OFFLINE": "true" if offline else "false",
+            "PIP_NO_INDEX": "1" if offline else "0", "PIP_DISABLE_PIP_VERSION_CHECK": "1"}
+
+
+def preconditions(job, step, root, command, offline):
+    """Controlli prima del gate. Nessuna reinterpretazione del suo exit code."""
+    direct = step.get("run") or ""
+    if offline:
+        # Una wheelhouse deve essere esplicita e locale; la sola cache pip non basta.
+        for line in command.splitlines():
+            if re.search(r"\bpip(?:3)?\s+install\b", line):
+                links = re.search(r"--find-links(?:=|\s+)([\w./-]+)", line)
+                local = links and inside(root, links[1]).is_dir()
+                if not ("--no-index" in line and local and "http" not in line):
+                    return "offline: pip install senza wheelhouse locale esplicita"
+        if re.search(r"\b(?:curl|wget)\b|urlretrieve\(|urlopen\(|requests\.(?:get|post)\(|\bgit\s+(?:fetch|clone|pull)\b", command):
+            return "offline: download richiesto dal comando/script"
+        if re.search(r"\bcargo\s+(?:\+\S+\s+)?(?:build|test|check|clippy|run|fetch|metadata|install|update|bench)\b", command):
+            return "offline: risoluzione Cargo; completezza della cache non certificata"
+    for pattern, kind, value in PRECONDITIONS:
+        if not re.search(pattern, direct, re.S):
+            continue
+        if kind == "provisioning":
+            return value
+        if kind == "tool" and not shutil.which(value):
+            return f"strumento di sistema assente: {value}"
+        if kind == "historical":
+            source = inside(root, value)
+            if not source.is_file():
+                return f"precondizione storica assente: {value}"
+            pin = re.search(r"BASELINE_REVISION\s*=\s*['\"]([^'\"]+)", source.read_text(encoding="utf-8"))
+            if not pin:
+                return "revisione storica non dichiarata"
+            try:
+                git(root, "rev-parse", "--verify", pin[1] + "^{commit}")
+            except (OSError, subprocess.SubprocessError):
+                return f"storia/tag git richiesti assenti: {pin[1]}"
+            for name in re.findall(r"--(?:old|new)\s+([^\s]+)", direct):
+                if not inside(root, name).is_file():
+                    return f"binario storico/corrente assente: {name}"
+    if step.get("mapping") == "checkout" and step["with"].get("fetch-depth") == "0":
+        if git(root, "rev-parse", "--is-shallow-repository") == "true":
+            return "storia git completa richiesta; clone shallow"
+    if step.get("mapping") == "python":
+        wanted = step["toolchain"].get("python", "")
+        if re.fullmatch(r"\d+\.\d+(?:\.\d+)?", wanted) and tuple(map(int, wanted.split('.'))) != sys.version_info[:len(wanted.split('.'))]:
+            return f"Python {wanted} richiesto; host {platform.python_version()}"
+    if step.get("mapping") == "rust":
+        if not shutil.which("rustup"):
+            return "strumento di sistema assente: rustup"
+        wanted = step["with"].get("toolchain", "")
+        try:
+            installed = subprocess.check_output(["rustup", "toolchain", "list"], text=True, stderr=subprocess.PIPE)
+            if not any(line.split()[0] == wanted or line.startswith(wanted + "-") for line in installed.splitlines()):
+                return f"toolchain Rust assente: {wanted}"
+            components = [c.strip().removesuffix("-preview") for c in step["with"].get("components", "").split(",") if c.strip()]
+            if components:
+                present = subprocess.check_output(["rustup", "component", "list", "--installed", "--toolchain", wanted],
+                                                  text=True, stderr=subprocess.PIPE)
+                for component in components:
+                    if not any(line == component or line.startswith(component + "-") for line in present.splitlines()):
+                        return f"componente Rust assente: {component} ({wanted})"
+        except (OSError, subprocess.SubprocessError):
+            return "toolchain Rust non verificabile"
+    return ""
 
 
 def inside(root, relative):
@@ -255,14 +339,14 @@ def host_os():
     return {"Darwin": "macOS"}.get(platform.system(), platform.system())
 
 
-def classify(job, step, root, allow_services=False):
+def classify(job, step, root, allow_services=False, offline=False):
     """Disponibilita' statica; non afferma che prerequisiti o test siano verdi."""
     if job["release"] or PUBLISH.search(step.get("run") or ""):
         return "NON ESEGUITO", "release/pubblicazione vietata"
     if job["reason"] and not job["raw"].get("uses", "").startswith("./"):
         return "NON ESEGUITO", job["reason"]
     if job["os"] != host_os():
-        return "SALTATO", f"piattaforma richiesta {job['runs_on']}; host {host_os()}"
+        return "NON ESEGUITO", f"piattaforma richiesta {job['runs_on']}; host {host_os()}"
     if job["container"] or job["services"]:
         return "NON ESEGUITO", ("servizi/container live non abilitati" if not allow_services else
                                 "provisioning dei servizi/container dichiarati non mappato")
@@ -278,6 +362,9 @@ def classify(job, step, root, allow_services=False):
         return "NON ESEGUITO", "comando/script richiede servizi live; serve --servizi-live"
     if step["reason"]:
         return "NON ESEGUITO", step["reason"]
+    missing = preconditions(job, step, root, command, offline)
+    if missing:
+        return "NON ESEGUITO", missing
     if step.get("mapping") == "checkout" and any(step["with"].get(k) for k in ("repository", "path", "submodules", "lfs")):
         return "NON ESEGUITO", "checkout aggiuntivo/remoto non eseguito; usare il worktree corrente"
     if step.get("mapping"):
@@ -286,7 +373,7 @@ def classify(job, step, root, allow_services=False):
     if shell not in SHELLS:
         return "NON ESEGUITO", f"shell non mappata: {shell}"
     if not shutil.which(SHELLS[shell][0][0]):
-        return "SALTATO", f"shell richiesta non disponibile: {shell}"
+        return "NON ESEGUITO", f"shell richiesta non disponibile: {shell}"
     return "ESEGUIBILE", "prerequisiti e condizioni verificati durante l'esecuzione"
 
 
@@ -327,7 +414,7 @@ def git(root, *args):
     return subprocess.check_output(["git", *args], cwd=root, text=True, stderr=subprocess.PIPE).strip()
 
 
-def execute(plan, root, selected=(), allow_services=False, timeout=1800):
+def execute(plan, root, selected=(), allow_services=False, timeout=1800, offline=False):
     root = root.resolve()
     known = {j["key"] for j in plan["jobs"]} | {j["id"] for j in plan["jobs"]}
     if set(selected) - known:
@@ -335,10 +422,11 @@ def execute(plan, root, selected=(), allow_services=False, timeout=1800):
     sha = git(root, "rev-parse", "HEAD")
     directory = root / "target/ci-locale" / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ-") + uuid.uuid4().hex[:8])
     directory.mkdir(parents=True)
-    receipt = {"schema": 1, "sha": sha, "dirty": bool(git(root, "status", "--porcelain")),
+    receipt = {"schema": 2, "network_mode": "offline" if offline else "online",
+               "services_opt_in": allow_services, "sha": sha, "dirty": bool(git(root, "status", "--porcelain")),
                "started_at": datetime.now(timezone.utc).isoformat(), "host": platform.platform(),
                "python": sys.version, "selected_jobs": list(selected), "profile": "pr", "sources": plan["sources"],
-               "overrides": {"CARGO_BUILD_JOBS": "4", "CARGO_INCREMENTAL": "0"}, "jobs": [], "steps": []}
+               "overrides": policy_env(offline), "jobs": [], "steps": []}
     path = directory / "ricevuta.json"
 
     def save():
@@ -358,7 +446,7 @@ def execute(plan, root, selected=(), allow_services=False, timeout=1800):
         failed, condition_failed, incomplete = False, False, False
         records = []
         for step in flatten(job["steps"]):
-            status, reason = classify(job, step, root, allow_services)
+            status, reason = classify(job, step, root, allow_services, offline)
             record = {"job": job["id"], **step, "status": status, "reason": reason,
                       "services": job["services"], "container": job["container"], "duration_seconds": 0,
                       "exit_code": None, "command": step["run"] or step["uses"],
@@ -428,7 +516,9 @@ def execute(plan, root, selected=(), allow_services=False, timeout=1800):
                         try:
                             code = subprocess.run(command, cwd=working, env=env, stdout=output,
                                                   stderr=subprocess.STDOUT, timeout=timeout).returncode
-                        except (OSError, subprocess.TimeoutExpired) as exc:
+                        except OSError as exc:
+                            raise Unsupported(f"processo non avviabile: {exc}") from exc
+                        except subprocess.TimeoutExpired as exc:
                             output.write(str(exc))
                             code = 125
                     record.update(status="PASS" if code == 0 else "FAIL", exit_code=code,
@@ -464,6 +554,8 @@ def execute(plan, root, selected=(), allow_services=False, timeout=1800):
         state["status"] = "FAIL" if failed else "PASS" if records and all(r["status"] == "PASS" for r in records) else "NON ESEGUITO"
     receipt.update(finished_at=datetime.now(timezone.utc).isoformat(),
                    final_sha=git(root, "rev-parse", "HEAD"), final_dirty=bool(git(root, "status", "--porcelain")))
+    receipt["exit_code"] = (1 if any(s["status"] == "FAIL" for s in receipt["steps"]) else
+                            2 if not receipt["jobs"] or any(j["status"] != "PASS" for j in receipt["jobs"]) else 0)
     save()
     return path, receipt
 
@@ -475,21 +567,28 @@ def main(argv=None):
     mode.add_argument("--esegui", action="store_true")
     parser.add_argument("--profilo", choices=["pr"], default="pr")
     parser.add_argument("--job", action="append", default=[])
+    parser.add_argument("--offline", action="store_true", help="non eseguire passi che richiedono rete")
     parser.add_argument("--servizi-live", action="store_true", help="abilita comandi live; nessun provisioning implicito")
     parser.add_argument("--timeout", type=int, default=1800, help="secondi per passo")
     args = parser.parse_args(argv)
     try:
         sha = git(ROOT, "rev-parse", "HEAD")
         plan = derive(ROOT, sha)
+        plan.update(schema=2, network_mode="offline" if args.offline else "online")
+        known = {value for job in plan["jobs"] for value in (job["key"], job["id"])}
+        if set(args.job) - known:
+            raise Unsupported(f"job sconosciuti: {sorted(set(args.job) - known)}")
         if args.piano:
             for job in plan["jobs"]:
                 for step in flatten(job["steps"]):
-                    status, reason = classify(job, step, ROOT, args.servizi_live)
+                    status, reason = classify(job, step, ROOT, args.servizi_live, args.offline)
+                    if args.job and job["key"] not in args.job and job["id"] not in args.job:
+                        status, reason = "NON ESEGUITO", "job non selezionato"
                     step["availability"] = "ESEGUIBILE" if status == "ESEGUIBILE" else "NON ESEGUIBILE"
                     step["availability_reason"] = reason
             print(json.dumps(plan, ensure_ascii=False, indent=2))
             return 0
-        path, receipt = execute(plan, ROOT, args.job, args.servizi_live, args.timeout)
+        path, receipt = execute(plan, ROOT, args.job, args.servizi_live, args.timeout, args.offline)
         print(f"Ricevuta: {path}\nEsiti: {receipt['counts']}")
         # Un piano incompleto non diventa verde neppure come exit code.
         if receipt["counts"].get("FAIL"):
