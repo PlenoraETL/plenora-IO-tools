@@ -12,7 +12,7 @@ from unittest import mock
 import pyarrow as pa
 
 from scripts import system_qualification as q
-from scripts.qualification_test_support import manifest as qualification_manifest
+from scripts.qualification_test_support import manifest as qualification_manifest, observed as qualification_observed
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -180,7 +180,7 @@ class SystemQualification(unittest.TestCase):
                         command['semantics'].update(geometry_selection='41', produced_geometry_ids=['41'])
                 command['log'] = artifact('log', command_id + '.log', copy.deepcopy(command))
                 commands.append(command)
-                hop = {'component': component, 'command': command_id, 'output': output}
+                hop = {'component': component, 'command': command_id, 'output': output, 'status': 'passed'}
                 if output is None:
                     hop.update(preservation={'status': 'skipped', 'reason': 'rejected_at_validating_boundary'},
                                properties={}, boundary='first_validating_boundary')
@@ -206,6 +206,7 @@ class SystemQualification(unittest.TestCase):
                             'property_changes': [{'property': prop, 'locations': [{'field_index': 0, 'field_id': 41, 'key_index': sorted(source_tables[(fixture, variant)].schema.field(0).metadata).index(q.property_keys(cls.root)[prop].encode())}], 'rule': hop['operation']}]})
                     current = output
                 cell['hops'].append(hop)
+            cell['observed'] = qualification_observed(cell, cls.root)
             cells.append(cell)
         report = artifact('report', 'report.json', {'owner': q.OWNER, 'lock': lock, 'results': cells})
         manifest = artifact('manifest', 'manifest.json', {'owner': q.OWNER, 'lock': lock,
@@ -257,6 +258,27 @@ class SystemQualification(unittest.TestCase):
 
     def test_complete_evidence(self):
         self.assertEqual(self.check(), [])
+
+    def test_positive_status_cannot_replace_mandatory_observations(self):
+        name = self.bundle['report']
+        baseline = self.read(name)
+        for mutation in ('absent', 'missing', 'duplicate'):
+            report = copy.deepcopy(baseline)
+            cell = report['results'][0]
+            if mutation == 'absent':
+                del cell['observed']
+            elif mutation == 'missing':
+                cell['observed']['righe'].pop()
+            else:
+                cell['observed']['righe'].append(cell['observed']['righe'][0])
+            self.rewrite(name, report)
+            with self.subTest(mutation=mutation):
+                self.assertTrue(self.check())
+
+    def test_reevaluation_does_not_clear_unknown_execution_blockers(self):
+        self.document['open_blockers'] = ['servizio assente']
+        self.assertEqual(q.validate(self.document, self.root, reevaluate=True),
+                         ['blocchi di esecuzione non aggregati ancora aperti'])
 
     def test_conflict_must_exist_in_fixture_bytes(self):
         item = next(i for i in self.read(self.bundle['fixtures'])['items'] if i['fixture'] == 'conflicting_crs')

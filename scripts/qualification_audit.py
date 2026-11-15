@@ -11,7 +11,7 @@ AUTHORITIES = {
     'check_fixture': 'Campaign fixture_requirements after ARROW/VOCABULARY/GEO/PRIM input conformance; no operation applicability inferred from a pass-through.',
     'compare_hop': 'ARROW-003/004/008/010, PRIM-004; campaign expected observations and localized declared transformations. Legal plans may change rows without metadata loss.',
     'rejection': 'REJ-001/003, ERRORS-1.0 section 6 and error-v1.schema.json; campaign first-boundary probes, explicit skipped preservation, four error axes, optional schema-valid code and complete no-effect snapshots.',
-    'validate_results': 'Campaign complete matrix and bound command chain; CLI-2.0 section 8 for the CRS exit code.',
+    'validate_results': 'Campaign complete matrix and bound command chain; I mandatory observed inventory, verified rejection witnesses and enumerated source exclusions; CLI-2.0 section 8 for the CRS exit code.',
     'validate_operation': 'GEO-000/006/014/015/019/020 and PRIM-005/007; operation semantics bound to command/log, no computation verdict inferred from input validity.',
     'validate_fixtures': 'Campaign complete fixture x variant coverage and all declared properties; normative validity delegated to adopted oracle.',
     'manifest_errors': 'Campaign owner, identities, complete domains, pending/passed states; adoption-source.json fixes normative authority.',
@@ -19,12 +19,15 @@ AUTHORITIES = {
     'validate_lock': 'Campaign immutable component/ICD/harness revisions and executed binary coverage; integrity does not authenticate remote membership.',
     'validate_environments': 'Campaign native Linux/Windows run provenance; a binary digest alone is not an execution.',
     'property_keys': 'IO declarative property table; campaign coverage, not a duplicate normative vocabulary.',
+    'compare_sql_source': 'I: fixture_qualifica.limiti_sql declared source projections only; residual exact byte/value checks; never derived or geometry operation coverage.',
+    'attempted_rejection': 'I: declared PG rejection linked to command, public operation, exit trace and four witness axes; not a passed preservation hop.',
 }
 
 
 def predicates(root=ROOT):
     rows = []
-    for path in ('scripts/system_qualification.py', 'scripts/qualification_contract.py'):
+    for path in ('scripts/system_qualification.py', 'scripts/qualification_contract.py',
+                 'scripts/qualification_exclusions.py'):
         tree = ast.parse((root / path).read_text(encoding='utf-8'))
         class Visitor(ast.NodeVisitor):
             def __init__(self):
@@ -43,10 +46,21 @@ def predicates(root=ROOT):
                 self.generic_visit(node)
 
             def visit_If(self, node):
+                if path.endswith('qualification_exclusions.py'):
+                    rows.append({'file': path, 'function': self.function, 'predicate': ast.unparse(node.test),
+                                 'diagnostic': 'declared exclusion branch',
+                                 'authority': 'I campaign pass_conditions; exact reasons, enumerated SQL limits and mandatory independent witnesses; adopted oracle owns normative phases.'})
                 if path.endswith('qualification_contract.py') and any(isinstance(n, (ast.Raise, ast.Return)) for n in node.body):
                     rows.append({'file': path, 'function': self.function, 'predicate': ast.unparse(node.test),
                                  'diagnostic': 'normative adapter branch',
                                  'authority': 'Adopted immutable Git oracle; Arrow physical storage and REJ ordering; preserve opaque metadata bytes.'})
+                self.generic_visit(node)
+
+            def visit_Return(self, node):
+                if path.endswith('qualification_exclusions.py') and node.value is not None:
+                    rows.append({'file': path, 'function': self.function, 'predicate': ast.unparse(node.value),
+                                 'diagnostic': 'declared exclusion result or inventory',
+                                 'authority': 'I campaign evidence inventory; missing/duplicate proofs block; lawful exclusions never rewrite recorded states.'})
                 self.generic_visit(node)
         Visitor().visit(tree)
     return rows
@@ -55,6 +69,7 @@ def predicates(root=ROOT):
 def inventory(root=ROOT):
     gate = json.loads((root / 'release/system-rc-gate.json').read_text(encoding='utf-8'))
     return {'revision': gate['icd']['revision'], 'checks': predicates(root),
+            'exclusion_policy_sha256': hashlib.sha256((root / 'scripts/qualification_exclusions.py').read_bytes()).hexdigest(),
             'gate_fields': {key: {'sha256': hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest(),
                                  'authority': 'adopted contract' if key in ('icd', 'normative_source', 'normative_vocabulary') else 'campaign requirement or explicit pending state'}
                             for key, value in gate.items()},

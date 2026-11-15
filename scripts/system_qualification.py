@@ -7,10 +7,11 @@ import re
 from pathlib import Path
 
 try:
-    from . import strict_json, qualification_contract
+    from . import strict_json, qualification_contract, qualification_exclusions
 except ImportError:
     import strict_json
     import qualification_contract
+    import qualification_exclusions
 
 OWNER = 'plenora-contracts/conformance'
 COMPONENTS = {
@@ -42,7 +43,7 @@ VARIANTS = {
     'geoarrow_extension': {'extension_metadata': 'json_object_on_geometry'},
 }
 DOMAINS = {
-    'required_directions': ['io_to_data_to_database', 'database_to_data_to_io'],
+    'required_directions': list(qualification_exclusions.DIREZIONI),
     'required_platforms': ['linux-native', 'windows-native'],
     'required_surfaces': ['rust', 'cli', 'python-sync', 'python-async', 'runtime'],
     'required_fixtures': list(FIXTURES),
@@ -494,6 +495,54 @@ def rejection(bundle, result, command):
             isinstance(before.get('entries'), list), 'assenza di effetto non provata')
 
 
+def compare_sql_source(bundle, cell, hop, command):
+    """Only enumerated source properties are exempt; later hops use actual bytes."""
+    import pyarrow as pa
+    _, actual = bundle.arrow(hop.get('output'), 'output')
+    _, expected = bundle.arrow(hop.get('expected'), 'expected')
+    semantics = object_(command.get('semantics'))
+    require(hop.get('operation') == 'identity' and semantics.get('kind') == 'pass_through' and
+            isinstance(semantics.get('operation_id'), str) and bool(semantics['operation_id']),
+            'limite SQL usato per operazione derivata o geometrica')
+    require(bundle.contract.verdict(actual) is None and bundle.contract.verdict(expected) is None,
+            'sorgente SQL o attesa non conforme al contratto')
+    require(cell['direction'] == qualification_exclusions.DIREZIONI[1] and
+            hop['component'] == 'plenora-database-tools' and cell['fixture'] in ('axis_lat_lon', 'uint64_ordering') and
+            hop['source_limits'] == qualification_exclusions.limiti_sql(cell['fixture'], bundle.keys),
+            'limiti SQL diversi dalla dichiarazione enumerata')
+    require(hop.get('properties') == dict.fromkeys(bundle.keys, 'preserved'), 'copertura proprieta SQL incompleta')
+    keys = {p: k.encode() for p, k in bundle.keys.items()}
+    def projection(table, prop):
+        if prop == 'contract_version':
+            return (table.schema.metadata or {}).get(keys[prop])
+        if prop == 'native_metadata':
+            def native(md):
+                return {k: v for k, v in (md or {}).items() if k not in set(keys.values())}
+            return [native(table.schema.metadata), *[native(f.metadata) for f in table.schema]]
+        return [(f.name, (f.metadata or {}).get(keys[prop])) for f in table.schema]
+    for prop in bundle.keys:
+        if prop not in hop['source_limits']:
+            require(projection(actual, prop) == projection(expected, prop), 'proprieta SQL non esclusa diversa')
+    if cell['fixture'] != 'uint64_ordering':
+        def values(table):
+            schema = pa.schema([pa.field(f.name, f.type, f.nullable) for f in table.schema])
+            return pa.Table.from_arrays(table.columns, schema=schema)
+        require(canonical_arrow(values(actual)) == canonical_arrow(values(expected)), 'valori SQL diversi')
+
+
+def attempted_rejection(cell, hop, command):
+    observation = command.get("exit_observation", {})
+    operation = "database.write" if cell["direction"] == qualification_exclusions.DIREZIONI[0] else "database.read"
+    require(observation.get("operation") == operation, "rifiuto di altra operazione pubblica")
+    require(observation in command.get("public_traces", []) and observation.get("exit") == command["exit_code"],
+              "rifiuto senza osservazione pubblica di uscita")
+    proof = "rifiuto senza effetto permanente" if cell["direction"] == qualification_exclusions.DIREZIONI[0] else "rifiuto contrattuale GEO-009"
+    witnesses = [e for e in cell["observed"]["extra"] if e.get("prova") == proof and e.get("stato") == "VERDE"]
+    require(len(witnesses) == 1 and all(observation.get("error", {}).get(k) == witnesses[0].get("assi", {}).get(k)
+              for k in ("category", "phase", "remote_effect", "retry")), "assi del rifiuto diversi dal testimone")
+    require(command["exit_code"] != 0 and hop.get("output") is None, "rifiuto non osservato")
+
+
 def validate_results(bundle, executables, environments, fixtures):
     manifest = bundle.json(bundle.document.get('manifest'), 'manifest')
     report = bundle.json(bundle.document.get('report'), 'report')
@@ -507,12 +556,27 @@ def validate_results(bundle, executables, environments, fixtures):
     operations = {k: set() for k in itertools.product(DOMAINS['required_directions'], DOMAINS['required_platforms'], DOMAINS['required_surfaces'])}
     for key, cell in results.items():
         direction, platform, surface, fixture, variant = key
-        require(cell.get('status') == 'passed', 'cella non superata')
+        observed = object_(cell.get('observed'))
+        for collection in ('righe', 'extra'):
+            for row in list_(observed.get(collection)):
+                object_(row)
+        axes = object_(observed.get('assi'))
+        require(axes.get('fixture') == fixture and axes.get('direzione') == direction and
+                axes.get('variante') == variant and axes.get('piattaforma') == {
+                    'windows-native': 'Windows', 'linux-native': 'Linux'}[platform] and axes.get('strada') == {
+                    'cli': 'CLI', 'rust': 'Rust', 'runtime': 'Runtime',
+                    'python-sync': 'Python 3.14', 'python-async': 'Python async 3.14'}[surface],
+                'osservazioni appartenenti ad altra cella')
         hops = list_(cell.get('hops'))
         order = list(COMPONENTS) if direction == 'io_to_data_to_database' else list(reversed(COMPONENTS))
         require([object_(h).get('component') for h in hops] == order, 'catena a tre componenti incompleta o fuori ordine')
+        require(qualification_exclusions.qualified(cell, bundle.keys, bundle.contract.schema_rejection_phases),
+                'cella non qualificata: prova mancante, duplicata o esclusione non giustificata')
         current = fixtures[(fixture, variant)]['artifact']
         for hop in hops:
+            if hop.get('execution') == 'not_run' and hop.get('status') == 'skipped':
+                require(hop.get('command') is None and hop.get('output') is None, 'salto con comando o output')
+                continue
             command_key = (hop.get('command'),)
             require(command_key in commands and command_key not in consumed, 'comando mancante o riutilizzato')
             consumed.add(command_key)
@@ -526,14 +590,29 @@ def validate_results(bundle, executables, environments, fixtures):
             logged = bundle.json(command.get('log'), 'log')
             require(logged == {k: v for k, v in command.items() if k != 'log'}, 'log diverso dal comando dichiarato')
             require(type(command.get('exit_code')) is int, 'exit code non intero')
+            if hop.get('execution') == 'attempted' and hop.get('status') == 'skipped':
+                attempted_rejection(cell, hop, command)
+                continue
             if fixture == 'conflicting_crs':
                 # Each component is independently probed at its public boundary.
                 require(command['exit_code'] != 0 and hop.get('output') is None, 'conflitto CRS accettato o output pubblicato')
                 require(surface != 'cli' or command['exit_code'] == bundle.contract.exit_codes['crs'], 'rifiuto CLI diverso da exit normativo')
                 rejection(bundle, hop, command)
+                label = {'plenora-IO-tools': 'io', 'plenora-data-tools': 'data',
+                         'plenora-database-tools': 'database'}[hop['component']]
+                witness = next(e for e in cell['observed']['extra'] if
+                               e.get('hop') == label and e.get('prova') == 'GEO-005 indipendente')
+                error = bundle.json(hop['error'], 'report')['error']
+                require(all(witness['assi'].get(k) == error.get(k) for k in
+                            ('category', 'phase', 'remote_effect')) and witness['assi'].get('retry') == error['retry']['kind'],
+                        'testimone GEO-005 diverso dal rifiuto verificato')
             else:
                 require(command['exit_code'] == 0, 'comando positivo fallito')
                 semantics = object_(command.get('semantics'))
+                if hop.get('source_limits'):
+                    compare_sql_source(bundle, cell, hop, command)
+                    current = hop['output']
+                    continue  # An exempt source never contributes operation coverage.
                 compare_hop(bundle, hop, current, hop.get('output'), semantics)
                 current = hop['output']
                 operations[key[:3]].add(hop['operation'])
@@ -543,13 +622,20 @@ def validate_results(bundle, executables, environments, fixtures):
     require(all('geometry_compute' in seen for seen in operations.values()), 'calcolo geometrico non esercitato su tutte le superfici')
 
 
-def validate(document, root):
+def validate(document, root, *, reevaluate=False):
     errors = manifest_errors(document, root)
     if errors:
         return errors
     try:
-        require(document['status'] == 'satisfied' and document['open_blockers'] == [] and
-                document['evidence']['status'] == 'passed', 'gate non soddisfatto, evidence.status non passed o blocchi non chiusi')
+        if reevaluate:
+            require(document['evidence']['status'] in ('partial', 'passed'), 'evidenza non rivalutabile')
+            require(all(isinstance(b, str) and (re.fullmatch(
+                r'[0-9]+ celle (SALTATO|ATTESO-ROSSO): copertura non qualificata \(vedere casi\)', b) or
+                b == 'report owner: presenti catene incomplete o fallite') for b in document['open_blockers']),
+                'blocchi di esecuzione non aggregati ancora aperti')
+        else:
+            require(document['status'] == 'satisfied' and document['open_blockers'] == [] and
+                    document['evidence']['status'] == 'passed', 'gate non soddisfatto, evidence.status non passed o blocchi non chiusi')
         require(all(sha(c['revision'], 40) for c in document['components']), 'revisioni componenti non fissate')
         bundle = Bundle(document['evidence'], root)
         require(bundle.document.get('owner') == OWNER, 'owner bundle diverso dal gate')
@@ -570,10 +656,21 @@ if __name__ == '__main__':
     import json
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--write', action='store_true')
+    parser.add_argument('--bundle-root', type=Path, help='Read-only owner bundle reevaluation; no recorded states rewritten')
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     path = root / 'release/system-rc-gate.json'
     document = load_json(path.read_bytes())
+    if args.bundle_root:
+        if args.write:
+            parser.error('--write and --bundle-root are mutually exclusive')
+        owner = args.bundle_root.resolve()
+        gate = load_json((owner / 'gate.json').read_bytes())
+        errors = validate(gate, owner, reevaluate=True)
+        print(json.dumps({'status': 'failed' if errors else 'passed', 'errors': errors,
+                          'open_blockers': errors, 'offline_only': True,
+                          'bundle_sha256': gate['evidence']['bundle']['sha256']}, indent=2))
+        raise SystemExit(int(bool(errors)))
     if args.write:
         document.update(policy(root))
         path.write_text(json.dumps(document, indent=2, ensure_ascii=False) + '\n', encoding='utf-8', newline='\n')

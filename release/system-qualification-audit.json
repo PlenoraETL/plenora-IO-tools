@@ -535,122 +535,227 @@
     },
     {
       "file": "scripts/system_qualification.py",
+      "function": "compare_sql_source",
+      "predicate": "hop.get('operation') == 'identity' and semantics.get('kind') == 'pass_through' and isinstance(semantics.get('operation_id'), str) and bool(semantics['operation_id'])",
+      "diagnostic": "limite SQL usato per operazione derivata o geometrica",
+      "authority": "I: fixture_qualifica.limiti_sql declared source projections only; residual exact byte/value checks; never derived or geometry operation coverage."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "compare_sql_source",
+      "predicate": "bundle.contract.verdict(actual) is None and bundle.contract.verdict(expected) is None",
+      "diagnostic": "sorgente SQL o attesa non conforme al contratto",
+      "authority": "I: fixture_qualifica.limiti_sql declared source projections only; residual exact byte/value checks; never derived or geometry operation coverage."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "compare_sql_source",
+      "predicate": "cell['direction'] == qualification_exclusions.DIREZIONI[1] and hop['component'] == 'plenora-database-tools' and (cell['fixture'] in ('axis_lat_lon', 'uint64_ordering')) and (hop['source_limits'] == qualification_exclusions.limiti_sql(cell['fixture'], bundle.keys))",
+      "diagnostic": "limiti SQL diversi dalla dichiarazione enumerata",
+      "authority": "I: fixture_qualifica.limiti_sql declared source projections only; residual exact byte/value checks; never derived or geometry operation coverage."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "compare_sql_source",
+      "predicate": "hop.get('properties') == dict.fromkeys(bundle.keys, 'preserved')",
+      "diagnostic": "copertura proprieta SQL incompleta",
+      "authority": "I: fixture_qualifica.limiti_sql declared source projections only; residual exact byte/value checks; never derived or geometry operation coverage."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "compare_sql_source",
+      "predicate": "projection(actual, prop) == projection(expected, prop)",
+      "diagnostic": "proprieta SQL non esclusa diversa",
+      "authority": "I: fixture_qualifica.limiti_sql declared source projections only; residual exact byte/value checks; never derived or geometry operation coverage."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "compare_sql_source",
+      "predicate": "canonical_arrow(values(actual)) == canonical_arrow(values(expected))",
+      "diagnostic": "valori SQL diversi",
+      "authority": "I: fixture_qualifica.limiti_sql declared source projections only; residual exact byte/value checks; never derived or geometry operation coverage."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "attempted_rejection",
+      "predicate": "observation.get('operation') == operation",
+      "diagnostic": "rifiuto di altra operazione pubblica",
+      "authority": "I: declared PG rejection linked to command, public operation, exit trace and four witness axes; not a passed preservation hop."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "attempted_rejection",
+      "predicate": "observation in command.get('public_traces', []) and observation.get('exit') == command['exit_code']",
+      "diagnostic": "rifiuto senza osservazione pubblica di uscita",
+      "authority": "I: declared PG rejection linked to command, public operation, exit trace and four witness axes; not a passed preservation hop."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "attempted_rejection",
+      "predicate": "len(witnesses) == 1 and all((observation.get('error', {}).get(k) == witnesses[0].get('assi', {}).get(k) for k in ('category', 'phase', 'remote_effect', 'retry')))",
+      "diagnostic": "assi del rifiuto diversi dal testimone",
+      "authority": "I: declared PG rejection linked to command, public operation, exit trace and four witness axes; not a passed preservation hop."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "attempted_rejection",
+      "predicate": "command['exit_code'] != 0 and hop.get('output') is None",
+      "diagnostic": "rifiuto non osservato",
+      "authority": "I: declared PG rejection linked to command, public operation, exit trace and four witness axes; not a passed preservation hop."
+    },
+    {
+      "file": "scripts/system_qualification.py",
       "function": "validate_results",
       "predicate": "manifest.get('owner') == OWNER and report.get('owner') == OWNER and (manifest.get('lock') == bundle.document['lock']) and (report.get('lock') == bundle.document['lock'])",
       "diagnostic": "provenienza manifest o report diversa",
-      "authority": "Campaign complete matrix and bound command chain; CLI-2.0 section 8 for the CRS exit code."
+      "authority": "Campaign complete matrix and bound command chain; I mandatory observed inventory, verified rejection witnesses and enumerated source exclusions; CLI-2.0 section 8 for the CRS exit code."
     },
     {
       "file": "scripts/system_qualification.py",
       "function": "validate_results",
       "predicate": "set(results) == wanted and manifest.get('cells') == [list(k) for k in sorted(wanted)]",
       "diagnostic": "matrice incompleta o diversa dal manifest",
-      "authority": "Campaign complete matrix and bound command chain; CLI-2.0 section 8 for the CRS exit code."
+      "authority": "Campaign complete matrix and bound command chain; I mandatory observed inventory, verified rejection witnesses and enumerated source exclusions; CLI-2.0 section 8 for the CRS exit code."
     },
     {
       "file": "scripts/system_qualification.py",
       "function": "validate_results",
-      "predicate": "cell.get('status') == 'passed'",
-      "diagnostic": "cella non superata",
-      "authority": "Campaign complete matrix and bound command chain; CLI-2.0 section 8 for the CRS exit code."
+      "predicate": "axes.get('fixture') == fixture and axes.get('direzione') == direction and (axes.get('variante') == variant) and (axes.get('piattaforma') == {'windows-native': 'Windows', 'linux-native': 'Linux'}[platform]) and (axes.get('strada') == {'cli': 'CLI', 'rust': 'Rust', 'runtime': 'Runtime', 'python-sync': 'Python 3.14', 'python-async': 'Python async 3.14'}[surface])",
+      "diagnostic": "osservazioni appartenenti ad altra cella",
+      "authority": "Campaign complete matrix and bound command chain; I mandatory observed inventory, verified rejection witnesses and enumerated source exclusions; CLI-2.0 section 8 for the CRS exit code."
     },
     {
       "file": "scripts/system_qualification.py",
       "function": "validate_results",
       "predicate": "[object_(h).get('component') for h in hops] == order",
       "diagnostic": "catena a tre componenti incompleta o fuori ordine",
-      "authority": "Campaign complete matrix and bound command chain; CLI-2.0 section 8 for the CRS exit code."
+      "authority": "Campaign complete matrix and bound command chain; I mandatory observed inventory, verified rejection witnesses and enumerated source exclusions; CLI-2.0 section 8 for the CRS exit code."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_results",
+      "predicate": "qualification_exclusions.qualified(cell, bundle.keys, bundle.contract.schema_rejection_phases)",
+      "diagnostic": "cella non qualificata: prova mancante, duplicata o esclusione non giustificata",
+      "authority": "Campaign complete matrix and bound command chain; I mandatory observed inventory, verified rejection witnesses and enumerated source exclusions; CLI-2.0 section 8 for the CRS exit code."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_results",
+      "predicate": "hop.get('command') is None and hop.get('output') is None",
+      "diagnostic": "salto con comando o output",
+      "authority": "Campaign complete matrix and bound command chain; I mandatory observed inventory, verified rejection witnesses and enumerated source exclusions; CLI-2.0 section 8 for the CRS exit code."
     },
     {
       "file": "scripts/system_qualification.py",
       "function": "validate_results",
       "predicate": "command_key in commands and command_key not in consumed",
       "diagnostic": "comando mancante o riutilizzato",
-      "authority": "Campaign complete matrix and bound command chain; CLI-2.0 section 8 for the CRS exit code."
+      "authority": "Campaign complete matrix and bound command chain; I mandatory observed inventory, verified rejection witnesses and enumerated source exclusions; CLI-2.0 section 8 for the CRS exit code."
     },
     {
       "file": "scripts/system_qualification.py",
       "function": "validate_results",
       "predicate": "command.get('cell') == list(key) and command.get('component') == hop['component'] and (command.get('run_id') == environments[platform,]['run_id'])",
       "diagnostic": "comando appartenente ad altra cella o ambiente",
-      "authority": "Campaign complete matrix and bound command chain; CLI-2.0 section 8 for the CRS exit code."
+      "authority": "Campaign complete matrix and bound command chain; I mandatory observed inventory, verified rejection witnesses and enumerated source exclusions; CLI-2.0 section 8 for the CRS exit code."
     },
     {
       "file": "scripts/system_qualification.py",
       "function": "validate_results",
       "predicate": "command.get('executable') == executable['artifact'] and command.get('revision') == executable['revision']",
       "diagnostic": "comando non legato all eseguibile qualificato",
-      "authority": "Campaign complete matrix and bound command chain; CLI-2.0 section 8 for the CRS exit code."
+      "authority": "Campaign complete matrix and bound command chain; I mandatory observed inventory, verified rejection witnesses and enumerated source exclusions; CLI-2.0 section 8 for the CRS exit code."
     },
     {
       "file": "scripts/system_qualification.py",
       "function": "validate_results",
       "predicate": "isinstance(command.get('argv'), list) and command['argv'] and all((isinstance(a, str) and a for a in command['argv']))",
       "diagnostic": "comando non riproducibile",
-      "authority": "Campaign complete matrix and bound command chain; CLI-2.0 section 8 for the CRS exit code."
+      "authority": "Campaign complete matrix and bound command chain; I mandatory observed inventory, verified rejection witnesses and enumerated source exclusions; CLI-2.0 section 8 for the CRS exit code."
     },
     {
       "file": "scripts/system_qualification.py",
       "function": "validate_results",
       "predicate": "command.get('input') == current and command.get('output') == hop.get('output')",
       "diagnostic": "input/output comando discordanti",
-      "authority": "Campaign complete matrix and bound command chain; CLI-2.0 section 8 for the CRS exit code."
+      "authority": "Campaign complete matrix and bound command chain; I mandatory observed inventory, verified rejection witnesses and enumerated source exclusions; CLI-2.0 section 8 for the CRS exit code."
     },
     {
       "file": "scripts/system_qualification.py",
       "function": "validate_results",
       "predicate": "logged == {k: v for k, v in command.items() if k != 'log'}",
       "diagnostic": "log diverso dal comando dichiarato",
-      "authority": "Campaign complete matrix and bound command chain; CLI-2.0 section 8 for the CRS exit code."
+      "authority": "Campaign complete matrix and bound command chain; I mandatory observed inventory, verified rejection witnesses and enumerated source exclusions; CLI-2.0 section 8 for the CRS exit code."
     },
     {
       "file": "scripts/system_qualification.py",
       "function": "validate_results",
       "predicate": "type(command.get('exit_code')) is int",
       "diagnostic": "exit code non intero",
-      "authority": "Campaign complete matrix and bound command chain; CLI-2.0 section 8 for the CRS exit code."
+      "authority": "Campaign complete matrix and bound command chain; I mandatory observed inventory, verified rejection witnesses and enumerated source exclusions; CLI-2.0 section 8 for the CRS exit code."
     },
     {
       "file": "scripts/system_qualification.py",
       "function": "validate_results",
       "predicate": "command['exit_code'] != 0 and hop.get('output') is None",
       "diagnostic": "conflitto CRS accettato o output pubblicato",
-      "authority": "Campaign complete matrix and bound command chain; CLI-2.0 section 8 for the CRS exit code."
+      "authority": "Campaign complete matrix and bound command chain; I mandatory observed inventory, verified rejection witnesses and enumerated source exclusions; CLI-2.0 section 8 for the CRS exit code."
     },
     {
       "file": "scripts/system_qualification.py",
       "function": "validate_results",
       "predicate": "surface != 'cli' or command['exit_code'] == bundle.contract.exit_codes['crs']",
       "diagnostic": "rifiuto CLI diverso da exit normativo",
-      "authority": "Campaign complete matrix and bound command chain; CLI-2.0 section 8 for the CRS exit code."
+      "authority": "Campaign complete matrix and bound command chain; I mandatory observed inventory, verified rejection witnesses and enumerated source exclusions; CLI-2.0 section 8 for the CRS exit code."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate_results",
+      "predicate": "all((witness['assi'].get(k) == error.get(k) for k in ('category', 'phase', 'remote_effect'))) and witness['assi'].get('retry') == error['retry']['kind']",
+      "diagnostic": "testimone GEO-005 diverso dal rifiuto verificato",
+      "authority": "Campaign complete matrix and bound command chain; I mandatory observed inventory, verified rejection witnesses and enumerated source exclusions; CLI-2.0 section 8 for the CRS exit code."
     },
     {
       "file": "scripts/system_qualification.py",
       "function": "validate_results",
       "predicate": "command['exit_code'] == 0",
       "diagnostic": "comando positivo fallito",
-      "authority": "Campaign complete matrix and bound command chain; CLI-2.0 section 8 for the CRS exit code."
+      "authority": "Campaign complete matrix and bound command chain; I mandatory observed inventory, verified rejection witnesses and enumerated source exclusions; CLI-2.0 section 8 for the CRS exit code."
     },
     {
       "file": "scripts/system_qualification.py",
       "function": "validate_results",
       "predicate": "consumed == set(commands)",
       "diagnostic": "comandi estranei al bundle",
-      "authority": "Campaign complete matrix and bound command chain; CLI-2.0 section 8 for the CRS exit code."
+      "authority": "Campaign complete matrix and bound command chain; I mandatory observed inventory, verified rejection witnesses and enumerated source exclusions; CLI-2.0 section 8 for the CRS exit code."
     },
     {
       "file": "scripts/system_qualification.py",
       "function": "validate_results",
       "predicate": "all((set(OPERATIONS) <= seen for seen in operations.values()))",
       "diagnostic": "operazioni derivate o piano lecito non esercitati su tutte le superfici",
-      "authority": "Campaign complete matrix and bound command chain; CLI-2.0 section 8 for the CRS exit code."
+      "authority": "Campaign complete matrix and bound command chain; I mandatory observed inventory, verified rejection witnesses and enumerated source exclusions; CLI-2.0 section 8 for the CRS exit code."
     },
     {
       "file": "scripts/system_qualification.py",
       "function": "validate_results",
       "predicate": "all(('geometry_compute' in seen for seen in operations.values()))",
       "diagnostic": "calcolo geometrico non esercitato su tutte le superfici",
-      "authority": "Campaign complete matrix and bound command chain; CLI-2.0 section 8 for the CRS exit code."
+      "authority": "Campaign complete matrix and bound command chain; I mandatory observed inventory, verified rejection witnesses and enumerated source exclusions; CLI-2.0 section 8 for the CRS exit code."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate",
+      "predicate": "document['evidence']['status'] in ('partial', 'passed')",
+      "diagnostic": "evidenza non rivalutabile",
+      "authority": "Campaign no green without the complete owner bundle; no unused artifact may substitute execution evidence."
+    },
+    {
+      "file": "scripts/system_qualification.py",
+      "function": "validate",
+      "predicate": "all((isinstance(b, str) and (re.fullmatch('[0-9]+ celle (SALTATO|ATTESO-ROSSO): copertura non qualificata \\\\(vedere casi\\\\)', b) or b == 'report owner: presenti catene incomplete o fallite') for b in document['open_blockers']))",
+      "diagnostic": "blocchi di esecuzione non aggregati ancora aperti",
+      "authority": "Campaign no green without the complete owner bundle; no unused artifact may substitute execution evidence."
     },
     {
       "file": "scripts/system_qualification.py",
@@ -728,8 +833,443 @@
       "predicate": "self.primary.schema_verdict(vector) is not None",
       "diagnostic": "normative adapter branch",
       "authority": "Adopted immutable Git oracle; Arrow physical storage and REJ ordering; preserve opaque metadata bytes."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "limiti_sql",
+      "predicate": "nome not in LIMITI_SORGENTE_SQL",
+      "diagnostic": "declared exclusion branch",
+      "authority": "I campaign pass_conditions; exact reasons, enumerated SQL limits and mandatory independent witnesses; adopted oracle owns normative phases."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "limiti_sql",
+      "predicate": "{}",
+      "diagnostic": "declared exclusion result or inventory",
+      "authority": "I campaign evidence inventory; missing/duplicate proofs block; lawful exclusions never rewrite recorded states."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "limiti_sql",
+      "predicate": "nome == 'conflicting_crs'",
+      "diagnostic": "declared exclusion branch",
+      "authority": "I campaign pass_conditions; exact reasons, enumerated SQL limits and mandatory independent witnesses; adopted oracle owns normative phases."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "limiti_sql",
+      "predicate": "nome == 'dimensions_unknown'",
+      "diagnostic": "declared exclusion branch",
+      "authority": "I campaign pass_conditions; exact reasons, enumerated SQL limits and mandatory independent witnesses; adopted oracle owns normative phases."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "limiti_sql",
+      "predicate": "dict.fromkeys(keys, reason)",
+      "diagnostic": "declared exclusion result or inventory",
+      "authority": "I campaign evidence inventory; missing/duplicate proofs block; lawful exclusions never rewrite recorded states."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "supplementary_missing",
+      "predicate": "f == 'conflicting_crs'",
+      "diagnostic": "declared exclusion branch",
+      "authority": "I campaign pass_conditions; exact reasons, enumerated SQL limits and mandatory independent witnesses; adopted oracle owns normative phases."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "supplementary_missing",
+      "predicate": "f == 'crs_missing'",
+      "diagnostic": "declared exclusion branch",
+      "authority": "I campaign pass_conditions; exact reasons, enumerated SQL limits and mandatory independent witnesses; adopted oracle owns normative phases."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "supplementary_missing",
+      "predicate": "f == 'unknown_key'",
+      "diagnostic": "declared exclusion branch",
+      "authority": "I campaign pass_conditions; exact reasons, enumerated SQL limits and mandatory independent witnesses; adopted oracle owns normative phases."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "supplementary_missing",
+      "predicate": "f in PG_REJECTIONS and direction == DIREZIONI[0]",
+      "diagnostic": "declared exclusion branch",
+      "authority": "I campaign pass_conditions; exact reasons, enumerated SQL limits and mandatory independent witnesses; adopted oracle owns normative phases."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "supplementary_missing",
+      "predicate": "f == 'dimensions_unknown' and direction == DIREZIONI[1]",
+      "diagnostic": "declared exclusion branch",
+      "authority": "I campaign pass_conditions; exact reasons, enumerated SQL limits and mandatory independent witnesses; adopted oracle owns normative phases."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "supplementary_missing",
+      "predicate": "[{'stato': 'SALTATO', 'motivo': 'prova indipendente assente o duplicata', 'hop': h, 'prova': p} for (h, p), n in required.items() if actual[h, p] != n]",
+      "diagnostic": "declared exclusion result or inventory",
+      "authority": "I campaign evidence inventory; missing/duplicate proofs block; lawful exclusions never rewrite recorded states."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "axes",
+      "predicate": "x.get('category') in categories and x.get('phase') in phases and (x.get('remote_effect') in effects) and (x.get('retry') == 'never')",
+      "diagnostic": "declared exclusion result or inventory",
+      "authority": "I campaign evidence inventory; missing/duplicate proofs block; lawful exclusions never rewrite recorded states."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "witness",
+      "predicate": "f == 'conflicting_crs'",
+      "diagnostic": "declared exclusion branch",
+      "authority": "I campaign pass_conditions; exact reasons, enumerated SQL limits and mandatory independent witnesses; adopted oracle owns normative phases."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "witness",
+      "predicate": "{e['hop'] for e in good if e.get('prova') == 'GEO-005 indipendente' and axes(e, {'crs'}, set(phases), {'none'}) and (e.get('boundary') == 'first_validating_boundary') and all((e.get(k) for k in ('before', 'after', 'error')))} == {'io', 'data', 'database'}",
+      "diagnostic": "declared exclusion result or inventory",
+      "authority": "I campaign evidence inventory; missing/duplicate proofs block; lawful exclusions never rewrite recorded states."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "witness",
+      "predicate": "direction == DIREZIONI[0] and f in {'axis_lat_lon', 'dimensions_unknown', 'uint64_ordering'}",
+      "diagnostic": "declared exclusion branch",
+      "authority": "I campaign pass_conditions; exact reasons, enumerated SQL limits and mandatory independent witnesses; adopted oracle owns normative phases."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "witness",
+      "predicate": "any((e.get('prova') == 'rifiuto senza effetto permanente' and e['hop'] == 'database.write' and axes(e, PG_REJECTIONS[f], {'validate', 'prepare'}, {'none'}) for e in good))",
+      "diagnostic": "declared exclusion result or inventory",
+      "authority": "I campaign evidence inventory; missing/duplicate proofs block; lawful exclusions never rewrite recorded states."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "witness",
+      "predicate": "f == 'dimensions_unknown' and direction == DIREZIONI[1]",
+      "diagnostic": "declared exclusion branch",
+      "authority": "I campaign pass_conditions; exact reasons, enumerated SQL limits and mandatory independent witnesses; adopted oracle owns normative phases."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "witness",
+      "predicate": "any((e.get('prova') == 'rifiuto contrattuale GEO-009' and e['hop'] == 'database.read' and (axes(e, {'crs'}, {'read'}, {'none', 'rolled_back'}) or (a['strada'] == 'Runtime' and axes(e, {'crs'}, {'read'}, {'partial'}) and bool(e.get('partial_sink')))) for e in good))",
+      "diagnostic": "declared exclusion result or inventory",
+      "authority": "I campaign evidence inventory; missing/duplicate proofs block; lawful exclusions never rewrite recorded states."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "witness",
+      "predicate": "False",
+      "diagnostic": "declared exclusion result or inventory",
+      "authority": "I campaign evidence inventory; missing/duplicate proofs block; lawful exclusions never rewrite recorded states."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "rule",
+      "predicate": "cell['assi']['fixture'] == 'crs_missing' and row.get('prova') == 'gpkg-crs-obbligatorio' and (state != 'ATTESO-ROSSO')",
+      "diagnostic": "declared exclusion branch",
+      "authority": "I campaign pass_conditions; exact reasons, enumerated SQL limits and mandatory independent witnesses; adopted oracle owns normative phases."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "rule",
+      "predicate": "None",
+      "diagnostic": "declared exclusion result or inventory",
+      "authority": "I campaign evidence inventory; missing/duplicate proofs block; lawful exclusions never rewrite recorded states."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "rule",
+      "predicate": "cell['assi']['fixture'] == 'conflicting_crs' and ('proprieta' in row and cell['assi']['direzione'] == DIREZIONI[0] or row.get('prova') in {'conflitto propagato', 'conflitto propagato: report data.run', 'conflitto rifiutato: report io.write', 'piano risolutivo'}) and (state != 'SALTATO')",
+      "diagnostic": "declared exclusion branch",
+      "authority": "I campaign pass_conditions; exact reasons, enumerated SQL limits and mandatory independent witnesses; adopted oracle owns normative phases."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "rule",
+      "predicate": "None",
+      "diagnostic": "declared exclusion result or inventory",
+      "authority": "I campaign evidence inventory; missing/duplicate proofs block; lawful exclusions never rewrite recorded states."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "rule",
+      "predicate": "state == 'VERDE'",
+      "diagnostic": "declared exclusion branch",
+      "authority": "I campaign pass_conditions; exact reasons, enumerated SQL limits and mandatory independent witnesses; adopted oracle owns normative phases."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "rule",
+      "predicate": "'executed' if not row.get('sorpresa') and reason not in {REJECT, DEPENDENCY, *CONFLICT_REASONS} else None",
+      "diagnostic": "declared exclusion result or inventory",
+      "authority": "I campaign evidence inventory; missing/duplicate proofs block; lawful exclusions never rewrite recorded states."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "rule",
+      "predicate": "state == 'ATTESO-ROSSO'",
+      "diagnostic": "declared exclusion branch",
+      "authority": "I campaign pass_conditions; exact reasons, enumerated SQL limits and mandatory independent witnesses; adopted oracle owns normative phases."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "rule",
+      "predicate": "f == 'crs_missing' and row.get('prova') == 'gpkg-crs-obbligatorio' and (row.get('lacune') == ['gpkg-crs-obbligatorio']) and (not row.get('sorpresa')) and (hop in {'io.write gpkg negativo', 'supplementare indipendente'}) and (reason in {'rifiuto contrattuale distinto da IPC', 'negativo distinto; IPC resta prova positiva'})",
+      "diagnostic": "declared exclusion branch",
+      "authority": "I campaign pass_conditions; exact reasons, enumerated SQL limits and mandatory independent witnesses; adopted oracle owns normative phases."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "rule",
+      "predicate": "'GPKG-CRS-required'",
+      "diagnostic": "declared exclusion result or inventory",
+      "authority": "I campaign evidence inventory; missing/duplicate proofs block; lawful exclusions never rewrite recorded states."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "rule",
+      "predicate": "None",
+      "diagnostic": "declared exclusion result or inventory",
+      "authority": "I campaign evidence inventory; missing/duplicate proofs block; lawful exclusions never rewrite recorded states."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "rule",
+      "predicate": "state != 'SALTATO'",
+      "diagnostic": "declared exclusion branch",
+      "authority": "I campaign pass_conditions; exact reasons, enumerated SQL limits and mandatory independent witnesses; adopted oracle owns normative phases."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "rule",
+      "predicate": "None",
+      "diagnostic": "declared exclusion result or inventory",
+      "authority": "I campaign evidence inventory; missing/duplicate proofs block; lawful exclusions never rewrite recorded states."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "rule",
+      "predicate": "f in LIMITI_SORGENTE_SQL and direction == DIREZIONI[1] and (hop == 'database.read')",
+      "diagnostic": "declared exclusion branch",
+      "authority": "I campaign pass_conditions; exact reasons, enumerated SQL limits and mandatory independent witnesses; adopted oracle owns normative phases."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "rule",
+      "predicate": "row.get('proprieta') in limits and reason == limits[row['proprieta']]",
+      "diagnostic": "declared exclusion branch",
+      "authority": "I campaign pass_conditions; exact reasons, enumerated SQL limits and mandatory independent witnesses; adopted oracle owns normative phases."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "rule",
+      "predicate": "'SQL-source-limit'",
+      "diagnostic": "declared exclusion result or inventory",
+      "authority": "I campaign evidence inventory; missing/duplicate proofs block; lawful exclusions never rewrite recorded states."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "rule",
+      "predicate": "row.get('prova') == 'variante inversa' and reason == LIMITI_SORGENTE_SQL[f]",
+      "diagnostic": "declared exclusion branch",
+      "authority": "I campaign pass_conditions; exact reasons, enumerated SQL limits and mandatory independent witnesses; adopted oracle owns normative phases."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "rule",
+      "predicate": "'SQL-source-limit'",
+      "diagnostic": "declared exclusion result or inventory",
+      "authority": "I campaign evidence inventory; missing/duplicate proofs block; lawful exclusions never rewrite recorded states."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "rule",
+      "predicate": "f == 'uint64_ordering' and row.get('prova') == 'valori/tipi/nullabilita/ordine' and (reason == 'numeric SQL non e uint64; semina non equivalente')",
+      "diagnostic": "declared exclusion branch",
+      "authority": "I campaign pass_conditions; exact reasons, enumerated SQL limits and mandatory independent witnesses; adopted oracle owns normative phases."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "rule",
+      "predicate": "'SQL-source-limit'",
+      "diagnostic": "declared exclusion result or inventory",
+      "authority": "I campaign evidence inventory; missing/duplicate proofs block; lawful exclusions never rewrite recorded states."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "rule",
+      "predicate": "not witness(cell, phases)",
+      "diagnostic": "declared exclusion branch",
+      "authority": "I campaign pass_conditions; exact reasons, enumerated SQL limits and mandatory independent witnesses; adopted oracle owns normative phases."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "rule",
+      "predicate": "None",
+      "diagnostic": "declared exclusion result or inventory",
+      "authority": "I campaign evidence inventory; missing/duplicate proofs block; lawful exclusions never rewrite recorded states."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "rule",
+      "predicate": "f == 'conflicting_crs'",
+      "diagnostic": "declared exclusion branch",
+      "authority": "I campaign pass_conditions; exact reasons, enumerated SQL limits and mandatory independent witnesses; adopted oracle owns normative phases."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "rule",
+      "predicate": "reason in {REJECT, DEPENDENCY} and hop in {'io.read', 'database.read', 'database.read stabile', 'data.run', 'database.write/read', 'io.write ipc'} or (reason in CONFLICT_REASONS and hop == 'supplementare indipendente' and (row.get('prova') in {'conflitto propagato', 'conflitto propagato: report data.run', 'conflitto rifiutato: report io.write', 'piano risolutivo'}))",
+      "diagnostic": "declared exclusion branch",
+      "authority": "I campaign pass_conditions; exact reasons, enumerated SQL limits and mandatory independent witnesses; adopted oracle owns normative phases."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "rule",
+      "predicate": "'GEO-005/REJ-001'",
+      "diagnostic": "declared exclusion result or inventory",
+      "authority": "I campaign evidence inventory; missing/duplicate proofs block; lawful exclusions never rewrite recorded states."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "rule",
+      "predicate": "reason == REJECT and hop == rejected or (reason == DEPENDENCY and hop in downstream)",
+      "diagnostic": "declared exclusion branch",
+      "authority": "I campaign pass_conditions; exact reasons, enumerated SQL limits and mandatory independent witnesses; adopted oracle owns normative phases."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "rule",
+      "predicate": "'declared-PG-rejection'",
+      "diagnostic": "declared exclusion result or inventory",
+      "authority": "I campaign evidence inventory; missing/duplicate proofs block; lawful exclusions never rewrite recorded states."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "rule",
+      "predicate": "None",
+      "diagnostic": "declared exclusion result or inventory",
+      "authority": "I campaign evidence inventory; missing/duplicate proofs block; lawful exclusions never rewrite recorded states."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "missing",
+      "predicate": "absent + supplementary_missing(cell) + [r for r in cell['righe'] + cell['extra'] if rule(cell, r, properties, phases) is None]",
+      "diagnostic": "declared exclusion result or inventory",
+      "authority": "I campaign evidence inventory; missing/duplicate proofs block; lawful exclusions never rewrite recorded states."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "qualified",
+      "predicate": "cell.get('status') not in {'passed', 'partial'} or not cell.get('observed') or missing(cell['observed'], properties, phases)",
+      "diagnostic": "declared exclusion branch",
+      "authority": "I campaign pass_conditions; exact reasons, enumerated SQL limits and mandatory independent witnesses; adopted oracle owns normative phases."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "qualified",
+      "predicate": "False",
+      "diagnostic": "declared exclusion result or inventory",
+      "authority": "I campaign evidence inventory; missing/duplicate proofs block; lawful exclusions never rewrite recorded states."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "qualified",
+      "predicate": "cell['fixture'] == 'conflicting_crs' and hop.get('status') != 'passed'",
+      "diagnostic": "declared exclusion branch",
+      "authority": "I campaign pass_conditions; exact reasons, enumerated SQL limits and mandatory independent witnesses; adopted oracle owns normative phases."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "qualified",
+      "predicate": "False",
+      "diagnostic": "declared exclusion result or inventory",
+      "authority": "I campaign evidence inventory; missing/duplicate proofs block; lawful exclusions never rewrite recorded states."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "qualified",
+      "predicate": "hop['status'] == 'passed'",
+      "diagnostic": "declared exclusion branch",
+      "authority": "I campaign pass_conditions; exact reasons, enumerated SQL limits and mandatory independent witnesses; adopted oracle owns normative phases."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "qualified",
+      "predicate": "hop.get('source_limits') or hop.get('execution') in ('not_run', 'attempted')",
+      "diagnostic": "declared exclusion branch",
+      "authority": "I campaign pass_conditions; exact reasons, enumerated SQL limits and mandatory independent witnesses; adopted oracle owns normative phases."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "qualified",
+      "predicate": "False",
+      "diagnostic": "declared exclusion result or inventory",
+      "authority": "I campaign evidence inventory; missing/duplicate proofs block; lawful exclusions never rewrite recorded states."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "qualified",
+      "predicate": "hop['status'] != 'skipped'",
+      "diagnostic": "declared exclusion branch",
+      "authority": "I campaign pass_conditions; exact reasons, enumerated SQL limits and mandatory independent witnesses; adopted oracle owns normative phases."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "qualified",
+      "predicate": "False",
+      "diagnostic": "declared exclusion result or inventory",
+      "authority": "I campaign evidence inventory; missing/duplicate proofs block; lawful exclusions never rewrite recorded states."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "qualified",
+      "predicate": "hop.get('source_limits')",
+      "diagnostic": "declared exclusion branch",
+      "authority": "I campaign pass_conditions; exact reasons, enumerated SQL limits and mandatory independent witnesses; adopted oracle owns normative phases."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "qualified",
+      "predicate": "cell['direction'] != DIREZIONI[1] or hop['component'] != 'plenora-database-tools' or cell['fixture'] not in {'axis_lat_lon', 'uint64_ordering'} or (hop['source_limits'] != limiti_sql(cell['fixture'], properties)) or (hop.get('reason') != 'limite sorgente SQL: ' + LIMITI_SORGENTE_SQL[cell['fixture']]) or (hop.get('execution') in ('not_run', 'attempted')) or (not all((hop.get(k) for k in ('command', 'output', 'expected'))))",
+      "diagnostic": "declared exclusion branch",
+      "authority": "I campaign pass_conditions; exact reasons, enumerated SQL limits and mandatory independent witnesses; adopted oracle owns normative phases."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "qualified",
+      "predicate": "False",
+      "diagnostic": "declared exclusion result or inventory",
+      "authority": "I campaign evidence inventory; missing/duplicate proofs block; lawful exclusions never rewrite recorded states."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "qualified",
+      "predicate": "not (witness(cell['observed'], phases) and hop.get('reason') in {REJECT, DEPENDENCY} and (hop.get('execution') == ('attempted' if hop['reason'] == REJECT else 'not_run')) and any((r['hop'] == label and r['stato'] == 'SALTATO' and (r['motivo'] == hop['reason']) for r in cell['observed']['righe'])))",
+      "diagnostic": "declared exclusion branch",
+      "authority": "I campaign pass_conditions; exact reasons, enumerated SQL limits and mandatory independent witnesses; adopted oracle owns normative phases."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "qualified",
+      "predicate": "False",
+      "diagnostic": "declared exclusion result or inventory",
+      "authority": "I campaign evidence inventory; missing/duplicate proofs block; lawful exclusions never rewrite recorded states."
+    },
+    {
+      "file": "scripts/qualification_exclusions.py",
+      "function": "qualified",
+      "predicate": "True",
+      "diagnostic": "declared exclusion result or inventory",
+      "authority": "I campaign evidence inventory; missing/duplicate proofs block; lawful exclusions never rewrite recorded states."
     }
   ],
+  "exclusion_policy_sha256": "ed3fb03f0749a859e96de93decf99b7109528e1bd42a171c3270b52ea1086dad",
   "gate_fields": {
     "manifest_version": {
       "sha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
