@@ -2,7 +2,7 @@
   "schema_version": 1,
   "descrizione": "Il confine di AddressSanitizer nel target `filegdb_reader`, misurato sul binario strumentato e sulla libreria che collega. Prodotto da scripts/asan-filegdb.sh; letto da scripts/check_asan_filegdb.py, che rimisura la libreria locale invece di credere a questo file.",
   "target": "filegdb_reader",
-  "impronta_perimetro": "008eeac6f3cc92cc4b0aba17c4fbda4439b220bcda94741e88771a06af54d4ec",
+  "impronta_perimetro": "1b813d06cbbc871147bf1d88d0a5d7351d12239887fe915751d4ca614938c209",
   "libreria_collegata": {
     "soname": "libgdal.so.34",
     "percorso_risolto": "/lib/x86_64-linux-gnu/libgdal.so.34",
@@ -15,10 +15,10 @@
   "runtime_asan_nel_binario": true,
   "libreria_gdal_dentro_l_albero_di_build": false,
   "moduli_con_contatori": 1,
-  "contatori_di_copertura": 181924,
+  "contatori_di_copertura": 181700,
   "file_sorgente_gdal_strumentati": 0,
   "file_sorgente_c_cpp_strumentati": 0,
-  "file_del_wrapper_rust_strumentati": 46,
+  "file_del_wrapper_rust_strumentati": 47,
   "come_sono_stati_contati": "la strumentazione della libreria contando i simboli __asan che porta, con nm sulla tabella dinamica e su quella statica -- e' la proprieta' che dice se e' stata compilata con -fsanitize=address, e non si inferisce dai contatori; i moduli e i contatori dalla riga che libFuzzer stampa all'avvio, che e' una proprieta' distinta e riguarda il feedback del fuzzer; i sorgenti di GDAL riconoscendoli dal percorso ed escludendo i .rs, che sono il wrapper e sono nostri; la presenza del runtime nel nostro binario chiedendola al runtime con ASAN_OPTIONS=help=1, perche' i suoi simboli sono locali e nella tabella dinamica non ce n'e' nessuno; se la libreria stia dentro l'albero di build confrontando il percorso reale con la radice del repository, invece di scriverlo a mano",
   "che_cosa_significa": {
     "copre_il_nostro_codice": "i driver, il core, il modello e il wrapper Rust del fork governato di `gdal` sono compilati con la strumentazione: ogni load e store passa da un controllo sulla shadow memory, e accessi fuori dai limiti, use-after-free e overflow di stack o di globali diventano un abort con diagnostica.",
