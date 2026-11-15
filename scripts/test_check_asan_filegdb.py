@@ -327,31 +327,8 @@ class SondeDellaMisuraDiretta(unittest.TestCase):
         self.assertEqual(misura["simboli_asan_nella_libreria"], 0)
 
 
-def gdal_locale_disponibile() -> bool:
-    """Questo gate misura la GDAL di **questa** macchina.
-
-    Dove non c'e' -- una macchina di sviluppo che non e' Linux -- la sonda che
-    esegue il gate per intero non ha niente da misurare e si salta. In CI e nel
-    container GDAL c'e', ed e' li' che quella sonda conta.
-    """
-    try:
-        gate._libreria_locale()
-    except gate.MisuraImpossibile:
-        return False
-    return True
-
-
-class SondaDellaMisuraVera(unittest.TestCase):
-    """L'artefatto committato, letto come in CI."""
-
-    @unittest.skipUnless(
-        gdal_locale_disponibile(), "GDAL non installata: il gate non puo' concludere"
-    )
-    def test_il_gate_e_verde_sull_albero_corrente(self) -> None:
-        uscita, errori = io.StringIO(), io.StringIO()
-        with redirect_stdout(uscita), redirect_stderr(errori):
-            codice = gate.main([])
-        self.assertEqual(codice, 0, errori.getvalue())
+class SondaDellaMisuraRegistrata(unittest.TestCase):
+    """Legge l'artefatto; la misura nativa gira nel job Rust su PR."""
 
     def test_la_misura_porta_tutte_le_affermazioni(self) -> None:
         misura = strict_json.loads(gate.ARTEFATTO.read_text(encoding="utf-8"))

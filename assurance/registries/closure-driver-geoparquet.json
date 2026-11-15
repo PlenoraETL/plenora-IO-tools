@@ -460,7 +460,7 @@
     },
     {
       "crate": "bitflags",
-      "versione": "2.13.1",
+      "versione": "2.13.2",
       "licenza": "MIT OR Apache-2.0",
       "origine": "prodotto"
     },
@@ -496,13 +496,13 @@
     },
     {
       "crate": "cc",
-      "versione": "1.4.0",
+      "versione": "1.4.7",
       "licenza": "MIT OR Apache-2.0",
       "origine": "build"
     },
     {
       "crate": "cfg-if",
-      "versione": "1.0.4",
+      "versione": "1.0.5",
       "licenza": "MIT OR Apache-2.0",
       "origine": "prodotto"
     },
@@ -514,7 +514,7 @@
     },
     {
       "crate": "crc32fast",
-      "versione": "1.5.0",
+      "versione": "1.5.2",
       "licenza": "MIT OR Apache-2.0",
       "origine": "prodotto"
     },
@@ -526,13 +526,13 @@
     },
     {
       "crate": "driver-common",
-      "versione": "8.0.0",
+      "versione": "9.0.0",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
     {
       "crate": "driver-geoparquet",
-      "versione": "8.0.0",
+      "versione": "9.0.0",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
@@ -550,7 +550,7 @@
     },
     {
       "crate": "fancy-regex",
-      "versione": "0.19.0",
+      "versione": "0.19.2",
       "licenza": "MIT",
       "origine": "prodotto"
     },
@@ -562,7 +562,7 @@
     },
     {
       "crate": "find-msvc-tools",
-      "versione": "0.1.9",
+      "versione": "0.1.13",
       "licenza": "MIT OR Apache-2.0",
       "origine": "build"
     },
@@ -574,7 +574,7 @@
     },
     {
       "crate": "flate2",
-      "versione": "1.1.9",
+      "versione": "1.1.10",
       "licenza": "MIT OR Apache-2.0",
       "origine": "prodotto"
     },
@@ -700,7 +700,7 @@
     },
     {
       "crate": "log",
-      "versione": "0.4.33",
+      "versione": "0.4.34",
       "licenza": "MIT OR Apache-2.0",
       "origine": "prodotto"
     },
@@ -724,7 +724,7 @@
     },
     {
       "crate": "miniz_oxide",
-      "versione": "0.8.9",
+      "versione": "0.9.1",
       "licenza": "MIT OR Zlib OR Apache-2.0",
       "origine": "prodotto"
     },
@@ -760,7 +760,7 @@
     },
     {
       "crate": "num-integer",
-      "versione": "0.1.46",
+      "versione": "0.1.47",
       "licenza": "MIT OR Apache-2.0",
       "origine": "prodotto"
     },
@@ -814,7 +814,7 @@
     },
     {
       "crate": "pkg-config",
-      "versione": "0.3.33",
+      "versione": "0.3.34",
       "licenza": "MIT OR Apache-2.0",
       "origine": "build"
     },
@@ -826,13 +826,13 @@
     },
     {
       "crate": "plenora-io-core",
-      "versione": "8.0.0",
+      "versione": "9.0.0",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
     {
       "crate": "plenora-io-model",
-      "versione": "8.0.0",
+      "versione": "9.0.0",
       "licenza": "interna-al-workspace",
       "origine": "prodotto"
     },
@@ -952,7 +952,7 @@
     },
     {
       "crate": "smallvec",
-      "versione": "1.15.2",
+      "versione": "1.16.1",
       "licenza": "MIT OR Apache-2.0",
       "origine": "prodotto"
     },
@@ -982,7 +982,7 @@
     },
     {
       "crate": "syn",
-      "versione": "3.0.3",
+      "versione": "3.0.6",
       "licenza": "MIT OR Apache-2.0",
       "origine": "prodotto"
     },
@@ -1018,7 +1018,7 @@
     },
     {
       "crate": "twox-hash",
-      "versione": "2.1.3",
+      "versione": "2.1.4",
       "licenza": "MIT",
       "origine": "prodotto"
     },
@@ -1030,7 +1030,7 @@
     },
     {
       "crate": "unicode-ident",
-      "versione": "1.0.24",
+      "versione": "1.0.26",
       "licenza": "(MIT OR Apache-2.0) AND Unicode-3.0",
       "origine": "prodotto"
     },
@@ -1090,13 +1090,13 @@
     },
     {
       "crate": "zerocopy",
-      "versione": "0.8.55",
+      "versione": "0.8.59",
       "licenza": "BSD-2-Clause OR Apache-2.0 OR MIT",
       "origine": "prodotto"
     },
     {
       "crate": "zerocopy-derive",
-      "versione": "0.8.55",
+      "versione": "0.8.59",
       "licenza": "BSD-2-Clause OR Apache-2.0 OR MIT",
       "origine": "prodotto"
     },
@@ -1577,5 +1577,50 @@
     "perche": "Documenta il bump 7.0.3 -> 8.0.0 dei quattro crate interni gia censiti, per Arrow Primary Geometry 1.0. Nessun nome, origine o licenza cambia per il bump. Come nella cronaca 7.0.3 (a2e0bea), questa voce riguarda soltanto la versione del workspace: non attesta una nuova misura della closure delle dipendenze o una qualifica di release.",
     "da": 129,
     "a": 129
+  },
+  "variazione_dipendenze_9_0_0": {
+    "quando": "2026-11-14",
+    "fonte": ".ci/plenora-dependencies/plenora-dependencies.toml",
+    "da": 129,
+    "a": 129,
+    "entrate": [
+      "bitflags 2.13.2",
+      "cc 1.4.7",
+      "cfg-if 1.0.5",
+      "crc32fast 1.5.2",
+      "fancy-regex 0.19.2",
+      "find-msvc-tools 0.1.13",
+      "flate2 1.1.10",
+      "log 0.4.34",
+      "miniz_oxide 0.9.1",
+      "num-integer 0.1.47",
+      "pkg-config 0.3.34",
+      "smallvec 1.16.1",
+      "syn 3.0.6",
+      "twox-hash 2.1.4",
+      "unicode-ident 1.0.26",
+      "zerocopy 0.8.59",
+      "zerocopy-derive 0.8.59"
+    ],
+    "uscite": [
+      "bitflags 2.13.1",
+      "cc 1.4.0",
+      "cfg-if 1.0.4",
+      "crc32fast 1.5.0",
+      "fancy-regex 0.19.0",
+      "find-msvc-tools 0.1.9",
+      "flate2 1.1.9",
+      "log 0.4.33",
+      "miniz_oxide 0.8.9",
+      "num-integer 0.1.46",
+      "pkg-config 0.3.33",
+      "smallvec 1.15.2",
+      "syn 3.0.3",
+      "twox-hash 2.1.3",
+      "unicode-ident 1.0.24",
+      "zerocopy 0.8.55",
+      "zerocopy-derive 0.8.55"
+    ],
+    "perche": "Prima ondata della politica comune. Closure e origine misurate con le funzioni del gate sui target distribuiti; licenze lette da cargo metadata --locked --offline. Nessuna misura storica sovrascritta."
   }
 }

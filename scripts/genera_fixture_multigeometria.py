@@ -48,6 +48,7 @@ def genera():
     tabella = pa.Table.from_arrays([pa.array([linea, None, linea]), pa.array([1, 2, 3]),
                                    pa.array([punto, punto, None])], schema=schema)
     percorso = Path(__file__).resolve().parents[1] / "crates/driver-geoparquet/tests/fixtures/multigeometria-pyarrow.parquet"
+    percorso.parent.mkdir(parents=True, exist_ok=True)
     with pq.ParquetWriter(percorso, schema, compression="NONE", store_schema=False) as writer:
         writer.add_key_value_metadata({"geo": json.dumps(geo, separators=(",", ":"))})
         writer.write_table(tabella)

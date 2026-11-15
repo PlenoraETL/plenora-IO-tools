@@ -1,7 +1,7 @@
 {
   "id": "io-una-geometria",
   "data": "2026-11-12",
-  "stato": "8.0.0 non pubblicata: IPC multi e Arrow Primary Geometry 1.0 implementati; qualifica e matrice da rimisurare",
+  "stato": "Inventario dei casi multigeometria verificato dai sorgenti su PR. Le sezioni datate e correzione_N sono cronaca storica, non evidenza della candidate corrente.",
   "contratto": {
     "primaria": "plenora.primary_geometry per plenora.field_id; primary.rs risolve ed emette PRIM-001..005; primary_column GeoParquet nei due versi; native metadata solo provenienza",
     "geometrie": "DataContract.geometries(), metadati per campo; nessuna promozione in projection",
@@ -117,7 +117,7 @@
     "cli_oracolo": "GeoParquet -> GeoParquet via CLI, output letto con PyArrow: byte, null, primaria, CRS, tipi e encoding uguali"
   },
   "gate": {
-    "stato": "Verifiche funzionali locali passate; qualifica 8.0.0 e matrice esterna non eseguite.",
+    "stato": "Cronaca del primo giro del 12/11/2026; non attesta la candidate corrente. Inventari e riferimenti correnti sono verificati da scripts/check_prove_fonte_unica.py.",
     "comandi": [
       "cargo fmt --all",
       "cargo clippy --workspace --all-targets -- -D warnings",

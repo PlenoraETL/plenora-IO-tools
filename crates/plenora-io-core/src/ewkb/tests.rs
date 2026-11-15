@@ -2,6 +2,7 @@
 //! silenzio.
 
 use super::*;
+use plenora_io_model::geometry::{PLENORA_ENCODING_KEY, PLENORA_SRID_KEY};
 
 use arrow_array::BinaryArray;
 use plenora_io_model::contract::{CoordinateDimensions, FieldId};

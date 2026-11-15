@@ -372,6 +372,10 @@ MATRICE: tuple[dict[str, Any], ...] = (
             "interni non ci sono sempre."
         ),
     },
+    {'nome': 'write-property-plan', 'busta': 'plenora-io-write-result-v2', 'argomenti': ['write', '{proprieta}', '{uscita}/property-plan.gpkg', '--to', 'gpkg'], 'perche': 'IO-a: inventario completo per campo/chiave, valori nullable e provenienza write/source_write.'},
+    {'nome': 'read-property-plan', 'busta': 'plenora-io-read-result-v2', 'argomenti': ['read', '{uscita}/property-plan.gpkg'], 'perche': 'IO-a: inventario completo per campo/chiave, valori nullable e provenienza write/source_write.'},
+    {'nome': 'convert-property-write', 'busta': 'plenora-io-convert-v1', 'argomenti': ['convert', '{proprieta}', '{uscita}/converted-property.gpkg', '--from', 'ipc', '--to', 'gpkg'], 'perche': 'IO-a: inventario completo per campo/chiave, valori nullable e provenienza write/source_write.'},
+    {'nome': 'convert-property-read', 'busta': 'plenora-io-convert-v1', 'argomenti': ['convert', '{uscita}/property-plan.gpkg', '{uscita}/property-read.arrow', '--from', 'gpkg', '--to', 'ipc'], 'perche': 'IO-a: inventario completo per campo/chiave, valori nullable e provenienza write/source_write.'},
     {
         "nome": "errore-semplice",
         "busta": "plenora-error-v1",
@@ -473,6 +477,7 @@ def esegui(percorso_binario: str, uscita: Path) -> list[dict[str, Any]]:
         "canoniche": CANONICHE.as_posix(),
         "ostili": OSTILI.as_posix(),
         "uscita": uscita.as_posix(),
+        "proprieta": (ROOT / "sdk/python/tests/fixtures/property_plan.arrow").as_posix(),
     }
     osservazioni = []
     for caso in MATRICE:

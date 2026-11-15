@@ -7,7 +7,7 @@ Lo SDK Python ha **un** sorgente, `sdk/python/src/plenora_io`, e due wheel:
 
 * quella pura (`py3-none-any`), che `costruisci-pacchetto-python.py` scrive a
   mano, byte per byte riproducibile, e che esegue un binario `plenora-io`;
-* quella nativa (`cp310-abi3-<piattaforma>`), che porta anche
+* quella nativa (`cp314-abi3-<piattaforma>`), che porta anche
   `plenora_io._native` -- il modulo PyO3 di `crates/plenora-io-py` -- ed
   esegue i comandi nel processo, senza un binario accanto.
 
@@ -87,13 +87,14 @@ def verifica(wheel: pathlib.Path) -> list[str]:
     attesi_python = {
         f"plenora_io/{file.name}"
         for file in SORGENTE.iterdir()
-        if file.is_file() and file.suffix in {".py", ".typed"}
+        if file.is_file() and file.suffix in {".py", ".pyi", ".typed"}
     }
     errori = errori_licenze + [f"manca {nome}" for nome in sorted(attesi_python - nomi)]
     if not any(n.startswith("plenora_io/_native.") for n in nomi):
         errori.append("manca il modulo nativo plenora_io/_native")
-    if "-cp310-abi3-" not in wheel.name:
-        errori.append(f"«{wheel.name}» non e' una wheel abi3 da Python 3.10")
+    minor = (pathlib.Path(__file__).resolve().parents[1] / ".python-version").read_text(encoding="utf-8").strip().replace(".", "")
+    if f"-cp{minor}-abi3-" not in wheel.name:
+        errori.append(f"«{wheel.name}» non e' una wheel abi3 da Python 3.14")
     return errori
 
 

@@ -64,8 +64,8 @@ ciò che installa — e non tutti girano fuori dal repository: quali saltano, e
 perché, è un elenco chiuso in
 [`assurance/registries/sonde-saltate-nella-sdist.json`](../assurance/registries/sonde-saltate-nella-sdist.json).
 
-`Requires-Python` è `>=3.10,<3.15`, e copre **soltanto** le versioni che la CI
-prova. Dichiarare `>=3.10` senza limite superiore prometterebbe ogni Python
+`Requires-Python` è `>=3.14,<3.15`, e copre **soltanto** le versioni che la CI
+prova. Dichiarare `>=3.14` senza limite superiore prometterebbe ogni Python
 futuro, e una promessa del genere la si mantiene provandola.
 
 ## Come si ottiene, e sotto quali termini

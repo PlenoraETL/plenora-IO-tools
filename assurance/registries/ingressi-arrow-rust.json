@@ -1613,6 +1613,90 @@
       "tipi": [
         "arrow_schema::Field"
       ]
+    },
+    "driver-gpkg/src/contract_plan.rs::driver_gpkg::contract_plan::ContractPlan::from_schema": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Piano dichiarativo IO-a: legge schemi, campi, contratti o effetti di perdita; nessun accesso ai buffer delle celle. Le verifiche di schema precedono staging e scrittura.",
+      "tipi": [
+        "arrow_schema::Schema"
+      ]
+    },
+    "driver-gpkg/src/contract_plan.rs::driver_gpkg::contract_plan::generated_primary_name": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Piano dichiarativo IO-a: legge schemi, campi, contratti o effetti di perdita; nessun accesso ai buffer delle celle. Le verifiche di schema precedono staging e scrittura.",
+      "tipi": [
+        "arrow_schema::Schema"
+      ]
+    },
+    "driver-gpkg/src/contract_plan.rs::driver_gpkg::contract_plan::prepare_write": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Piano dichiarativo IO-a: legge schemi, campi, contratti o effetti di perdita; nessun accesso ai buffer delle celle. Le verifiche di schema precedono staging e scrittura.",
+      "tipi": [
+        "plenora_io_core::request::WritePlan"
+      ]
+    },
+    "driver-gpkg/src/contract_plan.rs::driver_gpkg::contract_plan::restore_with_properties": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Piano dichiarativo IO-a: legge schemi, campi, contratti o effetti di perdita; nessun accesso ai buffer delle celle. Le verifiche di schema precedono staging e scrittura.",
+      "tipi": [
+        "arrow_schema::Field"
+      ]
+    },
+    "plenora-io-core/src/ewkb.rs::plenora_io_core::ewkb::DaEwkbAWkb::property_effects": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Piano dichiarativo IO-a: legge schemi, campi, contratti o effetti di perdita; nessun accesso ai buffer delle celle. Le verifiche di schema precedono staging e scrittura.",
+      "tipi": [
+        "plenora_io_core::ewkb::DaEwkbAWkb"
+      ]
+    },
+    "plenora-io-core/src/ewkb.rs::plenora_io_core::ewkb::PreparedWrite::new": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Piano dichiarativo IO-a: legge schemi, campi, contratti o effetti di perdita; nessun accesso ai buffer delle celle. Le verifiche di schema precedono staging e scrittura.",
+      "tipi": [
+        "plenora_io_core::request::WritePlan"
+      ]
+    },
+    "plenora-io-core/src/property_plan.rs::plenora_io_core::property_plan::PropertyPlan::new": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Piano dichiarativo IO-a: legge schemi, campi, contratti o effetti di perdita; nessun accesso ai buffer delle celle. Le verifiche di schema precedono staging e scrittura.",
+      "tipi": [
+        "arrow_schema::Schema"
+      ]
+    },
+    "plenora-io-core/src/property_plan.rs::plenora_io_core::property_plan::PropertyPlan::validate_schema": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Piano dichiarativo IO-a: legge schemi, campi, contratti o effetti di perdita; nessun accesso ai buffer delle celle. Le verifiche di schema precedono staging e scrittura.",
+      "tipi": [
+        "arrow_schema::Schema"
+      ]
+    },
+    "plenora-io-core/src/property_plan.rs::plenora_io_core::property_plan::field_in_wkb": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Piano dichiarativo IO-a: legge schemi, campi, contratti o effetti di perdita; nessun accesso ai buffer delle celle. Le verifiche di schema precedono staging e scrittura.",
+      "tipi": [
+        "arrow_schema::Field"
+      ]
+    },
+    "plenora-io-core/src/property_plan.rs::plenora_io_core::property_plan::gpkg_write_schema": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Piano dichiarativo IO-a: legge schemi, campi, contratti o effetti di perdita; nessun accesso ai buffer delle celle. Le verifiche di schema precedono staging e scrittura.",
+      "tipi": [
+        "arrow_schema::Schema"
+      ]
+    },
+    "plenora-io-core/src/property_plan.rs::plenora_io_core::property_plan::plan_metadata": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Piano dichiarativo IO-a: legge schemi, campi, contratti o effetti di perdita; nessun accesso ai buffer delle celle. Le verifiche di schema precedono staging e scrittura.",
+      "tipi": [
+        "arrow_schema::Schema"
+      ]
+    },
+    "plenora-io-core/src/property_plan.rs::plenora_io_core::property_plan::validate_gpkg_read_schema": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Piano dichiarativo IO-a: legge schemi, campi, contratti o effetti di perdita; nessun accesso ai buffer delle celle. Le verifiche di schema precedono staging e scrittura.",
+      "tipi": [
+        "arrow_schema::Schema"
+      ]
     }
   },
   "macro_items": {
@@ -1718,6 +1802,9 @@
     },
     "plenora-io-tools/src/runtime.rs::plenora_io_tools::runtime::# [doc = \" Il canale di cancellazione che l'applicazione passa a [`BindingRuntime::invoca`].\"] # [doc = \"\"] # [doc = \" Riesportato qui perche' un'applicazione che ospita il binding non debba\"] # [doc = \" dipendere da `plenora-io-model`, che e' un crate interno e instabile.\"] pub use plenora_io_model :: CancellationToken ;": {
       "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
+    },
+    "plenora-io-core/src/driver.rs::plenora_io_core::driver::pub use perdita_pianificata :: planned_write_loss ;": {
+      "motivazione": "Riesporta il planner condiviso gia classificato; accetta il piano con schemi, non buffer di celle."
     }
   },
   "correzione_2": {

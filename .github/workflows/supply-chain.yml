@@ -40,6 +40,9 @@ jobs:
       # Versione esatta, la stessa di `scripts/toolchain-pins.env`
       # (`check_toolchain_pins.py` le confronta): le regole cambiano fra
       # versioni dello strumento.
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version-file: .python-version
       - uses: taiki-e/install-action@41049aa56687c35e0afa74eed4f09cec4f9afabf # v2.85.2, cargo-deny
         with:
           tool: cargo-deny@0.20.2

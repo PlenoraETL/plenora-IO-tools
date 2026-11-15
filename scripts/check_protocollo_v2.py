@@ -117,13 +117,14 @@ MAPPATURA: dict[str, str] = {
     "riserva_per_l_identita_del_binding": "RISERVA_IDENTITA",
     "ragioni_trattenute": "MAX_RAGIONI_TRATTENUTE",
     "esempi_trattenuti": "MAX_ESEMPI_TRATTENUTI",
+    "byte_inventario_proprieta": "MAX_PROPERTY_REPORT_BYTES",
 }
 
 #: Le costanti `usize` pubbliche di questi due file **sono** il budget: non ce
 #: ne sono altre, ed e' cio' che rende il verso inverso una verifica e non una
 #: approssimazione. L'ordine conta: `MAX_BYTE_BUSTA` e' scritta in funzione
 #: delle precedenti, e si risolve solo se sono gia' note.
-SORGENTI = (BUSTA, LOSS)
+SORGENTI = (BUSTA, LOSS, ROOT / "crates/plenora-io-core/src/property_plan.rs")
 
 #: I campi che dicono **di che cosa** e' il manifesto. Non sono numeri e non
 #: hanno una controparte nel codice: qui si pretende solo che dicano quello che

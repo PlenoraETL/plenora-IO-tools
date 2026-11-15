@@ -275,7 +275,69 @@ fn converti(ingresso: &Path, uscita: &Path) -> (bool, Value) {
     ])
 }
 
-const COMANDI: [(&str, Comando); 2] = [("write", scrivi), ("convert", converti)];
+fn rust_write(input: &Path, output: &Path) -> (bool, Value) {
+    let request = plenora_io_tools::operazioni::Richiesta::sulla_sorgente(input)
+        .con_destinazione(output)
+        .con_formato_destinazione("gpkg");
+    match plenora_io_tools::operazioni::write(request) {
+        Ok(value) => (true, serde_json::json!({"result": value})),
+        Err(value) => (false, value),
+    }
+}
+
+fn runtime_write(input: &Path, output: &Path) -> (bool, Value) {
+    use plenora_io_tools::runtime::{self, RifiutoArtefatto, RisolutoreArtefatti};
+    struct Files(std::path::PathBuf, std::path::PathBuf);
+    impl RisolutoreArtefatti for Files {
+        fn sorgente(&self, _: &str) -> Result<std::path::PathBuf, RifiutoArtefatto> {
+            Ok(self.0.clone())
+        }
+        fn destinazione(&self, _: &str) -> Result<std::path::PathBuf, RifiutoArtefatto> {
+            Ok(self.1.clone())
+        }
+    }
+    let descriptor = runtime::OPERAZIONI
+        .iter()
+        .find(|d| d.operazione == "io.write")
+        .unwrap();
+    let request = serde_json::json!({
+        "content_type": "application/json",
+        "metadata": {
+            "plenora.message.id": "018f3d84-7b2c-7f00-8000-0000000000a1",
+            "plenora.capability.name": runtime::NOME_CAPACITA,
+            "plenora.capability.version": "1",
+            "plenora.capability.operation": descriptor.operazione,
+            "plenora.operation.version": descriptor.versione.to_string(),
+            "plenora.input.contract": descriptor.contratto_ingresso,
+            "plenora.trace.correlation_id": "018f3d84-7b2c-7f00-8000-0000000000a2"
+        },
+        "payload": {"source":format!("artifact://input/{}", input.file_name().unwrap().to_str().unwrap()), "destination":format!("artifact://output/{}", output.file_name().unwrap().to_str().unwrap()), "format":"gpkg"}
+    });
+    let files = Files(input.to_path_buf(), output.to_path_buf());
+    let response = runtime::BindingRuntime::new(&files).invoca_json(
+        &serde_json::to_vec(&request).unwrap(),
+        plenora_io_model::CancellationToken::new(),
+    );
+    let ok = !response.e_un_errore();
+    let runtime::Carico::Json(value) = response.payload else {
+        panic!("JSON response expected")
+    };
+    (
+        ok,
+        if ok {
+            serde_json::json!({"result": value})
+        } else {
+            serde_json::json!({"error": value})
+        },
+    )
+}
+
+const COMANDI: [(&str, Comando); 4] = [
+    ("write", scrivi),
+    ("convert", converti),
+    ("rust", rust_write),
+    ("runtime", runtime_write),
+];
 
 // --- le prove -------------------------------------------------------------------
 
@@ -574,4 +636,169 @@ fn convert_da_ipc_ewkb_verso_geopackage() {
         geometrie_rilette(&gpkg, temporanea.path()),
         vec![Some(punto(Dim::Xyzm, None, Ordine::Little, true, 0.0))]
     );
+}
+
+fn with_opaque_metadata(path: &Path, count: usize) {
+    let reader =
+        arrow_ipc::reader::FileReader::try_new(std::fs::File::open(path).unwrap(), None).unwrap();
+    let original = reader.schema();
+    let batches: Vec<_> = reader.map(Result::unwrap).collect();
+    let metadata: HashMap<_, _> = (0..count)
+        .map(|i| (format!("SECRET_KEY_{i}"), "SECRET_VALUE".to_owned()))
+        .collect();
+    let mut fields: Vec<Field> = original
+        .fields()
+        .iter()
+        .map(|f| {
+            let mut md = f.metadata().clone();
+            md.extend(metadata.clone());
+            f.as_ref().clone().with_metadata(md)
+        })
+        .collect();
+    let mut geometry_md = fields[1].metadata().clone();
+    geometry_md.insert("plenora.field_id".to_owned(), "41".to_owned());
+    fields[1] = fields[1].clone().with_metadata(geometry_md);
+    fields.insert(
+        1,
+        Field::new("extra", DataType::Int64, false)
+            .with_metadata([("plenora.field_id".to_owned(), "9".to_owned())]),
+    );
+    let mut schema_md = original.metadata().clone();
+    schema_md.extend(metadata);
+    let schema = Arc::new(Schema::new_with_metadata(fields, schema_md));
+    let mut writer =
+        arrow_ipc::writer::FileWriter::try_new(std::fs::File::create(path).unwrap(), &schema)
+            .unwrap();
+    for batch in batches {
+        let columns = vec![
+            batch.column(0).clone(),
+            batch.column(0).clone(),
+            batch.column(1).clone(),
+        ];
+        writer
+            .write(&RecordBatch::try_new(schema.clone(), columns).unwrap())
+            .unwrap();
+    }
+    writer.finish().unwrap();
+}
+
+#[test]
+fn original_plan_is_complete_on_write_and_provenance_on_read() {
+    for (operation, command) in COMANDI {
+        let directory = tempfile::tempdir().unwrap();
+        let input = directory.path().join("input.arrow");
+        let output = directory.path().join("output.gpkg");
+        dataset(
+            &input,
+            Dim::Xyzm,
+            "point",
+            "4326",
+            "EPSG:4326",
+            &[vec![
+                Some(punto(Dim::Xyzm, Some(4326), Ordine::Big, false, 0.0)),
+                None,
+            ]],
+        );
+        with_opaque_metadata(&input, 1);
+        let (ok, write) = command(&input, &output);
+        assert!(ok, "{operation}: {write}");
+        assert!(!write.to_string().contains("SECRET"));
+        let changes = write["result"]["write_loss"]["property_changes"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{operation}: {write}"));
+        let removed: Vec<_> = changes
+            .iter()
+            .filter(|c| c["effect"]["rule"] == "removed")
+            .collect();
+        assert_eq!(removed.len(), 3, "schema and two original fields");
+        assert!(removed.iter().any(|c| c["effect"]["field_index"].is_null()));
+        for (position, id) in [(0, 1), (2, 41)] {
+            assert!(removed
+                .iter()
+                .any(|c| c["effect"]["field_index"] == position && c["effect"]["field_id"] == id));
+        }
+        for rule in ["ewkb_to_wkb", "srid_to_catalog"] {
+            let change = changes
+                .iter()
+                .find(|c| c["effect"]["rule"] == rule)
+                .unwrap();
+            assert_eq!(change["effect"]["field_index"], 2);
+            assert_eq!(change["effect"]["field_id"], 41);
+        }
+        let read_output = directory.path().join("read.arrow");
+        let (ok, read) = esegui(&[
+            "read",
+            output.to_str().unwrap(),
+            "--output",
+            read_output.to_str().unwrap(),
+        ]);
+        assert!(ok, "{read}");
+        let mut historical = changes.clone();
+        for change in &mut historical {
+            change["phase"] = serde_json::json!("source_write");
+        }
+        assert_eq!(
+            read["result"]["loss"]["property_changes"],
+            serde_json::json!(historical)
+        );
+        assert!(!read.to_string().contains("SECRET"));
+        let counts = read["result"]["loss"]["counts"].as_array().unwrap();
+        assert!(!counts
+            .iter()
+            .any(|c| c["categoria"] == "gpkg_metadata_not_preserved"
+                || c["categoria"] == "geometry_representation_normalized"));
+        assert_eq!(
+            geometrie_rilette(&output, directory.path()),
+            vec![
+                Some(punto(Dim::Xyzm, None, Ordine::Little, true, 0.0)),
+                None
+            ]
+        );
+    }
+}
+
+#[test]
+fn complete_property_report_over_budget_rejects_before_publication() {
+    let directory = tempfile::tempdir().unwrap();
+    let input = directory.path().join("input.arrow");
+    let output = directory.path().join("output.gpkg");
+    dataset(&input, Dim::Xy, "point", "4326", "EPSG:4326", &[vec![None]]);
+    with_opaque_metadata(&input, 200);
+    let (ok, report) = scrivi(&input, &output);
+    assert!(!ok);
+    assert_eq!(report["error"]["category"], "resource_limit");
+    assert!(!report.to_string().contains("SECRET"));
+    assert!(!output.exists());
+    assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
+}
+
+#[test]
+fn every_published_plan_at_the_budget_edge_can_be_read() {
+    let mut accepted = 0;
+    let mut rejected = false;
+    for count in 1..40 {
+        let directory = tempfile::tempdir().unwrap();
+        let input = directory.path().join("input.arrow");
+        let output = directory.path().join("output.gpkg");
+        let delivered = directory.path().join("read.arrow");
+        dataset(&input, Dim::Xy, "point", "4326", "EPSG:4326", &[vec![None]]);
+        with_opaque_metadata(&input, count);
+        let (ok, report) = rust_write(&input, &output);
+        if !ok {
+            assert_eq!(report["error"]["category"], "resource_limit", "{report}");
+            assert!(!output.exists());
+            assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
+            rejected = true;
+            break;
+        }
+        accepted += 1;
+        let (ok, report) = esegui(&[
+            "read",
+            output.to_str().unwrap(),
+            "--output",
+            delivered.to_str().unwrap(),
+        ]);
+        assert!(ok, "accepted count={count}, unreadable report: {report}");
+    }
+    assert!(accepted > 0 && rejected);
 }

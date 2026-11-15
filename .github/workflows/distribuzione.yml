@@ -84,6 +84,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
         with:
           ref: ${{ inputs.revisione }}
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version-file: .python-version
       - name: La revisione e' quella chiesta, non quella che main ha adesso
         shell: bash
         run: |
@@ -121,6 +124,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
         with:
           ref: ${{ inputs.revisione }}
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version-file: .python-version
       - name: La revisione e' quella chiesta, non quella che main ha adesso
         shell: bash
         run: |
@@ -254,6 +260,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
         with:
           ref: ${{ inputs.revisione }}
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version-file: .python-version
       - name: La revisione e' quella chiesta, non quella che main ha adesso
         shell: bash
         run: |
@@ -518,12 +527,10 @@ jobs:
       # L'interprete si dichiara, invece di prendere quello dell'immagine: una
       # immagine cambia Python senza che questo file cambi.
       #
-      # 3.10 e non l'ultima: e' il **limite inferiore** dichiarato, ed e' quello
-      # che vale la pena esercitare qui. Le altre versioni della matrice le
-      # prova il job `python-sdk` della CI a ogni push.
+      # Il minor qualificato deriva dalla stessa fonte del job python-sdk.
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0, Node 24
         with:
-          python-version: "3.10"
+          python-version-file: .python-version
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0, Node 24
         with:
           pattern: deliverable-linux-*
@@ -558,6 +565,14 @@ jobs:
 
       - name: Smoke del pacchetto in ambienti puliti
         run: bash scripts/smoke-pacchetto-python.sh "$RUNNER_TEMP/pacchetto"
+
+      - name: Piano proprieta contro la wheel installata e la CLI distribuita
+        run: |
+          python3 -m venv "$RUNNER_TEMP/property-plan-venv"
+          "$RUNNER_TEMP/property-plan-venv/bin/python" -m pip install --no-index "$RUNNER_TEMP"/pacchetto/*.whl
+          "$RUNNER_TEMP/property-plan-venv/bin/python" -m pip install --only-binary=:all: pyarrow==25.0.1
+          export PLENORA_IO_BIN="$RUNNER_TEMP/alberi/plenora-io-$VERSIONE-linux-x86_64-base/bin/plenora-io"
+          "$RUNNER_TEMP/property-plan-venv/bin/python" scripts/check_installed_property_plan.py --tests sdk/python/tests --backend process --report "$RUNNER_TEMP/property-plan-process.json"
 
       - name: La wheel installata, contro l'artefatto filegdb
         run: python3 scripts/smoke-sdk-installato.py
@@ -618,6 +633,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
         with:
           ref: ${{ inputs.revisione }}
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version-file: .python-version
       - name: La revisione e' quella chiesta, non quella che main ha adesso
         shell: bash
         run: |

@@ -412,7 +412,7 @@ fn attributo_fid_non_marcato_non_collide_con_la_chiave_generata() {
         geometry_field("geom", "EPSG:4326"),
         Field::new("FID", DataType::Int64, false),
     ]);
-    create_feature_table(&conn, "features", &schema, 4326, None).unwrap();
+    create_feature_table(&conn, "features", &schema, 4326, None, None).unwrap();
     let key: String = conn
         .query_row(
             "SELECT name FROM pragma_table_info('features') WHERE pk = 1",

@@ -52,7 +52,8 @@ def dependency_catalog(binary):
 def extract(root):
     target = ROOT / 'target/arrow-api'
     target.mkdir(parents=True, exist_ok=True)
-    env = dict(os.environ, CARGO_BUILD_JOBS='3')
+    env = dict(os.environ)
+    env.setdefault('CARGO_BUILD_JOBS', '2')
     with (ROOT / 'target/arrow-api-build.log').open('w') as log:
         subprocess.run(['cargo', 'build', '--offline', '--locked', '--manifest-path',
                         str(ROOT / 'scripts/arrow-api/Cargo.toml'), '--target-dir', str(target)],

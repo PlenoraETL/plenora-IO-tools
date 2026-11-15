@@ -985,7 +985,7 @@ def _differita_ben_dichiarata(voce: dict[str, Any]) -> list[str]:
         return errori
     if prova.get("tipo") == "esterna":
         for relativo in _percorsi(prova.get("artefatto")):
-            derivato, _ = stato_esterno_osservato(relativo)
+            derivato, _ = stato_prova_esterna(voce, relativo)
             if derivato == STATO_ESTERNO_VALIDO:
                 errori.append(
                     f"«{relativo}» dice «{STATO_ESTERNO_VALIDO}»: l'evidenza "
@@ -1043,7 +1043,7 @@ def _prove_esterne(documento: dict[str, Any]) -> list[str]:
             errori.append(f"{voce.get('id')}: prova esterna senza artefatto da leggere")
             continue
         for relativo in percorsi:
-            derivato, _ = stato_esterno_osservato(relativo)
+            derivato, _ = stato_prova_esterna(voce, relativo)
             if prova.get("stato") != derivato:
                 errori.append(
                     f"{voce.get('id')}: la prova dichiara lo stato "
@@ -1056,6 +1056,17 @@ def _prove_esterne(documento: dict[str, Any]) -> list[str]:
 
 def _comandi(prova: dict[str, Any]) -> list[list[str]]:
     return [prova["comando"], *prova.get("comandi_aggiuntivi", [])]
+
+
+def _esegui_comando(comando: list[str]) -> subprocess.CompletedProcess:
+    argv = list(comando)
+    if argv[0] in ("python", "python3"):
+        argv[0] = sys.executable
+    try:
+        return subprocess.run(argv, cwd=ROOT, capture_output=True, text=True,
+                              check=False, timeout=1800)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return subprocess.CompletedProcess(argv, 125, "", str(exc))
 
 
 def esegui(documento: dict[str, Any]) -> list[str]:
@@ -1080,12 +1091,12 @@ def esegui(documento: dict[str, Any]) -> list[str]:
             if chiave in visti:
                 continue
             visti[chiave] = voce["id"]
-            esito = subprocess.run(comando, cwd=ROOT, capture_output=True, text=True, check=False)
+            esito = _esegui_comando(comando)
             if esito.returncode != 0:
                 errori.append(
                     f"{voce['id']}: la prova «{' '.join(comando)}» esce con "
                     f"{esito.returncode}. Un invariante la cui verifica fallisce "
-                    "non e' verificato."
+                    f"non e' verificato.\n{esito.stdout}\n{esito.stderr}"
                 )
 
     # --- test: eseguiti una volta per coppia, l'identita' deve comparire
@@ -1127,8 +1138,11 @@ def esegui(documento: dict[str, Any]) -> list[str]:
         if funzione is None:
             errori.append(f"{voce['id']}: la funzione «{prova['funzione']}» non esiste")
             continue
-        documento_artefatto = strict_json.loads((ROOT / prova["artefatto"]).read_text(encoding="utf-8"))
-        errori.extend(f"{voce['id']}: {m}" for m in funzione(documento_artefatto))
+        try:
+            documento_artefatto = strict_json.loads((ROOT / prova["artefatto"]).read_text(encoding="utf-8"))
+            errori.extend(f"{voce['id']}: {m}" for m in funzione(documento_artefatto))
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            errori.append(f"{voce['id']}: prova interna non eseguibile: {exc}")
 
     return errori
 
@@ -1228,7 +1242,13 @@ def versione_workspace() -> str | None:
     return None
 
 
-def stato_esterno_osservato(relativo: str) -> tuple[str, list[str]]:
+def stato_prova_esterna(voce: dict[str, Any], relativo: str) -> tuple[str, list[str]]:
+    if voce.get("id") == "sistema.qualifica-cross-component":
+        return stato_esterno_osservato(relativo, qualifica_sistema=True)
+    return stato_esterno_osservato(relativo)
+
+
+def stato_esterno_osservato(relativo: str, *, qualifica_sistema: bool = False) -> tuple[str, list[str]]:
     """`(stato, motivi)` di una qualifica esterna, **derivati dal contenuto**.
 
     Non si legge il campo con cui la voce si dichiara: un `passed` scritto
@@ -1236,13 +1256,27 @@ def stato_esterno_osservato(relativo: str) -> tuple[str, list[str]]:
     esattamente la forma di falso verde che il tipo `esterna` esiste per
     escludere.
     """
-    percorso = ROOT / relativo
+    percorso = (ROOT / relativo).resolve()
+    if not percorso.is_relative_to(ROOT.resolve()):
+        return "non_superata", ["artefatto della qualifica esterno al repository"]
     if not percorso.exists():
         return "assente", [f"{relativo}: artefatto della prova esterna assente"]
     try:
         documento = strict_json.loads(percorso.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as errore:
-        return "illeggibile", [f"{relativo}: non e' JSON leggibile ({errore})"]
+    except (ValueError, UnicodeError, OSError):
+        return "illeggibile", [f"{relativo}: documento della qualifica non leggibile"]
+
+    if not isinstance(documento, dict):
+        return "non_derivabile", ["qualifica esterna non strutturata"]
+
+    if qualifica_sistema or relativo == "release/system-rc-gate.json":
+        from system_qualification import validate
+        motivi = validate(documento, ROOT)
+        evidenza = documento.get("evidence")
+        stato = evidenza.get("status") if isinstance(evidenza, dict) else None
+        if not motivi:
+            return STATO_ESTERNO_VALIDO, []
+        return (stato if stato in ("not_run", "partial", "failed") else "non_superata"), motivi
 
     evidenza = documento.get("evidence")
     dichiarato = evidenza.get("status") if isinstance(evidenza, dict) else None
@@ -1265,11 +1299,10 @@ def stato_esterno_osservato(relativo: str) -> tuple[str, list[str]]:
         motivi.append(
             f"{relativo}: l'owner dichiara {len(aperti)} blocchi ancora aperti"
         )
-    senza_revisione = [
-        componente.get("name")
-        for componente in documento.get("components", [])
-        if not componente.get("revision")
-    ]
+    components = documento.get("components", [])
+    if not isinstance(components, list) or any(not isinstance(c, dict) for c in components):
+        return "non_superata", ["componenti della qualifica non strutturati"]
+    senza_revisione = [c.get("name") for c in components if not c.get("revision")]
     if senza_revisione:
         motivi.append(
             f"{relativo}: revisione non fissata per {senza_revisione}. Una "
@@ -1481,6 +1514,8 @@ def artefatti_attesi(versione: str, versione_python: str | None = None,
     # di allora, non quella viva: chiedere al sorgente di oggi che nomi
     # avesse una release passata darebbe i nomi di oggi, e il confronto
     # direbbe che la release pubblicata e' sbagliata.
+    if versione_python is None and candidate is not None and candidate.get("stato") == "pubblicata":
+        versione_python = candidate.get("versione_manifesto")
     versione_python = versione_python or versione_del_pacchetto_python()
     python = [
         voce["nome"].replace("<versione>", versione_python)
@@ -1995,7 +2030,7 @@ def condizione_qualifica_cross_component(documento: dict[str, Any]) -> list[str]
         ]
     motivi: list[str] = []
     for relativo in percorsi:
-        _, trovati = stato_esterno_osservato(relativo)
+        _, trovati = stato_prova_esterna(voce, relativo)
         motivi.extend(trovati)
     return motivi
 
@@ -2007,11 +2042,9 @@ def verifica_condizione(
     verifica = condizione["verifica"]
     if verifica["tipo"] == "gate":
         comando = verifica["comando"]
-        esito = subprocess.run(
-            comando, cwd=ROOT, capture_output=True, text=True, check=False
-        )
+        esito = _esegui_comando(comando)
         if esito.returncode != 0:
-            return [f"«{' '.join(comando)}» esce con {esito.returncode}"]
+            return [f"«{' '.join(comando)}» esce con {esito.returncode}\n{esito.stdout}\n{esito.stderr}"]
         return []
     return globals()[verifica["funzione"]](documento)
 
@@ -4579,12 +4612,13 @@ def main(argv: list[str] | None = None) -> int:
     errori = completezza(documento)
     if not errori:
         errori = struttura(documento)
-    if not errori:
+    struttura_valida = not errori
+    if struttura_valida:
         errori = esegui(documento)
 
     for messaggio in errori:
         print(messaggio, file=sys.stderr)
-    if errori:
+    if errori and (not opzioni.release or not struttura_valida):
         return 1
 
     bloccanti = debito(documento)
@@ -4593,9 +4627,12 @@ def main(argv: list[str] | None = None) -> int:
         # Le condizioni sono **congiunte** e vengono eseguite tutte, anche dopo
         # la prima che fallisce: fermarsi darebbe un elenco parziale di cio'
         # che manca, e chi legge crederebbe che il resto sia a posto.
-        mancate: list[str] = []
+        mancate: list[str] = list(errori)
         for condizione in documento["autorizzazione_di_release"]["condizioni"]:
-            motivi = verifica_condizione(condizione, documento)
+            try:
+                motivi = verifica_condizione(condizione, documento)
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                motivi = [f"condizione non eseguibile: {exc}"]
             for motivo in motivi:
                 print(f"{condizione['id']}: {motivo}", file=sys.stderr)
             if motivi:

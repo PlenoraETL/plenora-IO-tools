@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "descrizione": "Politica delle esclusioni legittime nello smoke puro senza backend e senza extra. Identita e conteggi sono generati dalla misurazione della suite installata; una ragione nuova richiede una decisione esplicita qui.",
+  "perche_un_elenco_e_non_un_numero": "Ãƒâ€šÃ‚Â«27 saltateÃƒâ€šÃ‚Â» e' un numero, e un numero non dice quali. Se domani una sonda smettesse di girare per un difetto -- un `skipUnless` sbagliato, un import inghiottito -- il conteggio resterebbe plausibile e nessuno guarderebbe. Un elenco nomina ciascuna, e una sonda che salta senza essere qui e' una copertura persa in silenzio.",
+  "il_verso_inverso": "una sonda registrata che **non salta piu'** e' altrettanto rossa: vuol dire che e' diventata indipendente dal repository, e la riga va tolta. Un registro che accettasse voci obsolete descriverebbe un passato.",
+  "dove_girano_invece": "Suite repository e wheel nativa in CI; per test_property_plan il job python-abi3-runtime richiede binding nativo e PyArrow, il job distribuzione python richiede wheel pura installata, PyArrow e CLI distribuita. Il runner fuori checkout vieta qualsiasi salto.",
+  "condizioni": [
+    {
+      "id": "backend-struct-bitmap",
+      "che_cosa_manca": "Il binario plenora-io e il binding nativo nella sdist pura.",
+      "perche_non_sta_nella_sdist": "La sdist Python pura non distribuisce eseguibili o estensioni native.",
+      "che_cosa_resta_verificato": "Le fixture sono incluse; le prove dei backend girano nelle suite CLI e wheel nativa.",
+      "ragione_del_salto": "serve il backend plenora-io"
+    },
+    {
+      "id": "fixture-canoniche",
+      "che_cosa_manca": "`crates/plenora-io-tools/tests/fixtures/canoniche/`: i file di prova nei dieci formati, piu' il binario `plenora-io` che li legge.",
+      "perche_non_sta_nella_sdist": "pesano, e sono del **prodotto** invece che dell'SDK. Metterle in un pacchetto Python vorrebbe dire spedire dati di prova di un altro componente a chi installa un wrapper, e legarne la versione a quella dell'SDK: due cose che cambiano per ragioni diverse.",
+      "che_cosa_resta_verificato": "tutto cio' che non tocca un file: la decodifica delle buste, la gerarchia degli errori, i tetti, la scoperta del binario. Le sonde saltate sono quelle d'**integrazione**, e girano nel repository, dove il gate `python-sdk` della CI le esegue a ogni push.",
+      "ragione_del_salto": "servono le fixture canoniche della CLI, che non stanno nella sdist"
+    },
+    {
+      "id": "contratto-del-protocollo",
+      "che_cosa_manca": "`release/cli-protocol-v2.json`.",
+      "perche_non_sta_nella_sdist": "e' il contratto del prodotto, non dell'SDK. Copiarlo nel pacchetto creerebbe una seconda copia che diverge dal giorno dopo, ed e' esattamente il difetto che il gate dei modelli esiste per impedire.",
+      "che_cosa_resta_verificato": "che i modelli **funzionino**: costruiscono, rifiutano i campi mancanti, conservano `raw`. Che i loro campi coincidano col contratto lo verifica `check_sdk_python.py` nel repository, ed e' un'affermazione sul contratto -- non sul pacchetto installato.",
+      "ragione_del_salto": "serve il repository: il contratto e le fixture non stanno nella sdist"
+    },
+    {
+      "id": "sorgente-della-cli",
+      "che_cosa_manca": "`crates/plenora-io-tools/src/main.rs`.",
+      "perche_non_sta_nella_sdist": "e' codice Rust del prodotto. Le due sonde che lo leggono confrontano i tetti di `Limits` con `OPZIONI_AMMESSE`, che e' un confronto fra **due sorgenti** e non una proprieta' del pacchetto installato.",
+      "che_cosa_resta_verificato": "che `Limits` produca gli argomenti giusti, nell'ordine giusto, con la durata in millisecondi. Che quei nomi esistano nella CLI lo verifica il repository.",
+      "ragione_del_salto": "la CLI sta nel repository"
+    },
+    {
+      "id": "estra-pyarrow",
+      "che_cosa_manca": "`pyarrow`, l'extra `plenora-io[pyarrow]` che l'adattatore Arrow usa. L'installazione dalla sdist installa il pacchetto e basta, senza extra e senza rete.",
+      "perche_non_sta_nella_sdist": "e' una dipendenza **facoltativa** e non un file: la sdist non porta dipendenze, e installarla nello smoke vorrebbe dire provare un ambiente che chi installa senza extra non ha. Lo smoke prova proprio quell'ambiente, e li' l'adattatore si rifiuta con `OptionalDependencyError` -- che `SenzaPyarrow` esercita senza saltare.",
+      "che_cosa_resta_verificato": "il rifiuto senza pyarrow e il rifiuto di una serie diversa, che girano anche qui. Le sonde saltate -- la tabella da e verso il file IPC, contro un binario finto -- girano nel repository, nel job `python-sdk` della CI, che installa pyarrow==25.0.1 su ogni versione della matrice.",
+      "ragione_del_salto": "serve pyarrow, l'extra `plenora-io[pyarrow]`, che l'installazione dalla sdist non porta"
+    },
+    {
+      "id": "script-posix",
+      "piattaforme": [
+        "win32"
+      ],
+      "che_cosa_manca": "Esecuzione diretta degli script POSIX usati come backend finto su Windows.",
+      "perche_non_sta_nella_sdist": "Vincolo della piattaforma host, non assenza del pacchetto; le stesse sonde sono obbligatorie su Linux.",
+      "che_cosa_resta_verificato": "Suite installata su Linux nel job distribuzione; su Windows i backend reali sono provati separatamente.",
+      "ragione_del_salto": "il finto e' uno script POSIX"
+    }
+  ],
+  "generato_da": "scripts/check_sonde_saltate.py --misurato <elenca-sonde-saltate.json> --write",
+  "conteggi": "Aspettative della discovery, non attestazioni di esecuzione: totale ed eseguite_nella_sdist escludono i salti specifici di piattaforma. Il gate applica anche le condizioni della piattaforma osservata. I nomi eseguiti sono confrontati, non solo il numero."
+}

@@ -156,7 +156,8 @@ def _sigint_nativo():
         richiesta = True
 
     def interrotto():
-        return richiesta
+        from ._async_client import cancellation_requested
+        return richiesta or cancellation_requested()
 
     if threading.current_thread() is not threading.main_thread():
         yield interrotto
@@ -876,6 +877,10 @@ class Runner:
         scadenza = None if self._timeout is None else _adesso() + self._timeout
         with _inoltra_sigint(processo):
             while True:
+                from ._async_client import cancellation_requested
+                if cancellation_requested():
+                    import asyncio
+                    raise asyncio.CancelledError
                 if scadenza is None:
                     durata = _PASSO
                 else:

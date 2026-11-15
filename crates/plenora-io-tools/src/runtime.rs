@@ -53,7 +53,9 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use serde::de::{MapAccess, SeqAccess, Visitor};
+use plenora_io_model::json::{
+    deserialize_value as senza_chiavi_ripetute, UniqueJson as SenzaDoppioni,
+};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{json, Map, Value};
 
@@ -1794,104 +1796,6 @@ const fn spazio_ecma(carattere: char) -> bool {
                 | '\u{3000}'
                 | '\u{FEFF}'
     )
-}
-
-/// Un JSON qualunque, con le chiavi ripetute rifiutate a ogni livello.
-fn senza_chiavi_ripetute<'de, D>(deserializer: D) -> Result<Value, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    deserializer.deserialize_any(ValoreSenzaDoppioni)
-}
-
-struct ValoreSenzaDoppioni;
-
-impl<'de> Visitor<'de> for ValoreSenzaDoppioni {
-    type Value = Value;
-
-    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("un valore JSON senza chiavi ripetute")
-    }
-
-    fn visit_bool<E>(self, valore: bool) -> Result<Value, E> {
-        Ok(Value::Bool(valore))
-    }
-
-    fn visit_i64<E>(self, valore: i64) -> Result<Value, E> {
-        Ok(Value::from(valore))
-    }
-
-    fn visit_u64<E>(self, valore: u64) -> Result<Value, E> {
-        Ok(Value::from(valore))
-    }
-
-    fn visit_f64<E: serde::de::Error>(self, valore: f64) -> Result<Value, E> {
-        // Un numero non finito non e' JSON: `null` qui sarebbe un valore
-        // inventato, e si rifiuta invece di convertirlo.
-        serde_json::Number::from_f64(valore)
-            .map(Value::Number)
-            .ok_or_else(|| serde::de::Error::custom("numero non rappresentabile"))
-    }
-
-    fn visit_str<E>(self, valore: &str) -> Result<Value, E> {
-        Ok(Value::String(valore.to_owned()))
-    }
-
-    fn visit_string<E>(self, valore: String) -> Result<Value, E> {
-        Ok(Value::String(valore))
-    }
-
-    fn visit_unit<E>(self) -> Result<Value, E> {
-        Ok(Value::Null)
-    }
-
-    fn visit_none<E>(self) -> Result<Value, E> {
-        Ok(Value::Null)
-    }
-
-    fn visit_some<D>(self, deserializer: D) -> Result<Value, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        senza_chiavi_ripetute(deserializer)
-    }
-
-    fn visit_seq<A>(self, mut sequenza: A) -> Result<Value, A::Error>
-    where
-        A: SeqAccess<'de>,
-    {
-        let mut elementi = Vec::new();
-        while let Some(SenzaDoppioni(elemento)) = sequenza.next_element()? {
-            elementi.push(elemento);
-        }
-        Ok(Value::Array(elementi))
-    }
-
-    fn visit_map<A>(self, mut mappa: A) -> Result<Value, A::Error>
-    where
-        A: MapAccess<'de>,
-    {
-        let mut campi = Map::new();
-        while let Some((chiave, SenzaDoppioni(valore))) =
-            mappa.next_entry::<String, SenzaDoppioni>()?
-        {
-            if campi.insert(chiave, valore).is_some() {
-                return Err(serde::de::Error::custom("chiave ripetuta nel payload"));
-            }
-        }
-        Ok(Value::Object(campi))
-    }
-}
-
-struct SenzaDoppioni(Value);
-
-impl<'de> Deserialize<'de> for SenzaDoppioni {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        senza_chiavi_ripetute(deserializer).map(SenzaDoppioni)
-    }
 }
 
 #[derive(Clone, Copy)]

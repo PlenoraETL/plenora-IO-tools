@@ -337,7 +337,6 @@ fn reconciliation_callers_are_enumerated_structurally() {
         ),
         ("plenora-io-core/src/ewkb.rs", "pianifica"),
         ("driver-gpkg/src/lib.rs", "open"),
-        ("driver-gpkg/src/lib.rs", "project_gpkg_layer"),
         ("driver-geoparquet/src/lib.rs", "contract_from_footer"),
         ("driver-filegdb/src/lib.rs", "open"),
         ("driver-filegdb/src/test_contract.rs", "declared"),

@@ -425,6 +425,16 @@ pub fn sezione_di_perdita(
     // 1. I metadati di troncamento entrano per primi: sono la dichiarazione, e
     //    una dichiarazione che entra solo se avanza spazio non e' una garanzia.
     let mut base = Map::new();
+    if !rapporto.property_changes.is_empty() {
+        rapporto
+            .validate_property_budget()
+            .map_err(|_| BudgetInsufficiente)?;
+        base.insert(
+            "property_changes".to_owned(),
+            json!(rapporto.property_changes),
+        );
+    }
+
     base.insert("troncato".to_owned(), json!(false));
     // `false` e non `true`: e' la stringa piu' lunga delle due, e lo spazio si
     // riserva al caso peggiore come per la dichiarazione di troncamento.

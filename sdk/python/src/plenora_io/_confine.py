@@ -167,6 +167,28 @@ def _confinato(funzione: Callable[..., Any], nome: str | None = None) -> Callabl
             sostituto.__context__ = None
             raise
 
+    import inspect
+    if inspect.iscoroutinefunction(funzione):
+        @functools.wraps(funzione)
+        async def involucro_async(*argomenti: Any, **opzioni: Any) -> Any:
+            esterna = _avviati.get() is None
+            gettone = _avviati.set([]) if esterna else None
+            elenco = _avviati.get()
+            try:
+                return await funzione(*argomenti, **opzioni)
+            except Exception as errore:
+                sostituto = _al_confine(errore, elenco or [], etichetta)
+            finally:
+                if gettone is not None:
+                    _avviati.reset(gettone)
+            try:
+                raise sostituto from None
+            except PlenoraError:
+                sostituto.__context__ = None
+                raise
+        setattr(involucro_async, SEGNO, True)
+        return involucro_async
+
     setattr(involucro, SEGNO, True)
     return involucro
 
@@ -265,21 +287,9 @@ def _privato(nome: str) -> bool:
     return nome.startswith("_") and not (nome.startswith("__") and nome.endswith("__"))
 
 
-#: I modelli dell'SDK, per **nome**: un elenco chiuso ed esplicito. Prima un
-#: modello si riconosceva dal prefisso del modulo (`plenora_io...`), e passava
-#: anche una dataclass interna come `process.Completed`, o una del chiamante in
-#: un modulo `plenora_io_plugin`. Ora vale l'identita' della classe, fissata da
-#: `_registra_modelli` all'import, e una prova confronta l'elenco con le
-#: dataclass esportate.
-NOMI_DEI_MODELLI: tuple[str, ...] = (
-    "Capabilities", "CapabilityInterface", "CapabilityOperation", "Catalog",
-    "ConvertResult", "ConvertedLayer", "CrsResolution", "Delivered", "Driver",
-    "ErrorEnvelope", "Fidelity", "FidelityReason", "Field", "FormatDescriptor",
-    "Geometry", "Inspect", "Layer", "LayerSummary", "Layers", "Limits", "LossCount",
-    "LossExample", "LossReport", "Manifest", "Omissions", "OperationContent",
-    "OperationControls", "TableRead", "Validation", "Version", "WriteInput",
-    "WriteResult",
-)
+#: Derived once from the explicit public export list, then trusted by identity.
+#: Neither module prefixes nor caller classes can enroll themselves at use time.
+NOMI_DEI_MODELLI: tuple[str, ...] = ()
 
 #: Le classi di `NOMI_DEI_MODELLI`, riempito da `_registra_modelli`. Un elenco e
 #: non un insieme, e lo si scorre con `is`: l'appartenenza a un `set` o a una
@@ -299,6 +309,9 @@ CAMPI_CON_TABELLA: frozenset[tuple[str, str]] = frozenset({("TableRead", "table"
 
 def _registra_modelli(spazio: dict[str, Any]) -> None:
     """Le classi dei modelli, prese per nome dallo spazio di `__init__`."""
+    global NOMI_DEI_MODELLI
+    NOMI_DEI_MODELLI = tuple(nome for nome in spazio["__all__"]
+                            if isinstance(spazio[nome], type) and dataclasses.is_dataclass(spazio[nome]))
     for nome in NOMI_DEI_MODELLI:
         classe = spazio[nome]
         if not dataclasses.is_dataclass(classe):
@@ -552,6 +565,12 @@ def _con_self(funzione: Callable[..., Any], classe: type) -> Callable[..., Any]:
             raise _dallo_sdk(InvalidArgumentError, "rete.self_estraneo")
         return funzione(*argomenti, **opzioni)
 
+    import inspect
+    if inspect.iscoroutinefunction(funzione):
+        @functools.wraps(funzione)
+        async def controllato_async(*argomenti: Any, **opzioni: Any) -> Any:
+            return await controllato(*argomenti, **opzioni)
+        return controllato_async
     return controllato
 
 

@@ -93,7 +93,13 @@ RUN apt-get update \
         git \
         ca-certificates \
         curl \
+      libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev libffi-dev liblzma-dev uuid-dev \
  && rm -rf /var/lib/apt/lists/*
+
+COPY .python-version scripts/install-python.sh /tmp/plenora-python/
+RUN bash /tmp/plenora-python/install-python.sh
+ENV PATH="/opt/plenora-python/bin:${PATH}"
+
 
 # Il necessario per costruire e **installare** il pacchetto Python dell'SDK in
 # ambienti puliti: `venv` per l'ambiente, `pip` per installarci dentro,

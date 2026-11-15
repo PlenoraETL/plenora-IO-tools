@@ -59,90 +59,14 @@ ROOT = Path(__file__).resolve().parents[1]
 OCCORRENZA = re.compile(r"WkbLimits::default\(\)")
 DICHIARAZIONE_FN = re.compile(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)")
 
-# Conteggio atteso per categoria. `produzione` puo' solo scendere: e' il
-# residuo del difetto che S5 ha corretto.
-# `test` passa da 47 a 50 con il lotto S11: `driver-gpkg` ne aggiunge tre.
-# Uno e' l'helper `forma`, che tiene la quota predefinita in un posto solo
-# invece che su ogni riga; due sono le sonde dei budget, che dai campi di
-# `WkbLimits` derivano il payload oltre il tetto -- provano i limiti, quindi
-# e' li' che il default e' l'oggetto della prova e non una scorciatoia.
-# `test` passa da 80 a 82 con le sonde N1 di `driver-xls`: una in
-# `encode_geometry_cell`, dove la quota e' il contesto sotto cui si prova la
-# distinzione fra assenza e geometria a meta', e una nell'attrezzo
-# `scrittore`, che tiene la quota in un posto solo invece che su ogni lotto.
-# In nessuna delle due il tetto e' l'oggetto della prova: sceglierne una
-# diversa proverebbe il driver sotto una quota che nessun uso reale imposta.
-# `test` passa da 82 a 83 con la sonda che costruisce `ShpWriter` a mano per
-# portare il contatore delle righe a ridosso di `u64::MAX`: lo stato ha un
-# campo `wkb_limits`, e li' la quota e' il contesto della prova, non il suo
-# oggetto -- cio' che si prova e' l'ordine fra conteggio e scrittura.
-# `test` passa da 83 a 88 con le cinque sonde sulla **fase** dichiarata dai
-# driver: una per CSV, DXF, GeoJSON e XLS sul ramo difensivo dei loro writer, e
-# una sullo spool su file di DXF.
-#
-# Nelle prime quattro la quota e' il contesto e non l'oggetto: cio' che si prova
-# e' che un WKB illeggibile faccia dichiarare la fase in corso, e un tetto
-# diverso proverebbe lo stesso percorso sotto una quota che nessun uso reale
-# imposta. La quinta e' l'eccezione che vale la pena distinguere: li' il tetto
-# **e'** l'oggetto -- `max_cell_bytes: 5` contro i ventuno byte di un Point --
-# e il default riempie gli altri campi, perche' stringere anche quelli
-# sposterebbe il rifiuto su un limite che la prova non sta esaminando.
-# `test` passa da 88 a 90 con le due sonde SURF-010 della 4.1.1 sulla scadenza
-# in finalizzazione: `una_scadenza_durante_la_finalizzazione_non_pubblica`
-# (CSV) e `una_scadenza_prima_del_controllo_dimensionale_e_un_timeout_e_ripulisce`
-# (Shapefile). Costruiscono il contesto del writer a mano, e li' la quota WKB
-# e' contesto e non oggetto: cio' che si prova e' che la scadenza prevalga e
-# che nulla venga pubblicato.
-# `test` passa da 90 a 95 con le prove di GEO-011 in `plenora-io-model`
-# (`wkb/tests.rs`): tre decodificano byte scritti a mano sotto la quota
-# predefinita, che li' e' il contesto; due, nella prova dell'annidamento, ne
-# derivano i tetti di profondita' da provare, perche' cio' che si prova e' che
-# la profondita' del contratto valga qualunque sia il tetto configurato.
-# `test` passa da 95 a 96 con `un_membro_di_altre_dimensioni_e_malformato_nel_codec`
-# (`wkb_lossless/tests.rs`): decodifica e ispeziona byte scritti a mano sotto
-# la quota predefinita, che li' e' il contesto; cio' che si prova e' il rifiuto
-# di GEO-011 per un membro di altre dimensioni, non un tetto.
-# `test` passa da 96 a 97 con `un_poligono_vuoto_fa_andata_e_ritorno` (il
-# poligono vuoto che il fuzz `from_wkb` ha trovato, CI di a7ae1e2): una prova
-# che decodifica con i tetti predefiniti, non un uso nuovo in produzione.
-ATTESI = {"test": 97, "attrezzaggio": 6, "produzione": 2}
-# Le sette ultime sono le sonde di **confine** del lotto S12: per ogni forma
-# derivano dal default una quota esatta e una piu' stretta di uno, perche' il
-# tetto sui componenti va provato dove morde e non «da qualche parte sopra».
-# Li' il default e' il punto di partenza della prova, non una scorciatoia.
-# La meta' GeoJSON di S12 ne aggiunge quattro, tutte nelle sonde di
-# `geometria_progressiva`: due derivano quote strette dal default -- li' il
-# default e' l'oggetto della prova -- e due sono il confronto con il confine
-# precedente e la parita' dei conteggi con `inspect_wkb`, che interrogano
-# entrambi i lati con i tetti predefiniti perche' e' la grammatica a essere
-# in prova. `produzione` resta 2: il punto d'ingresso del fuzzing dichiara i
-# propri tre tetti invece di ereditarli.
-# Le due ultime sono le sonde dell'unico irrigidimento del lotto S12 -- il
-# testo residuo rifiutato -- e del round-trip dei writer: provano la
-# grammatica con i tetti predefiniti, perche' e' la grammatica a essere in
-# prova e non le quote.
-# La sessantatreesima e' la sonda che confronta l'insieme accettato con
-# quello del parser precedente: interroga entrambi i confini con i tetti
-# predefiniti, perche' e' l'insieme accettato a essere in prova, non le quote.
-# Il lotto S12 muove `test` da 54 a 62 e `attrezzaggio` da 4 a 6, e
-# **non** muove `produzione`. E' il punto: `parse_wkt` -- la comodita'
-# pubblica senza tetti -- e' sparita invece di entrare in LEGITTIME. Una
-# funzione che sceglie da sola le quote riporta indietro cio' che S5 ha
-# portato fino all'inferenza, e non c'era ragione per cui il default fosse
-# la scelta giusta: chi analizza WKT dichiara con quali limiti.
-#
-# Le otto occorrenze nei test sono le sonde dei tetti in `wkt_progressivo`,
-# che dal default derivano quote strette -- li' il default e' l'oggetto
-# della prova -- e i due helper unici che tengono i predefiniti in un posto
-# solo invece che su venti righe di sonda. Le due nell'attrezzaggio sono i
-# suoi gemelli in `plenora-fuzz` e nel target `wkt_parse`, che non hanno
-# opzioni da cui prendere una quota.
-# Gli ultimi due sono le sonde del budget dei componenti e il confronto con
-# il parser condiviso: entrambe partono dal default per **stringerlo**, ed e'
-# li' che la quota configurata e quella predefinita si distinguono.
-# I due ultimi sono la sonda del tetto per cella, che dal default deriva
-# **due** quote strette -- una che rifiuta e una che ammette -- per provare
-# insieme che il tetto si applica e che e' quello configurato.
+# Inventario generato dai sorgenti; il confronto nominale avviene in main.
+# I conteggi sono derivati, mai aggiornati a mano.
+import json
+REGISTRO = ROOT / "assurance/registries/wkb-defaults.json"
+INVENTARIO = json.loads(REGISTRO.read_text(encoding="utf-8"))
+ATTESI = {categoria: sum(n for k, n in INVENTARIO.items()
+                        if k.startswith(categoria + "|"))
+          for categoria in ("test", "attrezzaggio", "produzione")}
 
 # Occorrenze di produzione **legittime**: il default e' la scelta giusta, non
 # un residuo. Chiave: `percorso::funzione`; valore: `(quante, perche')`.
@@ -350,7 +274,7 @@ def righe_di_test(testo: str) -> set[int]:
     return dentro
 
 
-def verifica(radice: Path) -> tuple[list[str], dict[str, int]]:
+def verifica(radice: Path, inventario: dict[str, int] | None = None) -> tuple[list[str], dict[str, int]]:
     """Ritorna `(violazioni, conteggi per categoria)`."""
     conteggi = {nome: 0 for nome in ATTESI}
     produzione: dict[str, int] = {}
@@ -373,6 +297,12 @@ def verifica(radice: Path) -> tuple[list[str], dict[str, int]]:
         intervalli = intervalli_di_funzione(testo)
         for trovata in OCCORRENZA.finditer(testo):
             riga = testo.count("\n", 0, trovata.start()) + 1
+            categoria = ("attrezzaggio" if crate in ATTREZZAGGIO else
+                         "test" if riga in in_test else "produzione")
+            if inventario is not None:
+                identita = (f"{categoria}|{percorso}::"
+                            f"{funzione_che_racchiude(intervalli, trovata.start())}")
+                inventario[identita] = inventario.get(identita, 0) + 1
             if crate in ATTREZZAGGIO:
                 conteggi["attrezzaggio"] += 1
             elif riga in in_test:
@@ -427,8 +357,25 @@ def verifica(radice: Path) -> tuple[list[str], dict[str, int]]:
     return errori, conteggi
 
 
+def confronta_inventario(inventario: dict[str, int]) -> list[str]:
+    return [f"{identita}: inventario={INVENTARIO.get(identita)}, "
+            f"sorgenti={inventario.get(identita)}"
+            for identita in sorted(set(INVENTARIO) | set(inventario))
+            if INVENTARIO.get(identita) != inventario.get(identita)]
+
+
 def main() -> int:
-    errori, conteggi = verifica(ROOT)
+    import argparse
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--genera", action="store_true")
+    args = parser.parse_args()
+    inventario: dict[str, int] = {}
+    errori, conteggi = verifica(ROOT, inventario)
+    if args.genera:
+        REGISTRO.write_text(json.dumps(inventario, indent=2, sort_keys=True) + "\n",
+                            encoding="utf-8")
+        return 0
+    errori.extend(confronta_inventario(inventario))
     if errori:
         for messaggio in errori:
             print(messaggio, file=sys.stderr)

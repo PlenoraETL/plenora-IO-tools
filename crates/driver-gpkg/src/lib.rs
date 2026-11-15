@@ -39,7 +39,7 @@ use plenora_io_core::driver::{
 };
 use plenora_io_core::loss::LossReport;
 use plenora_io_core::publish::StagedFile;
-use plenora_io_core::request::{Bbox, ProjectionMode, ReadRequest};
+use plenora_io_core::request::{Bbox, ReadRequest};
 use plenora_io_core::{
     validate_write, with_write_validation, ArrowTypeClass, AttributeWriteSupport, CrsDerivation,
     CrsRepresentationCapabilities, CrsRepresentationState, CrsWriteSupport,
@@ -446,14 +446,22 @@ impl FormatDriver for GpkgDriver {
                 }
             };
             let rtree_table = registered_rtree(&conn, &table_meta.table, &table_meta.geom_col)?;
-            let (schema, attrs) =
-                build_schema(&conn, &table_meta.table, &table_meta.geom_col, &crs)?;
+            let schema::ReadSchema {
+                schema,
+                attrs,
+                properties,
+            } = build_schema(&conn, &table_meta.table, &table_meta.geom_col, &crs)?;
             let mut geometry = GeometryColumnContract::wkb_passthrough(
                 FieldId(0),
                 table_meta.geom_col.clone(),
                 crs,
                 schema.field(0).is_nullable(),
             );
+            geometry.identita_dichiarata = schema
+                .field(0)
+                .metadata()
+                .get(plenora_io_model::geometry::PLENORA_FIELD_ID_KEY)
+                .and_then(|id| id.parse().ok());
             geometry.dimensions = gpkg_dimensions(table_meta.z, table_meta.m);
             geometry.srid = i32::try_from(table_meta.srs_id).ok();
             if let Some(geometry_type) = gpkg_geometry_type(&table_meta.geometry_type_name) {
@@ -497,6 +505,7 @@ impl FormatDriver for GpkgDriver {
                 metas.push(meta);
                 continue;
             }
+            plenora_io_core::property_plan::validate_gpkg_read_schema(&contract.schema)?;
             let runtime_schema = contract.schema.clone();
             layers.push(LayerContract {
                 id: layer_id,
@@ -520,10 +529,21 @@ impl FormatDriver for GpkgDriver {
                 table: table_meta.table,
                 geom_col: table_meta.geom_col,
                 schema: runtime_schema,
+                properties,
                 attrs,
                 layer_srs_id,
             });
         }
+        let mut provenance = LossReport::default();
+        for (index, meta) in metas.iter().enumerate() {
+            if let Some(properties) = &meta.properties {
+                provenance.merge(&properties.report(
+                    index as u64,
+                    plenora_io_core::property_plan::Phase::SourceWrite,
+                )?);
+            }
+        }
+        provenance.validate_property_budget()?;
         plenora_io_core::with_read_budget(
             Box::new(GpkgDataset {
                 path,
@@ -548,9 +568,8 @@ impl FormatDriver for GpkgDriver {
             opts.max_columns(),
             &opts.format_options,
         )?;
-        for layer in &plan.layers {
-            validate_sqlite_metadata(&layer.contract.schema)?;
-        }
+        let planned_options = contract_plan::prepare_write(plan, opts)?;
+        let opts = &planned_options;
         let Sink::Path(path) = sink;
         if path.exists() {
             return Err(PlenoraIoError::destinazione_esistente());
@@ -623,6 +642,7 @@ impl FormatDriver for GpkgDriver {
                 &l.contract.schema,
                 srs_id,
                 l.contract.geometry.as_ref(),
+                opts.property_plan(indice_layer),
             )?);
         }
         if layers.is_empty() {
@@ -646,6 +666,7 @@ impl FormatDriver for GpkgDriver {
 // --- lettura (streaming a pagine) -----------------------------------------
 
 struct LayerRead {
+    properties: Option<plenora_io_core::property_plan::PropertyPlan>,
     table: String,
     geom_col: String,
     rtree_table: Option<String>,
@@ -794,7 +815,16 @@ impl OpenDatasetHandle for GpkgDataset {
             last_rowid: None,
             layer_srs_id: m.layer_srs_id,
             layer,
-            loss: schema_read_loss(&m.schema, request.layer.0),
+            loss: {
+                let mut report = schema_read_loss(&m.schema, request.layer.0);
+                if let Some(properties) = &m.properties {
+                    report.merge(&properties.report(
+                        u64::from(request.layer.0),
+                        plenora_io_core::property_plan::Phase::SourceWrite,
+                    )?);
+                }
+                report
+            },
             reported: BTreeSet::new(),
         });
         Ok(plenora_io_core::with_cancellation(
@@ -814,40 +844,8 @@ fn project_gpkg_layer(
     source_layer: &LayerContract,
     request: &ReadRequest,
 ) -> Result<(ProjectedGpkgColumns, SchemaRef, LayerContract)> {
-    let mut indices = match &request.projected_fields {
-        None => (0..meta.schema.fields().len()).collect::<Vec<_>>(),
-        Some(field_ids) => {
-            let mut indices = Vec::with_capacity(field_ids.len());
-            for field_id in field_ids {
-                let index = field_id.0 as usize;
-                if index >= meta.schema.fields().len() {
-                    if request.projection_mode == ProjectionMode::Required {
-                        return Err(PlenoraIoError::contratto_redatto(
-                            &PublicMessage::CuratedWith(
-                                "projection Required: field id fuori range,",
-                                NumeroStrutturale::Indice(u64::from(field_id.0)),
-                            ),
-                        ));
-                    }
-                    continue;
-                }
-                if !indices.contains(&index) {
-                    indices.push(index);
-                }
-            }
-            indices
-        }
-    };
-    indices.sort_unstable();
-
-    let fields = indices
-        .iter()
-        .map(|&index| meta.schema.field(index).as_ref().clone())
-        .collect::<Vec<_>>();
-    let schema = Arc::new(Schema::new_with_metadata(
-        fields,
-        meta.schema.metadata().clone(),
-    ));
+    let (indices, layer) = plenora_io_core::request::project_layer_contract(source_layer, request)?;
+    let runtime_schema = layer.contract.schema.clone();
     let geometry = indices.first() == Some(&0);
     let attrs = indices
         .iter()
@@ -858,21 +856,6 @@ fn project_gpkg_layer(
                 .cloned()
         })
         .collect();
-    plenora_io_model::primary::validate_contract(&source_layer.contract)?;
-    let mut layer = source_layer.clone();
-    let projected_geometry = if geometry {
-        layer
-            .contract
-            .geometry
-            .map(|geometry| GeometryColumnContract {
-                field_id: FieldId(0),
-                ..geometry
-            })
-    } else {
-        None
-    };
-    layer.contract = DataContract::new(schema, projected_geometry);
-    let runtime_schema = layer.contract.schema.clone();
     Ok((
         ProjectedGpkgColumns { geometry, attrs },
         runtime_schema,
@@ -1728,6 +1711,7 @@ fn layer_rifiutato(layer_id: LayerId, table_meta: FeatureTable) -> (LayerContrac
             contract: DataContract::new(Arc::new(Schema::empty()), None),
         },
         LayerRead {
+            properties: None,
             rtree_table: None,
             table: table_meta.table,
             geom_col: table_meta.geom_col,
@@ -1818,8 +1802,9 @@ fn crs_for(conn: &Connection, srs_id: i64) -> Result<ResolvedCrs> {
 }
 
 mod affinity;
+mod contract_plan;
 mod schema;
-use schema::{build_schema, schema_read_loss, validate_sqlite_metadata};
+use schema::{build_schema, schema_read_loss};
 
 /// Header `GeoPackage` estratto dal blob geometria (`StandardGeoPackageBinary`).
 ///
@@ -2629,11 +2614,18 @@ fn create_feature_table(
     schema: &Schema,
     srs_id: i32,
     geometry_contract: Option<&GeometryColumnContract>,
+    properties: Option<&plenora_io_core::property_plan::PropertyPlan>,
 ) -> Result<ActiveLayer> {
+    let properties = properties
+        .cloned()
+        .unwrap_or_else(|| plenora_io_core::property_plan::PropertyPlan::new(schema, "gpkg", None));
+    let projected = plenora_io_core::property_plan::gpkg_write_schema(schema);
+    let schema = &projected;
     let geom_idx = geometry_index(schema)
         .ok_or_else(|| err(&PublicMessage::Curated("layer senza geometria")))?;
     let geom_name = schema.field(geom_idx).name().clone();
 
+    let identity = contract_plan::ContractPlan::from_schema(schema)?;
     let cols_ddl = schema::columns_ddl(schema, geom_idx);
     conn.execute(
         &format!(
@@ -2679,6 +2671,7 @@ fn create_feature_table(
     )
     .map_err(sql_err)?;
 
+    identity.with_properties(properties)?.persist(conn, name)?;
     let mut col_list = vec![format!("\"{}\"", geom_name.replace('"', "\"\""))];
     for (i, f) in schema.fields().iter().enumerate() {
         if i != geom_idx {

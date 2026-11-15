@@ -57,7 +57,7 @@ fn matrice_ogni_declared_type_ogni_arrow_e_affinita() {
             for dt in &types {
                 let schema = Schema::new(vec![field(dt.clone(), &spelling)]);
                 assert_eq!(
-                    validate_sqlite_metadata(&schema).is_ok(),
+                    schema::validate_sqlite_metadata(&schema).is_ok(),
                     dt == accepted,
                     "{spelling}/{affinity}/{dt}"
                 );

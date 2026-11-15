@@ -555,6 +555,8 @@ fn reason_code_for_loss(category: &str) -> FidelityReasonCode {
 
 #[derive(Clone, Debug, Default)]
 pub struct LossReport {
+    /// Complete structural transformations; separate from bounded examples.
+    pub property_changes: Vec<crate::property_plan::PropertyChange>,
     /// Aggregati per categoria: (categoria -> conteggio).
     pub counts: BTreeMap<String, u64>,
     /// Gli esempi trattenuti: i **minori** `MAX_ESEMPI_TRATTENUTI` per chiave
@@ -577,6 +579,21 @@ pub struct LossReport {
 }
 
 impl LossReport {
+    /// # Errors
+    /// Rejects a complete property inventory larger than its reserved budget.
+    pub fn validate_property_budget(&self) -> plenora_io_model::Result<()> {
+        if serde_json::to_vec(&self.property_changes).map_or(true, |b| {
+            b.len() > crate::property_plan::MAX_PROPERTY_REPORT_BYTES
+        }) {
+            return Err(plenora_io_model::PlenoraIoError::limite_redatto(
+                &plenora_io_model::PublicMessage::Curated(
+                    "piano delle proprieta oltre il budget diagnostico",
+                ),
+            ));
+        }
+        Ok(())
+    }
+
     pub fn record(&mut self, category: &str, n: u64) {
         let count = self.counts.entry(category.to_owned()).or_default();
         *count = count.saturating_add(n);
@@ -637,6 +654,10 @@ impl LossReport {
     /// diagnostica cambiava a seconda dell'ordine in cui gli adattatori erano
     /// stati composti -- cioe' per ragioni che non la riguardano.
     pub fn merge(&mut self, other: &Self) {
+        self.property_changes
+            .extend(other.property_changes.iter().cloned());
+        self.property_changes.sort();
+        self.property_changes.dedup();
         for (category, count) in &other.counts {
             self.record(category, *count);
         }

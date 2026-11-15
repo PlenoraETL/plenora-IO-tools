@@ -976,6 +976,39 @@ class LossExample:
 
 
 @dataclass(frozen=True, kw_only=True)
+class PropertyEffect:
+    """Structural location in the original schema; no input names or values."""
+    field_index: int | None
+    field_id: int | None
+    key_index: int
+    property: str | None
+    rule: str
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+    _OBBLIGATORI = ("field_index", "field_id", "key_index", "property", "rule")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "PropertyEffect":
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "loss.property_changes[].effect", cls)
+        return cls(**{k: documento[k] for k in _schema(cls)._OBBLIGATORI}, raw=dict(documento))
+
+
+@dataclass(frozen=True, kw_only=True)
+class PropertyChange:
+    """A declared transformation: write, or persisted source_write provenance."""
+    layer_index: int
+    phase: str
+    effect: PropertyEffect
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+    _OBBLIGATORI = ("layer_index", "phase", "effect")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "PropertyChange":
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "loss.property_changes[]", cls)
+        return cls(layer_index=documento["layer_index"], phase=documento["phase"],
+                   effect=PropertyEffect.from_json(documento["effect"]), raw=dict(documento))
+
+
+@dataclass(frozen=True, kw_only=True)
 class LossReport:
     """Che cosa una conversione ha perso, con i conteggi e gli esempi.
 
@@ -994,9 +1027,12 @@ class LossReport:
     troncato: bool
     omesse: Omissions
     omesse_esatte: bool
+    property_changes: list[PropertyChange] = field(default_factory=list)
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     _OBBLIGATORI = ("lossless", "counts", "esempi", "troncato", "omesse", "omesse_esatte")
+
+    _OPZIONALI = ("property_changes",)
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "LossReport":
@@ -1015,6 +1051,7 @@ class LossReport:
             troncato=documento["troncato"],
             omesse=Omissions.from_json(documento["omesse"]),
             omesse_esatte=documento["omesse_esatte"],
+            property_changes=[PropertyChange.from_json(v) for v in documento.get("property_changes", [])],
             raw=dict(documento),
         )
 

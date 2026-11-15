@@ -168,6 +168,16 @@
       "id": "crs_coordinate_epoch_not_preserved",
       "superficie": "plenora-io-core",
       "forma": "costante"
+    },
+    {
+      "id": "gpkg_metadata_not_preserved",
+      "superficie": "plenora-io-core",
+      "forma": "literal"
+    },
+    {
+      "id": "geometry_representation_normalized",
+      "superficie": "plenora-io-core",
+      "forma": "literal"
     }
   ],
   "vie_dinamiche_ammesse": [

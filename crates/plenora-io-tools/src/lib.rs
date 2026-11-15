@@ -878,27 +878,17 @@ fn piano_di_scrittura(
     selezionati: &[LayerContract],
     sink: &plenora_io_core::FormatDescriptor,
     limiti: plenora_io_model::limits::WkbLimits,
-) -> Result<(WritePlan, Vec<Option<plenora_io_core::ewkb::DaEwkbAWkb>>), PlenoraIoError> {
-    let mut layers = Vec::with_capacity(selezionati.len());
-    let mut da_ewkb = Vec::with_capacity(selezionati.len());
-    for l in selezionati {
-        let pianificato = plenora_io_core::ewkb::pianifica(
-            sink,
-            &l.contract.schema,
-            l.contract.geometry.as_ref(),
-            limiti,
-        )?;
-        let (schema, geometry, adattamento) = match pianificato {
-            Some((schema, geometria, adattamento)) => (schema, Some(geometria), Some(adattamento)),
-            None => (l.contract.schema.clone(), l.contract.geometry.clone(), None),
-        };
-        layers.push(WriteLayer {
-            name: l.name.clone(),
-            contract: DataContract { schema, geometry },
-        });
-        da_ewkb.push(adattamento);
-    }
-    Ok((WritePlan { layers }, da_ewkb))
+) -> Result<plenora_io_core::ewkb::PreparedWrite, PlenoraIoError> {
+    let original = WritePlan {
+        layers: selezionati
+            .iter()
+            .map(|layer| WriteLayer {
+                name: layer.name.clone(),
+                contract: layer.contract.clone(),
+            })
+            .collect(),
+    };
+    plenora_io_core::ewkb::PreparedWrite::new(&original, sink, limiti)
 }
 
 /// `io.write`: pubblica un dataset Arrow in un formato **nominato**.
@@ -960,8 +950,12 @@ pub fn cmd_write(cli: &Cli) -> CliResult {
     let fedelta_ingresso = ds.fidelity_assessment();
 
     let selezionati = strati_da_pubblicare(ds.layers(), cli.layer)?;
-    let (piano, conversioni) =
-        piano_di_scrittura(&selezionati, sink.descriptor(), wopts.wkb_limits()).map_err(map_err)?;
+    let plenora_io_core::ewkb::PreparedWrite {
+        plan: piano,
+        conversions: conversioni,
+        properties,
+    } = piano_di_scrittura(&selezionati, sink.descriptor(), wopts.wkb_limits()).map_err(map_err)?;
+    wopts = wopts.with_property_plans(properties);
     wopts.durable = cli.durable;
     wopts.format_options = opts_uniti(&cli.opts, &cli.out_opts);
     let mut writer = sink
@@ -997,7 +991,6 @@ pub fn cmd_write(cli: &Cli) -> CliResult {
         rapporti.push(json!({"name": strato.name, "rows": righe, "batches": batch}));
     }
     let pubblicato = writer.finish().map_err(map_err)?;
-
     let fedelta_ingresso = fedelta_ingresso.with_loss_report(&perdita_in_ingresso);
     let combinata = combined_fidelity(&fedelta_ingresso, &pubblicato.fidelity);
 
@@ -1396,8 +1389,12 @@ pub fn cmd_convert(cli: &Cli) -> CliResult {
     {
         return Err(map_err(rifiuto));
     }
-    let (plan, da_ewkb) =
-        piano_di_scrittura(&selected, dst.descriptor(), wopts.wkb_limits()).map_err(map_err)?;
+    let plenora_io_core::ewkb::PreparedWrite {
+        plan,
+        conversions: da_ewkb,
+        properties,
+    } = piano_di_scrittura(&selected, dst.descriptor(), wopts.wkb_limits()).map_err(map_err)?;
+    wopts = wopts.with_property_plans(properties);
     wopts.durable = cli.durable;
     // Finding #11: vedi commento speculare in `ropts`.
     wopts.format_options = opts_uniti(&cli.opts, &cli.out_opts);

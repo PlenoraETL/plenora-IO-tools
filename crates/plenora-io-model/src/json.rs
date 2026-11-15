@@ -9,7 +9,7 @@ use serde_json::{Map, Value};
 /// Rifiuta JSON malformato, dati successivi e membri duplicati. Il messaggio
 /// non contiene mai chiavi o valori del documento.
 pub fn ensure_no_duplicate_keys(bytes: &[u8]) -> Result<(), &'static str> {
-    serde_json::from_slice::<SenzaDoppioni>(bytes)
+    serde_json::from_slice::<UniqueJson>(bytes)
         .map(|_| ())
         .map_err(|_| "documento JSON non valido o con membri duplicati")
 }
@@ -32,16 +32,18 @@ pub fn from_str<T: DeserializeOwned>(text: &str) -> Result<T, &'static str> {
 }
 
 /// Un JSON qualunque, con le chiavi ripetute rifiutate a ogni livello.
-fn senza_chiavi_ripetute<'de, D>(deserializer: D) -> Result<Value, D::Error>
+/// # Errors
+/// Rifiuta documenti malformati o con membri duplicati.
+pub fn deserialize_value<'de, D>(deserializer: D) -> Result<Value, D::Error>
 where
     D: Deserializer<'de>,
 {
-    deserializer.deserialize_any(ValoreSenzaDoppioni)
+    deserializer.deserialize_any(ValoreUniqueJson)
 }
 
-struct ValoreSenzaDoppioni;
+struct ValoreUniqueJson;
 
-impl<'de> Visitor<'de> for ValoreSenzaDoppioni {
+impl<'de> Visitor<'de> for ValoreUniqueJson {
     type Value = Value;
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -88,7 +90,7 @@ impl<'de> Visitor<'de> for ValoreSenzaDoppioni {
     where
         D: Deserializer<'de>,
     {
-        senza_chiavi_ripetute(deserializer)
+        deserialize_value(deserializer)
     }
 
     fn visit_seq<A>(self, mut sequenza: A) -> Result<Value, A::Error>
@@ -96,7 +98,7 @@ impl<'de> Visitor<'de> for ValoreSenzaDoppioni {
         A: SeqAccess<'de>,
     {
         let mut elementi = Vec::new();
-        while let Some(SenzaDoppioni(elemento)) = sequenza.next_element()? {
+        while let Some(UniqueJson(elemento)) = sequenza.next_element()? {
             elementi.push(elemento);
         }
         Ok(Value::Array(elementi))
@@ -107,9 +109,7 @@ impl<'de> Visitor<'de> for ValoreSenzaDoppioni {
         A: MapAccess<'de>,
     {
         let mut campi = Map::new();
-        while let Some((chiave, SenzaDoppioni(valore))) =
-            mappa.next_entry::<String, SenzaDoppioni>()?
-        {
+        while let Some((chiave, UniqueJson(valore))) = mappa.next_entry::<String, UniqueJson>()? {
             if campi.insert(chiave, valore).is_some() {
                 return Err(serde::de::Error::custom("membro JSON duplicato"));
             }
@@ -118,14 +118,15 @@ impl<'de> Visitor<'de> for ValoreSenzaDoppioni {
     }
 }
 
-struct SenzaDoppioni(Value);
+/// Valore JSON con rifiuto dei membri duplicati a ogni livello.
+pub struct UniqueJson(pub Value);
 
-impl<'de> Deserialize<'de> for SenzaDoppioni {
+impl<'de> Deserialize<'de> for UniqueJson {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        senza_chiavi_ripetute(deserializer).map(SenzaDoppioni)
+        deserialize_value(deserializer).map(UniqueJson)
     }
 }
 

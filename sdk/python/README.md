@@ -7,13 +7,12 @@ lo ratifica campo per campo -- e lo SDK non ne usa altri.
 
 ## Due wheel, un pacchetto
 
-* **La wheel nativa** (`cp310-abi3`, Linux manylinux 2_34 e Windows x86_64) porta
+* **La wheel nativa** (`cp314-abi3`, Linux manylinux 2_34 e Windows x86_64) porta
   il modulo `plenora_io._native`, costruito con PyO3 da `crates/plenora-io-py`.
   Il comando gira **nel processo**: il modulo esegue lo stesso dispatch del
   binario -- le stesse funzioni Rust, non una copia -- e rende lo stesso codice
   d'uscita e la stessa busta. Non serve un binario installato. Una sola wheel per
-  piattaforma copre Python 3.10-3.14, e la CI la prova su tutte e cinque le
-  versioni e sui due sistemi.
+  piattaforma copre Python 3.14, qualificato dalla CI sui due sistemi.
 * **La wheel pura** (`py3-none-any`) e' lo stesso pacchetto senza il modulo, ed
   esegue un binario `plenora-io` che trova sulla macchina. Resta la strada per le
   piattaforme senza wheel nativa e per chi vuole un binario preciso.
@@ -38,6 +37,23 @@ La versione dello SDK e' quella del workspace, cioe' del CLI:
 
 Il pacchetto non e' pubblicato su un indice: wheel e sdist si consegnano con
 gli artefatti della release.
+
+## Operazioni asincrone
+
+`AsyncClient` espone con `await` le operazioni del dominio di `Client`, con gli
+stessi argomenti, risultati ed errori. La costruzione del backend e tutto l'I/O
+avvengono nel worker:
+
+```python
+from plenora_io import AsyncClient
+
+async def inspect_dataset(path):
+    return await AsyncClient().inspect(path)
+```
+
+La cancellazione attende la fine del lavoro. Il backend nativo usa il token
+cooperativo; il backend CLI termina e raccoglie il processo. Una cancellazione
+concorrente alla pubblicazione non annulla un effetto gia' pubblicato.
 
 ## `capabilities()` e `version()`
 
@@ -98,7 +114,7 @@ rivendicarlo mancano la wheel con `api_modes` fra gli artefatti del manifesto e
 | § | requisito | stato |
 |---|---|---|
 | 2 | nome `plenora-io` / `plenora_io` | conforme |
-| 2 | Python 3.10 o piu' recente | conforme: `>=3.10,<3.15`, tutte provate dalla CI |
+| 2 | Python 3.14 | conforme: `>=3.14,<3.15`, tutte provate dalla CI |
 | 2 | `version()` = metadati = nome della wheel | conforme: lo smoke installato lo verifica |
 | 3 | PEP 561, nomi pubblici intenzionali, risultati strutturati | conforme: `py.typed`, `__all__`, dataclass |
 | 3 | Arrow al confine tabellare (SHOULD) | conforme: file Arrow IPC, e oggetti PyArrow con l'extra |
@@ -370,7 +386,7 @@ diventare un `PlenoraError`. Questo riguarda le eccezioni asincrone generiche,
 non il SIGINT raccolto dal gestore cooperativo durante il comando. Prima di
 rilanciarle, se il processo e' partito, l'SDK lo chiude (lo termina e ne
 raccoglie i flussi); per un comando che scrive vi aggiunge una nota fissa,
-senza dati (`add_note`, o `__notes__` su Python 3.10), che dice che l'effetto
+senza dati (`add_note`), che dice che l'effetto
 remoto va considerato `unknown`: una scrittura interrotta puo' aver lasciato
 una destinazione parziale. La stessa nota la mette il client quando
 l'interruzione arriva mentre decodifica la risposta di una scrittura, o legge
