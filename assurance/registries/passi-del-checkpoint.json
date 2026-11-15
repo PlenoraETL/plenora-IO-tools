@@ -214,6 +214,10 @@
       "log": true
     },
     {
+      "id": "sonde_fuzz_release",
+      "log": true
+    },
+    {
       "id": "sonde_prevalidazione",
       "log": true
     },
@@ -449,5 +453,7 @@
       "id": "albero_invariato",
       "log": false
     }
-  ]
+  ],
+  "policy": "io-9-replay-v1",
+  "criterio_fuzz": "fuzz_replay esegue ogni seme versionato una volta sotto ASan; fuzz_smoke e fuzz_campagna_completa verificano la stessa ricevuta, non sono campagne aggiuntive."
 }

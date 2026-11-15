@@ -2,14 +2,14 @@
 # Campagne di **sola copertura** sulla stessa revisione, per il blocco
 # `copertura.variazione-fra-corse`.
 #
-#   bash scripts/campagne_copertura.sh                    due campagne
-#   S9_CAMPAGNE=3 bash scripts/campagne_copertura.sh      tre
+#   bash scripts/campagne_copertura.sh                    una misura pulita
+#   S9_INSTABILITA_MOTIVO=toolchain S9_CAMPAGNE=3 bash scripts/campagne_copertura.sh
 #   S9_SINGOLO_THREAD=1 bash scripts/campagne_copertura.sh  con --test-threads=1
 #
 # # Che cosa questo script non e'
 #
 # Non e' un checkpoint e non produce un verdetto. Non ha soglie, non tocca la
-# soglia dell'80% e non chiude niente: **misura piu' volte la stessa cosa** e
+# soglia dell'80% e non chiude niente: **ripete la misura solo per una diagnosi dichiarata** e
 # lascia il confronto a `confronta_copertura.py`, che guarda le righe e non le
 # percentuali.
 #
@@ -44,11 +44,21 @@ set -u
 
 cd "$(dirname "$0")/.."
 
-CAMPAGNE="${S9_CAMPAGNE:-2}"
+CAMPAGNE="${S9_CAMPAGNE:-1}"
+if ! [[ "${CAMPAGNE}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "S9_CAMPAGNE deve essere un intero positivo" >&2
+    exit 2
+fi
+if [ "${CAMPAGNE}" -gt 1 ] && [ -z "${S9_INSTABILITA_MOTIVO:-}" ]; then
+    echo "Ripetizioni diagnostiche: dichiarare S9_INSTABILITA_MOTIVO prima della corsa" >&2
+    exit 2
+fi
 DIRECTORY="${S9_CAMPAGNE_DIR:-/tmp/campagne-copertura}"
 SINGOLO_THREAD="${S9_SINGOLO_THREAD:-0}"
 
 mkdir -p "${DIRECTORY}"
+printf 'N=%s\nmotivo=%s\ncriterio=zero differenze per file/riga/coperta; nessun retry selettivo\n' \
+    "${CAMPAGNE}" "${S9_INSTABILITA_MOTIVO:-misura finale singola}" > "${DIRECTORY}/criterio.txt"
 
 # Lo stesso perimetro del checkpoint: la soglia vale sulle librerie, non
 # sull'attrezzaggio. Misurare un insieme diverso darebbe numeri che non si
@@ -158,6 +168,10 @@ fi
 
 echo
 echo "=============================================================="
+if [ "${CAMPAGNE}" -eq 1 ]; then
+    echo "Una misura pulita completata; stabilita tra campagne NON MISURATA."
+    exit 0
+fi
 echo "confronto per (file, riga, coperta o no)"
 echo "=============================================================="
 rapporti=()

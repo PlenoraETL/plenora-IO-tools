@@ -527,6 +527,8 @@ FOGLIE_CONDIZIONATE = {
 }
 
 FOGLIE_DICHIARATE = {
+    **{f"prove_9_0_0.{field}": "decisione del titolare e obblighi futuri, non una misura; policy in prove-release.json"
+       for field in ('policy', 'stato', 'congelamento', 'richiesto', 'esplorazione_a_tempo', 'benchmark_prestazionale')},
     "descrizione": "prosa che spiega a che cosa serve il file",
     "release_authorized": (
         "la decisione di rilascio. E' l'unica che nessun gate puo' derivare, ed "
@@ -4620,6 +4622,46 @@ def validate_cli_protocol_v1(document: dict[str, Any]) -> list[str]:
     return errors
 
 
+def verifica_policy_prove(root=ROOT):
+    """Regola IO 9: le guardie e il runner devono accettare la stessa prova."""
+    errors = []
+    path = root / "assurance/registries/prove-release.json"
+    try:
+        policy = strict_json.loads(path.read_text(encoding="utf-8"))
+        contract = strict_json.loads((root / "assurance/registries/release-contract-current.json").read_text(encoding="utf-8"))
+        steps = strict_json.loads((root / "assurance/registries/passi-del-checkpoint.json").read_text(encoding="utf-8"))
+        runner = (root / "scripts/s9-checkpoint.sh").read_text(encoding="utf-8")
+        ci = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    except (OSError, ValueError) as exc:
+        return [f"policy prove illeggibile: {exc}"]
+    for field in ('obbligo', 'stimolo_copertura', 'misura_oracolo', 'criterio_uscita',
+                  'controprova', 'identita', 'costo', 'confini', 'qualifica_congiunta'):
+        if not isinstance(policy.get(field), str) or not policy[field].strip():
+            errors.append(f"policy prove: {field} assente")
+    if policy.get('policy') != 'io-9-replay-v1' or steps.get('policy') != policy.get('policy'):
+        errors.append('policy prove/passI non allineati')
+    expected = ['python3', 'scripts/fuzz_release.py', '--receipt', 'assurance/evidence/fuzz-smoke-ultima.json']
+    conditions = contract.get('autorizzazione_di_release', {}).get('condizioni', [])
+    campaign = [c for c in conditions if c.get('id') == 'campagna-fuzz-completa']
+    if len(campaign) != 1 or campaign[0].get('verifica', {}).get('comando') != expected:
+        errors.append('release: verifica replay obbligatoria assente')
+    for command in ('passo_pesante fuzz_replay python3 scripts/fuzz_release.py --execute',
+                    'passo_pesante fuzz_smoke python3 scripts/fuzz_release.py --revision',
+                    'passo_pesante fuzz_campagna_completa python3 scripts/fuzz_release.py'):
+        if command not in runner:
+            errors.append('checkpoint: prova finita assente: ' + command)
+    if 'run: python3 scripts/fuzz_release.py --execute' not in ci:
+        errors.append('CI senza replay finito')
+    if 'run: ./scripts/check-windows-filegdb-benchmark.ps1' in ci:
+        errors.append('benchmark storico ancora bloccante')
+    exception = contract.get('eccezione_transitoria_historical_readers', {})
+    if exception.get('pin') != '50f935715991c591760fb9a7d0c730f3d9f0484b' or not exception.get('scadenza'):
+        errors.append('eccezione IO-8 assente o non transitoria')
+    if 'fuzz/seeds/dxf_reader/datatable-conteggio-negativo.dxf' not in policy.get('finding_obbligatori', []):
+        errors.append('finding DATATABLE non obbligatorio')
+    return errors
+
+
 def main(argv: list[str] | None = None) -> int:
     argomenti = argparse.ArgumentParser(description=__doc__)
     argomenti.add_argument(
@@ -4637,7 +4679,7 @@ def main(argv: list[str] | None = None) -> int:
     # `completezza` viene per prima: se il registro e' vuoto o mutilato, gli
     # errori delle singole voci descriverebbero cio' che resta invece della
     # causa.
-    errori = completezza(documento)
+    errori = completezza(documento) + verifica_policy_prove()
     if not errori:
         errori = struttura(documento)
     struttura_valida = not errori

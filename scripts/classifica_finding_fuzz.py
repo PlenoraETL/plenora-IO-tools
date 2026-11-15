@@ -930,6 +930,13 @@ def verifica_campagna(
         if motivi:
             return [f"{percorso.name}: {motivo}" for motivo in motivi]
 
+    if documento.get("policy") == "io-9-replay-v1":
+        try:
+            from fuzz_release import verify, inventory
+        except ImportError:
+            from .fuzz_release import verify, inventory
+        return verify(documento, inventory(), revisione_attesa)
+
     dichiarati = documento.get("bersagli_dichiarati")
     if not isinstance(dichiarati, list) or not dichiarati:
         return [

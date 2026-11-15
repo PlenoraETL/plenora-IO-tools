@@ -914,5 +914,13 @@
   "blocchi": {
     "fonte": "assurance/registries/release-contract-current.json",
     "nota": "l'elenco e il conteggio dei blocchi non sono ripetuti qui. Sono i `release_blocking` del registro, che e' dove un blocco nasce e muore; il blocco generato di docs/RELEASE.md li prende da li'. Una copia va tenuta allineata da qualcuno, e il modo in cui smette di esserlo non si vede: qui non c'e' copia da allineare."
+  },
+  "prove_9_0_0": {
+    "policy": "io-9-replay-v1",
+    "stato": "NON ESEGUITO",
+    "congelamento": "dopo questa modifica",
+    "richiesto": "L2 finale una volta, replay completo, profondita e confine ASan validi, ricevute CI compatibili, distribuzione e qualifica congiunta ai propri pin",
+    "esplorazione_a_tempo": "periodica, fuori dal cancello; nuovi finding diventano semi",
+    "benchmark_prestazionale": "nessuna soglia di velocita di release; prove semantiche FileGDB mantenute"
   }
 }

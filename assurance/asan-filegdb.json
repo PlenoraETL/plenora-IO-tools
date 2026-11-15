@@ -26,5 +26,6 @@
     "copre_gli_errori_dell_allocatore": "`malloc` e `free` passano dal runtime del sanitizer anche quando a chiamarli e' codice non strumentato: doppia liberazione, liberazione di un puntatore non allocato e dimensioni assurde restano osservabili.",
     "copre_le_funzioni_intercettate": "dentro `memcpy`, `strcpy` e le altre funzioni intercettate a controllare gli argomenti e' l'interceptor del runtime, non il codice chiamante: li' un errore di GDAL viene visto.",
     "non_guida_le_mutazioni_dentro_gdal": "`libgdal.so` non porta contatori di copertura -- proprieta' distinta dalla strumentazione del sanitizer -- quindi il fuzzer e' cieco dentro di essa: le mutazioni sono guidate dalla copertura del percorso Rust."
-  }
+  },
+  "regola_release_9": "Il replay finito non sostituisce questa misura: requisiti, impronta e confine GDAL restano obbligatori. Nessuna nuova misura attestata dalla modifica di policy."
 }

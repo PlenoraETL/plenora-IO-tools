@@ -15,6 +15,8 @@ permissions:
   contents: read
 
 env:
+  CARGO_BUILD_JOBS: "4"
+  CARGO_INCREMENTAL: "0"
   CANDIDATE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
 jobs:
@@ -200,7 +202,7 @@ jobs:
           ogrinfo --formats | grep -F OpenFileGDB
           cargo run --quiet -p plenora-io-tools --features gdal-backend --locked -- catalog |
             python3 scripts/check_filegdb_catalog.py
-      - run: cargo fmt --all -- --check
+      - run: python3 scripts/ci_receipt.py --record target/ci-receipts/fmt.json --name fmt -- cargo fmt --all -- --check
       - name: Verify immutable GitHub Action references
         run: |
           python3 -m unittest scripts.test_check_action_pins
@@ -462,7 +464,7 @@ jobs:
       # verificato, non solo dichiarato.
       - name: Verify the InputPermit workspace boundary
         run: python3 scripts/check_permit_boundary.py
-      - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - run: python3 scripts/ci_receipt.py --record target/ci-receipts/clippy.json --name clippy -- cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
       # Il perimetro comprende i binari, non solo le librerie: `plenora-io-tools`
       # viene distribuito, e fino a questo commit il suo `main.rs` era l'unico
       # codice consegnato che poteva usare `unwrap`, `expect` o `panic!` senza
@@ -487,7 +489,7 @@ jobs:
           -D clippy::unreachable
           -D clippy::todo
           -D clippy::unimplemented
-      - run: cargo test --workspace --all-targets --locked
+      - run: python3 scripts/ci_receipt.py --record target/ci-receipts/test_default.json --name test_default -- cargo test --workspace --all-targets --locked
       # `--all-targets` NON esegue i doctest. Il modello budget del Lotto 0
       # usa doctest `compile_fail` per provare invarianti che nessun test
       # runtime puo' dimostrare — un `PipelineBundle` non destrutturabile, un
@@ -536,6 +538,13 @@ jobs:
         with:
           name: prove-native
           path: target/prove-native
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1, Node 24
+        if: always()
+        with:
+          name: ci-receipts-linux-${{ github.run_id }}
+          path: target/ci-receipts/
+          if-no-files-found: error
+
 
   # Unico job del repo che compila con un sanitizer. I driver leggono file
   # esterni non fidati: senza AddressSanitizer un difetto di memoria in una
@@ -552,9 +561,9 @@ jobs:
       # solo dentro questo job; nightly e' comunque fissato a una data, non al
       # canale mobile, ed e' la stessa di scripts/fuzz-campaign.sh.
       RUSTUP_TOOLCHAIN: nightly-2026-07-21
-      # Smoke su ogni push; la finestra settimanale (schedule) alza il budget
-      # senza cambiare il resto della configurazione.
-      PLENORA_FUZZ_SECONDS: ${{ github.event_name == 'schedule' && '300' || '60' }}
+      # Replay finito su ogni push; ricerca a tempo solo nel periodico.
+      PLENORA_FUZZ_SECONDS: '300'
+      PLENORA_VERBALE_CAMPAGNA: target/fuzz-release/fuzz-smoke-ultima.json
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
         with:
@@ -594,8 +603,17 @@ jobs:
       # aperti. I target elencati in fuzz/quarantine.txt restano compilati ma
       # non eseguiti: lo script li stampa a ogni run, così il debito resta
       # visibile invece di trasformare il gate in un rosso permanente.
-      - name: Build and smoke every fuzz target under AddressSanitizer
-        run: bash scripts/fuzz-smoke.sh
+      - name: Replay every versioned seed under AddressSanitizer
+        run: python3 scripts/fuzz_release.py --execute
+      - name: Periodic exploration; promote every finding to versioned seeds
+        if: github.event_name == 'schedule'
+        run: PLENORA_VERBALE_CAMPAGNA=target/fuzz-exploration.json bash scripts/fuzz-smoke.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1, Node 24
+        if: always()
+        with:
+          name: fuzz-release-receipt-${{ github.run_id }}
+          path: target/fuzz-release/
+          if-no-files-found: error
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1, Node 24
         if: failure()
         with:
@@ -623,14 +641,8 @@ jobs:
           -ExportGitHubEnvironment
       - name: Test FileGDB with native Windows GDAL
         run: cargo test -p driver-filegdb --features gdal-backend --locked
-      - name: Benchmark native Windows FileGDB narrow path
-        shell: pwsh
-        run: ./scripts/check-windows-filegdb-benchmark.ps1
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1, Node 24
-        with:
-          name: windows-filegdb-narrow-benchmark
-          path: target/windows-filegdb-narrow-benchmark.json
-          if-no-files-found: error
+      # IO-7: no performance veto against a previous release.
+      # Native GDAL correctness/projection tests above remain mandatory.
       - name: Test cross-volume publish rejection
         shell: pwsh
         run: |

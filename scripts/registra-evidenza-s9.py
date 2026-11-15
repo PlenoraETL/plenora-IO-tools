@@ -172,6 +172,13 @@ def misure(corsa: pathlib.Path) -> tuple[dict, list[str]]:
             "target_totali"
         )
 
+    receipt_path = corsa / "fuzz-smoke-ultima.json"
+    if receipt_path.is_file():
+        receipt = strict_json.loads(receipt_path.read_text(encoding="utf-8"))
+        if receipt.get("policy") == "io-9-replay-v1" and "fuzz_smoke" in fuori:
+            fuori["fuzz_smoke"]["quando"] = "verifica della ricevuta fuzz_replay; nessuna seconda campagna"
+            fuori["fuzz_smoke"]["policy"] = receipt["policy"]
+
     lcov = cerca(LCOV, corsa / "coverage_soglia_dal_report.log")
     cargo = cerca(TOTALE_CARGO, corsa / "coverage_soglia_controprova.log")
     if lcov is None:
@@ -356,6 +363,13 @@ def pubblica_verbale(corsa: pathlib.Path, risultato: dict) -> list[str]:
             f"mentre la corsa ha misurato «{misurata[:12]}». Pubblicarlo "
             "attribuirebbe a questa corsa una campagna che non e' la sua."
         ]
+
+    versione = __import__('tomllib').loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))["workspace"]["package"]["version"]
+    if versione == "9.0.0" or verbale.get("policy") == "io-9-replay-v1":
+        from fuzz_release import verify, inventory
+        errori = verify(verbale, inventory(), misurata)
+        if errori:
+            return errori
 
     VERBALE_PUBBLICATO.parent.mkdir(parents=True, exist_ok=True)
     VERBALE_PUBBLICATO.write_bytes(sorgente.read_bytes())

@@ -71,9 +71,9 @@ class SondeDelCollect(unittest.TestCase):
         ambiente = dict(os.environ)
         ambiente.update(
             {
-                "PLENORA_DOCKER": str(self.finto),
-                "PLENORA_FUZZ_LOG_DIR": str(self.log),
-                "TRACCIA": str(self.traccia),
+                "PLENORA_DOCKER": self.finto.as_posix(),
+                "PLENORA_FUZZ_LOG_DIR": self.log.as_posix(),
+                "TRACCIA": self.traccia.as_posix(),
                 "ESITO_FINTO": esito,
                 "LOG_FALLISCE": log_fallisce,
                 "LOG_FINTO": "prima seconda terza",
@@ -81,7 +81,7 @@ class SondeDelCollect(unittest.TestCase):
             }
         )
         esecuzione = subprocess.run(
-            [BASH, str(WRAPPER), "collect", "5"],
+            [BASH, WRAPPER.as_posix(), "collect", "5"],
             capture_output=True,
             text=True,
             env=ambiente,
@@ -218,9 +218,9 @@ class SondeDelloStop(unittest.TestCase):
         ambiente = dict(os.environ)
         ambiente.update(
             {
-                "PLENORA_DOCKER": str(self.finto),
-                "PLENORA_FUZZ_LOG_DIR": str(self.log),
-                "TRACCIA": str(self.traccia),
+                "PLENORA_DOCKER": self.finto.as_posix(),
+                "PLENORA_FUZZ_LOG_DIR": self.log.as_posix(),
+                "TRACCIA": self.traccia.as_posix(),
                 "ESITO_FINTO": "0",
                 "LOG_FALLISCE": "no",
                 "LOG_FINTO": "riga",
@@ -228,7 +228,7 @@ class SondeDelloStop(unittest.TestCase):
             }
         )
         esecuzione = subprocess.run(
-            [BASH, str(WRAPPER), *argomenti],
+            [BASH, WRAPPER.as_posix(), *argomenti],
             capture_output=True,
             text=True,
             env=ambiente,
@@ -324,13 +324,13 @@ class SondeDellIsolamento(unittest.TestCase):
         self.finto.chmod(0o755)
         self.traccia = self.radice / "traccia.txt"
 
-    def _start(self):
+    def _start(self, mode="smoke"):
         ambiente = dict(os.environ)
         ambiente.update(
             {
-                "PLENORA_DOCKER": str(self.finto),
-                "PLENORA_FUZZ_CHECKOUT_DIR": str(self.radice / "checkout"),
-                "TRACCIA": str(self.traccia),
+                "PLENORA_DOCKER": self.finto.as_posix(),
+                "PLENORA_FUZZ_CHECKOUT_DIR": (self.radice / "checkout").as_posix(),
+                "TRACCIA": self.traccia.as_posix(),
                 "ESITO_FINTO": "0",
                 "LOG_FALLISCE": "no",
                 "LOG_FINTO": "riga",
@@ -349,9 +349,9 @@ class SondeDellIsolamento(unittest.TestCase):
             newline="\n",
         )
         finto_assente.chmod(0o755)
-        ambiente["PLENORA_DOCKER"] = str(finto_assente)
+        ambiente["PLENORA_DOCKER"] = finto_assente.as_posix()
         esecuzione = subprocess.run(
-            [BASH, str(self.repo / "scripts" / "fuzz-container.sh"), "start", "smoke"],
+            [BASH, (self.repo / "scripts" / "fuzz-container.sh").as_posix(), "start", mode],
             capture_output=True,
             text=True,
             env=ambiente,
@@ -363,6 +363,12 @@ class SondeDellIsolamento(unittest.TestCase):
             else []
         )
         return esecuzione, chiamate
+
+    def test_release_uses_finite_replay_and_persistent_receipt(self):
+        result, calls = self._start("release")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        run = next(c for c in calls if c.startswith("run "))
+        self.assertIn("python3 scripts/fuzz_release.py --execute --receipt /work/fuzz/artifacts/release-replay.json", run)
 
     def test_i_sorgenti_montati_sono_il_clone_non_l_albero_vivo(self) -> None:
         esecuzione, chiamate = self._start()
@@ -421,10 +427,10 @@ class SondeDellaPuliziaDelClone(unittest.TestCase):
         ambiente = dict(os.environ)
         ambiente.update(
             {
-                "PLENORA_DOCKER": str(self.finto),
-                "PLENORA_FUZZ_LOG_DIR": str(self.log),
-                "PLENORA_FUZZ_CHECKOUT_DIR": str(self.radice / "checkout"),
-                "TRACCIA": str(self.traccia),
+                "PLENORA_DOCKER": self.finto.as_posix(),
+                "PLENORA_FUZZ_LOG_DIR": self.log.as_posix(),
+                "PLENORA_FUZZ_CHECKOUT_DIR": (self.radice / "checkout").as_posix(),
+                "TRACCIA": self.traccia.as_posix(),
                 "ESITO_FINTO": "0",
                 "LOG_FALLISCE": "no",
                 "LOG_FINTO": "riga",
@@ -432,7 +438,7 @@ class SondeDellaPuliziaDelClone(unittest.TestCase):
             }
         )
         return subprocess.run(
-            [BASH, str(WRAPPER), *argomenti],
+            [BASH, WRAPPER.as_posix(), *argomenti],
             capture_output=True,
             text=True,
             env=ambiente,

@@ -105,7 +105,7 @@ class CollectionTests(unittest.TestCase):
             script = root / 'scripts/campagne_copertura.sh'
             script.write_text((gate.ROOT / 'scripts/campagne_copertura.sh').read_text(encoding='utf-8'),
                               encoding='utf-8', newline='\n')
-            env = dict(os.environ, S9_CAMPAGNE='3', S9_CAMPAGNE_DIR=(root / 'logs').as_posix(),
+            env = dict(os.environ, S9_INSTABILITA_MOTIVO='controprova pulizia fallita', S9_CAMPAGNE='3', S9_CAMPAGNE_DIR=(root / 'logs').as_posix(),
                        TRACE=(root / 'trace').as_posix())
             result = subprocess.run([bash, '-c',
                 'cargo() { echo called >> "$TRACE"; return 23; }; export -f cargo; "$BASH" "$1"',
