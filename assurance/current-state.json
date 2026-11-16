@@ -858,6 +858,68 @@
         "perche_e_qui": "Verbale locale della 8.0.0 pubblicata, archiviato mentre si prepara la 9.0.0. Non impone disponibilita remota, conservazione del tag o compatibilita; non trasferisce risultati alla nuova candidate.",
         "versione_pacchetto_python": "8.0.0",
         "evidenza": "assurance/evidence/checkpoint-6e494a6.json"
+      },
+      {
+        "versione_manifesto": "9.0.0",
+        "versione_workspace": "9.0.0",
+        "tag_previsto": "v9.0.0",
+        "tag_creato": true,
+        "tag_sulla_candidate": true,
+        "release_action_allowed": false,
+        "release_blocking": false,
+        "stato": "pubblicata",
+        "nota": "Candidate congelata su 7314ca25b62788a3a9d2af0ec638d0d7f3bdffea: sette archivi della Distribuzione 43787777399, replay finito e L2 registrati. Draft 446953679 verificata dall operatore: 24 asset identici agli originali; metadati API forniti confrontati localmente con nomi, dimensioni e SHA-256 del confronto. Sette archivi coincidenti con la candidate; manifesto verificato dall operatore sui cinque archivi. Quattro attestazioni 9.0.0 gia versionate: 32/32 ciascuna, digest e pin confrontati localmente. Verbale: checkpoint-7314ca2.json, release_verification.draft. Alla registrazione della draft mancavano decisione, tag e autorizzazione; questo stato precedente e superato dalla decisione riportata sotto. Restano gate finale e pubblicazione con verifica successiva; nessun soak richiesto dalla policy io-9-replay-v1; nessuna chiamata GitHub in questa registrazione.\n\nDecisione autentica del titolare, ricevuta il 2026-11-16T12:35:41Z: «Autorizzo la pubblicazione di IO 9.0.0». Fonte conservata in assurance/evidence/autorizzazione-9.0.0.json. Tag annotato v9.0.0 gia creato localmente, oggetto 2d84754b3d49e4a52e09b5ed6d2eac828ca9a823, verificato con git for-each-ref e git rev-parse sulla candidate 7314ca25b62788a3a9d2af0ec638d0d7f3bdffea. Autorizzazione e tag registrati; nessun push del tag, commit o accesso GitHub eseguito. Pubblicazione e verifica successiva non ancora registrate.\n\nRegistrazione finale della pubblicazione: Pubblicata il 2026-11-16T14:56:59Z con PATCH draft=false: release 446953679,\nhttps://github.com/PlenoraETL/plenora-IO-tools/releases/tag/v9.0.0, 24 asset.\nIl tag remoto v9.0.0 punta alla candidate 7314ca25b62788a3a9d2af0ec638d0d7f3bdffea\nsecondo l'operatore. Confrontati localmente i cinque JSON autentici forniti:\n24/24 nomi, ID asset, dimensioni e SHA-256 identici fra draft, pre-PATCH e\npubblicazione; titolo e corpo invariati, sette archivi coincidenti con i digest\ndella candidate; il manifesto conserva il digest registrato nella draft.\nIl riscaricamento e l'identita dei byte sono attestati dall'operatore;\nquesta registrazione confronta i metadati e non rimisura gli archivi.\n\nGate check_release_contract.py --release eseguito dall'operatore sulla VM Linux\nprima della pubblicazione, sul commit 56f825657d8edb1b11bcd0970c2a202545451267,\ncontratti al pin 38d68b402389855edbcecb7ce57c31e91282cb4e:\n«release autorizzabile: 37 invarianti, nessun blocco, 9 condizioni verificate».\nRestano i due DIFFERITI sistema.qualifica-cross-component e\ndistribuzione.licenza-first-party. Esiti comunicati dall'operatore:\ncheck-deliverable «7 archivi… byte pubblicati identici ai 7 artefatti congelati\ndalla candidate»; check_manifesto_adozione «5 artefatti con digest ricalcolati,\n15 conformi, 1 non applicabile, 8 deviazioni». Le deviazioni non sono conformita.\n\nVerbale release_verification.published in assurance/evidence/checkpoint-7314ca2.json,\ncon data e ID reali e digest degli input immutati sotto target/input.\nrelease_authorized resta true come decisione storica; release_action_allowed\nconsumato, false. La 9.0.0 entra in chiuso.release_pubblicate; il nodo\ncandidate_release resta pubblicata secondo lo schema, senza una nuova candidate.\ncommit_di_assurance indica 56f825657d8edb1b11bcd0970c2a202545451267, il commit prepubblicazione\nche conserva i fatti congelati, non un nuovo commit di questa registrazione.\nNessun commit, push o accesso GitHub eseguito.\n\nDifetti registrati per dopo la release: release-qualification.yml non installa\njsonschema; il gate prepubblicazione e stato eseguito sulla VM Linux.\nSecondo l'operatore, il workflow sul push del tag fallisce per costruzione\ndalla 7.0.0. Il suo fallimento non e una qualifica verde: la prova di rilascio\nqui registrata e il gate sulla VM al commit indicato. Le correzioni ai workflow\nrestano successive alla release, fuori da questa registrazione di assurance.\n\nQuesta registrazione supera le indicazioni precedenti di gate, pubblicazione\ne verifica ancora da eseguire; le sezioni successive conservano la cronologia.\n",
+        "revisione_candidate": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea",
+        "assurance_entro_l_allowlist": true,
+        "artefatti": [
+          {
+            "nome": "plenora-io-9.0.0-linux-x86_64-base.tar.gz",
+            "sha256": "b609e74605c0b586cbbdaa9a91a3ec62b38702bd8f20afb1dc3d113f52d9114a",
+            "dimensione": 9257607,
+            "revisione": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea"
+          },
+          {
+            "nome": "plenora-io-9.0.0-linux-x86_64-filegdb.tar.gz",
+            "sha256": "332257d0901786c2494159bc0e4b3190a8e7a6b58a8dcadb3b58cf2298ee3254",
+            "dimensione": 65106094,
+            "revisione": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea"
+          },
+          {
+            "nome": "plenora-io-9.0.0-src.tar.gz",
+            "sha256": "6b83de068ce5dd7ba4e9a66447c61f2c505e0ba47fef201d54ad230280a564ed",
+            "dimensione": 21737899,
+            "revisione": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea"
+          },
+          {
+            "nome": "plenora-io-9.0.0-windows-x86_64-base.zip",
+            "sha256": "e39d10f635ae2b5008812b6035622dc58b0be10b65364d6fc8d32ba8ceab2a2e",
+            "dimensione": 10506315,
+            "revisione": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea"
+          },
+          {
+            "nome": "plenora-io-9.0.0-windows-x86_64-filegdb.zip",
+            "sha256": "45b0df0e7e418de163654c8ce781c3b9339a584551e822f369c14dccf3fd24e2",
+            "dimensione": 50899992,
+            "revisione": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea"
+          },
+          {
+            "nome": "plenora_io-9.0.0-py3-none-any.whl",
+            "sha256": "7115eae9bc27582c987936bdc43c08a8dae499c5b774da0d697bd2e66628fd89",
+            "dimensione": 117967,
+            "revisione": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea"
+          },
+          {
+            "nome": "plenora_io-9.0.0.tar.gz",
+            "sha256": "e76ceac4df0f2c0e9efbfd610316af6f151aef9550fa8e9d4cea5565b66e1770",
+            "dimensione": 227165,
+            "revisione": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea"
+          }
+        ],
+        "tag_revisione": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea",
+        "commit_di_assurance": "56f825657d8edb1b11bcd0970c2a202545451267",
+        "evidenza": "assurance/evidence/checkpoint-7314ca2.json",
+        "versione_pacchetto_python": "9.0.0",
+        "perche_e_qui": "Verbale locale della 9.0.0 pubblicata; non trasferisce la qualifica a revisioni successive."
       }
     ]
   },
@@ -895,10 +957,10 @@
       "tag_previsto": "v9.0.0",
       "tag_creato": true,
       "tag_sulla_candidate": true,
-      "release_action_allowed": true,
+      "release_action_allowed": false,
       "release_blocking": false,
-      "stato": "attiva",
-      "nota": "Candidate congelata su 7314ca25b62788a3a9d2af0ec638d0d7f3bdffea: sette archivi della Distribuzione 43787777399, replay finito e L2 registrati. Draft 446953679 verificata dall operatore: 24 asset identici agli originali; metadati API forniti confrontati localmente con nomi, dimensioni e SHA-256 del confronto. Sette archivi coincidenti con la candidate; manifesto verificato dall operatore sui cinque archivi. Quattro attestazioni 9.0.0 gia versionate: 32/32 ciascuna, digest e pin confrontati localmente. Verbale: checkpoint-7314ca2.json, release_verification.draft. Alla registrazione della draft mancavano decisione, tag e autorizzazione; questo stato precedente e superato dalla decisione riportata sotto. Restano gate finale e pubblicazione con verifica successiva; nessun soak richiesto dalla policy io-9-replay-v1; nessuna chiamata GitHub in questa registrazione.\n\nDecisione autentica del titolare, ricevuta il 2026-11-16T12:35:41Z: «Autorizzo la pubblicazione di IO 9.0.0». Fonte conservata in assurance/evidence/autorizzazione-9.0.0.json. Tag annotato v9.0.0 gia creato localmente, oggetto 2d84754b3d49e4a52e09b5ed6d2eac828ca9a823, verificato con git for-each-ref e git rev-parse sulla candidate 7314ca25b62788a3a9d2af0ec638d0d7f3bdffea. Autorizzazione e tag registrati; nessun push del tag, commit o accesso GitHub eseguito. Pubblicazione e verifica successiva non ancora registrate.",
+      "stato": "pubblicata",
+      "nota": "Candidate congelata su 7314ca25b62788a3a9d2af0ec638d0d7f3bdffea: sette archivi della Distribuzione 43787777399, replay finito e L2 registrati. Draft 446953679 verificata dall operatore: 24 asset identici agli originali; metadati API forniti confrontati localmente con nomi, dimensioni e SHA-256 del confronto. Sette archivi coincidenti con la candidate; manifesto verificato dall operatore sui cinque archivi. Quattro attestazioni 9.0.0 gia versionate: 32/32 ciascuna, digest e pin confrontati localmente. Verbale: checkpoint-7314ca2.json, release_verification.draft. Alla registrazione della draft mancavano decisione, tag e autorizzazione; questo stato precedente e superato dalla decisione riportata sotto. Restano gate finale e pubblicazione con verifica successiva; nessun soak richiesto dalla policy io-9-replay-v1; nessuna chiamata GitHub in questa registrazione.\n\nDecisione autentica del titolare, ricevuta il 2026-11-16T12:35:41Z: «Autorizzo la pubblicazione di IO 9.0.0». Fonte conservata in assurance/evidence/autorizzazione-9.0.0.json. Tag annotato v9.0.0 gia creato localmente, oggetto 2d84754b3d49e4a52e09b5ed6d2eac828ca9a823, verificato con git for-each-ref e git rev-parse sulla candidate 7314ca25b62788a3a9d2af0ec638d0d7f3bdffea. Autorizzazione e tag registrati; nessun push del tag, commit o accesso GitHub eseguito. Pubblicazione e verifica successiva non ancora registrate.\n\nRegistrazione finale della pubblicazione: Pubblicata il 2026-11-16T14:56:59Z con PATCH draft=false: release 446953679,\nhttps://github.com/PlenoraETL/plenora-IO-tools/releases/tag/v9.0.0, 24 asset.\nIl tag remoto v9.0.0 punta alla candidate 7314ca25b62788a3a9d2af0ec638d0d7f3bdffea\nsecondo l'operatore. Confrontati localmente i cinque JSON autentici forniti:\n24/24 nomi, ID asset, dimensioni e SHA-256 identici fra draft, pre-PATCH e\npubblicazione; titolo e corpo invariati, sette archivi coincidenti con i digest\ndella candidate; il manifesto conserva il digest registrato nella draft.\nIl riscaricamento e l'identita dei byte sono attestati dall'operatore;\nquesta registrazione confronta i metadati e non rimisura gli archivi.\n\nGate check_release_contract.py --release eseguito dall'operatore sulla VM Linux\nprima della pubblicazione, sul commit 56f825657d8edb1b11bcd0970c2a202545451267,\ncontratti al pin 38d68b402389855edbcecb7ce57c31e91282cb4e:\n«release autorizzabile: 37 invarianti, nessun blocco, 9 condizioni verificate».\nRestano i due DIFFERITI sistema.qualifica-cross-component e\ndistribuzione.licenza-first-party. Esiti comunicati dall'operatore:\ncheck-deliverable «7 archivi… byte pubblicati identici ai 7 artefatti congelati\ndalla candidate»; check_manifesto_adozione «5 artefatti con digest ricalcolati,\n15 conformi, 1 non applicabile, 8 deviazioni». Le deviazioni non sono conformita.\n\nVerbale release_verification.published in assurance/evidence/checkpoint-7314ca2.json,\ncon data e ID reali e digest degli input immutati sotto target/input.\nrelease_authorized resta true come decisione storica; release_action_allowed\nconsumato, false. La 9.0.0 entra in chiuso.release_pubblicate; il nodo\ncandidate_release resta pubblicata secondo lo schema, senza una nuova candidate.\ncommit_di_assurance indica 56f825657d8edb1b11bcd0970c2a202545451267, il commit prepubblicazione\nche conserva i fatti congelati, non un nuovo commit di questa registrazione.\nNessun commit, push o accesso GitHub eseguito.\n\nDifetti registrati per dopo la release: release-qualification.yml non installa\njsonschema; il gate prepubblicazione e stato eseguito sulla VM Linux.\nSecondo l'operatore, il workflow sul push del tag fallisce per costruzione\ndalla 7.0.0. Il suo fallimento non e una qualifica verde: la prova di rilascio\nqui registrata e il gate sulla VM al commit indicato. Le correzioni ai workflow\nrestano successive alla release, fuori da questa registrazione di assurance.\n\nQuesta registrazione supera le indicazioni precedenti di gate, pubblicazione\ne verifica ancora da eseguire; le sezioni successive conservano la cronologia.\n",
       "revisione_candidate": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea",
       "assurance_entro_l_allowlist": true,
       "artefatti": [
@@ -945,7 +1007,8 @@
           "revisione": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea"
         }
       ],
-      "tag_revisione": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea"
+      "tag_revisione": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea",
+      "commit_di_assurance": "56f825657d8edb1b11bcd0970c2a202545451267"
     }
   },
   "docset": {
