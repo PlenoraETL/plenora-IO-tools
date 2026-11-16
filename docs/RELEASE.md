@@ -58,7 +58,7 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | esito differenziale | 96.42% |
 | gruppi ASSURANCE-N1 | 50 |
 | gruppi ASSURANCE-N1 aperti | 0 |
-| blocchi | 2 |
+| blocchi | 1 |
 | capacità differite | 2 |
 | S9, qualificato su | `7314ca2` |
 | candidate, versione del manifesto | `9.0.0` |
@@ -81,8 +81,7 @@ I blocchi sono l'elenco esatto dei `release_blocking` del
 
 | Blocco | Sintesi |
 |---|---|
-| `release.candidate-non-valida-per-head` | 9.0.0: candidate e sette artefatti congelati, replay finito e L2 registrati; draft, decisione e tag da completare. |
-| `distribuzione.artefatti-qualificati` | Sette archivi 9.0.0 congelati su 7314ca2 e 32 referti verificati; confronto con la draft ancora da eseguire. |
+| `release.candidate-non-valida-per-head` | 9.0.0: candidate, replay finito, L2 e draft verificata registrati; decisione, tag e autorizzazione ancora assenti. |
 
 Le capacità **differite** non sono blocchi chiusi: non sono richieste
 da questa release e **non sono verificate**. Ciascuna dichiara che cosa
@@ -2650,11 +2649,91 @@ Fonti e digest sono in `checkpoint-7314ca2.json`, `distribuzione_candidate`.
 L ID della corsa deriva dalla directory fornita, senza consultare GitHub.
 Questo e il confronto dei byte della Distribuzione, non della draft o release.
 
-Restano nell ordine: acquisire e verificare manifesto di adozione e attestazioni
-del profilo pubblico della stessa corsa (distinti dai 32 referti), preparare la
-draft, riscaricarla e confrontare tutti gli asset, registrare il confronto,
-ottenere la decisione del titolare, creare il tag sulla candidate, registrare
-l autorizzazione, eseguire il gate finale, pubblicare la draft immutata e
-ripetere il confronto sui byte pubblicati. `release_authorized` e
-`release_action_allowed` restano `false`; i due blocchi restano espliciti.
-Comandi e ricevute locali: `target/REGISTRA-L2-900.md`.
+I passi che alla registrazione L2 restavano aperti sono aggiornati dalla
+registrazione della draft qui sotto. Comandi e ricevute L2:
+`target/REGISTRA-L2-900.md`.
+
+### Draft verificata della 9.0.0 e passi successivi
+
+La draft **446953679**, [URL della risposta API fornita](https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/untagged-e3f36416022c71d236cb),
+ha tag previsto `v9.0.0`, target `7314ca25b62788a3a9d2af0ec638d0d7f3bdffea`
+e titolo ?Plenora IO-tools 9.0.0?. La risposta fornita dichiara `draft=true`
+e `published_at=null`. Nessuna chiamata GitHub in questa registrazione.
+
+Il [checkpoint](../assurance/evidence/checkpoint-7314ca2.json),
+`release_verification.draft`, registra ID, URL, target, tag, 24 nomi,
+dimensioni, SHA-256 e risultati. Gli input autentici `draft.json`,
+`confronto-draft.json` e `run.json` sono copiati in `target/rel900/` e
+identificati nel verbale con dimensioni e digest. Il run fornito dichiara
+`success`, `workflow_dispatch` e la revisione congelata, ID `43787777399`.
+
+Il confronto locale conferma i 24 metadati API contro il confronto fornito
+e i sette archivi contro la candidate. Il confronto byte per byte con gli
+originali e gli esiti dei verificatori sui riscaricati sono dichiarazioni
+dell'operatore: sette archivi con checksum, inclusi due Python, identici ai
+congelati; manifesto sui cinque archivi, 15 contratti dichiarati conformi,
+uno non applicabile, otto deviazioni. Le deviazioni non sono conformita.
+Il manifesto fornito e copiato byte per byte in `contracts/adoption-manifest.json`,
+ignorato da Git, con digest verificato contro API e confronto. Le quattro
+attestazioni 9.0.0 gia versionate riportano 32/32 ciascuna; digest, byte e pin
+`38d68b402389855edbcecb7ce57c31e91282cb4e` coincidono con gli input.
+Il corpo della draft coincide con le note fornite, esclusi spazi esterni.
+
+**Correzione della procedura di verifica:** il manifesto di adozione non e
+un deliverable. Passare tutti i 24 asset a `check-deliverable.py` produce
+?file non dichiarati fra i deliverable?. Conservare intatta la directory
+riscaricata e copiare i soli 23 file di consegna in una directory nuova:
+
+```bash
+mkdir target/rel900/draft-riscaricata-deliverable
+find target/rel900/draft-riscaricata -maxdepth 1 -type f ! -name 'adoption-manifest-9.0.0.json' -exec cp {} target/rel900/draft-riscaricata-deliverable/ \;
+python3.14 scripts/check-deliverable.py --directory target/rel900/draft-riscaricata-deliverable --versione 9.0.0 --canale candidate --revisione 7314ca25b62788a3a9d2af0ec638d0d7f3bdffea --contro-la-candidate assurance/current-state.json
+python3.14 scripts/check_manifesto_adozione.py --contracts "$PLENORA_CONTRACTS" --manifesto target/rel900/draft-riscaricata/adoption-manifest-9.0.0.json --artefatto target/rel900/draft-riscaricata/plenora-io-9.0.0-linux-x86_64-base.tar.gz --artefatto target/rel900/draft-riscaricata/plenora-io-9.0.0-linux-x86_64-filegdb.tar.gz --artefatto target/rel900/draft-riscaricata/plenora-io-9.0.0-src.tar.gz --artefatto target/rel900/draft-riscaricata/plenora-io-9.0.0-windows-x86_64-base.zip --artefatto target/rel900/draft-riscaricata/plenora-io-9.0.0-windows-x86_64-filegdb.zip
+```
+
+Applicare la stessa separazione al riscaricamento dopo la pubblicazione.
+La copia locale della procedura `target/REGISTRA-L2-900.md` e corretta in
+entrambi i punti; l'originale nell'altro worktree resta intatto.
+
+La distribuzione e verificata per il passo prepubblicazione; resta bloccante
+la candidate fino alla decisione autentica del titolare e al tag verificato.
+`release_authorized`, `release_action_allowed`, `tag_creato` e
+`tag_sulla_candidate` restano false. Nessun nuovo replay, L2 o soak.
+Registrare questa assurance in un commit separato a cura del titolare.
+
+Dopo la decisione, conservarne data, titolare, testo e oggetto in
+`assurance/evidence/autorizzazione-9.0.0.txt`; creare il tag annotato sulla
+candidate e registrare autorizzazione e tag in un secondo commit di assurance.
+Comandi futuri, **non eseguiti**, nell'ambiente Linux di qualifica aggiornato,
+Python 3.14, contratti al pin e manifesto identico a quello verificato:
+
+```bash
+git tag -a v9.0.0 7314ca25b62788a3a9d2af0ec638d0d7f3bdffea -m 'Plenora IO-tools 9.0.0'
+test "$(git cat-file -t refs/tags/v9.0.0)" = tag
+test "$(git rev-parse 'v9.0.0^{commit}')" = 7314ca25b62788a3a9d2af0ec638d0d7f3bdffea
+```
+
+Solo allora registrare `release_authorized=true`, `release_action_allowed=true`,
+`tag_creato=true`, `tag_sulla_candidate=true` e `tag_revisione` allo SHA verificato,
+con la decisione autentica nella nota. Rigenerare e verificare il docset:
+
+```bash
+python3.14 scripts/check_docset.py --riscrivi-stato
+python3.14 scripts/check_docset.py
+git diff --check
+python3.14 scripts/check_release_contract.py --release
+```
+
+Soltanto dopo il gate completo exit 0 e il nuovo confronto di ID, target, tag,
+asset e note con la draft verificata, senza ricostruzioni o sostituzioni:
+
+```bash
+git push origin refs/tags/v9.0.0
+gh api --method PATCH repos/PlenoraETL/plenora-IO-tools/releases/446953679 -F draft=false
+gh release download v9.0.0 --repo PlenoraETL/plenora-IO-tools --dir target/rel900/pubblicata-riscaricata
+```
+
+Ripetere i confronti sui 24 asset e i due verificatori, con i 23 deliverable
+separati dal manifesto; registrare `release_verification.published`, i metadati
+reali e consumare `release_action_allowed=false`. Il resoconto locale
+`target/REGISTRA-BOZZA-900.md` riporta esiti e comandi operativi completi.

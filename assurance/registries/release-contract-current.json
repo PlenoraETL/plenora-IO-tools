@@ -390,9 +390,9 @@
         "artefatto": "assurance/current-state.json"
       },
       "stato": "release_blocking",
-      "sintesi": "9.0.0: candidate e sette artefatti congelati, replay finito e L2 registrati; draft, decisione e tag da completare.",
-      "nota": "Candidate congelata su 7314ca25b62788a3a9d2af0ec638d0d7f3bdffea: sette archivi della Distribuzione 43787777399 verificati dai byte locali, checksum e provenance; 32 referti verificati. Replay finito e L2 registrati in checkpoint-7314ca2.json. Restano attestazioni del profilo pubblico e manifesto di adozione della stessa corsa, draft e confronti dei byte, decisione del titolare, tag e gate finale; permessi false. Nessun soak richiesto dalla policy io-9-replay-v1. Nessuna verifica GitHub eseguita.",
-      "manca": "Verificare manifesto di adozione e attestazioni del profilo pubblico sui nuovi digest, draft riscaricata, decisione del titolare, tag e autorizzazione prima del gate finale."
+      "sintesi": "9.0.0: candidate, replay finito, L2 e draft verificata registrati; decisione, tag e autorizzazione ancora assenti.",
+      "nota": "Candidate congelata su 7314ca25b62788a3a9d2af0ec638d0d7f3bdffea: sette archivi della Distribuzione 43787777399, replay finito e L2 registrati. Draft 446953679 verificata dall operatore: 24 asset identici agli originali; metadati API forniti confrontati localmente con nomi, dimensioni e SHA-256 del confronto. Sette archivi coincidenti con la candidate; manifesto verificato dall operatore sui cinque archivi. Quattro attestazioni 9.0.0 gia versionate: 32/32 ciascuna, digest e pin confrontati localmente. Verbale: checkpoint-7314ca2.json, release_verification.draft. Restano decisione del titolare, tag, autorizzazione separata, gate finale e pubblicazione con verifica successiva. Permessi false; nessun soak richiesto dalla policy io-9-replay-v1; nessuna chiamata GitHub in questa registrazione.",
+      "manca": "Decisione autentica del titolare, tag sulla candidate, registrazione separata dell autorizzazione, gate finale e pubblicazione immutata con verifica successiva. Nessuna autorizzazione implicita."
     },
     {
       "id": "lotto.s10",
@@ -680,8 +680,8 @@
       "id": "distribuzione.artefatti-qualificati",
       "superficie": "cio' che si consegna: binari per Linux e Windows -- macOS e' fuori dal perimetro della v1, la variante con `gdal-backend` e il proprio runtime GDAL, e i documenti che li accompagnano -- checksum, SBOM, provenance, runbook",
       "invariante": "I sette archivi di distribuzione sono costruiti dalla revisione qualificata, verificati installati dalla corsa di distribuzione e accompagnati da checksum, SBOM, provenance e istruzioni. Prima della pubblicazione, il gate richiede il confronto dei byte riscaricati dalla bozza contro la candidate congelata. Dopo la pubblicazione immutata, il confronto viene ripetuto e registrato sui byte riscaricati dalla release pubblicata. La firma Authenticode resta non richiesta.",
-      "stato": "release_blocking",
-      "sintesi": "Sette archivi 9.0.0 congelati su 7314ca2 e 32 referti verificati; confronto con la draft ancora da eseguire.",
+      "stato": "verified",
+      "sintesi": "Sette archivi 9.0.0 congelati e 32 referti verificati; 24 asset della draft confrontati, sette archivi coincidenti con la candidate.",
       "perche_e_bloccante": "era **previsto e non contrattuale**: l'ordine di lavoro lo nominava, il registro no. Un obbligo che vive solo nella prosa non ferma nessuno, e sarebbe stato possibile azzerare il debito di copertura negativa, chiudere la candidate e trovarsi autorizzati a rilasciare **senza avere niente da rilasciare**. Renderlo bloccante prima di lavorare sui gruppi ASSURANCE-N1 e' l'ordine giusto: si dichiara che cosa manca finche' manca a tutti, non quando e' l'ultima cosa rimasta.",
       "prova": {
         "tipo": "esterna",
@@ -695,10 +695,9 @@
         "comando": "python3.14 scripts/check-distribuzione-completa.py --referti target/rel900/distribuzione-43787777399/referti-di-tutta-la-distribuzione --canale candidate",
         "stato": "referti_candidate_verificati_localmente",
         "corsa": 43787777399,
-        "i_due_confronti": "Draft e release pubblicata non ancora verificate; verifica locale limitata ai byte della Distribuzione forniti."
+        "i_due_confronti": "Draft verificata secondo il verbale release_verification.draft; confronto dopo la pubblicazione ancora da eseguire."
       },
-      "nota": "Checksum, dimensioni e revisione verificati contro i byte e la provenance forniti; sette archivi e 32 referti. L ID della corsa deriva dalla directory fornita, non da una verifica API. Nessuna attestazione 8.0.0 riutilizzata.",
-      "manca": "Verificare i byte riscaricati dalla draft contro la candidate e registrare il confronto; dopo la pubblicazione ripeterlo sui byte pubblicati."
+      "nota": "Confronto dei byte e verificatori attestati dall operatore; metadati API forniti confrontati localmente, run 43787777399 success su 7314ca2. Evidenza in release_verification.draft. Dopo la pubblicazione immutata occorre ripetere e registrare la verifica dei byte pubblicati."
     },
     {
       "id": "distribuzione.licenza-first-party",

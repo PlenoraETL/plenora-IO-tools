@@ -20,7 +20,7 @@
     "candidate": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea",
     "che_cosa_e_provato": "Qualifica L2 e replay finito della candidate 9.0.0 7314ca25b62788a3a9d2af0ec638d0d7f3bdffea, attempt-4; misure derivate esclusivamente dai log forniti."
   },
-  "resta_aperto": "Attestazioni del profilo pubblico e manifesto di adozione della stessa corsa, draft e verifica dei byte riscaricati, decisione del titolare, tag, gate finale e verifica dopo la pubblicazione. Nessuna autorizzazione implicita.",
+  "resta_aperto": "Decisione autentica del titolare, tag sulla candidate, registrazione separata dell autorizzazione, gate finale e pubblicazione immutata con verifica successiva. Nessuna autorizzazione implicita.",
   "contesto_operatore": "Dichiarazione dell operatore: VM Ubuntu 24.04 ricreata da zero il 16/11/2026, 192.168.2.140, clone pulito della candidate; .plenora-contracts al pin 38d68b402389855edbcecb7ce57c31e91282cb4e; Python 3.14.6, pyarrow 25.0.1, PyYAML 6.0.3, openpyxl 3.1.5, jsonschema 4.26.0; S9_CHECKPOINT_BASE=6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0; S9_CI_FUZZ_RECEIPT indica la ricevuta del replay.",
   "provenienza_della_corsa": {
     "copia_locale": "target/rel900/7314ca25b62788a3a9d2af0ec638d0d7f3bdffea-attempt-4",
@@ -1123,6 +1123,195 @@
         "archivi_confrontati": 7,
         "limite": "Confronto locale dei byte della Distribuzione; nessuna draft o release pubblicata verificata."
       }
+    }
+  },
+  "release_verification": {
+    "schema_version": 1,
+    "revisione": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea",
+    "draft": {
+      "registrata_il": "2026-11-16",
+      "id": 446953679,
+      "url": "https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/untagged-e3f36416022c71d236cb",
+      "tag_previsto": "v9.0.0",
+      "target": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea",
+      "draft": true,
+      "titolo": "Plenora IO-tools 9.0.0",
+      "created_at": "2026-11-16T11:32:18Z",
+      "published_at": null,
+      "provenienza_metadati": "Risposta API draft.json e confronto-draft.json forniti dall operatore; confrontati localmente senza chiamate GitHub. Il riscaricamento e il confronto byte per byte degli originali sono attestati dall operatore, non rieseguiti in questa registrazione.",
+      "fonti": {
+        "draft.json": {
+          "percorso": "target/rel900/draft.json",
+          "dimensione": 41725,
+          "sha256": "0b4edfd5db96051abfd9cb5c4b25748b4d0b81ccd0ac90ac31fba187b7199465"
+        },
+        "confronto-draft.json": {
+          "percorso": "target/rel900/confronto-draft.json",
+          "dimensione": 4071,
+          "sha256": "274f5fb80e602b232998842d473618e318b1772c39be116b49ce1a23e0291564"
+        },
+        "run.json": {
+          "percorso": "target/rel900/run.json",
+          "dimensione": 186,
+          "sha256": "f224b6544c3ee5d55690b187ceb4e3df172cfbe466a2950de87c39a04308eabf"
+        },
+        "note-io-900.md": {
+          "percorso": "target/rel900/note-io-900.md",
+          "dimensione": 2416,
+          "sha256": "c7bbda1f828093019a791ffd9f602520123acc31f1c973cf9f745f4ab9695024"
+        }
+      },
+      "numero_asset": 24,
+      "asset_riscaricati": {
+        "adoption-manifest-9.0.0.json": {
+          "dimensione": 12801,
+          "sha256": "88864beebd9caedd9e27aefc3c384d8cbd855038a026862919d46fc1b8ae81a0",
+          "id_api": 754607032
+        },
+        "licenze.json": {
+          "dimensione": 1398,
+          "sha256": "646097399e7b7faa4f5d68addc648dc80a92b378b51b7a1538e73b505e92b2db",
+          "id_api": 754607034
+        },
+        "MANIFEST-sorgente.json": {
+          "dimensione": 753,
+          "sha256": "2e4f9c8b9da278666c3a96400d54dc62ebf59ee7dd441d0867a349bd667c28a8",
+          "id_api": 754607036
+        },
+        "MANIFEST.json": {
+          "dimensione": 1394,
+          "sha256": "3986bcb337b4d8dd518533fa2b0181ab0e9a1d7147f00bc3f2550176a67d71f2",
+          "id_api": 754607035
+        },
+        "plenora-io-9.0.0-linux-x86_64-base.tar.gz": {
+          "dimensione": 9257607,
+          "sha256": "b609e74605c0b586cbbdaa9a91a3ec62b38702bd8f20afb1dc3d113f52d9114a",
+          "id_api": 754607038
+        },
+        "plenora-io-9.0.0-linux-x86_64-base.tar.gz.provenance.json": {
+          "dimensione": 2582,
+          "sha256": "e63fa3e9dd1563ecc62bf6c5dce31cdad8c4e99228afbc736db40a4ae76f7b11",
+          "id_api": 754607067
+        },
+        "plenora-io-9.0.0-linux-x86_64-base.tar.gz.sha256": {
+          "dimensione": 108,
+          "sha256": "6a29ff01dd1d9e383c041e2a112cf4d57b450292b9df6ade8ddd4cadfcc56221",
+          "id_api": 754607069
+        },
+        "plenora-io-9.0.0-linux-x86_64-filegdb.tar.gz": {
+          "dimensione": 65106094,
+          "sha256": "332257d0901786c2494159bc0e4b3190a8e7a6b58a8dcadb3b58cf2298ee3254",
+          "id_api": 754607071
+        },
+        "plenora-io-9.0.0-linux-x86_64-filegdb.tar.gz.provenance.json": {
+          "dimensione": 2589,
+          "sha256": "5872a3cdece6771ccd5fd7f3c5a6e5d72e9867c565cc83c81ebbee9d65b29022",
+          "id_api": 754607072
+        },
+        "plenora-io-9.0.0-linux-x86_64-filegdb.tar.gz.sha256": {
+          "dimensione": 111,
+          "sha256": "e59ba2ee8f9735a18eb16647bbef014ae0cf94effecc86078f8d052e351c60fe",
+          "id_api": 754607120
+        },
+        "plenora-io-9.0.0-src.tar.gz": {
+          "dimensione": 21737899,
+          "sha256": "6b83de068ce5dd7ba4e9a66447c61f2c505e0ba47fef201d54ad230280a564ed",
+          "id_api": 754607122
+        },
+        "plenora-io-9.0.0-src.tar.gz.sha256": {
+          "dimensione": 94,
+          "sha256": "71ca0f305f182de2f88c20ae83d14ff1c7df81c144b3a4bf1830b13539e2e5b1",
+          "id_api": 754607124
+        },
+        "plenora-io-9.0.0-windows-x86_64-base.zip": {
+          "dimensione": 10506315,
+          "sha256": "e39d10f635ae2b5008812b6035622dc58b0be10b65364d6fc8d32ba8ceab2a2e",
+          "id_api": 754607137
+        },
+        "plenora-io-9.0.0-windows-x86_64-base.zip.provenance.json": {
+          "dimensione": 2436,
+          "sha256": "1ceb90112e52e2ee54dfb5632de18405662c7ebac85a306fc37f5df63bd1f50b",
+          "id_api": 754607166
+        },
+        "plenora-io-9.0.0-windows-x86_64-base.zip.sha256": {
+          "dimensione": 108,
+          "sha256": "56bbdbd66fe6e17eaee8861ba0c6d307f36b5556c248e57c04c9c67a0ff4be8a",
+          "id_api": 754607169
+        },
+        "plenora-io-9.0.0-windows-x86_64-filegdb.zip": {
+          "dimensione": 50899992,
+          "sha256": "45b0df0e7e418de163654c8ce781c3b9339a584551e822f369c14dccf3fd24e2",
+          "id_api": 754607195
+        },
+        "plenora-io-9.0.0-windows-x86_64-filegdb.zip.provenance.json": {
+          "dimensione": 2442,
+          "sha256": "2735fc31a60e440c1d6fd7102ef0ab0ff571c661dd635b4b3e5fca6e6d6889aa",
+          "id_api": 754607204
+        },
+        "plenora-io-9.0.0-windows-x86_64-filegdb.zip.sha256": {
+          "dimensione": 111,
+          "sha256": "d7f15e610e0113dc22bac6eb24273be0180581aa4f987e9245628e4d2548cf0c",
+          "id_api": 754607232
+        },
+        "plenora_io-9.0.0-py3-none-any.whl": {
+          "dimensione": 117967,
+          "sha256": "7115eae9bc27582c987936bdc43c08a8dae499c5b774da0d697bd2e66628fd89",
+          "id_api": 754607270
+        },
+        "plenora_io-9.0.0-py3-none-any.whl.sha256": {
+          "dimensione": 100,
+          "sha256": "249ea4a23ca54712c42676967b5ccfd4a97d235b7e59985718be8456a6c33cec",
+          "id_api": 754607273
+        },
+        "plenora_io-9.0.0.tar.gz": {
+          "dimensione": 227165,
+          "sha256": "e76ceac4df0f2c0e9efbfd610316af6f151aef9550fa8e9d4cea5565b66e1770",
+          "id_api": 754607280
+        },
+        "plenora_io-9.0.0.tar.gz.sha256": {
+          "dimensione": 90,
+          "sha256": "9773a0990d901c30519fb6d0ee0615f77dc2946ed4319194a111752fb021cf9d",
+          "id_api": 754607302
+        },
+        "provenance.json": {
+          "dimensione": 769,
+          "sha256": "e2b720632584cbb58aa04fdd8100eaad7493643254cc24eb589a73d549382482",
+          "id_api": 754607310
+        },
+        "sbom.json": {
+          "dimensione": 1103,
+          "sha256": "6d622c313560c436149e5a56994260ab66fc1e86c93e3f687ea0f3f70e444eca",
+          "id_api": 754607315
+        }
+      },
+      "confronti": {
+        "metadati_api": "24/24 nomi, dimensioni e SHA-256 coincidenti con confronto-draft.json",
+        "asset_contro_originali": "identici byte per byte",
+        "deliverable_contro_candidate": "7/7 nomi, dimensioni e SHA-256 del confronto coincidenti con gli artefatti congelati",
+        "manifesto_locale": "Copia byte-identica del manifesto riscaricato fornito; digest verificato contro confronto e API",
+        "note": "Corpo draft coincidente con note-io-900.md, esclusi spazi esterni"
+      },
+      "deliverable": {
+        "fonte": "Esito comunicato dall operatore nella richiesta; non rieseguito qui.",
+        "strumento": "scripts/check-deliverable.py --contro-la-candidate assurance/current-state.json",
+        "directory_operatore": "C:/pg/io-rel900/target/rel900/draft-riscaricata-deliverable",
+        "output": "7 archivi con altrettanti checksum, di cui 2 Python; byte pubblicati identici ai 7 artefatti congelati dalla candidate",
+        "esclusione": "adoption-manifest-9.0.0.json non e un deliverable; escluso dai 23 file passati allo strumento."
+      },
+      "manifesto_adozione": {
+        "fonte": "Esito comunicato dall operatore nella richiesta; non rieseguito qui.",
+        "strumento": "scripts/check_manifesto_adozione.py",
+        "output": "5 artefatti con digest ricalcolati, 15 contratti dichiarati conformi e 1 non applicabili, 8 deviazioni",
+        "limite": "Le deviazioni non contano come conformita per le regole che nominano."
+      },
+      "distribuzione": {
+        "conclusion": "success",
+        "event": "workflow_dispatch",
+        "headSha": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea",
+        "url": "https://github.com/PlenoraETL/plenora-IO-tools/actions/runs/43787777399"
+      },
+      "release_authorized": false,
+      "release_action_allowed": false
     }
   }
 }
