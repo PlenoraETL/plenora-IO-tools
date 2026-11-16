@@ -58,7 +58,7 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | esito differenziale | 96.42% |
 | gruppi ASSURANCE-N1 | 50 |
 | gruppi ASSURANCE-N1 aperti | 0 |
-| blocchi | 1 |
+| blocchi | 0 |
 | capacità differite | 2 |
 | S9, qualificato su | `7314ca2` |
 | candidate, versione del manifesto | `9.0.0` |
@@ -67,13 +67,13 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | candidate, versione del workspace | `9.0.0` |
 | candidate, artefatti congelati | 7 |
 | candidate, tag previsto | `v9.0.0` |
-| candidate, tag creato | no |
-| candidate, revisione del tag | nessun tag |
-| candidate, tag sulla candidate | no |
+| candidate, tag creato | sì |
+| candidate, revisione del tag | `7314ca25b62788a3a9d2af0ec638d0d7f3bdffea` |
+| candidate, tag sulla candidate | sì |
 | candidate, assurance entro l'allowlist | sì |
-| candidate, release_action consentita | no |
+| candidate, release_action consentita | sì |
 | release pubblicate | 13 |
-| release_authorized | `false` |
+| release_authorized | `true` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
 [registro del contratto corrente](../assurance/registries/release-contract-current.json)
@@ -81,7 +81,6 @@ I blocchi sono l'elenco esatto dei `release_blocking` del
 
 | Blocco | Sintesi |
 |---|---|
-| `release.candidate-non-valida-per-head` | 9.0.0: candidate, replay finito, L2 e draft verificata registrati; decisione, tag e autorizzazione ancora assenti. |
 
 Le capacità **differite** non sono blocchi chiusi: non sono richieste
 da questa release e **non sono verificate**. Ciascuna dichiara che cosa
@@ -2695,6 +2694,7 @@ Applicare la stessa separazione al riscaricamento dopo la pubblicazione.
 La copia locale della procedura `target/REGISTRA-L2-900.md` e corretta in
 entrambi i punti; l'originale nell'altro worktree resta intatto.
 
+**Cronaca precedente alla decisione registrata sotto.**
 La distribuzione e verificata per il passo prepubblicazione; resta bloccante
 la candidate fino alla decisione autentica del titolare e al tag verificato.
 `release_authorized`, `release_action_allowed`, `tag_creato` e
@@ -2702,7 +2702,7 @@ la candidate fino alla decisione autentica del titolare e al tag verificato.
 Registrare questa assurance in un commit separato a cura del titolare.
 
 Dopo la decisione, conservarne data, titolare, testo e oggetto in
-`assurance/evidence/autorizzazione-9.0.0.txt`; creare il tag annotato sulla
+`assurance/evidence/autorizzazione-9.0.0.json`; creare il tag annotato sulla
 candidate e registrare autorizzazione e tag in un secondo commit di assurance.
 Comandi futuri, **non eseguiti**, nell'ambiente Linux di qualifica aggiornato,
 Python 3.14, contratti al pin e manifesto identico a quello verificato:
@@ -2737,3 +2737,36 @@ Ripetere i confronti sui 24 asset e i due verificatori, con i 23 deliverable
 separati dal manifesto; registrare `release_verification.published`, i metadati
 reali e consumare `release_action_allowed=false`. Il resoconto locale
 `target/REGISTRA-BOZZA-900.md` riporta esiti e comandi operativi completi.
+
+### Decisione del titolare e tag locale 9.0.0
+
+Il titolare ha comunicato il 2026-11-16T12:35:41Z il testo autentico:
+«Autorizzo la pubblicazione di IO 9.0.0». Data, autore, oggetto e testo sono
+conservati in `assurance/evidence/autorizzazione-9.0.0.json` e nella nota della
+candidate. Questa decisione supera i permessi false della precedente
+registrazione della draft; il verbale storico della draft resta invariato.
+La forma JSON sostituisce il `.txt` previsto dalla procedura: il contratto
+ammette documenti del titolare citati in `docset.registrazioni_documentali`
+con percorso e SHA-256, e rifiuta un file testuale non riferito. Il testo
+autentico e conservato integralmente, senza attribuirgli valore di checkpoint.
+
+Il tag annotato `v9.0.0`, gia creato localmente dal titolare, e stato verificato
+con `git for-each-ref` e `git rev-parse 'v9.0.0^{commit}'`: oggetto
+`2d84754b3d49e4a52e09b5ed6d2eac828ca9a823`, commit
+`7314ca25b62788a3a9d2af0ec638d0d7f3bdffea`, esattamente la candidate.
+Sono registrati `release_authorized=true`, `release_action_allowed=true`,
+`tag_creato=true`, `tag_sulla_candidate=true` e `tag_revisione` allo SHA completo.
+La condizione della candidate e verificata e il relativo blocco e chiuso.
+
+Questa registrazione non attesta la pubblicazione o il superamento del gate
+completo: prima del passo 4 resta necessario `check_release_contract.py --release`
+con exit 0. Nessun commit, push del tag o accesso GitHub e stato eseguito;
+`release_verification.published` non e registrato. Gli esiti locali e lo script
+del passo 4 per Windows con Git Bash sono in `target/REGISTRA-DECISIONE-900.md`.
+
+Il gate completo locale del 16/11/2026 e terminato con exit 1: richiamo Bash
+negato, due test Unix dei segnali assenti nel harness Windows, `gdal_i.lib`
+assente e quattro sonde Unix con `WinError 193`. Anche la condizione
+`confine-asan-rimisurato` fallisce per GDAL assente. La decisione resta
+registrata, ma il passo 4 resta subordinato a un gate completo verde
+nell'ambiente di qualifica con i prerequisiti richiesti.

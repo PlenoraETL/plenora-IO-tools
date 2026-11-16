@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "tipo": "registrazione_documentale_owner_non_checkpoint",
+  "ricevuta_il": "2026-11-16T12:35:41Z",
+  "autore": "titolare del prodotto",
+  "oggetto": "pubblicazione di IO 9.0.0",
+  "testo_autentico": "Autorizzo la pubblicazione di IO 9.0.0",
+  "fonte_locale": "C:/pg/piani/decisione-io-900.txt",
+  "tag": "v9.0.0",
+  "oggetto_tag": "2d84754b3d49e4a52e09b5ed6d2eac828ca9a823",
+  "revisione_candidate": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea",
+  "ambito": "Decisione e verifica del tag locale; non attesta pubblicazione o superamento del gate completo."
+}
