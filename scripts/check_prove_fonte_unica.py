@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # Comandi statici: nessuna build, rete, registrazione o misura sostituita da
 # uno snapshot. La lista e' una politica di esecuzione, non un conteggio.
 STATIC = [
+    ["fuzz_release.py", "--check-policy"],
     ["check_python_version.py", "--runtime"], ["system_qualification.py"], ["check_async_surface.py"],
     ["check_action_pins.py"], ["check_public_identity.py"],
     ["check_docset.py"], ["check_comments.py"], ["check_test_layout.py"],

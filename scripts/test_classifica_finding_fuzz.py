@@ -511,8 +511,8 @@ class SondeDellaCampagnaInterrotta(unittest.TestCase):
             voce["verifica"]["comando"],
             [
                 "python3",
-                "scripts/classifica_finding_fuzz.py",
-                "--verifica-campagna",
+                "scripts/fuzz_release.py",
+                "--receipt",
                 "assurance/evidence/fuzz-smoke-ultima.json",
             ],
         )
@@ -656,8 +656,8 @@ class SondeDelVerbaleFuoriDallAlbero(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn(f"export {gate.VARIABILE_VERBALE}=", script)
-        self.assertIn("--verifica-campagna", script)
-        self.assertIn("--revisione-della-corsa", script)
+        self.assertIn('--receipt "${PLENORA_VERBALE_CAMPAGNA}"', script)
+        self.assertIn('--revision "${REVISIONE}"', script)
 
 
 #: L'uscita di libFuzzer sull'input di 3966 byte, **com'e'**: intestazione e

@@ -5,7 +5,8 @@
 # ## Perche' esiste
 #
 # `scripts/fuzz-replay.sh` e `scripts/fuzz-smoke.sh` restano quello che sono:
-# script foreground, invariati, ed e' la modalita' con cui girano in CI, dove
+# script foreground per diagnostica/esplorazione; il replay di release usa
+# `fuzz_release.py`. Nella CI periodica, dove
 # il runner aspetta il processo e ne raccoglie l'esito. Questo file non li
 # sostituisce e non li chiama in modo diverso — li lancia dentro un container
 # **staccato**.
@@ -59,6 +60,7 @@
 #
 # ## Uso
 #
+#   scripts/fuzz-container.sh start release  # IO 9, ricevuta in fuzz/artifacts/release-replay.json
 #   scripts/fuzz-container.sh start replay [target ...]
 #   scripts/fuzz-container.sh start smoke [--seconds N] [target ...]
 #   scripts/fuzz-container.sh status
@@ -176,12 +178,18 @@ esito() {
 comando_start() {
     local modalita="${1:?modalita: replay | smoke}"
     shift
-    local script
+    local script interprete=bash
+    local extra=()
     case "${modalita}" in
+        release)
+            script="scripts/fuzz_release.py"
+            interprete=python3
+            extra=(--execute --receipt /work/fuzz/artifacts/release-replay.json)
+            ;;
         replay) script="scripts/fuzz-replay.sh" ;;
         smoke) script="scripts/fuzz-smoke.sh" ;;
         *)
-            echo "modalita' sconosciuta: ${modalita} (attese: replay, smoke)" >&2
+            echo "modalita' sconosciuta: ${modalita} (attese: release, replay, smoke)" >&2
             return 2
             ;;
     esac
@@ -235,7 +243,7 @@ comando_start() {
         --volume "${VOLUME_CARGO}:/usr/local/cargo/registry" \
         --volume "${VOLUME_TARGET}:/fuzztarget" \
         --env PLENORA_FUZZ_TARGET_DIR=/fuzztarget \
-        "${IMMAGINE}" bash "${script}" "$@" >/dev/null || return 1
+        "${IMMAGINE}" "${interprete}" "${script}" "${extra[@]}" "$@" >/dev/null || return 1
     echo "avviato: segui con 'status', 'logs', 'wait'"
 }
 

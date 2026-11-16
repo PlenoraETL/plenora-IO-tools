@@ -71,15 +71,19 @@ class SondeDellaPubblicazioneDelVerbale(unittest.TestCase):
             percorso.write_text(json.dumps(contenuto), encoding="utf-8")
 
     def _verbale(self, revisione: str) -> dict:
-        return {
-            "schema_version": 1,
-            "revisione": revisione,
-            "bersagli_dichiarati": ["shp_reader"],
-            "secondi_per_bersaglio": 60,
-            "hanno_finito": ["shp_reader"],
-            "fermati_a_finding_noto": [],
-            "falliti_su_finding_nuovo": [],
-        }
+        from fuzz_release import inventory, digest, POLICY, command_for
+        inputs = inventory()
+        receipts = {}
+        for target, files in inputs.items():
+            log = ''.join(f'Executed {p} in 1 ms\n' for p in files)
+            receipts[target] = {'exit': 0, 'log': log, 'comando': command_for('test-only', target, files),
+                                'log_sha256': digest(log.encode()), 'esecuzioni': len(files)}
+        return {'schema_version': 2, 'policy': POLICY, 'revisione': revisione,
+                'inventario': inputs, 'budget_esecuzioni': sum(map(len, inputs.values())),
+                'esito': 'PASS', 'ricevute': receipts, 'toolchain': 'test-only',
+                'ambiente': {'test': True}, 'bersagli_dichiarati': sorted(inputs),
+                'hanno_finito': sorted(inputs), 'secondi_per_bersaglio': None,
+                'fermati_a_finding_noto': [], 'falliti_su_finding_nuovo': [], 'illeggibili': []}
 
     def _pubblica(self) -> list[str]:
         with redirect_stderr(io.StringIO()):
@@ -169,15 +173,19 @@ class SondeDellaCatenaDiRegistrazione(unittest.TestCase):
         self.addCleanup(setattr, self.registrar, "VERBALE_PUBBLICATO", precedente)
 
     def _verbale(self, revisione: str) -> dict:
-        return {
-            "schema_version": 1,
-            "revisione": revisione,
-            "bersagli_dichiarati": ["shp_reader"],
-            "secondi_per_bersaglio": 60,
-            "hanno_finito": ["shp_reader"],
-            "fermati_a_finding_noto": [],
-            "falliti_su_finding_nuovo": [],
-        }
+        from fuzz_release import inventory, digest, POLICY, command_for
+        inputs = inventory()
+        receipts = {}
+        for target, files in inputs.items():
+            log = ''.join(f'Executed {p} in 1 ms\n' for p in files)
+            receipts[target] = {'exit': 0, 'log': log, 'comando': command_for('test-only', target, files),
+                                'log_sha256': digest(log.encode()), 'esecuzioni': len(files)}
+        return {'schema_version': 2, 'policy': POLICY, 'revisione': revisione,
+                'inventario': inputs, 'budget_esecuzioni': sum(map(len, inputs.values())),
+                'esito': 'PASS', 'ricevute': receipts, 'toolchain': 'test-only',
+                'ambiente': {'test': True}, 'bersagli_dichiarati': sorted(inputs),
+                'hanno_finito': sorted(inputs), 'secondi_per_bersaglio': None,
+                'fermati_a_finding_noto': [], 'falliti_su_finding_nuovo': [], 'illeggibili': []}
 
     def _scrivi_verbale(self, contenuto) -> None:
         percorso = self.corsa / self.registrar.NOME_DEL_VERBALE

@@ -728,8 +728,11 @@ WKB per driver, e archivia una baseline sotto `baseline/`.
 prestazionale non blocca oggi nulla automaticamente — va confrontata a mano
 contro la baseline archiviata.
 
-L'unico benchmark cablato in CI è quello **Windows / FileGDB narrow**, che
-produce un artefatto misurato a ogni corsa.
+Dal contratto 9.0.0 il benchmark Windows/FileGDB contro v0.1.0-rc.3
+non e piu nel cancello CI. Nessuna soglia di velocita e richiesta per la
+release; rimangono le prove semantiche native di proiezione, valori e null.
+Lo script storico resta disponibile per leggere le campagne precedenti,
+non come prescrizione per la release corrente.
 
 ## Distribuzione
 

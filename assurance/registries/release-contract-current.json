@@ -800,13 +800,13 @@
       },
       {
         "id": "campagna-fuzz-completa",
-        "descrizione": "l'ultima corsa dello smoke ha portato ogni bersaglio a fine tempo: un bersaglio fermato a un crash compatibile con un finding noto non soddisfa il requisito, anche se lo smoke esce 0 perche' lo sviluppo prosegua",
+        "descrizione": "Replay ASan completo di ogni seme versionato, budget uguale all inventario, log e digest per target; nessuna campagna omessa vale PASS. Profondita e confine ASan restano condizioni separate.",
         "verifica": {
           "tipo": "gate",
           "comando": [
             "python3",
-            "scripts/classifica_finding_fuzz.py",
-            "--verifica-campagna",
+            "scripts/fuzz_release.py",
+            "--receipt",
             "assurance/evidence/fuzz-smoke-ultima.json"
           ]
         }
@@ -845,5 +845,12 @@
     "perimetro": "R1/R2/R3 nel worktree; non modifica candidate, pubblicazioni o autorizzazioni storiche.",
     "prove_sorgente": "assurance/registries/io-geometrie-multiple.json:correzione_3",
     "fuori_perimetro": "R4: interop, L1/L2, nuove campagne fuzz/ASan, distribuzione e GDAL Linux."
+  },
+  "prove_release": "assurance/registries/prove-release.json",
+  "eccezione_transitoria_historical_readers": {
+    "decisione": "titolare 15/11/2026",
+    "pin": "50f935715991c591760fb9a7d0c730f3d9f0484b",
+    "versione": "7.0.3",
+    "scadenza": "pulizia post-release; IO-8 non modificato in questa correzione"
   }
 }

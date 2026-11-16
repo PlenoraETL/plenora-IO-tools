@@ -289,8 +289,14 @@ passo() {
     # il `fi` diceva sempre «exit 0» anche sui rossi. Trovato al checkpoint del
     # 2026-08-21, che ha stampato «ROSSO (exit 0)» -- una contraddizione che
     # rendeva inutile proprio il numero che serve a capire come si e' fallito.
-    "$@" > "${log}" 2>&1
-    local esito=$?
+    local esito
+    if [ -n "${S9_CI_RECEIPTS:-}" ] && [[ "${nome}" =~ ^(fmt|clippy|test_default)$ ]]; then
+        python3 scripts/ci_receipt.py --reuse "${S9_CI_RECEIPTS}" --name "${nome}" -- "$@" > "${log}" 2>&1
+        esito=$?
+    else
+        "$@" > "${log}" 2>&1
+        esito=$?
+    fi
     if [ "${esito}" -eq 0 ]; then
         verdi=$((verdi + 1))
         registra_passo "${nome}" verde "${nome}.log"
@@ -570,7 +576,7 @@ echo "--- 1. compilazione e test -----------------------------------"
 # rotto, tutto cio' che segue e' una misura di cui non si sa niente.
 passo sonde_checkpoint bash scripts/test_s9_checkpoint.sh
 passo fmt cargo fmt --all -- --check
-passo clippy cargo clippy --workspace --all-targets --all-features -- -D warnings
+passo clippy cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 # I tre fork governati, con lo stesso `-D warnings` che la CI impone.
 #
 # `--workspace` non li tocca: `vendor/` e' escluso, ed e' giusto che lo sia --
@@ -614,7 +620,7 @@ passo test cargo test --workspace --all-features
 # un'intera tranche, e a trovarlo e' stata la misura di copertura -- che gira
 # senza feature. Un passo non deve dipendere da un altro per accorgersi che
 # qualcosa non compila.
-passo test_default cargo test --workspace --all-targets
+passo test_default cargo test --workspace --all-targets --locked
 
 echo
 echo "--- 2. gate del censimento e delle sonde ---------------------"
@@ -753,6 +759,7 @@ passo check_riuso_evidenze python3 scripts/check_riuso_evidenze.py
 # silenzio attribuirebbe a questa corsa la campagna di un'altra.
 passo sonde_registra_evidenza python3 -m unittest scripts.test_registra_evidenza_s9
 passo sonde_soak python3 -m unittest scripts.test_soak_misurato
+passo sonde_fuzz_release python3 -m unittest scripts.test_fuzz_release
 passo sonde_prevalidazione python3 -m unittest scripts.test_check_prevalidazione_decoder
 passo check_prevalidazione python3 scripts/check_prevalidazione_decoder.py
 passo sonde_identita python3 -m unittest scripts.test_check_public_identity
@@ -846,27 +853,15 @@ passo check_filegdb_catalog catalogo_filegdb
 
 echo
 echo "--- 4. fuzz: replay deterministico, poi smoke ----------------"
-# Il replay viene **prima**: rigioca semi, corpus e artefatti gia' noti, ed e'
-# deterministico. Lo smoke cerca input nuovi, e sessanta secondi di mutazioni
-# non ritrovano quello che il replay ritrova sempre. Invertirli significa
-# scoprire una regressione nota solo per fortuna.
-passo_pesante fuzz_replay bash scripts/fuzz-replay.sh
-passo_pesante fuzz_smoke bash scripts/fuzz-smoke.sh
+# IO 9: una esecuzione per seme versionato, sotto ASan. I due passi
+# successivi rileggono la stessa ricevuta, non ripetono il lavoro. I nomi
+# storici restano identificatori dei log; non attestano ricerca casuale.
+passo_pesante fuzz_replay python3 scripts/fuzz_release.py --execute
+passo_pesante fuzz_smoke python3 scripts/fuzz_release.py --revision "${REVISIONE}"
 
-# La campagna si giudica dal **verbale**, non dall'uscita dello smoke.
-#
-# Lo smoke esce 0 anche quando un bersaglio si e' fermato a un crash
-# compatibile con un finding noto: e' deliberato, perche' lo sviluppo prosegua
-# sugli altri. Quello 0 non e' «campagna completa», e dedurlo dall'exit code
-# renderebbe il livello 2 piu' generoso del gate del rilascio.
-#
-# Il verbale che si legge e' quello che **questa** corsa ha prodotto, nella
-# directory dei log, e `--revisione-della-corsa` lo pretende esattamente su
-# questa revisione: senza, un verbale gia' versionato o quello di un antenato
-# passerebbe al posto suo, ed e' il ripiego che il passo esiste per impedire.
-passo_pesante fuzz_campagna_completa python3 scripts/classifica_finding_fuzz.py \
-    --verifica-campagna "${PLENORA_VERBALE_CAMPAGNA}" \
-    --revisione-della-corsa "${REVISIONE}"
+# Completezza, budget e SHA verificati sulla ricevuta di questa corsa.
+passo_pesante fuzz_campagna_completa python3 scripts/fuzz_release.py \
+    --receipt "${PLENORA_VERBALE_CAMPAGNA}" --revision "${REVISIONE}"
 
 echo
 echo "--- 5. copertura, poi il suo gate ----------------------------"

@@ -1,5 +1,6 @@
 #!/bin/bash
-# Smoke della campagna fuzz sotto AddressSanitizer.
+# Esplorazione a tempo sotto AddressSanitizer (periodica da IO 9).
+# Il cancello usa fuzz_release.py: questo script non attesta il replay finito.
 #
 # Non e' la campagna lunga (scripts/fuzz-campaign.sh): qui l'obiettivo e'
 # dimostrare, a ogni revisione candidata, che ogni target compila strumentato e

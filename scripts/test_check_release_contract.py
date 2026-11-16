@@ -5161,3 +5161,37 @@ class SondeArchivioSenzaTag(unittest.TestCase):
         self.assertTrue(any("v9.0.0" in e and "congelata" in e for e in errors), errors)
         self.assertEqual(gate._tag_sulla_candidate(candidate, congelata, "9.0.0",
                                                   risolvi=lambda ref: congelata), [])
+
+class PolicyProveRelease(unittest.TestCase):
+    def test_policy_corrente(self):
+        self.assertEqual(gate.verifica_policy_prove(), [])
+
+    def test_tempo_benchmark_e_eccezione_non_sostituiscono_la_prova(self):
+        import shutil
+        paths = ['assurance/registries/prove-release.json',
+                 'assurance/registries/release-contract-current.json',
+                 'assurance/registries/passi-del-checkpoint.json',
+                 'scripts/s9-checkpoint.sh', '.github/workflows/ci.yml']
+        for mutation in ('oracolo', 'campagna', 'benchmark', 'eccezione'):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as tmp:
+                root = pathlib.Path(tmp)
+                for relative in paths:
+                    dest = root / relative
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(gate.ROOT / relative, dest)
+                if mutation == 'benchmark':
+                    path = root / '.github/workflows/ci.yml'
+                    path.write_text(path.read_text(encoding='utf-8') + '\nrun: ./scripts/check-windows-filegdb-benchmark.ps1\n', encoding='utf-8')
+                else:
+                    path = root / paths[0 if mutation == 'oracolo' else 1]
+                    data = json.loads(path.read_text(encoding='utf-8'))
+                    if mutation == 'oracolo':
+                        del data['misura_oracolo']
+                    elif mutation == 'eccezione':
+                        del data['eccezione_transitoria_historical_readers']
+                    else:
+                        for c in data['autorizzazione_di_release']['condizioni']:
+                            if c['id'] == 'campagna-fuzz-completa':
+                                c['verifica']['comando'] = ['true']
+                    path.write_text(json.dumps(data), encoding='utf-8')
+                self.assertTrue(gate.verifica_policy_prove(root))

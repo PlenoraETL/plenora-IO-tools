@@ -1,5 +1,6 @@
 #!/bin/bash
-# Replay deterministico di corpus, semi e artefatti su OGNI target (FZ-0).
+# Replay diagnostico di corpus, semi e artefatti (FZ-0).
+# Il replay bloccante IO 9 e fuzz_release.py: inventario finito e ricevute per input.
 #
 # Non e' fuzzing: `-runs=0` esegue una volta ciascun input gia' esistente e
 # esce, senza mutazioni. Due esecuzioni sulla stessa revisione e sullo stesso

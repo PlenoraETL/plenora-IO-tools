@@ -383,7 +383,8 @@ fi
 # davano prima lo stesso risultato.
 
 # 1. Repository assente: deve **fallire**, non restituire un'impronta.
-( cd /tmp && impronta_albero > /dev/null 2>&1 )
+# TMP puo stare dentro il worktree: un GIT_DIR assente esclude la scoperta del padre.
+( cd /tmp && GIT_DIR="${S9_CHECKPOINT_LOG_DIR}/repository-assente.git" impronta_albero > /dev/null 2>&1 )
 verifica "fuori da un worktree l'impronta fallisce" "1" "$?"
 
 # 2. Errore interno di git: `rev-parse` risponde, `diff` no. Controllare il

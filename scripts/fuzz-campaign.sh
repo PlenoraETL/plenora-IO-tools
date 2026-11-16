@@ -1,5 +1,6 @@
 #!/bin/bash
-# Campagna riproducibile: tutti i target libFuzzer coverage-guided più il fuzzer
+# Esplorazione periodica, fuori dal cancello IO 9; nuovi finding diventano semi.
+# Campagna a tempo: tutti i target libFuzzer coverage-guided più il fuzzer
 # strutturato stabile. Pensato per l'immagine definita da fuzz/Dockerfile.
 # La lista dei target è derivata dal manifest, non riscritta qui.
 #

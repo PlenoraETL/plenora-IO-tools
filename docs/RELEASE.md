@@ -1311,27 +1311,48 @@ titolare registrata e permesso operativo consumato.
 differiti** — il punto 4 è differito, e la release non promette ciò che quel
 rinvio ritira; `check_release_contract.py --release` verde, cioè nessun
 invariante `release_blocking` e ogni rinvio ben dichiarato; un checkpoint di
-livello 2 su un albero pulito, con SHA e impronta invariati; un **soak mirato**
-su `dxf_reader` e `shp_reader`, oltre alla smoke ordinaria; l'evidenza in un
-commit separato.
+livello 2 finale su un albero pulito, con SHA e impronta invariati; replay
+ASan di **tutti i semi versionati** e regressioni correnti; profondita e confine
+ASan validi; evidenza in un commit separato. Il congelamento 9.0.0 avviene
+**dopo** questa modifica, per decisione del titolare del 15/11/2026.
 
-Un punto differito non alleggerisce questo criterio: lo sposta. Ciò che non è
-verificato resta non verificato dopo l'autorizzazione esattamente come prima, e
-la riga che `--release` stampa lo ripete a ogni corsa.
+Il contratto operativo e `assurance/registries/prove-release.json` (policy
+`io-9-replay-v1`). Il budget e un'esecuzione di ciascun seme dell'inventario,
+con digest e log per target: nessun tempo minimo, nessuna quarantena omessa,
+nessuna promozione di NON ESEGUITO a PASS. `fuzz_release.py --execute` produce
+la ricevuta; i passi dal nome storico `fuzz_smoke` e `fuzz_campagna_completa`
+la verificano senza ripetere la campagna. Le regressioni di prodotto restano
+nella suite, inclusi DXF DATATABLE, conteggi e allocazioni e i finding SHP.
 
-**Perché un soak mirato, e perché su quei due.** La smoke esiste da sempre, ma
-per un periodo ha costruito zero target: il job installava la toolchain e non
-GDAL, e `filegdb_reader` faceva morire la costruzione prima che il primo target
-esistesse. Rimessa in funzione, in due corse consecutive ha trovato due difetti
-seri e di famiglie diverse — un ciclo che non termina in `dxf_reader`, un panico
-raggiungibile in `shp_reader` — con sessanta secondi per target.
+I due soak da 3600 s **non sono piu un requisito di release**. La ricerca a
+tempo resta periodica, con nuovi finding convertiti in semi. Ha trovato difetti
+reali: fra questi l'OOM DATATABLE dopo 568 s. Zero finding in una finestra non
+dimostra esaurimento dei difetti. I referti precedenti mantengono criterio e SHA.
 
-Due su due non è una statistica, ma è abbastanza per non trattare quei due
-lettori come esplorati. Un soak più lungo sui soli due dice se la resa era il
-recupero di un arretrato o un ritmo: se non trova più niente, l'arretrato era
-finito; se trova, l'avremmo saputo dopo il rilascio invece che prima. Va eseguito
-**sullo SHA congelato**, insieme al resto della campagna, perché è di quello che
-si vuole sapere.
+L2 si esegue una volta a fine release; si ripete la parte invalidata da una
+correzione. Ricevute CI riusabili solo sullo stesso commit, comando, toolchain,
+ambiente e configurazione: un dato mancante impone esecuzione, non un verde.
+Per importare i log di fmt/clippy/test-default, estrarre l'artefatto CI e
+impostare `S9_CI_RECEIPTS` alla directory delle ricevute JSON; per il replay
+impostare `S9_CI_FUZZ_RECEIPT` al verbale CI originale, in un percorso distinto
+da quello dei log L2. I log L2 dichiarano RIUSATO CI, NON RIESEGUITO e conservano
+provenienza e digest. Ricevuta fornita ma fallita o incompatibile: errore, nessun
+retry che nasconda la corsa; ricevuta assente: esecuzione locale.
+Una misura coverage pulita finale basta. Ripetizioni sono diagnostica di
+instabilita: motivo e N dichiarati prima, zero differenze per file/riga/coperta,
+nessuna selezione del tentativo favorevole. La base differenziale confronta
+sorgente coperto e resta richiesta, non e compatibilita con una release vecchia.
+
+IO-5/6: matrici Windows/Linux, ABI Python e GDAL con/senza scrittura FileGDB
+mantengono i rispettivi confini. Timeout finiti sono watchdog; i test di
+cessazione, segnali, cleanup e subprocessi ostili restano prove funzionali,
+non soak. Non si riducono attese che rappresentano il fenomeno osservato.
+IO-7: nessuna soglia prestazionale bloccante; ritirato il benchmark Windows
+contro v0.1.0-rc.3. Restano i test semantici del percorso narrow corrente.
+IO-8: eccezione transitoria esplicita per historical-readers 7.0.3 al pin
+`50f935715991c591760fb9a7d0c730f3d9f0484b`, invariato fino alla pulizia
+post-release gia decisa. La qualifica congiunta resta attribuita ai propri pin;
+il suo risultato storico non qualifica automaticamente la 9.0.0.
 
 Solo allora `release_authorized` può diventare `true`, e sarà una decisione
 scritta — non la conseguenza automatica di sei caselle verdi.
