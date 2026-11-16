@@ -8,23 +8,23 @@
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "6e494a6",
+      "sha": "7314ca2",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "6e494a6",
-    "evidenza": "assurance/evidence/checkpoint-6e494a6.json",
+    "sha": "7314ca2",
+    "evidenza": "assurance/evidence/checkpoint-7314ca2.json",
     "checkpoint": {
-      "passi_eseguiti": 111,
-      "passi_verdi": 111,
+      "passi_eseguiti": 112,
+      "passi_verdi": 112,
       "passi_omessi": 0,
       "passi_falliti": 0,
-      "riconciliazione": "111 identificatori distinti, 0 duplicati; conteggi derivati da risultato.json."
+      "riconciliazione": "112 identificatori distinti, 0 duplicati; conteggi derivati da risultato.json."
     },
     "fuzz": {
-      "replay_input": 145,
+      "replay_input": 207,
       "replay_target": 15,
       "replay_crash": 0,
       "smoke_target_eseguiti": 15,
@@ -33,36 +33,36 @@
       "quarantena": 0
     },
     "copertura": {
-      "lcov_percentuale": 88.64,
-      "lcov_righe_coperte": 31890,
-      "lcov_righe_strumentate": 35976,
-      "cargo_lines_percentuale": 86.55,
+      "lcov_percentuale": 88.87,
+      "lcov_righe_coperte": 32418,
+      "lcov_righe_strumentate": 36480,
+      "cargo_lines_percentuale": 86.79,
       "soglia": 80.0,
       "misurata_con": "cargo llvm-cov --workspace --all-targets --all-features --locked --no-report; proiezione di libreria con esclusioni dello script congelato.",
       "nota": "LCOV e sommario cargo contano insiemi diversi dello stesso profdata."
     },
     "diagnostica_differenziale": {
-      "esito": "90.58%",
-      "righe_cambiate_eseguibili": 860,
-      "coperte": 779,
-      "scoperte": 81,
-      "cambiate_non_eseguibili": 2244,
-      "ragione": "Confronto di libreria fra a2e0bea e candidate 6e494a6.",
+      "esito": "96.42%",
+      "righe_cambiate_eseguibili": 699,
+      "coperte": 674,
+      "scoperte": 25,
+      "cambiate_non_eseguibili": 1343,
+      "ragione": "Confronto di libreria fra 6e494a6 e candidate 7314ca2.",
       "che_cosa_sono_le_scoperte": "Righe cambiate ed eseguibili non esercitate dai test; non una misura del fuzzing.",
-      "baseline": "a2e0beaaae6fcf8e621410480fe088ffce364acc"
+      "baseline": "6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0"
     }
   },
   "ultima_campagna_fuzz": {
-    "sha": "6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0",
+    "sha": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea",
     "verbale": "assurance/evidence/fuzz-smoke-ultima.json",
-    "significato": "Smoke del livello 2 eseguito dall'operatore sulla candidate 6e494a6, attempt-2: 15/15 target, 60 secondi ciascuno, nessun finding o quarantena. Verbale originale copiato byte per byte dal registratore; non e' un soak mirato. Il soak eseguito dall'operatore e' documentato separatamente in campagne_mirate.soak del checkpoint-6e494a6.json."
+    "significato": "Replay finito ASan io-9-replay-v1; ricevuta L2 copiata byte per byte, riuso della ricevuta esterna verificato tramite source_sha256. Il passo fuzz_smoke verifica la ricevuta senza seconda campagna; nessun soak previsto o registrato."
   },
   "chiuso": {
     "s9_errori_strutturati": {
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "6e494a6"
+      "qualificato_su": "7314ca2"
     },
     "fuzz_reader_shapefile": {
       "stato": "chiuso",
@@ -896,9 +896,55 @@
       "tag_creato": false,
       "tag_sulla_candidate": false,
       "release_action_allowed": false,
-      "release_blocking": false,
-      "stato": "iniziale",
-      "nota": "Preparazione prima del congelamento. Nessuna revisione candidate, nessun artefatto congelato, L2, soak o autorizzazione 9.0.0. La 8.0.0 e archiviata separatamente con la sua evidenza; le misure correnti di checkpoint restano storiche e non qualificano la 9.0.0. Data CHANGELOG da fissare prima del commit congelato. Il titolare esclude il bundle owner dal repository e dalla release: resta solo la registrazione documentale, invariante cross-component invariato. Nessun obbligo di compatibilita o mantenimento delle release precedenti. Le cinque rimisure fornite corrispondono al perimetro corrente dopo il riordino di fuzz/Cargo.lock, semanticamente invariato e identico al lock della VM. I cinque rinvii sono chiusi; la qualifica L2 e i soak della candidate restano da eseguire."
+      "release_blocking": true,
+      "stato": "attiva",
+      "nota": "Candidate congelata su 7314ca25b62788a3a9d2af0ec638d0d7f3bdffea: sette archivi della Distribuzione 43787777399 verificati dai byte locali, checksum e provenance; 32 referti verificati. Replay finito e L2 registrati in checkpoint-7314ca2.json. Restano attestazioni del profilo pubblico e manifesto di adozione della stessa corsa, draft e confronti dei byte, decisione del titolare, tag e gate finale; permessi false. Nessun soak richiesto dalla policy io-9-replay-v1. Nessuna verifica GitHub eseguita.",
+      "revisione_candidate": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea",
+      "assurance_entro_l_allowlist": true,
+      "artefatti": [
+        {
+          "nome": "plenora-io-9.0.0-linux-x86_64-base.tar.gz",
+          "sha256": "b609e74605c0b586cbbdaa9a91a3ec62b38702bd8f20afb1dc3d113f52d9114a",
+          "dimensione": 9257607,
+          "revisione": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea"
+        },
+        {
+          "nome": "plenora-io-9.0.0-linux-x86_64-filegdb.tar.gz",
+          "sha256": "332257d0901786c2494159bc0e4b3190a8e7a6b58a8dcadb3b58cf2298ee3254",
+          "dimensione": 65106094,
+          "revisione": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea"
+        },
+        {
+          "nome": "plenora-io-9.0.0-src.tar.gz",
+          "sha256": "6b83de068ce5dd7ba4e9a66447c61f2c505e0ba47fef201d54ad230280a564ed",
+          "dimensione": 21737899,
+          "revisione": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea"
+        },
+        {
+          "nome": "plenora-io-9.0.0-windows-x86_64-base.zip",
+          "sha256": "e39d10f635ae2b5008812b6035622dc58b0be10b65364d6fc8d32ba8ceab2a2e",
+          "dimensione": 10506315,
+          "revisione": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea"
+        },
+        {
+          "nome": "plenora-io-9.0.0-windows-x86_64-filegdb.zip",
+          "sha256": "45b0df0e7e418de163654c8ce781c3b9339a584551e822f369c14dccf3fd24e2",
+          "dimensione": 50899992,
+          "revisione": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea"
+        },
+        {
+          "nome": "plenora_io-9.0.0-py3-none-any.whl",
+          "sha256": "7115eae9bc27582c987936bdc43c08a8dae499c5b774da0d697bd2e66628fd89",
+          "dimensione": 117967,
+          "revisione": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea"
+        },
+        {
+          "nome": "plenora_io-9.0.0.tar.gz",
+          "sha256": "e76ceac4df0f2c0e9efbfd610316af6f151aef9550fa8e9d4cea5565b66e1770",
+          "dimensione": 227165,
+          "revisione": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea"
+        }
+      ]
     }
   },
   "docset": {
@@ -917,8 +963,8 @@
   },
   "prove_9_0_0": {
     "policy": "io-9-replay-v1",
-    "stato": "NON ESEGUITO",
-    "congelamento": "dopo questa modifica",
+    "stato": "Replay finito e L2 PASS; sette artefatti congelati e referti di distribuzione verificati; pubblicazione da completare",
+    "congelamento": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea",
     "richiesto": "L2 finale una volta, replay completo, profondita e confine ASan validi, ricevute CI compatibili, distribuzione e qualifica congiunta ai propri pin",
     "esplorazione_a_tempo": "periodica, fuori dal cancello; nuovi finding diventano semi",
     "benchmark_prestazionale": "nessuna soglia di velocita di release; prove semantiche FileGDB mantenute"
