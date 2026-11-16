@@ -36,41 +36,41 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `6e494a6` |
-| revisione misurata | `6e494a6` |
-| passi del checkpoint | 111 |
-| passi verdi | 111 |
+| ultima qualificata | `7314ca2` |
+| revisione misurata | `7314ca2` |
+| passi del checkpoint | 112 |
+| passi verdi | 112 |
 | passi omessi | 0 |
 | passi falliti | 0 |
-| input di replay | 145 |
+| input di replay | 207 |
 | target di replay | 15 |
 | crash di replay | 0 |
 | target di smoke eseguiti | 15 |
 | target di smoke totali | 15 |
 | finding di smoke | 0 |
 | target in quarantena | 0 |
-| copertura LCOV | 88,64% |
-| righe coperte LCOV | 31 890 |
-| righe strumentate LCOV | 35 976 |
-| copertura cargo | 86,55% |
+| copertura LCOV | 88,87% |
+| righe coperte LCOV | 32 418 |
+| righe strumentate LCOV | 36 480 |
+| copertura cargo | 86,79% |
 | soglia di copertura | 80,00% |
-| baseline differenziale | `a2e0beaaae6fcf8e621410480fe088ffce364acc` |
-| esito differenziale | 90.58% |
+| baseline differenziale | `6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0` |
+| esito differenziale | 96.42% |
 | gruppi ASSURANCE-N1 | 50 |
 | gruppi ASSURANCE-N1 aperti | 0 |
-| blocchi | 0 |
+| blocchi | 2 |
 | capacità differite | 2 |
-| S9, qualificato su | `6e494a6` |
+| S9, qualificato su | `7314ca2` |
 | candidate, versione del manifesto | `9.0.0` |
-| candidate, stato | iniziale |
-| candidate, revisione congelata | non congelata |
+| candidate, stato | attiva |
+| candidate, revisione congelata | `7314ca25b62788a3a9d2af0ec638d0d7f3bdffea` |
 | candidate, versione del workspace | `9.0.0` |
-| candidate, artefatti congelati | non congelati |
+| candidate, artefatti congelati | 7 |
 | candidate, tag previsto | `v9.0.0` |
 | candidate, tag creato | no |
 | candidate, revisione del tag | nessun tag |
 | candidate, tag sulla candidate | no |
-| candidate, assurance entro l'allowlist | non derivabile senza congelamento |
+| candidate, assurance entro l'allowlist | sì |
 | candidate, release_action consentita | no |
 | release pubblicate | 13 |
 | release_authorized | `false` |
@@ -81,6 +81,8 @@ I blocchi sono l'elenco esatto dei `release_blocking` del
 
 | Blocco | Sintesi |
 |---|---|
+| `release.candidate-non-valida-per-head` | 9.0.0: candidate e sette artefatti congelati, replay finito e L2 registrati; draft, decisione e tag da completare. |
+| `distribuzione.artefatti-qualificati` | Sette archivi 9.0.0 congelati su 7314ca2 e 32 referti verificati; confronto con la draft ancora da eseguire. |
 
 Le capacità **differite** non sono blocchi chiusi: non sono richieste
 da questa release e **non sono verificate**. Ciascuna dichiara che cosa
@@ -2539,8 +2541,8 @@ gh release download v8.0.0 --repo PlenoraETL/plenora-IO-tools --dir target/rel80
 
 ### Preparazione 9.0.0 prima del congelamento
 
-La candidate e `iniziale`: nessun SHA o artefatto congelato, tag non creato e
-permessi non concessi. La 8.0.0 e archiviata come verbale locale; checkpoint,
+Alla preparazione la candidate era `iniziale`; la registrazione del 16/11
+qui sotto documenta lo SHA congelato e la qualifica, con permessi non concessi. La 8.0.0 e archiviata come verbale locale; checkpoint,
 soak e risultati precedenti non diventano risultati 9.0.0.
 Il CHANGELOG 9.0.0 e datato 2026-11-15, data del congelamento: CHANGELOG.md
 non appartiene all'allowlist successiva.
@@ -2585,3 +2587,74 @@ Rimisura dopo la correzione del tempo (PR #98, su `dacf916`): Shapefile 35/35
 su 32 input, FileGDB 12/12 su 21, ASan 181700 contatori su un modulo, 47 file
 del wrapper Rust strumentati (nuovo modulo `temporal`), zero simboli del
 runtime in `libgdal.so.34`. Sostituisce i valori sopra per il nuovo congelamento.
+
+
+### Registrazione replay finito e L2 della 9.0.0 - 2026-11-16
+
+La candidate congelata e distribuita, secondo l'operatore, e
+`7314ca25b62788a3a9d2af0ec638d0d7f3bdffea`. La qualifica riguarda questo SHA,
+non il futuro commit che registrera l'evidenza. Nessun tag o permesso di
+pubblicazione e creato da questa registrazione.
+
+L'[evidenza](../assurance/evidence/checkpoint-7314ca2.json) e generata con
+`scripts/registra-evidenza-s9.py` dai log originali dell'operatore in
+`target/rel900/7314ca25b62788a3a9d2af0ec638d0d7f3bdffea-attempt-4/l2`,
+copiati byte per byte in `target/rel900/verifica-l2/corsa-contratto`.
+Il manifesto identifica tutti i 117 file; `replay.log`, `l2.log` e la ricevuta
+esterna sono conservati separatamente con SHA-256 nella provenienza.
+
+| Misura | Valore | Fonte nella directory L2 |
+|---|---|---|
+| Passi distinti/verdi | 112/112; 0 omessi, falliti o duplicati | `risultato.json`, elenco riconciliato |
+| Albero | 0 file sporchi; revisione e impronta invariate | `risultato.json` |
+| Replay | 207 input, 15 target, 0 crash | `fuzz_replay.log` |
+| Verifica ricevuta | 15/15 target, 0 finding, 0 quarantena | `fuzz_smoke.log`, `fuzz-smoke-ultima.json` |
+| LCOV | 32 418/36 480 righe, 88,87% | `coverage_soglia_dal_report.log` |
+| Cargo | 86,79%; soglia 80% | `coverage_soglia_controprova.log` |
+| Differenziale | 674/699 coperte, 25 scoperte, 96,42%; 1343 non eseguibili | `coverage_diff.log` |
+
+L'impronta iniziale e finale e
+`3ef0f10e2187fe1b3c7c91224f4abb3fefe51dbf442ad7f67918f74118e91bbd`.
+La baseline differenziale e `6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0`,
+ultimo checkpoint superato della 8.0.0. L'elenco delle righe scoperte resta
+nell'evidenza. LCOV e cargo sono proiezioni diverse dello stesso profdata;
+la diagnostica differenziale misura solo le righe cambiate di libreria.
+
+Ambiente dichiarato dall'operatore: VM Ubuntu 24.04 ricreata da zero il
+16/11/2026, 192.168.2.140; clone pulito della candidate, contratti al pin
+`38d68b402389855edbcecb7ce57c31e91282cb4e`; Python 3.14.6, pyarrow 25.0.1,
+PyYAML 6.0.3, openpyxl 3.1.5, jsonschema 4.26.0, come nei workflow.
+`S9_CHECKPOINT_BASE` indica la baseline sopra e `S9_CI_FUZZ_RECEIPT` la
+ricevuta del replay finito. La ricevuta L2 aggiunge solo `riuso` alla ricevuta
+esterna: `source_sha256` ne verifica il digest, gli altri campi coincidono.
+Il campo storico `fuzz_smoke` ora significa verifica della ricevuta, non una
+seconda campagna. Policy `io-9-replay-v1` (PR #99): nessun soak da registrare.
+Profondita e confine ASan restano verifiche separate; GDAL di sistema non
+strumentato non riceve una qualifica ASan interna dal replay Rust.
+
+Tentativi SCARTATI, senza valore di qualifica, secondo l'operatore:
+attempt-1 bloccato da soft lockup del kernel della VM precedente, guasto di
+ambiente/hardware seguito dalla ricreazione della VM; attempt-2 senza
+`.plenora-contracts`, tre passi FileNotFoundError; attempt-3 senza dipendenze
+Python dei workflow (jsonschema mancante), interrotto dall'operatore dopo un
+kernel BUG della VM precedente. I loro log non sono conservati come input;
+nessuna misura di questi tentativi e usata.
+
+I sette archivi della Distribuzione candidate `43787777399`, forniti in
+`target/rel900/distribuzione-43787777399/`, sono ora congelati in
+`candidate_release.artefatti`: nomi, dimensioni e SHA-256 ricalcolati dai byte,
+revisione verificata contro provenance e manifesto sorgente. Il controllo
+`check-deliverable.py` passa sui sette archivi, inclusi i due Python;
+`check-distribuzione-completa.py` passa sui 32 referti attesi e trovati.
+Fonti e digest sono in `checkpoint-7314ca2.json`, `distribuzione_candidate`.
+L ID della corsa deriva dalla directory fornita, senza consultare GitHub.
+Questo e il confronto dei byte della Distribuzione, non della draft o release.
+
+Restano nell ordine: acquisire e verificare manifesto di adozione e attestazioni
+del profilo pubblico della stessa corsa (distinti dai 32 referti), preparare la
+draft, riscaricarla e confrontare tutti gli asset, registrare il confronto,
+ottenere la decisione del titolare, creare il tag sulla candidate, registrare
+l autorizzazione, eseguire il gate finale, pubblicare la draft immutata e
+ripetere il confronto sui byte pubblicati. `release_authorized` e
+`release_action_allowed` restano `false`; i due blocchi restano espliciti.
+Comandi e ricevute locali: `target/REGISTRA-L2-900.md`.
