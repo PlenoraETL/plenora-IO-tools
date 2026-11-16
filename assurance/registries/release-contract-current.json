@@ -383,15 +383,15 @@
     {
       "id": "release.candidate-non-valida-per-head",
       "superficie": "manifesto della candidate di release",
-      "invariante": "La candidate corrente deve avere revisione congelata, artefatti identificati, qualifica, tag sulla candidate e decisione esplicita prima della pubblicazione.",
+      "invariante": "La release pubblicata conserva tag sulla candidate congelata, digest degli artefatti, evidenza della qualifica e registrazione entro l'allowlist. Il permesso operativo di pubblicazione e consumato.",
       "prova": {
         "tipo": "interna",
-        "funzione": "condizione_candidate_coerente",
+        "funzione": "verifica_release_pubblicata",
         "artefatto": "assurance/current-state.json"
       },
       "stato": "verified",
-      "sintesi": "9.0.0: decisione autentica del titolare registrata e tag annotato locale verificato sulla candidate; pubblicazione ancora da eseguire.",
-      "nota": "Candidate congelata su 7314ca25b62788a3a9d2af0ec638d0d7f3bdffea: sette archivi della Distribuzione 43787777399, replay finito e L2 registrati. Draft 446953679 verificata dall operatore: 24 asset identici agli originali; metadati API forniti confrontati localmente con nomi, dimensioni e SHA-256 del confronto. Sette archivi coincidenti con la candidate; manifesto verificato dall operatore sui cinque archivi. Quattro attestazioni 9.0.0 gia versionate: 32/32 ciascuna, digest e pin confrontati localmente. Verbale: checkpoint-7314ca2.json, release_verification.draft. Alla registrazione della draft mancavano decisione, tag e autorizzazione; questo stato precedente e superato dalla decisione riportata sotto. Restano gate finale e pubblicazione con verifica successiva; nessun soak richiesto dalla policy io-9-replay-v1; nessuna chiamata GitHub in questa registrazione.\n\nDecisione autentica del titolare, ricevuta il 2026-11-16T12:35:41Z: «Autorizzo la pubblicazione di IO 9.0.0». Fonte conservata in assurance/evidence/autorizzazione-9.0.0.json. Tag annotato v9.0.0 gia creato localmente, oggetto 2d84754b3d49e4a52e09b5ed6d2eac828ca9a823, verificato con git for-each-ref e git rev-parse sulla candidate 7314ca25b62788a3a9d2af0ec638d0d7f3bdffea. Autorizzazione e tag registrati; nessun push del tag, commit o accesso GitHub eseguito. Pubblicazione e verifica successiva non ancora registrate."
+      "sintesi": "9.0.0 pubblicata e verificata, verbale immutabile in chiuso.release_pubblicate. Candidate 10.0.0 iniziale, non congelata e senza autorizzazione.",
+      "nota": "Come nel precedente 64ba710, la prova ordinaria verifica la release pubblicata e riconosce lo stato iniziale della nuova candidate. La qualifica della 10.0.0 e le condizioni di autorizzazione restano da soddisfare prima del rilascio; nessuna misura storica viene trasferita."
     },
     {
       "id": "lotto.s10",

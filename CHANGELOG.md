@@ -1,5 +1,14 @@
 # Changelog
 
+## 10.0.0 - non rilasciata
+
+- Avvio della versione major deciso dal titolare per la fase 2 del piano:
+  rimozione della compatibilita con le release precedenti (decisione del
+  15/11/2026, raccolta COMPAT-IO.md). La rimozione non e ancora iniziata.
+- Workspace, pacchetti Rust e SDK Python passano a 10.0.0. Candidate
+  iniziale, non congelata, senza artefatti o autorizzazione; la 9.0.0
+  pubblicata resta archiviata con il proprio verbale immutabile.
+
 ## 9.0.0 - 2026-11-15
 
 ### Superfici e comportamento

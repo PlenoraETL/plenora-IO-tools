@@ -122,7 +122,7 @@ PROFILES = FrozenList(list(_PROFILI))
 #:
 #: E' la versione del workspace e della wheel nativa; il gate SDK verifica
 #: l'allineamento. Client.version() interroga invece il backend in uso.
-__version__ = "9.0.0"
+__version__ = "10.0.0"
 
 #: Il protocollo che questo SDK sa leggere. La busta di bootstrap non lo porta
 #: -- si legge prima della negoziazione -- ma tutte le altre lo dichiarano, e

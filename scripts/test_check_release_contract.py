@@ -5136,23 +5136,10 @@ class SondeArchivioSenzaTag(unittest.TestCase):
             if any(arg.startswith("refs/tags/") or arg.startswith("v") and "^{commit}" in arg for arg in args):
                 return None
             return originale(*args)
-        corrente = stato["aperto"]["candidate_release"]
-        tag_della_corrente = gate._tag_sulla_candidate
-        def solo_la_corrente(candidate, congelata, versione):
-            # Le release in archivio non consultano mai un tag vivo; la candidate
-            # corrente pubblicata ha invece il suo tag, che va verificato.
-            if versione != corrente["versione_manifesto"]:
-                raise AssertionError("tag vivo consultato per archivio")
-            return tag_della_corrente(candidate, congelata, versione)
-        with mock.patch.object(gate, "_git", side_effect=senza_tag):
-            with mock.patch.object(gate, "_tag_sulla_candidate",
-                                   side_effect=AssertionError("tag vivo consultato per archivio")):
-                self.assertEqual(gate.verifica_release_storiche(stato), [])
-                if corrente.get("stato") != "pubblicata":
-                    self.assertEqual(gate.verifica_release_pubblicata(stato), [])
-        if corrente.get("stato") == "pubblicata":
-            with mock.patch.object(gate, "_tag_sulla_candidate", side_effect=solo_la_corrente):
-                self.assertEqual(gate.verifica_release_pubblicata(stato), [])
+        with mock.patch.object(gate, "_git", side_effect=senza_tag), mock.patch.object(
+                gate, "_tag_sulla_candidate", side_effect=AssertionError("tag vivo consultato per archivio")):
+            self.assertEqual(gate.verifica_release_storiche(stato), [])
+            self.assertEqual(gate.verifica_release_pubblicata(stato), [])
 
     def test_digest_valido_ma_alterato_non_e_un_verbale_immutabile(self):
         stato = self.stato()
