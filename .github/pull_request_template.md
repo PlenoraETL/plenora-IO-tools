@@ -9,6 +9,7 @@
 
 - Test aggiunti:
 - Suite rieseguite:
+- Ricevuta `python scripts/ci_locale.py --esegui --profilo pr` (allegare JSON e log; verde solo per i passi PASS):
 - Risultati coverage/fuzz/crash test:
 - Residui non verificati e motivazione:
 
