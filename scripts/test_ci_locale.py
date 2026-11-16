@@ -89,9 +89,12 @@ class CiLocaleTests(unittest.TestCase):
         plan = ci.derive()
         self.assert_structure(ci.ROOT, plan)
         runs = [s["run"] for j in plan["jobs"] for s in ci.flatten(j["steps"])]
-        self.assertIn("python scripts/check_prove_fonte_unica.py --run", runs)
-        self.assertIn("cargo fmt --all -- --check", runs)
-        self.assertIn("cargo clippy --workspace --all-targets --all-features --locked -- -D warnings", runs)
+        # Sentinelle: il comando del gate compare in un passo, anche avvolto
+        # da un registratore di ricevute (scripts/ci_receipt.py).
+        for gate in ("python scripts/check_prove_fonte_unica.py --run",
+                     "cargo fmt --all -- --check",
+                     "cargo clippy --workspace --all-targets --all-features --locked -- -D warnings"):
+            self.assertTrue(any(gate in (run or "") for run in runs), gate)
 
     def test_missing_new_job_or_step_fails_comparison(self):
         self.workflow([{"run": "print('old')", "shell": "python"}])
