@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "descrizione": "Stato corrente in forma strutturata. docs/RELEASE.md riporta questi numeri e il gate check_docset verifica che coincidano: due verita' manuali divergono, e divergono in silenzio.",
-  "release_authorized": false,
+  "release_authorized": true,
   "revisioni": {
     "baseline_documentale": {
       "sha": "2fe9b54",
@@ -893,12 +893,12 @@
       "versione_manifesto": "9.0.0",
       "versione_workspace": "9.0.0",
       "tag_previsto": "v9.0.0",
-      "tag_creato": false,
-      "tag_sulla_candidate": false,
-      "release_action_allowed": false,
-      "release_blocking": true,
+      "tag_creato": true,
+      "tag_sulla_candidate": true,
+      "release_action_allowed": true,
+      "release_blocking": false,
       "stato": "attiva",
-      "nota": "Candidate congelata su 7314ca25b62788a3a9d2af0ec638d0d7f3bdffea: sette archivi della Distribuzione 43787777399, replay finito e L2 registrati. Draft 446953679 verificata dall operatore: 24 asset identici agli originali; metadati API forniti confrontati localmente con nomi, dimensioni e SHA-256 del confronto. Sette archivi coincidenti con la candidate; manifesto verificato dall operatore sui cinque archivi. Quattro attestazioni 9.0.0 gia versionate: 32/32 ciascuna, digest e pin confrontati localmente. Verbale: checkpoint-7314ca2.json, release_verification.draft. Restano decisione del titolare, tag, autorizzazione separata, gate finale e pubblicazione con verifica successiva. Permessi false; nessun soak richiesto dalla policy io-9-replay-v1; nessuna chiamata GitHub in questa registrazione.",
+      "nota": "Candidate congelata su 7314ca25b62788a3a9d2af0ec638d0d7f3bdffea: sette archivi della Distribuzione 43787777399, replay finito e L2 registrati. Draft 446953679 verificata dall operatore: 24 asset identici agli originali; metadati API forniti confrontati localmente con nomi, dimensioni e SHA-256 del confronto. Sette archivi coincidenti con la candidate; manifesto verificato dall operatore sui cinque archivi. Quattro attestazioni 9.0.0 gia versionate: 32/32 ciascuna, digest e pin confrontati localmente. Verbale: checkpoint-7314ca2.json, release_verification.draft. Alla registrazione della draft mancavano decisione, tag e autorizzazione; questo stato precedente e superato dalla decisione riportata sotto. Restano gate finale e pubblicazione con verifica successiva; nessun soak richiesto dalla policy io-9-replay-v1; nessuna chiamata GitHub in questa registrazione.\n\nDecisione autentica del titolare, ricevuta il 2026-11-16T12:35:41Z: «Autorizzo la pubblicazione di IO 9.0.0». Fonte conservata in assurance/evidence/autorizzazione-9.0.0.json. Tag annotato v9.0.0 gia creato localmente, oggetto 2d84754b3d49e4a52e09b5ed6d2eac828ca9a823, verificato con git for-each-ref e git rev-parse sulla candidate 7314ca25b62788a3a9d2af0ec638d0d7f3bdffea. Autorizzazione e tag registrati; nessun push del tag, commit o accesso GitHub eseguito. Pubblicazione e verifica successiva non ancora registrate.",
       "revisione_candidate": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea",
       "assurance_entro_l_allowlist": true,
       "artefatti": [
@@ -944,7 +944,8 @@
           "dimensione": 227165,
           "revisione": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea"
         }
-      ]
+      ],
+      "tag_revisione": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea"
     }
   },
   "docset": {
@@ -954,6 +955,10 @@
       {
         "percorso": "assurance/evidence/qualifica-cross-component-2026-11-15.json",
         "sha256": "bbf728e00e764f21abf1e7b7208e40db797c6da16d11d9a59c216026f56c6e54"
+      },
+      {
+        "percorso": "assurance/evidence/autorizzazione-9.0.0.json",
+        "sha256": "2c315775985240df44652a5ecf52c87a2c4b2076f2374c270233987bf5079940"
       }
     ]
   },
