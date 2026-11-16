@@ -1,17 +1,17 @@
 {
   "schema_version": 1,
   "prodotto_da": "scripts/check_public_contracts.py",
-  "prodotto_il": "2026-11-12T18:55:36Z",
+  "prodotto_il": "2026-11-16T10:28:23Z",
   "artefatto": {
-    "nome": "plenora-io-8.0.0-linux-x86_64-filegdb.tar.gz",
-    "digest": "sha256:b200e61ca7a2fce74e21e32b67489d55220483d907dcaa6c87e9584c4d2b7167",
-    "byte": 65091704
+    "nome": "plenora-io-9.0.0-linux-x86_64-filegdb.tar.gz",
+    "digest": "sha256:332257d0901786c2494159bc0e4b3190a8e7a6b58a8dcadb3b58cf2298ee3254",
+    "byte": 65106094
   },
   "esigente": true,
   "conforme": true,
   "binario": {
-    "percorso_nell_archivio": "plenora-io-8.0.0-linux-x86_64-filegdb/bin/plenora-io",
-    "digest": "sha256:ad95e589d1ded6c1b04c129fbaff3199f4f7f0b7e61674cbebb5b6292d61f477"
+    "percorso_nell_archivio": "plenora-io-9.0.0-linux-x86_64-filegdb/bin/plenora-io",
+    "digest": "sha256:c972a4fab7d30e6c490d408f64edfc4c1a75ecabd6075e7b317e5fd0369f8bf2"
   },
   "contratti": {
     "pin": "38d68b402389855edbcecb7ce57c31e91282cb4e"
