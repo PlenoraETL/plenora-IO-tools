@@ -92,14 +92,12 @@ def digest(percorso: pathlib.Path) -> str:
 
 def artefatto(specifica: str, versione: str) -> dict:
     """`<superficie>:<percorso>:<comando di verifica>[;<altro>]`."""
-    # Un percorso Windows assoluto porta i due punti della lettera di unita'
-    # (C:\... o C:/...): appartengono al percorso, non sono un separatore.
-    forma = re.fullmatch(r"([^:]*):((?:[A-Za-z]:[\\/])?[^:]*):(.*)", specifica, re.S)
-    if forma is None:
+    pezzi = specifica.split(":", 2)
+    if len(pezzi) != 3:
         raise SystemExit(
             f"«{specifica}» non ha la forma <superficie>:<percorso>:<verifiche>"
         )
-    superficie, percorso, verifiche = forma.groups()
+    superficie, percorso, verifiche = pezzi
     if superficie not in SUPERFICI:
         raise SystemExit(
             f"superficie «{superficie}» fuori da {sorted(SUPERFICI)}: il manifesto "
