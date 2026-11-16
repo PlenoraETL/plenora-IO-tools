@@ -898,7 +898,7 @@
       "release_action_allowed": false,
       "release_blocking": true,
       "stato": "attiva",
-      "nota": "Candidate congelata su 7314ca25b62788a3a9d2af0ec638d0d7f3bdffea: sette archivi della Distribuzione 43787777399 verificati dai byte locali, checksum e provenance; 32 referti verificati. Replay finito e L2 registrati in checkpoint-7314ca2.json. Restano attestazioni del profilo pubblico e manifesto di adozione della stessa corsa, draft e confronti dei byte, decisione del titolare, tag e gate finale; permessi false. Nessun soak richiesto dalla policy io-9-replay-v1. Nessuna verifica GitHub eseguita.",
+      "nota": "Candidate congelata su 7314ca25b62788a3a9d2af0ec638d0d7f3bdffea: sette archivi della Distribuzione 43787777399, replay finito e L2 registrati. Draft 446953679 verificata dall operatore: 24 asset identici agli originali; metadati API forniti confrontati localmente con nomi, dimensioni e SHA-256 del confronto. Sette archivi coincidenti con la candidate; manifesto verificato dall operatore sui cinque archivi. Quattro attestazioni 9.0.0 gia versionate: 32/32 ciascuna, digest e pin confrontati localmente. Verbale: checkpoint-7314ca2.json, release_verification.draft. Restano decisione del titolare, tag, autorizzazione separata, gate finale e pubblicazione con verifica successiva. Permessi false; nessun soak richiesto dalla policy io-9-replay-v1; nessuna chiamata GitHub in questa registrazione.",
       "revisione_candidate": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea",
       "assurance_entro_l_allowlist": true,
       "artefatti": [
