@@ -1,17 +1,17 @@
 {
   "schema_version": 1,
   "prodotto_da": "scripts/check_public_contracts.py",
-  "prodotto_il": "2026-11-12T18:55:22Z",
+  "prodotto_il": "2026-11-16T09:30:36Z",
   "artefatto": {
-    "nome": "plenora-io-8.0.0-windows-x86_64-base.zip",
-    "digest": "sha256:440baeb4be76d38097af052530022d30c9bc54bc3edc8ea4bbb51a066f91a136",
-    "byte": 10059084
+    "nome": "plenora-io-9.0.0-windows-x86_64-base.zip",
+    "digest": "sha256:e39d10f635ae2b5008812b6035622dc58b0be10b65364d6fc8d32ba8ceab2a2e",
+    "byte": 10506315
   },
   "esigente": true,
   "conforme": true,
   "binario": {
-    "percorso_nell_archivio": "plenora-io-8.0.0-windows-x86_64-base/bin/plenora-io.exe",
-    "digest": "sha256:bec0731459550882cb0d22f97b25ae83c0a6fc373729f22026eac506776dff4e"
+    "percorso_nell_archivio": "plenora-io-9.0.0-windows-x86_64-base/bin/plenora-io.exe",
+    "digest": "sha256:cdc2dc33bf5b9698a0dde9c4dbb6103ac5201b931067c1cc6114219f9d30ff00"
   },
   "contratti": {
     "pin": "38d68b402389855edbcecb7ce57c31e91282cb4e"
