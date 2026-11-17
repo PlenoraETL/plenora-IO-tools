@@ -3,6 +3,18 @@
   "descrizione": "Advisory accettati temporaneamente, con condizione di chiusura. La CI ricava da accettate i soli ID ignorati da cargo audit; deny.toml deve coincidere. Nessuna eccezione yanked attiva: il controllo JSON di audit rifiuta ogni crate ritirato su entrambi i lockfile, e cargo-deny mantiene yanked = deny.",
   "accettate": [
     {
+      "id": "RUSTSEC-2026-0543",
+      "crate": "chrono",
+      "accettata_dal": "2026-11-17",
+      "motivo": "unmaintained, non vulnerabile, nessuna versione sicura; migrazione di famiglia a jiff/time pianificata",
+      "esposizione": "chrono presente nei grafi della famiglia, inclusi i fork vendorizzati e i lock separati; l'avviso riguarda la manutenzione, non una vulnerabilita",
+      "owner": "manutentori della famiglia Plenora",
+      "piano": "Censire gli usi chrono diretti, transitivi e nei fork; scegliere jiff/time per i contratti temporali comuni, migrare insieme i cinque repository e riqualificare conversioni, serializzazione e interoperabilita",
+      "chiusura": "Rimuovere l'eccezione dopo eliminazione di chrono da tutti i grafi e lock della famiglia e verifica delle conversioni temporali",
+      "review_by": "2027-02-13",
+      "trigger_di_riesame": "Entro 2027-02-13, oppure prima in caso di nuovo advisory, modifica dei contratti temporali o disponibilita della migrazione di famiglia"
+    },
+    {
       "id": "RUSTSEC-2023-0089",
       "crate": "atomic-polyfill",
       "accettata_dal": "2026-07-27",
