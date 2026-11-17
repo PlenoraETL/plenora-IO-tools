@@ -77,8 +77,9 @@ significa due cose a seconda di chi lo legge e' la forma di falso verde che
 questo repository ha incontrato piu' volte.
 
 Il contratto del protocollo CLI resta verificato **nel merito**, non solo
-nominato: `release/cli-protocol-v1.json` e' un artefatto strutturato, e la sua
-validazione e' conservata qui.
+nominato: `release/cli-protocol-v2.json` e' un artefatto strutturato, e la sua
+validazione resta nei gate `check_protocollo_v2.py` e `check_buste_v2.py`,
+richiamati dal registro corrente.
 """
 
 from __future__ import annotations
@@ -139,7 +140,6 @@ import distribuzione  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 REGISTRO = ROOT / "assurance" / "registries" / "release-contract-current.json"
-CLI_PROTOCOL_V1 = ROOT / "release" / "cli-protocol-v1.json"
 
 # Tre stati, e il terzo non e' una scorciatoia per il primo. `differita` dice
 # che la capacita' **non e' richiesta da questa release** e **non e'
@@ -207,7 +207,6 @@ INVARIANTI_OBBLIGATORI = frozenset(
     {
         "wire.error-v1.chiavi",
         "wire.error-v1.quartetto",
-        "wire.cli-protocol-v1",
         "wire.catalog-producer",
         "errori.nessun-testo-runtime",
         "errori.static-non-promuovibile",
@@ -484,13 +483,6 @@ FOGLIE_CONDIZIONATE = {
     ),
     **{f"sviluppo_non_qualificato.{key}": "Decisione 8.0.0 non qualificata; non modifica la misura storica o autorizza il rilascio"
        for key in ("versione", "stato", "release_authorized", "decisione", "richiesto", "evidenza")},
-    "chiuso.release_pubblicate": (
-        "l'archivio delle release gia' pubblicate. E' una foglia sola perche' "
-        "una lista lo e', ma non e' per questo fuori controllo: "
-        "`verifica_release_storiche` ne rilegge ogni verbale contro git, gli "
-        "artefatti attesi e l'evidenza, con gli stessi controlli della "
-        "candidate. Assente finche' nessuna release e' stata pubblicata."
-    ),
     "aperto.candidate_release.tag_revisione": (
         "esiste da quando il tag esiste: su una candidate `iniziale` non c'e' "
         "tag, e scrivere la revisione di un tag che non c'e' sarebbe inventarla"
@@ -2169,27 +2161,6 @@ def _evidenze_riferite(stato: dict[str, Any]) -> tuple[dict[str, str], list[str]
     else:
         riferite[Path(corrente).name] = "`ultima_misura.evidenza`"
 
-    storiche = _dentro(stato, RELEASE_STORICHE) or []
-    if isinstance(storiche, list):
-        for indice, verbale in enumerate(storiche):
-            if not isinstance(verbale, dict):
-                continue
-            dove = f"`{'.'.join(RELEASE_STORICHE)}[{indice}].evidenza`"
-            relativo = percorso_canonico(verbale.get("evidenza"))
-            if relativo is None:
-                errori.append(f"{dove} assente o non canonico")
-                continue
-            if Path(relativo).parent.as_posix() != CARTELLA_DELLE_EVIDENZE:
-                errori.append(
-                    f"{dove} vale «{relativo}», che non sta in "
-                    f"`{CARTELLA_DELLE_EVIDENZE}/`. Una release pubblicata "
-                    "conserva la propria qualifica dove stanno le altre: un "
-                    "percorso a parte sarebbe fuori dall'allowlist del "
-                    "congelamento, e registrarla diventerebbe impossibile."
-                )
-                continue
-            riferite.setdefault(Path(relativo).name, dove)
-
     campagna = percorso_canonico(_dentro(stato, ("ultima_campagna_fuzz", "verbale")))
     if campagna is None:
         errori.append(
@@ -2218,44 +2189,7 @@ def _evidenze_riferite(stato: dict[str, Any]) -> tuple[dict[str, str], list[str]
 
 
 def _sola_evidenza_corrente(stato: dict[str, Any]) -> list[str]:
-    """`assurance/evidence/` contiene **esattamente** le evidenze riferite.
-
-    # Il difetto che chiude
-
-    La regola diceva «una sola»: il file citato da `ultima_misura.evidenza`, e
-    nient'altro. Alla prima release era vera per coincidenza -- la release
-    pubblicata e la misura corrente erano la **stessa** corsa, e un file solo
-    serviva a entrambe.
-
-    Alla seconda le due divergono, e la regola entra in contraddizione con
-    `verifica_release_storiche`, che pretende la qualifica di ogni release
-    pubblicata «ancora leggibile». Tre mosse, tutte rosse: tenere entrambi i
-    file rompeva questa; cancellare quello della release pubblicata rompeva
-    quella; spostarlo altrove usciva dall'allowlist del congelamento, e
-    registrare una release sarebbe diventato impossibile.
-
-    Non era una regola sbagliata: era una regola **incompleta**, scritta quando
-    le evidenze da conservare erano una. Il confronto e' ora fra l'insieme dei
-    file presenti e l'**unione** dei riferimenti -- la misura corrente piu' ogni
-    release pubblicata -- e le due meta' non possono piu' contraddirsi, perche'
-    sono la stessa.
-
-    # Che cosa **non** cambia
-
-    Il confronto resta esatto e per insieme, non per contenimento: un file in
-    piu' e' rosso come uno in meno. Un'evidenza che nessuno cita resta un
-    documento che nessuno rilegge, e la sua presenza invita ancora a confronti
-    fra corse che l'albero non permette di ricostruire.
-
-    Resta `iterdir` e non `glob("*.json")`: filtrare per estensione e' una
-    whitelist travestita da controllo di contenuto, e un `.orig` lasciato da un
-    merge tornerebbe invisibile.
-
-    Restano i controlli su esistenza, revisione e integrita' storica: li fa
-    `verifica_release_storiche`, che rilegge ogni verbale contro git e contro la
-    corsa che dichiara. Qui si guarda **la directory**; li' si guarda che cosa
-    ogni file dice.
-    """
+    """La directory contiene esattamente le evidenze correnti e i documenti riferiti."""
     riferite, errori = _evidenze_riferite(stato)
     if errori:
         # Senza sapere che cosa lo stato riferisce non c'e' un insieme atteso:
@@ -3395,134 +3329,10 @@ def _conteggi_n1_legati_al_registro(stato: dict[str, Any]) -> list[str]:
 STATI_DELLA_CANDIDATE = ("iniziale", "attiva", "ritirata", "pubblicata")
 
 
-RELEASE_STORICHE = ("chiuso", "release_pubblicate")
 
 
-def _verbale_storico_conservato(verbale: dict[str, Any]) -> list[str]:
-    """Confronta i fatti congelati col loro oggetto Git, senza consultare tag."""
-    commit = verbale.get("commit_di_assurance")
-    if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{7,40}", commit):
-        return ["commit_di_assurance: richiesto identificatore esadecimale di commit"]
-    risolto = revisione_risolta(commit)
-    testo = _git("show", f"{risolto}:assurance/current-state.json") if risolto else None
-    try:
-        if testo is None:
-            raise ValueError("oggetto non disponibile")
-        storico = strict_json.loads(testo)["aperto"]["candidate_release"]
-        if not isinstance(storico, dict):
-            raise ValueError("candidate storica non strutturata")
-    except (ValueError, KeyError, TypeError):
-        return ["verbale originale non leggibile nel commit_di_assurance"]
-    # Le note possono descrivere l'archiviazione successiva; i fatti no.
-    campi = ("versione_manifesto", "revisione_candidate", "tag_previsto",
-             "tag_revisione", "artefatti")
-    return [f"{campo}: diverso dal verbale nel commit_di_assurance"
-            for campo in campi if verbale.get(campo) != storico.get(campo)]
 
 
-def verifica_release_storiche(stato: dict[str, Any]) -> list[str]:
-    """Verifica la cronaca locale contro i commit conservati, non ref vive.
-
-    Nomi, revisioni e digest sono quelli registrati nel commit di assurance.
-    Il tag scritto nel verbale resta un'identita storica: non deve esistere
-    oggi e non si scaricano asset remoti. Evidenza, perimetro e discendenza
-    restano verificati. I vincoli sul tag vivo sono della candidate corrente.
-    """
-    nodo: Any = stato
-    for chiave in RELEASE_STORICHE:
-        nodo = (nodo or {}).get(chiave) if isinstance(nodo, dict) else None
-    if nodo is None:
-        return []
-    if not isinstance(nodo, list):
-        return [
-            f"`{'.'.join(RELEASE_STORICHE)}` non e' un elenco: le release "
-            "pubblicate sono zero o piu', e una forma diversa non si scorre"
-        ]
-
-    errori: list[str] = []
-    viste: set[str] = set()
-    for indice, verbale in enumerate(nodo):
-        dove = f"{'.'.join(RELEASE_STORICHE)}[{indice}]"
-        if not isinstance(verbale, dict):
-            errori.append(f"`{dove}` non e' un oggetto")
-            continue
-
-        versione = verbale.get("versione_manifesto")
-        if not isinstance(versione, str) or not versione.strip():
-            errori.append(f"`{dove}.versione_manifesto` assente")
-            continue
-        if versione in viste:
-            errori.append(
-                f"`{dove}`: la versione «{versione}» compare due volte "
-                "nell'archivio, e due verbali della stessa release non possono "
-                "essere entrambi il suo"
-            )
-        viste.add(versione)
-
-        congelata = revisione_risolta(verbale.get("revisione_candidate"))
-        if congelata is None:
-            errori.append(
-                f"`{dove}.revisione_candidate` non si risolve a un commit: un "
-                "verbale che non nomina una revisione non registra una release"
-            )
-            continue
-
-        errori.extend(
-            f"{dove}: {motivo}"
-            for motivo in _artefatti_fissati(
-                verbale, congelata, versione, verbale.get("versione_pacchetto_python")
-            )
-        )
-
-        relativo = verbale.get("evidenza")
-        if not isinstance(relativo, str) or not (ROOT / relativo).is_file():
-            errori.append(
-                f"`{dove}.evidenza` non nomina un file esistente: la qualifica "
-                "di una release pubblicata dev'essere ancora leggibile"
-            )
-        else:
-            misurata = strict_json.loads(
-                (ROOT / relativo).read_text(encoding="utf-8")
-            ).get("corsa", {}).get("revisione_iniziale")
-            if revisione_risolta(misurata) != congelata:
-                errori.append(
-                    f"`{dove}.evidenza` e' la corsa di «{str(misurata)[:7]}», la "
-                    f"release e' congelata su «{congelata[:7]}»: un verbale che "
-                    "rimanda alla misura di un'altra revisione non registra la "
-                    "propria"
-                )
-
-        for campo in ("revisione_candidate", "commit_di_assurance"):
-            if not isinstance(verbale.get(campo), str) or not re.fullmatch(r"[0-9a-f]{7,40}", verbale[campo]):
-                errori.append(f"{dove}.{campo}: richiesto identificatore esadecimale di commit")
-        if verbale.get("tag_previsto") != f"v{versione}":
-            errori.append(f"{dove}.tag_previsto: identita storica diversa dalla versione")
-        errori.extend(f"{dove}: {motivo}" for motivo in _verbale_storico_conservato(verbale))
-        registrazione = revisione_risolta(verbale.get("commit_di_assurance"))
-        if registrazione is None:
-            errori.append(
-                f"`{dove}.commit_di_assurance` non si risolve a un commit: e' il "
-                "commit fino a cui la registrazione doveva restare dentro "
-                "l'allowlist, e senza il controllo si riferirebbe a HEAD"
-            )
-        elif registrazione != congelata:
-            if not _discende_da(congelata, registrazione):
-                errori.append(
-                    f"`{dove}.commit_di_assurance` «{registrazione[:7]}» non "
-                    f"discende dalla revisione congelata «{congelata[:7]}»"
-                )
-            else:
-                fuori, guasti = cambiamenti_dopo_il_congelamento(
-                    congelata, registrazione
-                )
-                if fuori or guasti:
-                    errori.append(
-                        f"`{dove}`: fra il congelamento «{congelata[:7]}» e la "
-                        f"registrazione «{registrazione[:7]}» e' cambiato cio' "
-                        f"che l'allowlist non ammette: {sorted(fuori)[:5]}"
-                        f"{guasti[:2]}"
-                    )
-    return errori
 
 
 def _forma_della_iniziale(candidate: dict[str, Any], motivo: Any) -> list[str]:
@@ -3659,11 +3469,10 @@ def verifica_release_pubblicata(stato: dict[str, Any]) -> list[str]:
         return ["`aperto.candidate_release` assente: non c'e' release da verificare"]
     if candidate.get("stato") not in STATI_DELLA_CANDIDATE:
         return ["stato della candidate non riconosciuto"]
-    # Prima della pubblicazione corrente si verifica solo la cronaca locale.
-    # Un archivio vuoto e le ref storiche cancellate non richiedono ripristini;
-    # questo ramo non attesta i byte o il tag della nuova candidate.
+    # Prima della pubblicazione non ci sono byte pubblicati da verificare.
+    # La qualifica della candidate e governata dalle condizioni di release.
     if candidate["stato"] != "pubblicata":
-        return verifica_release_storiche(stato)
+        return []
 
     errori: list[str] = []
     versione = candidate.get("versione_manifesto")
@@ -4410,7 +4219,6 @@ def validate_stato_corrente(stato: dict[str, Any]) -> list[str]:
         + _campagna_legata_al_verbale(stato)
         + _conteggi_n1_legati_al_registro(stato)
         + _candidate_legata_alle_fonti(stato)
-        + verifica_release_storiche(stato)
         + _registro_legato(stato)
         + _censimento_s9_legato(stato)
         + _profondita_legata(stato)
@@ -4420,206 +4228,8 @@ def validate_stato_corrente(stato: dict[str, Any]) -> list[str]:
     )
 
 
-def _record_di_impatto(documento: dict[str, Any], campo: str) -> list[str]:
-    """Un campo additivo senza il suo record d'impatto non e' additivo: e' nuovo.
-
-    La regola del contratto dice `add_optional_field: allowed_with_change_impact_record`.
-    Senza questo controllo la prima meta' della regola valeva e la seconda no --
-    il campo si aggiungeva e il record restava una buona intenzione. Il record
-    deve dire **quale** campo, quale regola invoca e che cosa succede a chi
-    legge il catalogo senza conoscerlo.
-    """
-    voci = documento.get("change_impact")
-    if not isinstance(voci, list):
-        return [
-            "cli-protocol-v1: `change_impact` assente. La regola "
-            "`add_optional_field` lo pretende, e un campo aggiunto senza record "
-            "e' un campo aggiunto senza avvertire nessuno."
-        ]
-    for voce in voci:
-        if not isinstance(voce, dict) or voce.get("field") != campo:
-            continue
-        mancanti = [
-            chiave
-            for chiave in ("kind", "protocol_version", "impatto_sui_consumatori")
-            if not voce.get(chiave)
-        ]
-        if mancanti:
-            return [
-                f"cli-protocol-v1: il record d'impatto di `{campo}` non dice "
-                f"{mancanti}. Un record che non dice l'impatto e' una riga."
-            ]
-        if voce.get("kind") != "add_optional_field":
-            return [
-                f"cli-protocol-v1: il record di `{campo}` invoca la regola "
-                f"«{voce.get('kind')}», che non e' quella che consente "
-                "l'aggiunta di un campo opzionale."
-            ]
-        return []
-    return [
-        f"cli-protocol-v1: nessun record d'impatto per `{campo}`, che il "
-        "contratto elenca fra i campi additivi."
-    ]
 
 
-def validate_cli_protocol_v1(document: dict[str, Any]) -> list[str]:
-    errors: list[str] = []
-    if document.get("manifest_version") != 1:
-        errors.append("cli-protocol-v1: manifest_version inattesa")
-    if document.get("component") != "plenora-IO-tools":
-        errors.append("cli-protocol-v1: componente inatteso")
-    if document.get("protocol_version") != 1:
-        errors.append("cli-protocol-v1: protocol_version inattesa")
-    if document.get("status") != "frozen_for_1_0":
-        errors.append("cli-protocol-v1: stato inatteso")
-    if document.get("compatibility_scope") != "cli_json_only":
-        errors.append("cli-protocol-v1: superficie non limitata alla CLI JSON")
-
-    rust_api = document.get("rust_api", {})
-    if rust_api != {
-        "status": "internal_unstable",
-        "semver_guarantee": False,
-        "crates_publish": False,
-        "reason": (
-            "R15.4.1 prevede l'estrazione dei tipi di confine da "
-            "plenora-io-model; una garanzia pubblica 1.x renderebbe "
-            "quell'estrazione una rottura."
-        ),
-    }:
-        errors.append("cli-protocol-v1: stato API Rust inatteso")
-
-    expected_contracts = {
-        # `plenora-io-error-v1`, non `plenora-error-v1`: questo e' il manifesto
-        # del protocollo **v1**, che e' congelato. La 4.0.0 ha allineato il
-        # nome della busta d'errore al contratto comune di ERRORS-1.0, ma quel
-        # cambio riguarda il v2: qui l'atteso e' cio' che il v1 pubblicava, e
-        # riallinearlo renderebbe il congelamento una tautologia che si
-        # aggiorna da sola.
-        "error": "plenora-io-error-v1",
-        "catalog": "plenora-io-catalog-v1",
-        "inspect": "plenora-io-inspect-v1",
-        "layers": "plenora-io-layers-v1",
-        "read": "plenora-io-read-v1",
-        "convert": "plenora-io-convert-v1",
-    }
-    envelopes = document.get("envelopes", {})
-    if set(envelopes) != set(expected_contracts):
-        errors.append("cli-protocol-v1: devono essere dichiarate sei buste")
-    for name, contract in expected_contracts.items():
-        if envelopes.get(name, {}).get("contract") != contract:
-            errors.append(f"cli-protocol-v1: contratto inatteso per {name}")
-
-    error_envelope = envelopes.get("error", {})
-    if error_envelope.get("optional_error_fields") != ["row_diagnostics"]:
-        errors.append("cli-protocol-v1: campi errore opzionali inattesi")
-    if error_envelope.get("row_diagnostics_semantics") != {
-        "contract": "plenora-row-diagnostics-v1",
-        "present_when": (
-            "read_row_scoped_rejections_are_observed_or_write_row_scoped_"
-            "rejections_are_observed_after_exact_input_total_declaration"
-        ),
-        "missing_write_input_total": (
-            "contract_precondition_error_without_row_diagnostics"
-        ),
-        "absent_for_other_errors": True,
-    }:
-        errors.append("cli-protocol-v1: semantica row diagnostics inattesa")
-    if error_envelope.get("emitted_error_codes") != [
-        "CANCELLED",
-        "INVALID_ROW_DIAGNOSTICS",
-    ]:
-        errors.append("cli-protocol-v1: token errore emessi inattesi")
-    if error_envelope.get("exit_codes") != {
-        "data_mapping": 2,
-        "cancelled_by_caller": 130,
-    }:
-        errors.append("cli-protocol-v1: exit code additivi inattesi")
-
-    catalog = envelopes.get("catalog", {})
-    # I campi additivi del catalogo, in ordine. `hostile_input_hardened` e'
-    # entrato con il lotto S12: la regola `add_optional_field` del contratto lo
-    # consente **con un record d'impatto**, e il record e' preteso qui sotto --
-    # senza, la regola sarebbe una frase e l'aggiunta un fatto compiuto.
-    catalog_fields = [
-        "available",
-        "hostile_input_hardened",
-        "required_feature",
-        "spec_version_supported",
-    ]
-    if catalog.get("optional_driver_fields") != catalog_fields:
-        errors.append("cli-protocol-v1: campi catalogo additivi opzionali inattesi")
-    if catalog.get("current_producer") != {
-        "required_driver_fields": catalog_fields,
-    }:
-        errors.append("cli-protocol-v1: campi obbligatori del producer corrente inattesi")
-    if "required_driver_fields" in catalog:
-        errors.append("cli-protocol-v1: producer v1 legacy resi incompatibili")
-    if catalog.get("driver_field_semantics") != {
-        "available": {
-            "type": "boolean",
-            "true_when": "runtime_probe_satisfies_descriptor",
-        },
-        "hostile_input_hardened": {
-            "type": "boolean",
-            "true_when": (
-                "every_geometry_text_the_driver_parses_is_bounded_during_the_parse"
-            ),
-            "false_means": "not_declared_not_unsafe",
-            "nota": (
-                "true dice che i tetti del bordo -- byte, componenti, "
-                "profondita' -- si applicano mentre il testo viene consumato, "
-                "non dopo che l'albero e' stato costruito. false non dice "
-                "«insicuro»: dice che questa garanzia non e' dichiarata, e un "
-                "driver binario ne ha altre che questo booleano non riassume."
-            ),
-            "verificata_da": "scripts/check_capability_input_ostile.py",
-        },
-        "required_feature": {
-            "type": ["string", "null"],
-            "filegdb": "gdal-backend",
-            "other_drivers": None,
-        },
-        # Entrato con il lotto S10, con la stessa regola e lo stesso record.
-        "spec_version_supported": {
-            "type": "string_or_null",
-            "value_when_declared": (
-                "the_highest_specification_version_the_driver_reads_in_full"
-            ),
-            "null_means": (
-                "the_format_is_not_versioned_in_a_way_the_driver_can_declare"
-            ),
-            "nota": (
-                "dice dove il supporto si ferma. Senza, un consumatore che vede "
-                "un formato nel catalogo non ha modo di sapere se una versione "
-                "successiva della sua specifica sarebbe letta: lo dedurrebbe, e "
-                "si sbaglierebbe. Un driver che dichiara una versione rifiuta "
-                "quelle oltre con un errore di funzionalita' **non supportata**, "
-                "distinto da quello di metadati non conformi: il primo dice che "
-                "il file va bene e noi no, il secondo che il file e' sbagliato, "
-                "e mandare chi legge a correggere un file corretto e' il danno "
-                "che la distinzione evita."
-            ),
-            "esempio": "geoparquet dichiara 1.1.0: legge 1.0.0 e 1.1.0, e 2.0 no.",
-            "verificata_da": "scripts/check_metadati_geoparquet.py",
-        },
-    }:
-        errors.append("cli-protocol-v1: semantica campi driver inattesa")
-    errors.extend(_record_di_impatto(document, "drivers[].hostile_input_hardened"))
-    errors.extend(_record_di_impatto(document, "drivers[].spec_version_supported"))
-
-    convert = envelopes.get("convert", {})
-    required_convert = {
-        "conversion_fidelity",
-        "read_fidelity",
-        "write_fidelity",
-        "read_loss",
-        "write_loss",
-    }
-    if not required_convert.issubset(set(convert.get("required_top_level", []))):
-        errors.append("cli-protocol-v1: osservabilità convert incompleta")
-    if convert.get("forbidden_legacy_fields") != ["loss"]:
-        errors.append("cli-protocol-v1: campo legacy loss non vietato")
-    return errors
 
 
 def verifica_policy_prove(root=ROOT):
@@ -4654,9 +4264,6 @@ def verifica_policy_prove(root=ROOT):
         errors.append('CI senza replay finito')
     if 'run: ./scripts/check-windows-filegdb-benchmark.ps1' in ci:
         errors.append('benchmark storico ancora bloccante')
-    exception = contract.get('eccezione_transitoria_historical_readers', {})
-    if exception.get('pin') != '50f935715991c591760fb9a7d0c730f3d9f0484b' or not exception.get('scadenza'):
-        errors.append('eccezione IO-8 assente o non transitoria')
     if 'fuzz/seeds/dxf_reader/datatable-conteggio-negativo.dxf' not in policy.get('finding_obbligatori', []):
         errors.append('finding DATATABLE non obbligatorio')
     return errors

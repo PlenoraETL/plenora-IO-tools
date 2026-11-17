@@ -1577,8 +1577,8 @@ fn combined_fidelity_uses_the_worst_level_and_bounds_reasons() {
 
     assert_eq!(combined.level, Fidelity::Approximating);
     assert_eq!(
-        combined.ragioni_v1().len(),
-        plenora_io_core::MAX_FIDELITY_REASONS
+        combined.ragioni_trattenute(),
+        plenora_io_core::MAX_FIDELITY_REASONS + 2
     );
 }
 
@@ -2010,6 +2010,9 @@ fn la_matrice_di_handoff_e_aggiornata() {
         .join("../../docs/contracts/handoff-plenora-error.json");
     let atteso =
         serde_json::to_string_pretty(&matrice_di_handoff()).expect("la matrice si serializza");
+    if std::env::var_os("PLENORA_RIGENERA_HANDOFF").is_some() {
+        std::fs::write(&percorso, format!("{atteso}\n")).expect("rigenera handoff");
+    }
     let versionato = std::fs::read_to_string(&percorso)
         .unwrap_or_else(|error| panic!("{}: {error}", percorso.display()));
     assert_eq!(
@@ -2439,4 +2442,12 @@ fn un_layer_rifiutato_ferma_la_descrizione_di_tutti_i_layer() {
         panic!("un layer rifiutato descritto come leggibile");
     };
     assert_eq!(errore.category, ErrorCategory::Crs);
+}
+
+#[test]
+fn il_panico_usa_il_protocollo_corrente() {
+    let busta = envelope_panico(&"payload riservato");
+    assert_eq!(busta["protocol_version"], busta::PROTOCOLLO);
+    assert_eq!(busta["contract"], "plenora-error-v1");
+    assert!(!busta.to_string().contains("payload riservato"));
 }

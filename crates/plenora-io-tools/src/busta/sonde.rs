@@ -135,12 +135,7 @@ fn senza_spazio_per_la_dichiarazione_si_fallisce_chiusi() {
 fn valutazione_con(ordine: &[FidelityReason]) -> FidelityAssessment {
     let mut valutazione = FidelityAssessment::con_livello(Fidelity::Approximating);
     for ragione in ordine {
-        valutazione.add_reason_redatta(
-            ragione.code,
-            ragione.detail.clone(),
-            ragione.posizione,
-            ragione.detail_v1(),
-        );
+        valutazione.add_reason_redatta(ragione.code, ragione.detail.clone(), ragione.posizione);
     }
     valutazione
 }
@@ -157,7 +152,6 @@ fn ragioni_distinte(quante: u64) -> Vec<FidelityReason> {
                     field_index: Some(i),
                     type_class: None,
                 },
-                format!("layer «uno»: attributo 'campo{i}' non nativo"),
             )
         })
         .collect()
@@ -338,7 +332,6 @@ fn una_voce_fuori_misura_non_sfratta_una_voce_valida() {
                     field_index: Some(i),
                     type_class: None,
                 },
-                "irrilevante",
             )
         })
         .collect();
@@ -380,7 +373,6 @@ fn ragioni_fuori_misura(quante: u64) -> Vec<FidelityReason> {
                     field_index: Some(i),
                     type_class: None,
                 },
-                "irrilevante",
             )
         })
         .collect()
@@ -617,11 +609,8 @@ fn la_stessa_ragione_offerta_molte_volte_e_una_sola_omissione() {
 }
 
 #[test]
-fn il_v1_deduplica_sulla_chiave_vecchia_e_il_v2_sulla_canonica() {
-    // Due ragioni che il v2 distingue -- posizioni diverse -- e che il v1
-    // considera la stessa, perche' la sua frase congelata coincide. Se il
-    // v1 deduplicasse sull'`Eq` del v2, il protocollo congelato dipenderebbe
-    // dall'identita' nuova, che e' esattamente cio' che non deve accadere.
+fn le_posizioni_distinguono_ragioni_con_lo_stesso_dettaglio() {
+    // Lo stesso dettaglio in due posizioni rappresenta due ragioni distinte.
     let a = FidelityReason::redatta(
         FidelityReasonCode::AttributeLoss,
         "l'attributo non e' nativo",
@@ -630,7 +619,6 @@ fn il_v1_deduplica_sulla_chiave_vecchia_e_il_v2_sulla_canonica() {
             field_index: Some(1),
             type_class: None,
         },
-        "layer «uno»: attributo non nativo",
     );
     let b = FidelityReason::redatta(
         FidelityReasonCode::AttributeLoss,
@@ -640,7 +628,6 @@ fn il_v1_deduplica_sulla_chiave_vecchia_e_il_v2_sulla_canonica() {
             field_index: Some(2),
             type_class: None,
         },
-        "layer «uno»: attributo non nativo",
     );
     let valutazione = valutazione_con(&[a, b]);
     let (v2, _) = sezione_di_fedelta(&valutazione, BYTE_PER_SEZIONE).expect("budget");
@@ -649,11 +636,6 @@ fn il_v1_deduplica_sulla_chiave_vecchia_e_il_v2_sulla_canonica() {
         Some(2),
         "gli indici distinguono cio' che i nomi distinguevano"
     );
-    // Il confronto col v1 -- che ne deduplicava una sola, sulla frase --
-    // misurava la differenza fra i due protocolli. Con un protocollo solo
-    // non c'e' piu' una differenza da misurare, e cio' che conta e'
-    // l'asserzione qui sopra: due ragioni che differiscono per **posizione**
-    // restano due, e non una.
 }
 
 #[test]
@@ -843,12 +825,11 @@ fn la_forma_scritta_a_mano_coincide_col_derive() {
     // nei due casi: posizione vuota e posizione piena. E' cio' che
     // impedisce al derive di divergere dall'adattatore -- un campo aggiunto
     // al tipo senza `skip` e senza toccare l'adattatore diventa rosso qui --
-    // e insieme prova che `dettaglio_v1` non esce dalla serializzazione.
+    // senza allargare la forma pubblica.
     let vuota = FidelityReason::redatta(
         FidelityReasonCode::AttributeLoss,
         "con \"virgolette\" e accènti",
         Posizione::default(),
-        "layer «segreto»: attributo 'riservato' non nativo",
     );
     let piena = FidelityReason::redatta(
         FidelityReasonCode::TypeCoercion,
@@ -858,7 +839,6 @@ fn la_forma_scritta_a_mano_coincide_col_derive() {
             field_index: Some(7),
             type_class: Some(ArrowTypeClass::Decimal),
         },
-        "layer «segreto»: tipo Decimal128(38, 9) di 'riservato' richiede coercion",
     );
     for ragione in [&vuota, &piena] {
         let a_mano = documento_della_ragione_v2(ragione);

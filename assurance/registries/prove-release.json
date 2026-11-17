@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "policy": "io-9-replay-v1",
-  "release": "9.0.0",
-  "decisione": "titolare 15/11/2026; congelamento dopo questa modifica",
+  "release": "10.0.0",
+  "decisione": "titolare 15 e 17/11/2026; candidate 10.0.0 non congelata; policy di replay finito mantenuta",
   "obbligo": "ogni seme e regressione versionata eseguiti, tutti i target ASan, profondita esistente e confine GDAL validi",
   "stimolo_copertura": "tutti i target di fuzz/Cargo.toml; semi, corpus WKB condiviso e regressioni delle suite correnti",
   "misura_oracolo": "log libFuzzer Executed per input; exit 0; nessun finding; requisiti di profondita esistenti, soglie invariate",
@@ -15,11 +15,6 @@
   "filegdb_performance": "nessuna soglia di velocita bloccante; test semantici correnti nativi mantenuti",
   "esplorazione": "periodica a tempo fuori dal cancello; ogni finding nuovo promosso a seme",
   "confini": "Windows/Linux, ABI Python, GDAL con/senza scrittura e ASan Rust versus GDAL C non strumentato mantenuti; timer cleanup/segnali restano",
-  "historical_readers": {
-    "versione": "7.0.3",
-    "pin": "50f935715991c591760fb9a7d0c730f3d9f0484b",
-    "eccezione": "transitoria, coda post-release gia decisa; non modificare ora"
-  },
   "qualifica_congiunta": "risultato attribuito solo ai pin in release/system-rc-gate.json e release/system-qualification-audit.json",
   "corpus_condiviso": {
     "from_wkb": "fuzz/shared-corpus/cases",

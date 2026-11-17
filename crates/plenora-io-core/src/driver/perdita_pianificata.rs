@@ -452,11 +452,6 @@ pub fn assess_write_contract(
                     FidelityReasonCode::AttributeLoss,
                     "l'attributo non e' nativo del formato, o e' dichiarato come perdita",
                     dove,
-                    format!(
-                        "{}: attributo '{}' non nativo o loss-reported",
-                        layer.name,
-                        field.name()
-                    ),
                 );
             }
             let classe = crate::capabilities::arrow_type_class(field.data_type());
@@ -474,12 +469,6 @@ pub fn assess_write_contract(
                         type_class: Some(classe),
                         ..dove
                     },
-                    format!(
-                        "{}: tipo {:?} di '{}' richiede coercion",
-                        layer.name,
-                        field.data_type(),
-                        field.name()
-                    ),
                 );
             }
             if field.is_nullable() && capabilities.nullability == NullabilitySupport::FormatDefined
@@ -488,11 +477,6 @@ pub fn assess_write_contract(
                     FidelityReasonCode::NullabilityChanged,
                     "la nullability dell'attributo la definisce il formato",
                     dove,
-                    format!(
-                        "{}: nullability di '{}' definita dal formato",
-                        layer.name,
-                        field.name()
-                    ),
                 );
             }
         }
@@ -518,7 +502,6 @@ pub fn assess_write_contract(
                     field_index: None,
                     type_class: None,
                 },
-                format!("{}: geometrie multipart esplose in entità DXF", layer.name),
             );
         }
     }

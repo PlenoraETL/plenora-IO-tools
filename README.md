@@ -167,7 +167,6 @@ default quando il valore manca o è malformato: la CLI **fallisce chiuso**.
 | `--opt` | `chiave=valore` | opzione di formato per entrambe le direzioni |
 | `--in-opt` | `chiave=valore` | come `--opt`, ma sovrascrive per chiave sull'ingresso |
 | `--out-opt` | `chiave=valore` | come `--opt`, ma sovrascrive per chiave sull'uscita |
-| `--legacy-protocol-v1-unsafe` | — | emette il protocollo v1 congelato invece del v2; il nome dice che cosa si sceglie |
 | `--version`, `-V` | — | la versione del binario |
 
 Le quote finiscono tutte in `PipelineLimits` e condividono la stessa disciplina.

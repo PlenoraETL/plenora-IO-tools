@@ -321,11 +321,10 @@
   "correzione_3": {
     "claim": "Conformita funzionale del sorgente nel perimetro IO; non qualifica di distribuzione ne handoff esterni. R1 coperto dal confronto enumerato e 56 negativi CLI. R2 misurato dalla matrice storica, con C3-GP-DIM dichiarata e FileGDB rinviato alla VM GDAL.",
     "prove": [
-      "scripts/check_footer_field_conflicts.py",
-      "scripts/compare_historical_readers.py",
-      "scripts/test_compare_historical_readers.py"
+      "scripts/check_footer_field_conflicts.py"
     ],
-    "registro": "assurance/registries/io-geometrie-multiple.json"
+    "registro": "assurance/registries/io-geometrie-multiple.json",
+    "nota_10_0_0": "Comparatore fra release ritirato; le misure storiche qui riportate non attestano la versione corrente."
   },
   "correzione_4": {
     "filegdb_linux": {
@@ -389,12 +388,11 @@
       }
     },
     "prove": [
-      "scripts/compare_historical_readers.py",
-      "scripts/test_compare_historical_readers.py",
       "scripts/check_footer_field_conflicts.py",
       "target/c5-final-results.json",
       "target/c5-historical-final.json",
       "target/c5-matrix-completeness.json"
-    ]
+    ],
+    "nota_10_0_0": "Comparatore fra release ritirato; le misure storiche qui riportate non attestano la versione corrente."
   }
 }

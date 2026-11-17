@@ -160,7 +160,6 @@ impl Ord for FidelityReason {{
 
 #[derive(Clone, Debug)]
 pub struct FidelityAssessment {{
-    prime_v1: Vec<FidelityReason>,
     respinte: BTreeSet<{elemento_respinte}>,
 }}
 

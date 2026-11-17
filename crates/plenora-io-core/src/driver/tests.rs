@@ -1476,34 +1476,17 @@ fn piano_con_nomi_canary() -> WritePlan {
     }
 }
 
-/// I nomi presi dal file restano nel v1 e spariscono dal v2.
+/// I nomi presi dal file non entrano nelle ragioni canoniche.
 ///
 /// I nomi della fixture sono canary con accenti e apostrofo -- l'apostrofo
 /// perche' e' il carattere che le frasi congelate mettono fra virgolette --
 /// e la sonda pretende che **nessuno** compaia in cio' che il v2 trattiene,
 /// nemmeno dentro una stringa piu' lunga.
 #[test]
-fn i_nomi_del_file_restano_nel_v1_e_spariscono_dal_v2() {
+fn i_nomi_del_file_non_entrano_nelle_ragioni() {
     let valutazione = assess_write_contract(
         &descrittore_che_dichiara_perdite(),
         &piano_con_nomi_canary(),
-    );
-
-    // Il v1 li porta, alla lettera e non ricostruiti: sono i dettagli
-    // dinamici, non un esempio statico.
-    let v1: Vec<&str> = valutazione
-        .ragioni_v1()
-        .iter()
-        .map(crate::loss::FidelityReason::detail_v1)
-        .collect();
-    assert!(!v1.is_empty(), "la fixture deve produrre ragioni");
-    assert!(
-        v1.iter().any(|d| d.contains("CANARY_LAYER_àèì'\"alfa")),
-        "il v1 deve conservare il nome del layer: {v1:?}"
-    );
-    assert!(
-        v1.iter().any(|d| d.contains("CANARY_CAMPO_àèì'\"due")),
-        "il v1 deve conservare il nome dell'attributo: {v1:?}"
     );
 
     // Il v2 non li porta, e porta invece gli indici.
@@ -1554,10 +1537,9 @@ fn i_nomi_del_file_restano_nel_v1_e_spariscono_dal_v2() {
     );
 }
 
-/// La fusione conserva l'identita' legacy, che `add_reason(code, detail)`
-/// avrebbe buttato via facendo cambiare byte alla sezione v1.
+/// La fusione conserva dettaglio curato e posizione.
 #[test]
-fn la_fusione_non_perde_la_frase_congelata() {
+fn la_fusione_conserva_ragioni_e_posizioni() {
     let letta = assess_write_contract(
         &descrittore_che_dichiara_perdite(),
         &piano_con_nomi_canary(),
@@ -1566,16 +1548,14 @@ fn la_fusione_non_perde_la_frase_congelata() {
     fusa.merge(&letta);
 
     let prima: Vec<&str> = letta
-        .ragioni_v1()
-        .iter()
-        .map(crate::loss::FidelityReason::detail_v1)
+        .ragioni_canoniche()
+        .map(|r| r.detail.as_str())
         .collect();
     let dopo: Vec<&str> = fusa
-        .ragioni_v1()
-        .iter()
-        .map(crate::loss::FidelityReason::detail_v1)
+        .ragioni_canoniche()
+        .map(|r| r.detail.as_str())
         .collect();
-    assert_eq!(prima, dopo, "la fusione deve conservare le frasi del v1");
+    assert_eq!(prima, dopo, "la fusione deve conservare i dettagli curati");
 
     let posizioni_prima: Vec<_> = letta.ragioni_canoniche().map(|r| r.posizione).collect();
     let posizioni_dopo: Vec<_> = fusa.ragioni_canoniche().map(|r| r.posizione).collect();

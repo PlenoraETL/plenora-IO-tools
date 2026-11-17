@@ -31,19 +31,6 @@ fn opzioni_lettura() -> ReadOptions {
     }
 }
 
-/// Opzioni di lettura con l'opt-in al `crs` storico non conforme.
-///
-/// I semi di questo repository sono stati scritti prima di S10 e portano
-/// `crs: {"id": {...}}`, che non e' un documento PROJJSON: lo schema
-/// ufficiale li rifiuta, e per leggerli si dichiara di volerlo fare.
-fn opzioni_lettura_legacy() -> ReadOptions {
-    let mut opzioni = opzioni_lettura();
-    opzioni
-        .format_options
-        .insert("accept_legacy_crs_id_only".to_owned(), "true".to_owned());
-    opzioni
-}
-
 /// Un seme storico di questo repository: `crs` nella forma non conforme.
 fn seme_storico() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -453,7 +440,7 @@ fn un_crs_mancante_si_scrive_null_e_si_rilegge_sconosciuto() {
     schema_ufficiale::valida(&documento, "1.1.0").expect("conforme");
 
     // E in lettura `null` non diventa CRS84: diventa «non lo so».
-    let letti = metadati::analizza(&geo, false).expect("conforme");
+    let letti = metadati::analizza(&geo).expect("conforme");
     assert_eq!(letti.primaria.crs, metadati::Crs::Nullo);
     // Rilettura 9, punto 6a: e' `missing`, lo stato del vocabolario per un
     // CRS ignoto. Su b4d8064 era un `resolved` senza identificatore ne'
@@ -647,31 +634,6 @@ fn un_file_storico_senza_opt_in_e_rifiutato() {
         ),
         "senza opt-in un file non conforme resta rifiutato"
     );
-}
-
-#[test]
-fn un_file_storico_con_opt_in_si_apre_e_conserva_il_crs() {
-    let dir = tempfile::tempdir().unwrap();
-    let geo = r#"{"version":"1.0.0","primary_column":"geometry","columns":{"geometry":{"encoding":"WKB","geometry_types":["Point"],"crs":{"id":{"authority":"EPSG","code":4326}}}}}"#;
-    let path = parquet_con_geo(&dir, Some(geo));
-    let dataset = GeoParquetDriver
-        .open(Source::Path(path), opzioni_lettura_legacy())
-        .unwrap();
-    let geometry = dataset.layers()[0].contract.geometry.as_ref().unwrap();
-    assert_eq!(geometry.crs.id(), Some("EPSG:4326"));
-    assert_eq!(
-        geometry.native_metadata["geoparquet.compatibilita"],
-        "crs_storico_solo_identificatore_non_conforme"
-    );
-}
-
-#[test]
-fn un_file_storico_con_assi_contraddittori_e_rifiutato_anche_con_opt_in() {
-    let error = GeoParquetDriver
-        .open(Source::Path(seme_storico()), opzioni_lettura_legacy())
-        .err()
-        .unwrap();
-    assert_eq!(error.category, plenora_io_model::ErrorCategory::Schema);
 }
 
 use arrow_array::Int64Array;
@@ -1330,6 +1292,10 @@ fn una_pagina_oltre_il_proprio_chunk_e_rifiutata_prima_dell_allocazione() {
     let seme = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../fuzz/seeds/geoparquet_reader/pagina-oltre-il-chunk.parquet");
     assert!(seme.is_file(), "seme assente: {}", seme.display());
+    // La pagina malformata resta identica; solo il footer della copia di prova
+    // viene reso conforme, per raggiungere ancora il decoder corrente.
+    let copia = tempfile::tempdir().unwrap();
+    let seme = copia_seme_con_footer_corrente(&seme, copia.path());
 
     let file = File::open(seme).unwrap();
     let builder = ParquetRecordBatchReaderBuilder::try_new(file.try_clone().unwrap()).unwrap();
@@ -1438,6 +1404,10 @@ fn un_bit_width_di_dizionario_fuori_intervallo_e_rifiutato_prima_del_decoder() {
     let seme = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../fuzz/seeds/geoparquet_reader/bit-width-dizionario-fuori-intervallo.parquet");
     assert!(seme.is_file(), "seme assente: {}", seme.display());
+    // La pagina malformata resta identica; solo il footer della copia di prova
+    // viene reso conforme, per raggiungere ancora il decoder corrente.
+    let copia = tempfile::tempdir().unwrap();
+    let seme = copia_seme_con_footer_corrente(&seme, copia.path());
 
     // Il seme storico ha anche assi CRS contraddittori: la sonda del
     // decoder raggiunge direttamente la prevalidazione, senza mascherarla.
@@ -1496,9 +1466,13 @@ fn un_run_dei_livelli_oltre_la_sezione_e_rifiutato_prima_del_decoder() {
     let seme = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../fuzz/seeds/geoparquet_reader/livelli-run-oltre-la-sezione.parquet");
     assert!(seme.is_file(), "seme assente: {}", seme.display());
+    // La pagina malformata resta identica; solo il footer della copia di prova
+    // viene reso conforme, per raggiungere ancora il decoder corrente.
+    let copia = tempfile::tempdir().unwrap();
+    let seme = copia_seme_con_footer_corrente(&seme, copia.path());
 
     let dataset = GeoParquetDriver
-        .open(Source::Path(seme), opzioni_lettura_legacy())
+        .open(Source::Path(seme), opzioni_lettura())
         .expect("l'apertura legge i soli metadati e riesce");
     let richiesta = ReadRequest {
         layer: LayerId(0),
@@ -2896,31 +2870,6 @@ fn legacy_bbox_names_are_preserved_by_default() {
     assert!(contract_schema.index_of("geometry").is_ok());
 }
 
-#[test]
-fn legacy_bbox_names_are_hidden_with_explicit_opt_in() {
-    // Simmetrica del test precedente: chi ha davvero un file scritto
-    // da un writer plenora-io che non scriveva i covering metadata puo'
-    // riattivare il vecchio comportamento via format_option esplicito.
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("legacy_optin.parquet");
-    write_parquet_without_covering_metadata(&path);
-
-    let mut opts = opzioni_lettura();
-    opts.format_options
-        .insert("bbox_legacy_by_name".to_owned(), "true".to_owned());
-    let dataset = GeoParquetDriver.open(Source::Path(path), opts).unwrap();
-    let contract_schema = &dataset.layers()[0].contract.schema;
-    // Con opt-in le 4 colonne bbox sono nascoste (fallback legacy attivo).
-    for name in BBOX_COLS {
-        assert!(
-            contract_schema.index_of(name).is_err(),
-            "colonna {name} deve essere nascosta con bbox_legacy_by_name=true"
-        );
-    }
-    assert!(contract_schema.index_of("id").is_ok());
-    assert!(contract_schema.index_of("geometry").is_ok());
-}
-
 /// Un Parquet con una colonna `geometry` e senza metadato `geo`.
 fn parquet_senza_geo(dir: &tempfile::TempDir) -> std::path::PathBuf {
     let percorso = dir.path().join("senza_geo.parquet");
@@ -3177,7 +3126,7 @@ fn il_projjson_si_scrive_e_si_rilegge_byte_per_byte() {
         geo.contains(&testo),
         "il documento non e' incorporato tale e quale: {geo}"
     );
-    let letti = metadati::analizza(&geo, false).expect("conforme");
+    let letti = metadati::analizza(&geo).expect("conforme");
     let metadati::Crs::Documento { testo: riletto, .. } = &letti.primaria.crs else {
         panic!("atteso un documento: {:?}", letti.primaria.crs);
     };
@@ -3210,7 +3159,7 @@ fn il_lettore_consegna_il_testo_del_documento() {
     let geo = format!(
         r#"{{"version":"1.1.0","primary_column":"geometry","columns":{{"geometry":{{"encoding":"WKB","geometry_types":[],"crs": {crs} }}}}}}"#
     );
-    let letti = metadati::analizza(&geo, false).expect("conforme");
+    let letti = metadati::analizza(&geo).expect("conforme");
     let metadati::Crs::Documento { testo, .. } = &letti.primaria.crs else {
         panic!("atteso un documento");
     };
@@ -3368,7 +3317,6 @@ fn projjson_without_identifier_is_a_typed_unresolved_crs() {
                 }
             })
             .to_string(),
-            false,
         )
         .expect("il documento e' conforme");
     let error = crs_from(&geo).unwrap_err();
@@ -3652,7 +3600,7 @@ fn geoparquet_spec_conformance() {
     // E cio' che scriviamo si rilegge dal nostro stesso validatore: un
     // writer che emette un documento che il nostro lettore rifiuterebbe
     // sarebbe un guasto che nessuna delle due meta' vedrebbe da sola.
-    let riletto = metadati::analizza(&geo_raw, false).expect("il documento scritto e' conforme");
+    let riletto = metadati::analizza(&geo_raw).expect("il documento scritto e' conforme");
     assert_eq!(riletto.versione, "1.1.0");
     assert_eq!(riletto.nome_primaria, "geometry");
     assert_eq!(geo["primary_column"].as_str(), Some("geometry"));
@@ -4152,7 +4100,6 @@ fn il_genere_del_documento_crs_viene_dal_type() {
             "columns": {"geometry": {"encoding": "WKB", "geometry_types": ["Point"], "crs": crs}}
         })
         .to_string(),
-        false,
     )
     .expect("il documento e' conforme");
     let errore = crs_from(&geo).unwrap_err();
@@ -4299,7 +4246,7 @@ fn l_epoca_si_scrive_byte_per_byte_e_si_rilegge_uguale() {
             assert!(geo.contains(&format!(r#""epoch":{testo}"#)), "{geo}");
             let documento: serde_json::Value = serde_json::from_str(&geo).expect("JSON");
             schema_ufficiale::valida(&documento, "1.1.0").expect("conforme");
-            let letti = metadati::analizza(&geo, false).expect("conforme");
+            let letti = metadati::analizza(&geo).expect("conforme");
             assert_eq!(letti.primaria.epoch.as_deref(), Some(testo));
         }
     }
@@ -4482,3 +4429,66 @@ fn l_epoca_nativa_dichiarata_solo_dal_campo_si_conserva() {
 mod multigeometria;
 
 mod tempo_remoto;
+
+/// Conserva i byte delle pagine ostili e sostituisce solo metadati non conformi.
+fn copia_seme_con_footer_corrente(
+    source: &std::path::Path,
+    directory: &std::path::Path,
+) -> PathBuf {
+    use parquet::file::metadata::{FileMetaData, ParquetMetaData, ParquetMetaDataWriter};
+    let builder = ParquetRecordBatchReaderBuilder::try_new(File::open(source).unwrap()).unwrap();
+    let metadata = builder.metadata();
+    let file = metadata.file_metadata();
+    let mut entries = file.key_value_metadata().cloned().unwrap_or_default();
+    entries.retain(|entry| entry.key != "ARROW:schema");
+    for entry in &mut entries {
+        if entry.key == "geo" {
+            let mut geo: serde_json::Value =
+                serde_json::from_str(entry.value.as_ref().unwrap()).unwrap();
+            for column in geo["columns"].as_object_mut().unwrap().values_mut() {
+                column["crs"] = serde_json::Value::Null;
+            }
+            entry.value = Some(geo.to_string());
+        }
+    }
+    let file = FileMetaData::new(
+        file.version(),
+        file.num_rows(),
+        file.created_by().map(str::to_owned),
+        Some(entries),
+        file.schema_descr_ptr(),
+        file.column_orders().cloned(),
+    );
+    let updated = ParquetMetaData::new(file, metadata.row_groups().to_vec());
+    let original = std::fs::read(source).unwrap();
+    let footer_len = u32::from_le_bytes(
+        original[original.len() - 8..original.len() - 4]
+            .try_into()
+            .unwrap(),
+    ) as usize;
+    let end = original.len() - 8 - footer_len;
+    let mut bytes = original[..end].to_vec();
+    ParquetMetaDataWriter::new(&mut bytes, &updated)
+        .finish()
+        .unwrap();
+    assert_eq!(&bytes[..end], &original[..end]);
+    let path = directory.join("pagina-ostile-footer-corrente.parquet");
+    std::fs::write(&path, bytes).unwrap();
+    path
+}
+
+#[test]
+fn le_opzioni_private_ritirate_sono_sconosciute() {
+    for key in ["accept_legacy_crs_id_only", "bbox_legacy_by_name"] {
+        let mut options = opzioni_lettura();
+        options
+            .format_options
+            .insert(key.to_owned(), "true".to_owned());
+        let error = GeoParquetDriver
+            .open(Source::Path(seme_storico()), options)
+            .err()
+            .expect("opzione ritirata");
+        assert!(error.message.contains("opzione sconosciuta"));
+        assert!(error.message.contains(key));
+    }
+}

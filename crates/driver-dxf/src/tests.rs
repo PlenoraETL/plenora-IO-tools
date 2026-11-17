@@ -189,8 +189,7 @@ fn write_then_read_xyz_and_embedded_crs_round_trip() {
         plenora_io_core::Fidelity::Approximating
     );
     assert!(planned_fidelity
-        .ragioni_v1()
-        .iter()
+        .ragioni_canoniche()
         .any(|reason| { reason.code == plenora_io_core::FidelityReasonCode::AttributeLoss }));
     w.write(&batch).unwrap();
     let published = w.finish().unwrap();
@@ -202,8 +201,7 @@ fn write_then_read_xyz_and_embedded_crs_round_trip() {
     );
     assert!(published
         .fidelity
-        .ragioni_v1()
-        .iter()
+        .ragioni_canoniche()
         .any(|reason| reason.detail.contains("occorrenze")));
 
     let ds = driver.open(Source::Path(out), opzioni_lettura()).unwrap();

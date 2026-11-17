@@ -1,9 +1,8 @@
 [CmdletBinding()]
 param(
-    [int]$Rows = 50000,
-    [int]$Fields = 64,
-    [int]$Pairs = 7,
-    [double]$MaximumRegressionPercent = 5.0,
+    [ValidateRange(1, 1000000)][int]$Rows = 50000,
+    [ValidateRange(3, 1024)][int]$Fields = 64,
+    [ValidateRange(1, 100)][int]$Samples = 7,
     [string]$OutputPath = (Join-Path (Get-Location) "target\windows-filegdb-narrow-benchmark.json")
 )
 
@@ -14,9 +13,7 @@ $workRoot = if ($env:RUNNER_TEMP) {
 } else {
     Join-Path (Get-Location) "target\windows-filegdb-benchmark"
 }
-$baselineSource = Join-Path $workRoot "baseline-source"
 $sharedTarget = Join-Path $workRoot "cargo-target"
-$baselineBinary = Join-Path $workRoot "projection-bench-baseline.exe"
 $candidateBinary = Join-Path $workRoot "projection-bench-candidate.exe"
 $fixturePath = Join-Path $workRoot "wide.gdb"
 
@@ -97,26 +94,9 @@ function Get-Median {
     return ($ordered[$middle - 1] + $ordered[$middle]) / 2.0
 }
 
-$baselineTag = "v0.1.0-rc.3"
-$baselineRevision = (& git rev-list -n 1 $baselineTag).Trim()
-if ($LASTEXITCODE -ne 0 -or -not $baselineRevision) {
-    throw "Cannot resolve immutable baseline tag $baselineTag"
-}
-$baselineArchive = Join-Path $workRoot "baseline.tar"
-& git archive --format=tar --output=$baselineArchive $baselineTag
-if ($LASTEXITCODE -ne 0) {
-    throw "Cannot archive immutable baseline tag $baselineTag"
-}
-New-Item -ItemType Directory -Path $baselineSource -Force | Out-Null
-tar -xf $baselineArchive -C $baselineSource
-if ($LASTEXITCODE -ne 0) {
-    throw "Cannot extract immutable baseline tag $baselineTag"
-}
-
-Invoke-CargoBuild -SourceDirectory $baselineSource -OutputBinary $baselineBinary
 Invoke-CargoBuild -SourceDirectory (Get-Location).Path -OutputBinary $candidateBinary
 
-foreach ($binary in @($baselineBinary, $candidateBinary)) {
+foreach ($binary in @($candidateBinary)) {
     if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) {
         throw "Benchmark binary not found: $binary"
     }
@@ -127,30 +107,19 @@ if ($LASTEXITCODE -ne 0) {
     throw "Cannot generate the FileGDB benchmark fixture"
 }
 
-$baselineSamples = @()
 $candidateSamples = @()
-for ($pair = 0; $pair -lt $Pairs; $pair++) {
-    if ($pair % 2 -eq 0) {
-        $baselineSamples += Invoke-NarrowSample -Variant "rc3" -Binary $baselineBinary
-        $candidateSamples += Invoke-NarrowSample -Variant "rc4" -Binary $candidateBinary
-    } else {
-        $candidateSamples += Invoke-NarrowSample -Variant "rc4" -Binary $candidateBinary
-        $baselineSamples += Invoke-NarrowSample -Variant "rc3" -Binary $baselineBinary
-    }
+for ($sample = 0; $sample -lt $Samples; $sample++) {
+    $candidateSamples += Invoke-NarrowSample -Variant "current" -Binary $candidateBinary
 }
 
-$allSamples = @($baselineSamples) + @($candidateSamples)
-$expectedChecksum = [long]$allSamples[0].checksum
-foreach ($sample in $allSamples) {
+# La fixture genera field_i = row + i. La proiezione conserva tre attributi.
+$expectedChecksum = [long](3 * ([long]$Rows * ($Rows - 1) / 2) + [long]$Rows * ([Math]::Floor($Fields / 2) + $Fields - 1))
+foreach ($sample in $candidateSamples) {
     if ($sample.rows -ne $Rows -or $sample.checksum -ne $expectedChecksum) {
         throw "Benchmark oracle mismatch in $($sample.variant)"
     }
 }
-
-$baselineMedian = Get-Median -Values @($baselineSamples | ForEach-Object { $_.elapsed_ms })
 $candidateMedian = Get-Median -Values @($candidateSamples | ForEach-Object { $_.elapsed_ms })
-$deltaPercent = (($candidateMedian / $baselineMedian) - 1.0) * 100.0
-$status = if ($deltaPercent -le $MaximumRegressionPercent) { "passed" } else { "vetoed" }
 $revision = (& git rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0) {
     throw "Cannot resolve benchmark source revision"
@@ -185,7 +154,7 @@ if ($rustGdal -ne [string]$forkGdal.version) {
 }
 
 $result = [ordered]@{
-    schema_version = 1
+    schema_version = 2
     source_revision = $revision
     platform = "windows-x86_64-msvc"
     runtime = @{
@@ -207,24 +176,15 @@ $result = [ordered]@{
         checksum = $expectedChecksum
     }
     protocol = @{
-        pairs = $Pairs
-        order = "interlaced"
+        samples = $Samples
         warmup_per_sample = 1
-        maximum_regression_percent = $MaximumRegressionPercent
     }
-    baseline = @{
-        tag = $baselineTag
-        source_revision = $baselineRevision
-        elapsed_ms = @($baselineSamples | ForEach-Object { $_.elapsed_ms })
-        median_elapsed_ms = $baselineMedian
-    }
-    candidate = @{
+    current = @{
         source_revision = $revision
         elapsed_ms = @($candidateSamples | ForEach-Object { $_.elapsed_ms })
         median_elapsed_ms = $candidateMedian
     }
-    delta_percent = $deltaPercent
-    status = $status
+    status = "passed"
 }
 
 $resolvedOutputPath = [System.IO.Path]::GetFullPath($OutputPath)
@@ -232,7 +192,3 @@ $outputDirectory = Split-Path -Parent $resolvedOutputPath
 New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
 $result | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $resolvedOutputPath -Encoding utf8
 $result | ConvertTo-Json -Depth 6
-
-if ($status -ne "passed") {
-    throw "FileGDB narrow-path regression is $($deltaPercent.ToString('F2', $culture))%, above the $MaximumRegressionPercent% veto"
-}

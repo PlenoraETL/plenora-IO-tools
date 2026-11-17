@@ -133,7 +133,7 @@ class SondeStruttura(unittest.TestCase):
                 voce(
                     prova={
                         "tipo": "interna",
-                        "funzione": "validate_cli_protocol_v1",
+                        "funzione": "validate_stato_corrente",
                         "artefatto": "release/mai-esistito.json",
                     }
                 )
@@ -382,7 +382,7 @@ class SondeEsecuzioneInterna(unittest.TestCase):
                     prova={
                         "tipo": "interna",
                         "funzione": "validate_mai_scritta",
-                        "artefatto": "release/cli-protocol-v1.json",
+                        "artefatto": "assurance/current-state.json",
                     }
                 )
             )
@@ -395,8 +395,8 @@ class SondeEsecuzioneInterna(unittest.TestCase):
                 voce(
                     prova={
                         "tipo": "interna",
-                        "funzione": "validate_cli_protocol_v1",
-                        "artefatto": "release/cli-protocol-v1.json",
+                        "funzione": "validate_stato_corrente",
+                        "artefatto": "assurance/current-state.json",
                     }
                 )
             )
@@ -503,7 +503,7 @@ class SondeProvaEsterna(unittest.TestCase):
         prova = {
             "tipo": "esterna",
             "owner": "plenora-contracts/conformance",
-            "artefatto": "release/cli-protocol-v1.json",
+            "artefatto": "assurance/current-state.json",
             "stato": "passed",
         }
         errori = gate.struttura(documento(voce(prova=prova)))
@@ -782,10 +782,6 @@ class SondeCompletezza(unittest.TestCase):
             any("sistema.qualifica-cross-component" in e for e in errori), errori
         )
 
-    def test_togliere_un_verificato_e_rosso(self) -> None:
-        """Anche una garanzia che oggi passa, sparendo, smette di essere pretesa."""
-        errori = self.senza("wire.cli-protocol-v1")
-        self.assertTrue(any("wire.cli-protocol-v1" in e for e in errori), errori)
 
     # --- le condizioni dell'autorizzazione ---------------------------------
 
@@ -1167,7 +1163,7 @@ class SondeCongelamento(unittest.TestCase):
             "contratto di distribuzione": (
                 "assurance/registries/distribuzione-matrice.json"
             ),
-            "contratto del protocollo": "release/cli-protocol-v1.json",
+            "contratto del protocollo": "release/cli-protocol-v2.json",
             "fork vendorizzato": "vendor/gdal/lock.json",
         }
         for famiglia, percorso in famiglie.items():
@@ -3173,152 +3169,16 @@ class SondeEvidenzaCoerente(unittest.TestCase):
     def stato_reale(self) -> dict:
         return strict_json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
 
-    def test_l_archivio_reale_e_verificato(self) -> None:
-        """La 2.0.0 resta verificabile mentre la 3.0.0 avanza.
 
-        E' la prova centrale del modello a due release. Il superamento riguarda
-        **quale candidate sia corrente**, non la validita' di cio' che e' stato
-        pubblicato: se questo test diventasse rosso perche' la candidate e'
-        cambiata, il modello sarebbe sbagliato.
-        """
-        stato = self.stato_reale()
-        self.assertEqual(gate.verifica_release_storiche(stato), [])
-        archivio = stato["chiuso"]["release_pubblicate"]
-        # Non e' vuoto: un archivio vuoto passerebbe senza aver guardato niente.
-        self.assertTrue(archivio, archivio)
-        # Le versioni archiviate **non** si elencano qui.
-        #
-        # C'era `{"2.0.0"}` scritto a mano, ed e' diventato rosso il giorno in
-        # cui la 3.0.0 e' stata archiviata per far posto alla 4.0.0 -- cioe'
-        # quando il modello faceva esattamente cio' per cui esiste. Un letterale
-        # che elenca lo stato di oggi non prova una proprieta': prova che oggi
-        # e' oggi, e si rompe a ogni release.
-        #
-        # La proprieta' e' un'altra, e resta vera a ogni giro: ogni verbale
-        # archiviato si riverifica con gli stessi controlli di prima -- la riga
-        # sopra -- e la candidate corrente non e' fra gli archiviati, perche'
-        # una release pubblicata non e' anche quella in corso.
-        corrente = stato["aperto"]["candidate_release"]["versione_manifesto"]
-        self.assertNotIn(corrente, {v["versione_manifesto"] for v in archivio})
-        self.assertEqual(
-            len({v["versione_manifesto"] for v in archivio}),
-            len(archivio),
-            "una versione archiviata due volte sarebbe un verbale duplicato",
-        )
 
-    def test_la_candidate_corrente_e_un_altra_versione(self) -> None:
-        """Le due convivono: e' cio' che la migrazione doveva rendere possibile.
 
-        Il confronto col workspace non c'e' piu' qui: la candidate corrente e'
-        `pubblicata`, e il workspace e' gia' avanti di una release. Era un
-        `assertEqual`, ed e' diventato falso il giorno in cui la 4.0.0 ha
-        cominciato a esistere -- che e' esattamente quando doveva restare vero
-        che le due convivono.
-        """
-        stato = self.stato_reale()
-        corrente = stato["aperto"]["candidate_release"]["versione_manifesto"]
-        archiviate = {
-            v["versione_manifesto"] for v in stato["chiuso"]["release_pubblicate"]
-        }
-        self.assertNotIn(corrente, archiviate)
 
-    def _archivio_alterato(self, **campi) -> dict:
-        stato = self.stato_reale()
-        verbale = dict(stato["chiuso"]["release_pubblicate"][0])
-        verbale.update(campi)
-        stato["chiuso"]["release_pubblicate"] = [verbale]
-        return stato
 
-    def test_un_digest_storico_alterato_e_rosso(self) -> None:
-        """Digest e identita sono vincolati al verbale nel commit conservato."""
-        stato = self.stato_reale()
-        originali = stato["chiuso"]["release_pubblicate"][0]["artefatti"]
 
-        malformato = [dict(a) for a in originali]
-        malformato[0]["sha256"] = "non-un-digest"
-        self.assertTrue(
-            gate.verifica_release_storiche(self._archivio_alterato(artefatti=malformato))
-        )
 
-        ripetuto = [dict(a) for a in originali]
-        ripetuto[1]["sha256"] = ripetuto[0]["sha256"]
-        self.assertTrue(
-            gate.verifica_release_storiche(self._archivio_alterato(artefatti=ripetuto))
-        )
 
-        altra_revisione = [dict(a) for a in originali]
-        altra_revisione[0]["revisione"] = "0" * 40
-        self.assertTrue(
-            gate.verifica_release_storiche(
-                self._archivio_alterato(artefatti=altra_revisione)
-            )
-        )
 
-        mancante = [dict(a) for a in originali[1:]]
-        self.assertTrue(
-            gate.verifica_release_storiche(self._archivio_alterato(artefatti=mancante))
-        )
 
-    def test_una_revisione_storica_alterata_e_rossa(self) -> None:
-        errori = gate.verifica_release_storiche(
-            self._archivio_alterato(revisione_candidate="HEAD")
-        )
-        self.assertTrue(any("tag" in e or "artefat" in e for e in errori), errori)
-
-    def test_un_evidenza_storica_che_non_e_la_sua_e_rossa(self) -> None:
-        """Un verbale che rimanda alla misura di un'altra revisione non registra
-        la propria."""
-        errori = gate.verifica_release_storiche(
-            self._archivio_alterato(evidenza="assurance/registries/passi-del-checkpoint.json")
-        )
-        self.assertTrue(any("evidenza" in e for e in errori), errori)
-
-    def test_un_evidenza_storica_assente_e_rossa(self) -> None:
-        errori = gate.verifica_release_storiche(
-            self._archivio_alterato(evidenza="assurance/evidence/mai-esistita.json")
-        )
-        self.assertTrue(any("evidenza" in e for e in errori), errori)
-
-    def test_un_commit_di_registrazione_alterato_e_rosso(self) -> None:
-        """Senza `commit_di_assurance` il controllo si riferirebbe a HEAD, che
-        dopo un rilascio si muove."""
-        errori = gate.verifica_release_storiche(
-            self._archivio_alterato(commit_di_assurance="non-un-commit")
-        )
-        self.assertTrue(any("commit_di_assurance" in e for e in errori), errori)
-
-    def test_due_verbali_della_stessa_versione_sono_rossi(self) -> None:
-        stato = self.stato_reale()
-        verbale = stato["chiuso"]["release_pubblicate"][0]
-        stato["chiuso"]["release_pubblicate"] = [verbale, dict(verbale)]
-        errori = gate.verifica_release_storiche(stato)
-        self.assertTrue(any("due volte" in e for e in errori), errori)
-
-    def test_candidate_non_pubblicata_non_richiede_release_storiche(self) -> None:
-        stato = self.stato_reale()
-        stato["chiuso"]["release_pubblicate"] = []
-        stato["aperto"]["candidate_release"]["stato"] = "iniziale"
-        self.assertEqual(gate.verifica_release_pubblicata(stato), [])
-
-    def test_una_candidate_pubblicata_si_guarda_anche_senza_archivio(self) -> None:
-        """La controprova: e' l'altra meta' di cio' che la sonda sopra pretende.
-
-        Senza, «sempre rosso quando l'archivio e' vuoto» passerebbe per una
-        difesa -- e sarebbe invece il difetto che ha reso rossa la sonda
-        precedente, letto al contrario. Qui l'archivio e' vuoto **e** la
-        candidate e' una release pubblicata: cio' che e' stato rilasciato c'e',
-        e va verificato invece che annunciato assente.
-        """
-        stato = self.stato_reale()
-        stato["chiuso"]["release_pubblicate"] = []
-        candidate = stato["aperto"]["candidate_release"]
-        if candidate.get("stato") != "pubblicata":
-            self.skipTest("nessuna release corrente da verificare in questo momento")
-        errori = gate.verifica_release_pubblicata(stato)
-        self.assertFalse(
-            any("nessuna release" in e for e in errori),
-            f"con una candidate pubblicata c'e' qualcosa da guardare: {errori}",
-        )
 
     # --- gli stati della candidate, costruiti e non osservati ---------------
     #
@@ -3697,37 +3557,19 @@ class SondeInsiemeDelleEvidenze(unittest.TestCase):
     # repository -- scriverne dentro lascerebbe file non tracciati, e
     # l'impronta dell'albero li vedrebbe.
 
-    STORICA = "checkpoint-a61a081.json"
     CORRENTE = "checkpoint-aa86f5f.json"
     CAMPAGNA = "fuzz-smoke-ultima.json"
-    REV_STORICA = "a61a0815b000f2856594375a2858c41e32a1fff7"
 
-    def scenario(self, radice: pathlib.Path, *, file: tuple[str, ...]) -> dict:
-        """Release 2.0.0 archiviata piu' candidate 3.0.0 con evidenza propria."""
-        for nome in file:
+
+    def scenario(self, radice, *, file):
+        for nome in (*file, self.CAMPAGNA):
             (radice / nome).write_text("{}", encoding="utf-8")
-        # Il verbale della campagna fa parte di **ogni** scenario, come la
-        # misura corrente: lo stato lo cita sempre. Lasciarlo fuori renderebbe
-        # rosso l'insieme per una ragione che non e' quella in prova, e il
-        # messaggio parlerebbe del riferimento mancante invece che del file.
-        (radice / self.CAMPAGNA).write_text("{}", encoding="utf-8")
         return {
             "ultima_misura": {"evidenza": f"assurance/evidence/{self.CORRENTE}"},
-            "ultima_campagna_fuzz": {
-                "verbale": f"assurance/evidence/{self.CAMPAGNA}"
-            },
-            "chiuso": {
-                "release_pubblicate": [
-                    {
-                        "versione_manifesto": "2.0.0",
-                        "revisione_candidate": self.REV_STORICA,
-                        "evidenza": f"assurance/evidence/{self.STORICA}",
-                    }
-                ]
-            },
+            "ultima_campagna_fuzz": {"verbale": f"assurance/evidence/{self.CAMPAGNA}"},
         }
 
-    def test_due_release_con_evidenze_distinte_passano(self) -> None:
+    def test_misura_e_campagna_correnti_passano(self) -> None:
         """Il caso valido, che con la regola vecchia era rosso.
 
         E' la controprova positiva della correzione: senza, «sempre rosso»
@@ -3735,24 +3577,10 @@ class SondeInsiemeDelleEvidenze(unittest.TestCase):
         """
         with tempfile.TemporaryDirectory() as temporanea:
             radice = pathlib.Path(temporanea)
-            stato = self.scenario(radice, file=(self.STORICA, self.CORRENTE))
+            stato = self.scenario(radice, file=(self.CORRENTE,))
             with mock.patch.object(gate, "DIRECTORY_EVIDENZE", radice):
                 self.assertEqual(gate._sola_evidenza_corrente(stato), [])
 
-    def test_l_evidenza_storica_mancante_e_rossa(self) -> None:
-        """Cancellarla e' la mossa che la regola vecchia **imponeva**.
-
-        La qualifica di una release pubblicata deve restare leggibile: il
-        messaggio nomina il file e chi lo cita, perche' «manca un file» senza
-        dire quale fonte lo pretende non dice dove guardare.
-        """
-        with tempfile.TemporaryDirectory() as temporanea:
-            radice = pathlib.Path(temporanea)
-            stato = self.scenario(radice, file=(self.CORRENTE,))
-            with mock.patch.object(gate, "DIRECTORY_EVIDENZE", radice):
-                errori = gate._sola_evidenza_corrente(stato)
-        self.assertTrue(any(self.STORICA in m for m in errori), errori)
-        self.assertTrue(any("release_pubblicate" in m for m in errori), errori)
 
     def test_un_file_estraneo_resta_rosso(self) -> None:
         """L'insieme e' esatto anche verso l'alto: un file che nessuna fonte
@@ -3761,43 +3589,13 @@ class SondeInsiemeDelleEvidenze(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporanea:
             radice = pathlib.Path(temporanea)
             stato = self.scenario(
-                radice, file=(self.STORICA, self.CORRENTE, "checkpoint-0000000.json")
+                radice, file=(self.CORRENTE, "checkpoint-0000000.json")
             )
             with mock.patch.object(gate, "DIRECTORY_EVIDENZE", radice):
                 errori = gate._sola_evidenza_corrente(stato)
         self.assertTrue(any("checkpoint-0000000.json" in m for m in errori), errori)
 
-    def test_una_storica_fuori_dalla_cartella_e_rossa(self) -> None:
-        """Spostarla altrove era la terza uscita, e usciva dall'allowlist.
 
-        Ammetterla qui renderebbe verde un albero in cui registrare una
-        release e' impossibile: il percorso nuovo non e' fra quelli che
-        l'assurance puo' toccare dopo il congelamento.
-        """
-        with tempfile.TemporaryDirectory() as temporanea:
-            radice = pathlib.Path(temporanea)
-            stato = self.scenario(radice, file=(self.CORRENTE,))
-            stato["chiuso"]["release_pubblicate"][0]["evidenza"] = (
-                f"assurance/release-pubblicate/{self.STORICA}"
-            )
-            with mock.patch.object(gate, "DIRECTORY_EVIDENZE", radice):
-                errori = gate._sola_evidenza_corrente(stato)
-        self.assertTrue(any("allowlist" in m for m in errori), errori)
-
-    def test_la_revisione_sbagliata_la_coglie_il_verbale(self) -> None:
-        """La revisione non la guarda questa regola, e non e' una lacuna.
-
-        Qui si guarda **la directory**; che ogni verbale rimandi alla corsa
-        della propria revisione lo verifica `verifica_release_storiche`,
-        rileggendo il file. Due controlli, due domande: questa sonda dice che
-        la seconda esiste ancora e morde.
-        """
-        stato = self.stato()
-        storiche = stato.get("chiuso", {}).get("release_pubblicate")
-        self.assertTrue(storiche, "serve una release pubblicata da alterare")
-        storiche[0]["revisione_candidate"] = "0" * 40
-        errori = gate.verifica_release_storiche(stato)
-        self.assertTrue(errori, "una revisione inesistente deve essere rossa")
 
 
 class SondePercorsiCanonici(unittest.TestCase):
@@ -3869,27 +3667,6 @@ class SondeRegistroReale(unittest.TestCase):
         self.assertEqual(senza, [])
 
 
-class SondeProtocolloCli(unittest.TestCase):
-    """Il protocollo CLI resta verificato **nel merito**, non solo nominato."""
-
-    def documento_valido(self) -> dict:
-        return strict_json.loads(gate.CLI_PROTOCOL_V1.read_text(encoding="utf-8"))
-
-    def test_il_manifesto_reale_e_valido(self) -> None:
-        self.assertEqual(gate.validate_cli_protocol_v1(self.documento_valido()), [])
-
-    def test_una_busta_mancante_e_rossa(self) -> None:
-        documento = self.documento_valido()
-        documento["envelopes"].pop("convert")
-        errori = gate.validate_cli_protocol_v1(documento)
-        self.assertTrue(any("sei buste" in e for e in errori), errori)
-
-    def test_una_garanzia_semver_sull_api_rust_e_rossa(self) -> None:
-        """L'API Rust resta interna: prometterla sarebbe una rottura futura."""
-        documento = self.documento_valido()
-        documento["rust_api"]["semver_guarantee"] = True
-        errori = gate.validate_cli_protocol_v1(documento)
-        self.assertTrue(any("API Rust" in e for e in errori), errori)
 
 
 if __name__ == "__main__":
@@ -5129,28 +4906,8 @@ class SondeArchivioSenzaTag(unittest.TestCase):
     def stato(self):
         return json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
 
-    def test_archivio_e_pubblicazione_senza_tag_storici(self):
-        stato = self.stato()
-        originale = gate._git
-        def senza_tag(*args):
-            if any(arg.startswith("refs/tags/") or arg.startswith("v") and "^{commit}" in arg for arg in args):
-                return None
-            return originale(*args)
-        with mock.patch.object(gate, "_git", side_effect=senza_tag), mock.patch.object(
-                gate, "_tag_sulla_candidate", side_effect=AssertionError("tag vivo consultato per archivio")):
-            self.assertEqual(gate.verifica_release_storiche(stato), [])
-            self.assertEqual(gate.verifica_release_pubblicata(stato), [])
 
-    def test_digest_valido_ma_alterato_non_e_un_verbale_immutabile(self):
-        stato = self.stato()
-        stato["chiuso"]["release_pubblicate"][0]["artefatti"][0]["sha256"] = "1" * 64
-        errors = gate.verifica_release_storiche(stato)
-        self.assertTrue(any("artefatti: diverso dal verbale" in e for e in errors), errors)
 
-    def test_oggetto_della_registrazione_mancante_fallisce_chiuso(self):
-        verbale = self.stato()["chiuso"]["release_pubblicate"][0]
-        with mock.patch.object(gate, "_git", return_value=None):
-            self.assertTrue(gate._verbale_storico_conservato(verbale))
 
     def test_tag_corrente_v900_errato_restera_rosso(self):
         congelata = "a" * 40
@@ -5172,7 +4929,7 @@ class PolicyProveRelease(unittest.TestCase):
                  'assurance/registries/release-contract-current.json',
                  'assurance/registries/passi-del-checkpoint.json',
                  'scripts/s9-checkpoint.sh', '.github/workflows/ci.yml']
-        for mutation in ('oracolo', 'campagna', 'benchmark', 'eccezione'):
+        for mutation in ('oracolo', 'campagna', 'benchmark'):
             with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as tmp:
                 root = pathlib.Path(tmp)
                 for relative in paths:
@@ -5187,8 +4944,6 @@ class PolicyProveRelease(unittest.TestCase):
                     data = json.loads(path.read_text(encoding='utf-8'))
                     if mutation == 'oracolo':
                         del data['misura_oracolo']
-                    elif mutation == 'eccezione':
-                        del data['eccezione_transitoria_historical_readers']
                     else:
                         for c in data['autorizzazione_di_release']['condizioni']:
                             if c['id'] == 'campagna-fuzz-completa':

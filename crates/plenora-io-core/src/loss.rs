@@ -67,10 +67,6 @@ pub const INCONSISTENT_CRS_REPRESENTATIONS: &str = "inconsistent_crs_representat
 /// tipi lo toglie: l'ordine si legge dove e' scritto, e spostare i campi non lo
 /// cambia piu' di nascosto.
 ///
-/// Non c'e' un `context_v1` e non ci deve essere: il v1 pubblica solo
-/// `lossless` e `counts`, quindi gli esempi non hanno un passato congelato da
-/// conservare. Il vecchio `context` con `layer=` e `field=` non sopravvive in
-/// nessuna forma -- non e' mai andato sul filo.
 #[derive(Clone, Debug, Serialize)]
 pub struct LossExample {
     pub category: String,
@@ -177,22 +173,12 @@ pub struct Posizione {
 /// file. La parte autorevole e' `posizione`; il testo la descrive e non la
 /// sostituisce, e non e' un campo su cui costruire un parser.
 ///
-/// `dettaglio_v1` porta il `detail` **esatto** che il v1 pubblicava, alla
-/// lettera e non ricostruito dai pezzi: e' cio' che rende il congelamento del
-/// v1 una tautologia invece di un invariante da difendere a ogni ritocco di un
-/// `format!`. Vale `None` dove il sito non aveva nomi da togliere, e li' il v1
-/// ricade sul testo curato, che e' gia' identico a quello di prima.
 #[derive(Clone, Debug, Serialize)]
 pub struct FidelityReason {
     pub code: FidelityReasonCode,
     pub detail: String,
     #[serde(flatten)]
     pub posizione: Posizione,
-    /// `skip` non e' una precauzione: e' la ragione per cui questo campo puo'
-    /// esistere. Il derive di `Serialize` non deve poter pubblicare i nomi che
-    /// il v2 toglie, e a leggerlo e' il solo adattatore v1.
-    #[serde(skip)]
-    dettaglio_v1: Option<String>,
 }
 
 impl FidelityReason {
@@ -204,34 +190,21 @@ impl FidelityReason {
             code,
             detail: detail.into(),
             posizione: Posizione::default(),
-            dettaglio_v1: None,
         }
     }
 
-    /// Una ragione redatta: testo curato e posizione per il v2, la frase
-    /// congelata per il v1.
+    /// Una ragione redatta: testo curato e posizione.
     #[must_use]
     pub fn redatta(
         code: FidelityReasonCode,
         detail: impl Into<String>,
         posizione: Posizione,
-        dettaglio_v1: impl Into<String>,
     ) -> Self {
         Self {
             code,
             detail: detail.into(),
             posizione,
-            dettaglio_v1: Some(dettaglio_v1.into()),
         }
-    }
-
-    /// Il `detail` che il v1 pubblica.
-    ///
-    /// **Un solo chiamante**, l'adattatore v1, e a verificarlo e' un gate: la
-    /// visibilita' di Rust non sa dire «questo modulo e nessun altro».
-    #[must_use]
-    pub fn detail_v1(&self) -> &str {
-        self.dettaglio_v1.as_deref().unwrap_or(&self.detail)
     }
 
     /// La chiave canonica: cio' che il v2 vede, e nient'altro.
@@ -248,26 +221,9 @@ impl FidelityReason {
     const fn ammissibile(&self) -> bool {
         self.detail.len() <= MAX_BYTE_DETTAGLIO
     }
-
-    /// La ragione senza il materiale riservato al v1.
-    ///
-    /// Cio' che si trattiene per il v2 non porta mai `dettaglio_v1`: quella
-    /// stringa contiene nomi presi dal file, quindi la sua lunghezza la decide
-    /// chi fornisce il file, e trattenerla su centinaia di copie sarebbe una
-    /// quota di memoria non delimitata. Il beneficio non e' solo la memoria: la
-    /// struttura che serve il v2 non contiene il materiale legacy, quindi non
-    /// puo' perderlo per nessuna via.
-    fn senza_legacy(mut self) -> Self {
-        self.dettaglio_v1 = None;
-        self
-    }
 }
 
-/// `Eq` e `Ord` **non** guardano `dettaglio_v1`.
-///
-/// Se lo guardassero, il materiale riservato al v1 deciderebbe che cosa il v2
-/// considera un duplicato e in che ordine taglia. Cio' che distinguevano i nomi
-/// lo distinguono ora gli indici, che stanno in `posizione`.
+/// Identita e ordinamento usano la chiave canonica.
 impl PartialEq for FidelityReason {
     fn eq(&self, altra: &Self) -> bool {
         self.chiave() == altra.chiave()
@@ -295,20 +251,10 @@ impl Ord for FidelityReason {
 /// corrente.
 /// **Niente `Serialize`**, e non per dimenticanza.
 ///
-/// Il derive pubblicherebbe `prime_v1`, `canoniche`, `respinte` e la meccanica
-/// del trattenimento: il materiale riservato al v1 e la struttura interna,
-/// entrambi fuori da qualunque forma sul filo. Le due forme le costruisce
-/// l'adattatore, a mano, ed e' li' che i nomi sul filo sono contratto. Niente
-/// lo serializzava, quindi non c'e' nulla da sostituire; a impedire che il
-/// derive ritorni e' un gate, perche' toglierlo non impedisce a nessuno di
-/// rimetterlo.
+/// La busta pubblica soltanto la rappresentazione canonica delimitata.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FidelityAssessment {
     pub level: Fidelity,
-    /// Le prime `MAX_FIDELITY_REASONS` per **inserimento**, deduplicate sulla
-    /// chiave vecchia -- `(code, detail_v1())` -- e senza filtro in byte: e'
-    /// esattamente cio' che il v1 pubblicava, congelato.
-    prime_v1: Vec<FidelityReason>,
     /// Le minori `MAX_RAGIONI_TRATTENUTE` per chiave **canonica**, tutte
     /// ammissibili sul filo e senza materiale legacy: e' da qui che il v2
     /// pubblica le sue sessantaquattro.
@@ -338,7 +284,6 @@ impl FidelityAssessment {
     pub const fn con_livello(level: Fidelity) -> Self {
         Self {
             level,
-            prime_v1: Vec::new(),
             canoniche: BTreeSet::new(),
             respinte: BTreeSet::new(),
             esattezza_persa: false,
@@ -384,45 +329,19 @@ impl FidelityAssessment {
         self.offri(FidelityReason::nuova(code, detail));
     }
 
-    /// Una ragione con posizione strutturata e frase v1 congelata.
+    /// Una ragione con posizione strutturata e testo curato.
     pub fn add_reason_redatta(
         &mut self,
         code: FidelityReasonCode,
         detail: impl Into<String>,
         posizione: Posizione,
-        dettaglio_v1: impl Into<String>,
     ) {
-        self.offri(FidelityReason::redatta(
-            code,
-            detail,
-            posizione,
-            dettaglio_v1,
-        ));
+        self.offri(FidelityReason::redatta(code, detail, posizione));
     }
 
-    /// La porta: una ragione entra nelle due collezioni, ciascuna con la
-    /// propria regola. Le due semantiche non si conciliano perche' non sono
-    /// una sola.
+    /// Applica i limiti prima del trattenimento canonico.
     fn offri(&mut self, reason: FidelityReason) {
-        self.accetta_v1(&reason);
         self.accetta_v2(reason);
-    }
-
-    /// Primi 64 per inserimento, dedup sulla chiave **vecchia**, nessun filtro.
-    ///
-    /// Deduplicare sull'`Eq` del v2 legherebbe il v1 congelato all'identita'
-    /// nuova, che e' esattamente cio' che non deve poter accadere.
-    fn accetta_v1(&mut self, reason: &FidelityReason) {
-        if self.prime_v1.len() >= MAX_FIDELITY_REASONS {
-            return;
-        }
-        let gia_presente = self
-            .prime_v1
-            .iter()
-            .any(|r| r.code == reason.code && r.detail_v1() == reason.detail_v1());
-        if !gia_presente {
-            self.prime_v1.push(reason.clone());
-        }
     }
 
     /// Filtro alla porta, poi trattenimento canonico con sfratto della maggiore.
@@ -435,7 +354,7 @@ impl FidelityAssessment {
             }
             return;
         }
-        if !self.canoniche.insert(reason.senza_legacy()) {
+        if !self.canoniche.insert(reason) {
             return;
         }
         if self.canoniche.len() > MAX_RAGIONI_TRATTENUTE {
@@ -445,12 +364,6 @@ impl FidelityAssessment {
             self.canoniche.pop_last();
             self.esattezza_persa = true;
         }
-    }
-
-    /// Le ragioni che il v1 pubblica, nell'ordine in cui sono arrivate.
-    #[must_use]
-    pub fn ragioni_v1(&self) -> &[FidelityReason] {
-        &self.prime_v1
     }
 
     /// Le ragioni trattenute per il v2, gia' in ordine canonico.
@@ -477,17 +390,8 @@ impl FidelityAssessment {
         !self.esattezza_persa
     }
 
-    /// Fonde un'altra valutazione **nelle due collezioni separatamente**.
-    ///
-    /// Ricostruire ogni ragione da `code` e `detail`, come faceva
-    /// `combined_fidelity`, perderebbe sia la posizione sia la frase v1: la
-    /// sezione di conversione del v1 cambierebbe byte, e quella del v2
-    /// perderebbe gli indici. E le due collezioni vanno fuse ciascuna con la
-    /// propria regola, se no il v1 finisce a dipendere dall'identita' del v2.
+    /// Fonde ragioni canoniche, posizioni e contabilita delle omissioni.
     pub fn merge(&mut self, altra: &Self) {
-        for reason in &altra.prime_v1 {
-            self.accetta_v1(reason);
-        }
         for reason in &altra.canoniche {
             self.accetta_v2(reason.clone());
         }

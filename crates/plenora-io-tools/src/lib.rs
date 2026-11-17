@@ -1748,26 +1748,13 @@ pub fn envelope_panico(payload: &(dyn std::any::Any + Send)) -> Value {
     });
     json!({
         "status": "error",
-        "protocol_version": 1,
+        "protocol_version": busta::PROTOCOLLO,
         "contract": "plenora-error-v1",
         "error": error,
     })
 }
 
-/// La matrice di handoff verso `plenora-error-v1`, costruita dai tipi.
-///
-/// Serve a chi mantiene `plenora-contracts` per riallineare **senza leggere il
-/// nostro codice**: elenca i campi che `plenora-io-error-v1` emette davvero, i
-/// vincoli che valgono su di essi, e dove ciascuno va a finire nel contratto
-/// successivo.
-///
-/// È generata dai tipi e non scritta a mano: un elenco copiato diverge alla
-/// prima variante aggiunta, e diverge in silenzio — che è esattamente ciò che
-/// una matrice di handoff non può fare.
-///
-/// **Non dichiara conformità a `plenora-contracts-next`.** Dice dove i campi
-/// andranno, non che ci siano già: l'adozione è uno step breaking separato,
-/// insieme alla CLI v2, agli exit code e alle capabilities.
+/// Inventario corrente dei codici e dei limiti per i contratti di famiglia.
 #[cfg(test)]
 fn matrice_di_handoff() -> Value {
     use plenora_io_model::IoErrorCode;
@@ -1785,95 +1772,16 @@ fn matrice_di_handoff() -> Value {
         .collect();
 
     json!({
-        "contract": "plenora-io-handoff-v1",
+        "contract": "plenora-error-v1",
+        "protocol_version": busta::PROTOCOLLO,
         "generato_da": "plenora-io-tools, test la_matrice_di_handoff_e_aggiornata",
-        "sorgente": {
-            "contract": "plenora-error-v1",
-            "protocol_version": 1,
-            "stato": "invariato da S9: struttura, ordine e tipi identici alla baseline"
-        },
-        "destinazione": {
-            "contract": "plenora-error-v1",
-            "stato": "mappatura preparata, conformita' NON dichiarata",
-            "nota": "l'adozione e' uno step breaking separato dopo S9, insieme a CLI v2, exit code e capabilities"
-        },
         "vincoli": {
-            // Il nome dice **cosa** e' misurato. `message_max_bytes` da solo si
-            // legge come «byte sul wire», che e' falso: l'escaping JSON espande
-            // virgolette e controlli, e nessuna misura avviene dopo la
-            // serializzazione.
             "message_max_bytes_valore_decodificato": plenora_io_model::MAX_MESSAGE_BYTES,
-            "message_max_bytes_serializzato": null,
-            "message_max_bytes_serializzato_nota":
-                "non promesso: l'escaping JSON espande (una virgoletta -> 2 byte, un controllo -> 6); se servira', va dichiarato a parte e misurato dopo la serializzazione",
-            "message_non_e_chiave_di_compatibilita": true,
-            "message_testo_runtime": "vietato, salvo il token bounded di un'opzione rifiutata prodotto dal validatore centrale",
             "assi_stabili": ["category", "phase", "code", "retry"],
-            // Dove sta la busta, non solo com'e' fatta.
-            //
-            // Un consumatore la legge da `stderr` con un parser sull'intero
-            // flusso: se qualcosa la precedesse, il parser si fermerebbe sulla
-            // prima riga. E' successo -- un avviso emesso all'avvio finiva
-            // davanti alla busta di un comando che poi falliva -- e il vincolo
-            // e' qui perche' chi integra lo legga invece di scoprirlo.
-            "stderr_su_errore": "esattamente un documento JSON, e nient'altro",
-            "stderr_su_successo": "vuoto, salvo l'avviso del protocollo legacy quando e' stato scelto esplicitamente e la consegna e' riuscita",
-            "stdout_su_successo": "il documento del comando; l'avviso del legacy non ci entra, perche' il v1 e' congelato byte per byte"
+            "stdout_su_errore": "esattamente una busta JSON",
+            "stderr_su_successo": "vuoto"
         },
-        "campi": [
-            {
-                "v1": "error.category", "next": "category",
-                "nota": "asse stabile: e' con questi quattro che si correlano gli errori"
-            },
-            {
-                "v1": "error.phase", "next": "phase",
-                "nota": "asse stabile"
-            },
-            {
-                "v1": "error.code", "next": "code",
-                "nota": "asse stabile; vocabolario chiuso, sotto `vocabolari.code`"
-            },
-            {
-                "v1": "error.retry", "next": "retry",
-                "nota": "asse stabile"
-            },
-            {
-                "v1": "error.remote_effect", "next": "remote_effect",
-                "nota": "invariato"
-            },
-            {
-                "v1": "error.message", "next": "message",
-                "nota": "testo curato, deterministico, <= 2048 byte. **Non** e' un identificatore: il testo cambia con S9 e cambiera' ancora"
-            },
-            {
-                "v1": "error.row_diagnostics", "next": "details.row_diagnostics",
-                "nota": "scende di un livello; contratto interno invariato"
-            },
-            {
-                "v1": null, "next": "provider",
-                "da": "PlenoraIoError::driver",
-                "stato": "da decidere",
-                "nota": "il driver esiste nel tipo Rust ma **non e' emesso** da v1: e' un campo nuovo per la destinazione, non una rinomina"
-            },
-            {
-                "v1": null, "next": "details",
-                "da": "PlenoraIoError::field, capability_reason",
-                "nota": "il contesto strutturato non e' emesso da v1; confluisce in `details` nella destinazione"
-            }
-        ],
-        "vocabolari": {
-            "code": codici
-        },
-        "domande_aperte": [
-            {
-                "id": "driver-e-un-provider",
-                "campo": "provider",
-                "domanda": "un driver di formato IO e' davvero un `provider`, oppure appartiene a un `details` component-owned come `format_id`?",
-                "contesto": "«provider» suggerisce un servizio o un backend remoto; qui e' il formato del file — csv, geoparquet, shapefile — scelto dal chiamante e senza effetto remoto. Se la destinazione intende `provider` nel primo senso, `details.format_id` descrive meglio cio' che il valore e'.",
-                "bloccante_per_s9": false,
-                "nota": "S9 prosegue senza attendere: la mappatura e' preparata, la conformita' non e' dichiarata, e il DTO e' l unico punto che dovra' cambiare quando la risposta arrivera'."
-            }
-        ]
+        "vocabolari": { "code": codici }
     })
 }
 

@@ -403,20 +403,6 @@
       "fidelity_class": "lossless",
       "format_options": [
         {
-          "default": "false",
-          "description": "opt-in alla lettura del `crs` storico non conforme scritto da plenora fino a S10",
-          "key": "accept_legacy_crs_id_only",
-          "phase": "read",
-          "value": "boolean"
-        },
-        {
-          "default": "false",
-          "description": "opt-in al riconoscimento per nome delle colonne bbox legacy",
-          "key": "bbox_legacy_by_name",
-          "phase": "read",
-          "value": "boolean"
-        },
-        {
           "default": "snappy",
           "description": "codec di compressione delle pagine",
           "key": "compression",

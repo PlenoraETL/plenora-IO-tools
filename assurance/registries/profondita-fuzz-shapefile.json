@@ -333,9 +333,9 @@
   },
   "regola_release_9": "Il replay finito non sostituisce questa misura: requisiti, impronta e confine GDAL restano obbligatori. Nessuna nuova misura attestata dalla modifica di policy.",
   "rimisurazione_dovuta": {
-    "perche": "Avvio 10.0.0: il bump dei pacchetti locali nei Cargo.lock modifica il perimetro. Impronta corrente ricalcolata dal gate sui file LF; misura storica invariata.",
+    "perche": "Avvio 10.0.0: il bump dei pacchetti locali nei Cargo.lock modifica il perimetro. Impronta corrente ricalcolata dal gate sui file LF; misura storica invariata. Aggiornata il 17/11/2026: la rimozione della compatibilita della 10.0.0 cambia di nuovo il perimetro.",
     "impronta_della_misura": "cf23945598fb239b0567c2965856b065085e881b8fe2c918aab643c98cbaf4b9",
-    "impronta_attesa": "2de90d2ba0744a98fbc44f6ea48c3e29629a2f7de249f7dfacb24e54cd705640",
+    "impronta_attesa": "bd559fe593c9e75c1bbc7a32a70b4adce28b6f02578e273cb52373625afd15e9",
     "non_promette": "La misura storica non qualifica la 10.0.0. Nessuna nuova misura fuzz/ASan eseguita.",
     "quando": "Sul perimetro finale della 10.0.0, prima della qualifica e del rilascio, nel previsto ambiente Linux/ASan/GDAL.",
     "comando": "scripts/fuzz-profondita.sh shp_reader"

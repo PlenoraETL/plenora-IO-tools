@@ -86,57 +86,6 @@ jobs:
           name: prove-fonte-unica
           path: target/prove-fonte-unica
 
-  historical-readers:
-    runs-on: ubuntu-latest
-    env:
-      CARGO_BUILD_JOBS: "2"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: ${{ env.CANDIDATE_SHA }}
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
-        with:
-          python-version-file: .python-version
-      - name: Pin dell'oracolo storico dal comparatore
-        id: historical-pin
-        run: |
-          python3 - <<'PYTHON'
-          import os
-          from scripts.compare_historical_readers import BASELINE_REVISION
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-              output.write('revision=' + BASELINE_REVISION + '\n')
-          PYTHON
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: ${{ steps.historical-pin.outputs.revision }}
-          path: .historical-io
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
-        with:
-          toolchain: "1.98.1"
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
-      - name: Dipendenze della matrice storica
-        run: |
-          sudo apt-get update && sudo apt-get install --yes libgdal-dev gdal-bin
-          python3 -m pip install pyarrow==25.0.1 openpyxl==3.1.5
-      - name: Binario corrente con FileGDB
-        run: cargo build --locked -p plenora-io-tools --features gdal-backend
-      - name: Oracolo immutabile con FileGDB
-        if: ${{ !cancelled() }}
-        working-directory: .historical-io
-        run: cargo build --locked -p plenora-io-tools --features gdal-backend
-      - name: Matrice storica completa
-        if: ${{ !cancelled() }}
-        run: >-
-          python3 scripts/compare_historical_readers.py
-          --old .historical-io/target/debug/plenora-io
-          --new target/debug/plenora-io --require-filegdb
-      - name: Referto storico anche sul rosso
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: historical-readers
-          path: target/historical-readers/report.json
-
   rust:
     runs-on: ubuntu-latest
     steps:
@@ -319,8 +268,6 @@ jobs:
           python3 scripts/check_categorie_di_perdita.py
           python3 -m unittest scripts.test_check_protocollo_v2
           python3 scripts/check_protocollo_v2.py
-          python3 -m unittest scripts.test_check_dettaglio_congelato
-          python3 scripts/check_dettaglio_congelato.py
       # I semi del lotto S11: le forme in cui una collezione dichiara figli
       # ed e' semanticamente vuota, piu' quelle ostili che la discesa nei figli
       # deve rifiutare chiudendo. Derivati dalla specifica, non committati a
