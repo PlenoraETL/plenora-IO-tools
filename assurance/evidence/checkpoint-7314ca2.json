@@ -1312,6 +1312,204 @@
       },
       "release_authorized": false,
       "release_action_allowed": false
+    },
+    "published": {
+      "registrata_il": "2026-11-16T15:01:47.580550+00:00",
+      "id": 446953679,
+      "url": "https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/v9.0.0",
+      "tag_name": "v9.0.0",
+      "target": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea",
+      "draft": false,
+      "published_at": "2026-11-16T14:56:59Z",
+      "titolo": "Plenora IO-tools 9.0.0",
+      "fonte_pubblicazione": "Risposta API pubblicata.json dopo PATCH draft=false e confronti forniti dall operatore, copiati senza modifiche sotto target/input. Nessuna chiamata GitHub.",
+      "fonti": {
+        "confronto-pre-patch.json": {
+          "percorso": "target/input/confronto-pre-patch.json",
+          "dimensione": 4071,
+          "sha256": "274f5fb80e602b232998842d473618e318b1772c39be116b49ce1a23e0291564"
+        },
+        "confronto-pubblicata.json": {
+          "percorso": "target/input/confronto-pubblicata.json",
+          "dimensione": 4072,
+          "sha256": "f437356d505f8e766d0a2ae6454c3116d8d9062c9f6460fba6c0cd251ef56f4f"
+        },
+        "draft-prima-del-patch.json": {
+          "percorso": "target/input/draft-prima-del-patch.json",
+          "dimensione": 41725,
+          "sha256": "0b6ff7e7e7522c0765db7443fba0afdcfb6bea76f71e600067103550d45d8fe9"
+        },
+        "draft.json": {
+          "percorso": "target/input/draft.json",
+          "dimensione": 41725,
+          "sha256": "0b4edfd5db96051abfd9cb5c4b25748b4d0b81ccd0ac90ac31fba187b7199465"
+        },
+        "pubblicata.json": {
+          "percorso": "target/input/pubblicata.json",
+          "dimensione": 41307,
+          "sha256": "509e565cad6e798df5ee9ba6196a6b79ddff78dddf4282ef13298684e0cc06fb"
+        }
+      },
+      "numero_asset": 24,
+      "asset": {
+        "adoption-manifest-9.0.0.json": {
+          "dimensione": 12801,
+          "sha256": "88864beebd9caedd9e27aefc3c384d8cbd855038a026862919d46fc1b8ae81a0"
+        },
+        "licenze.json": {
+          "dimensione": 1398,
+          "sha256": "646097399e7b7faa4f5d68addc648dc80a92b378b51b7a1538e73b505e92b2db"
+        },
+        "MANIFEST-sorgente.json": {
+          "dimensione": 753,
+          "sha256": "2e4f9c8b9da278666c3a96400d54dc62ebf59ee7dd441d0867a349bd667c28a8"
+        },
+        "MANIFEST.json": {
+          "dimensione": 1394,
+          "sha256": "3986bcb337b4d8dd518533fa2b0181ab0e9a1d7147f00bc3f2550176a67d71f2"
+        },
+        "plenora-io-9.0.0-linux-x86_64-base.tar.gz": {
+          "dimensione": 9257607,
+          "sha256": "b609e74605c0b586cbbdaa9a91a3ec62b38702bd8f20afb1dc3d113f52d9114a"
+        },
+        "plenora-io-9.0.0-linux-x86_64-base.tar.gz.provenance.json": {
+          "dimensione": 2582,
+          "sha256": "e63fa3e9dd1563ecc62bf6c5dce31cdad8c4e99228afbc736db40a4ae76f7b11"
+        },
+        "plenora-io-9.0.0-linux-x86_64-base.tar.gz.sha256": {
+          "dimensione": 108,
+          "sha256": "6a29ff01dd1d9e383c041e2a112cf4d57b450292b9df6ade8ddd4cadfcc56221"
+        },
+        "plenora-io-9.0.0-linux-x86_64-filegdb.tar.gz": {
+          "dimensione": 65106094,
+          "sha256": "332257d0901786c2494159bc0e4b3190a8e7a6b58a8dcadb3b58cf2298ee3254"
+        },
+        "plenora-io-9.0.0-linux-x86_64-filegdb.tar.gz.provenance.json": {
+          "dimensione": 2589,
+          "sha256": "5872a3cdece6771ccd5fd7f3c5a6e5d72e9867c565cc83c81ebbee9d65b29022"
+        },
+        "plenora-io-9.0.0-linux-x86_64-filegdb.tar.gz.sha256": {
+          "dimensione": 111,
+          "sha256": "e59ba2ee8f9735a18eb16647bbef014ae0cf94effecc86078f8d052e351c60fe"
+        },
+        "plenora-io-9.0.0-src.tar.gz": {
+          "dimensione": 21737899,
+          "sha256": "6b83de068ce5dd7ba4e9a66447c61f2c505e0ba47fef201d54ad230280a564ed"
+        },
+        "plenora-io-9.0.0-src.tar.gz.sha256": {
+          "dimensione": 94,
+          "sha256": "71ca0f305f182de2f88c20ae83d14ff1c7df81c144b3a4bf1830b13539e2e5b1"
+        },
+        "plenora-io-9.0.0-windows-x86_64-base.zip": {
+          "dimensione": 10506315,
+          "sha256": "e39d10f635ae2b5008812b6035622dc58b0be10b65364d6fc8d32ba8ceab2a2e"
+        },
+        "plenora-io-9.0.0-windows-x86_64-base.zip.provenance.json": {
+          "dimensione": 2436,
+          "sha256": "1ceb90112e52e2ee54dfb5632de18405662c7ebac85a306fc37f5df63bd1f50b"
+        },
+        "plenora-io-9.0.0-windows-x86_64-base.zip.sha256": {
+          "dimensione": 108,
+          "sha256": "56bbdbd66fe6e17eaee8861ba0c6d307f36b5556c248e57c04c9c67a0ff4be8a"
+        },
+        "plenora-io-9.0.0-windows-x86_64-filegdb.zip": {
+          "dimensione": 50899992,
+          "sha256": "45b0df0e7e418de163654c8ce781c3b9339a584551e822f369c14dccf3fd24e2"
+        },
+        "plenora-io-9.0.0-windows-x86_64-filegdb.zip.provenance.json": {
+          "dimensione": 2442,
+          "sha256": "2735fc31a60e440c1d6fd7102ef0ab0ff571c661dd635b4b3e5fca6e6d6889aa"
+        },
+        "plenora-io-9.0.0-windows-x86_64-filegdb.zip.sha256": {
+          "dimensione": 111,
+          "sha256": "d7f15e610e0113dc22bac6eb24273be0180581aa4f987e9245628e4d2548cf0c"
+        },
+        "plenora_io-9.0.0-py3-none-any.whl": {
+          "dimensione": 117967,
+          "sha256": "7115eae9bc27582c987936bdc43c08a8dae499c5b774da0d697bd2e66628fd89"
+        },
+        "plenora_io-9.0.0-py3-none-any.whl.sha256": {
+          "dimensione": 100,
+          "sha256": "249ea4a23ca54712c42676967b5ccfd4a97d235b7e59985718be8456a6c33cec"
+        },
+        "plenora_io-9.0.0.tar.gz": {
+          "dimensione": 227165,
+          "sha256": "e76ceac4df0f2c0e9efbfd610316af6f151aef9550fa8e9d4cea5565b66e1770"
+        },
+        "plenora_io-9.0.0.tar.gz.sha256": {
+          "dimensione": 90,
+          "sha256": "9773a0990d901c30519fb6d0ee0615f77dc2946ed4319194a111752fb021cf9d"
+        },
+        "provenance.json": {
+          "dimensione": 769,
+          "sha256": "e2b720632584cbb58aa04fdd8100eaad7493643254cc24eb589a73d549382482"
+        },
+        "sbom.json": {
+          "dimensione": 1103,
+          "sha256": "6d622c313560c436149e5a56994260ab66fc1e86c93e3f687ea0f3f70e444eca"
+        }
+      },
+      "asset_id": {
+        "adoption-manifest-9.0.0.json": 754607032,
+        "licenze.json": 754607034,
+        "MANIFEST-sorgente.json": 754607036,
+        "MANIFEST.json": 754607035,
+        "plenora-io-9.0.0-linux-x86_64-base.tar.gz": 754607038,
+        "plenora-io-9.0.0-linux-x86_64-base.tar.gz.provenance.json": 754607067,
+        "plenora-io-9.0.0-linux-x86_64-base.tar.gz.sha256": 754607069,
+        "plenora-io-9.0.0-linux-x86_64-filegdb.tar.gz": 754607071,
+        "plenora-io-9.0.0-linux-x86_64-filegdb.tar.gz.provenance.json": 754607072,
+        "plenora-io-9.0.0-linux-x86_64-filegdb.tar.gz.sha256": 754607120,
+        "plenora-io-9.0.0-src.tar.gz": 754607122,
+        "plenora-io-9.0.0-src.tar.gz.sha256": 754607124,
+        "plenora-io-9.0.0-windows-x86_64-base.zip": 754607137,
+        "plenora-io-9.0.0-windows-x86_64-base.zip.provenance.json": 754607166,
+        "plenora-io-9.0.0-windows-x86_64-base.zip.sha256": 754607169,
+        "plenora-io-9.0.0-windows-x86_64-filegdb.zip": 754607195,
+        "plenora-io-9.0.0-windows-x86_64-filegdb.zip.provenance.json": 754607204,
+        "plenora-io-9.0.0-windows-x86_64-filegdb.zip.sha256": 754607232,
+        "plenora_io-9.0.0-py3-none-any.whl": 754607270,
+        "plenora_io-9.0.0-py3-none-any.whl.sha256": 754607273,
+        "plenora_io-9.0.0.tar.gz": 754607280,
+        "plenora_io-9.0.0.tar.gz.sha256": 754607302,
+        "provenance.json": 754607310,
+        "sbom.json": 754607315
+      },
+      "confronti": {
+        "metadati_api": "24/24 nomi, ID asset, dimensioni e SHA-256 identici fra draft, pre-PATCH e pubblicazione; confronto-pre-patch e confronto-pubblicata coincidenti con il verbale draft.",
+        "note": "Titolo e corpo identici fra draft, pre-PATCH e pubblicazione.",
+        "deliverable_contro_candidate": "7/7 nomi, dimensioni e SHA-256 coincidenti con gli artefatti congelati.",
+        "byte_riscaricati": "24 asset identici prima e dopo il PATCH secondo l'operatore; qui confrontati i JSON forniti, senza riscaricamento o nuova misura degli archivi."
+      },
+      "tag_remoto": {
+        "revisione": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea",
+        "fonte": "Esito comunicato dall'operatore nella richiesta; non rieseguito in questa registrazione."
+      },
+      "gate_pre_pubblicazione": {
+        "comando": "python3.14 scripts/check_release_contract.py --release",
+        "ambiente": "VM Linux",
+        "revisione": "56f825657d8edb1b11bcd0970c2a202545451267",
+        "contracts_pin": "38d68b402389855edbcecb7ce57c31e91282cb4e",
+        "output": "release autorizzabile: 37 invarianti, nessun blocco, 9 condizioni verificate",
+        "differiti": [
+          "sistema.qualifica-cross-component",
+          "distribuzione.licenza-first-party"
+        ],
+        "fonte": "Esito comunicato dall'operatore nella richiesta; non rieseguito in questa registrazione."
+      },
+      "deliverable": {
+        "strumento": "scripts/check-deliverable.py --contro-la-candidate assurance/current-state.json",
+        "output": "7 archivi con altrettanti checksum, di cui 2 Python; byte pubblicati identici ai 7 artefatti congelati dalla candidate",
+        "fonte": "Esito comunicato dall'operatore nella richiesta; non rieseguito in questa registrazione."
+      },
+      "manifesto_adozione": {
+        "strumento": "scripts/check_manifesto_adozione.py",
+        "output": "5 artefatti con digest ricalcolati, 15 conformi, 1 non applicabile, 8 deviazioni",
+        "fonte": "Esito comunicato dall'operatore nella richiesta; non rieseguito in questa registrazione.",
+        "limite": "Le deviazioni non contano come conformita per le regole che nominano."
+      },
+      "release_authorized": true,
+      "release_action_allowed": false
     }
   }
 }

@@ -61,19 +61,19 @@ perimetro passato e nessun digest viene inventato retroattivamente.
 | blocchi | 0 |
 | capacità differite | 2 |
 | S9, qualificato su | `7314ca2` |
-| candidate, versione del manifesto | `9.0.0` |
-| candidate, stato | attiva |
-| candidate, revisione congelata | `7314ca25b62788a3a9d2af0ec638d0d7f3bdffea` |
-| candidate, versione del workspace | `9.0.0` |
-| candidate, artefatti congelati | 7 |
-| candidate, tag previsto | `v9.0.0` |
-| candidate, tag creato | sì |
-| candidate, revisione del tag | `7314ca25b62788a3a9d2af0ec638d0d7f3bdffea` |
-| candidate, tag sulla candidate | sì |
-| candidate, assurance entro l'allowlist | sì |
-| candidate, release_action consentita | sì |
-| release pubblicate | 13 |
-| release_authorized | `true` |
+| candidate, versione del manifesto | `10.0.0` |
+| candidate, stato | iniziale |
+| candidate, revisione congelata | non congelata |
+| candidate, versione del workspace | `10.0.0` |
+| candidate, artefatti congelati | non congelati |
+| candidate, tag previsto | `v10.0.0` |
+| candidate, tag creato | no |
+| candidate, revisione del tag | nessun tag |
+| candidate, tag sulla candidate | no |
+| candidate, assurance entro l'allowlist | non derivabile senza congelamento |
+| candidate, release_action consentita | no |
+| release pubblicate | 14 |
+| release_authorized | `false` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
 [registro del contratto corrente](../assurance/registries/release-contract-current.json)
@@ -2536,6 +2536,49 @@ directory nuova e ripetere tutti i confronti, registrando
 gh release download v8.0.0 --repo PlenoraETL/plenora-IO-tools --dir target/rel800/pubblicata-riscaricata
 ```
 
+
+## 9.0.0 - 2026-11-16 (pubblicata)
+
+### Pubblicazione registrata
+
+Pubblicata il 2026-11-16T14:56:59Z con PATCH draft=false: release 446953679,
+https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/v9.0.0, 24 asset.
+Il tag remoto v9.0.0 punta alla candidate 7314ca25b62788a3a9d2af0ec638d0d7f3bdffea
+secondo l'operatore. Confrontati localmente i cinque JSON autentici forniti:
+24/24 nomi, ID asset, dimensioni e SHA-256 identici fra draft, pre-PATCH e
+pubblicazione; titolo e corpo invariati, sette archivi coincidenti con i digest
+della candidate; il manifesto conserva il digest registrato nella draft.
+Il riscaricamento e l'identita dei byte sono attestati dall'operatore;
+questa registrazione confronta i metadati e non rimisura gli archivi.
+
+Gate check_release_contract.py --release eseguito dall'operatore sulla VM Linux
+prima della pubblicazione, sul commit 56f825657d8edb1b11bcd0970c2a202545451267,
+contratti al pin 38d68b402389855edbcecb7ce57c31e91282cb4e:
+«release autorizzabile: 37 invarianti, nessun blocco, 9 condizioni verificate».
+Restano i due DIFFERITI sistema.qualifica-cross-component e
+distribuzione.licenza-first-party. Esiti comunicati dall'operatore:
+check-deliverable «7 archivi… byte pubblicati identici ai 7 artefatti congelati
+dalla candidate»; check_manifesto_adozione «5 artefatti con digest ricalcolati,
+15 conformi, 1 non applicabile, 8 deviazioni». Le deviazioni non sono conformita.
+
+Verbale release_verification.published in assurance/evidence/checkpoint-7314ca2.json,
+con data e ID reali e digest degli input immutati sotto target/input.
+release_authorized resta true come decisione storica; release_action_allowed
+consumato, false. La 9.0.0 entra in chiuso.release_pubblicate; il nodo
+candidate_release resta pubblicata secondo lo schema, senza una nuova candidate.
+commit_di_assurance indica 56f825657d8edb1b11bcd0970c2a202545451267, il commit prepubblicazione
+che conserva i fatti congelati, non un nuovo commit di questa registrazione.
+Nessun commit, push o accesso GitHub eseguito.
+
+Difetti registrati per dopo la release: release-qualification.yml non installa
+jsonschema; il gate prepubblicazione e stato eseguito sulla VM Linux.
+Secondo l'operatore, il workflow sul push del tag fallisce per costruzione
+dalla 7.0.0. Il suo fallimento non e una qualifica verde: la prova di rilascio
+qui registrata e il gate sulla VM al commit indicato. Le correzioni ai workflow
+restano successive alla release, fuori da questa registrazione di assurance.
+
+Questa registrazione supera le indicazioni precedenti di gate, pubblicazione
+e verifica ancora da eseguire; le sezioni successive conservano la cronologia.
 
 ### Preparazione 9.0.0 prima del congelamento
 

@@ -331,5 +331,13 @@
     "semantica": "che un ramo sia raggiunto non dice che il suo contratto sia verificato. Questo registro separa Ã‚Â«non raggiuntoÃ‚Â» da Ã‚Â«raggiuntoÃ‚Â»; la seconda meta' la verificano le sonde di `driver-shp`.",
     "difese": "i rami di rifiuto elencati qui non sono la copertura del reader: sono la prova che i semi ostili committati raggiungono ancora la difesa che li riguarda. Un seme che smettesse di arrivarci resterebbe verde nel replay -- non fa crashare niente -- e questa misura e' l'unica cosa che se ne accorgerebbe."
   },
-  "regola_release_9": "Il replay finito non sostituisce questa misura: requisiti, impronta e confine GDAL restano obbligatori. Nessuna nuova misura attestata dalla modifica di policy."
+  "regola_release_9": "Il replay finito non sostituisce questa misura: requisiti, impronta e confine GDAL restano obbligatori. Nessuna nuova misura attestata dalla modifica di policy.",
+  "rimisurazione_dovuta": {
+    "perche": "Avvio 10.0.0: il bump dei pacchetti locali nei Cargo.lock modifica il perimetro. Impronta corrente ricalcolata dal gate sui file LF; misura storica invariata.",
+    "impronta_della_misura": "cf23945598fb239b0567c2965856b065085e881b8fe2c918aab643c98cbaf4b9",
+    "impronta_attesa": "2de90d2ba0744a98fbc44f6ea48c3e29629a2f7de249f7dfacb24e54cd705640",
+    "non_promette": "La misura storica non qualifica la 10.0.0. Nessuna nuova misura fuzz/ASan eseguita.",
+    "quando": "Sul perimetro finale della 10.0.0, prima della qualifica e del rilascio, nel previsto ambiente Linux/ASan/GDAL.",
+    "comando": "scripts/fuzz-profondita.sh shp_reader"
+  }
 }

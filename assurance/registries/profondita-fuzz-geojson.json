@@ -110,5 +110,13 @@
     }
   ],
   "non_e_qui": "la verifica semantica. A dirla sono le sonde di `driver-geojson`, che confrontano l'insieme accettato con quello del confine precedente e la contabilita' dei componenti con quella di `inspect_wkb`.",
-  "regola_release_9": "Il replay finito non sostituisce questa misura: requisiti, impronta e confine GDAL restano obbligatori. Nessuna nuova misura attestata dalla modifica di policy."
+  "regola_release_9": "Il replay finito non sostituisce questa misura: requisiti, impronta e confine GDAL restano obbligatori. Nessuna nuova misura attestata dalla modifica di policy.",
+  "rimisurazione_dovuta": {
+    "perche": "Avvio 10.0.0: il bump dei pacchetti locali nei Cargo.lock modifica il perimetro. Impronta corrente ricalcolata dal gate sui file LF; misura storica invariata.",
+    "impronta_della_misura": "7f6155987cdf1e996d9ad3c24e8e191b6675fa8235b417aad844eb9b7555fbb0",
+    "impronta_attesa": "f5ec8e0bb899a8bc9c44f41cb3873b35e938fdd753e6552a63e1e9d8dc08707c",
+    "non_promette": "La misura storica non qualifica la 10.0.0. Nessuna nuova misura fuzz/ASan eseguita.",
+    "quando": "Sul perimetro finale della 10.0.0, prima della qualifica e del rilascio, nel previsto ambiente Linux/ASan/GDAL.",
+    "comando": "scripts/fuzz-profondita.sh geojson_reader"
+  }
 }
