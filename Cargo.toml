@@ -72,7 +72,7 @@ quick-xml = { version = "=0.42.0", features = ["encoding"] }
 calamine = "=0.38.0"
 rust_xlsxwriter = "=0.100.0"
 # La serie 8.x e' ritirata (yanked): pin alla 9.0.3, mantenendo solo deflate.
-zip = { version = "=9.0.3", default-features = false, features = ["deflate"] }
+zip = { version = "=9.0.5", default-features = false, features = ["deflate"] }
 dxf = { package = "plenora-fork-dxf", version = "=0.6.1", path = "vendor/dxf" }
 gdal = { package = "plenora-fork-gdal", version = "=0.19.0", path = "vendor/gdal" }
 serde = { version = "=1.0.229", features = ["derive"] }

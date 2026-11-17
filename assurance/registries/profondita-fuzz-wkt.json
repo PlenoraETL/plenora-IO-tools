@@ -112,9 +112,9 @@
   "non_e_qui": "la verifica semantica. Che un ramo sia raggiunto non dice che il suo contratto sia rispettato: a dirlo sono le sonde di `driver-common`, che chiamano lo stesso entry point e confrontano l'insieme accettato con quello del parser precedente.",
   "regola_release_9": "Il replay finito non sostituisce questa misura: requisiti, impronta e confine GDAL restano obbligatori. Nessuna nuova misura attestata dalla modifica di policy.",
   "rimisurazione_dovuta": {
-    "perche": "Avvio 10.0.0: il bump dei pacchetti locali nei Cargo.lock modifica il perimetro. Impronta corrente ricalcolata dal gate sui file LF; misura storica invariata.",
+    "perche": "Avvio 10.0.0: il bump dei pacchetti locali nei Cargo.lock modifica il perimetro. Impronta corrente ricalcolata dal gate sui file LF; misura storica invariata. Aggiornata il 17/11/2026: zip 9.0.5 nei lock (RUSTSEC-2026-0548) cambia di nuovo il perimetro.",
     "impronta_della_misura": "6c7a88f90cac1399108b567c68560122626621f13cec9b1fbca17eaf81d3466d",
-    "impronta_attesa": "8882b26718d5aa4b234fe30ce8791ae6d09c3937aadcdfcae5073d14ff62eb52",
+    "impronta_attesa": "c86686b31ae721cfbfdac379a2bdf52aa75b540da7cc3cca1f8d94fbbbef6374",
     "non_promette": "La misura storica non qualifica la 10.0.0. Nessuna nuova misura fuzz/ASan eseguita.",
     "quando": "Sul perimetro finale della 10.0.0, prima della qualifica e del rilascio, nel previsto ambiente Linux/ASan/GDAL.",
     "comando": "scripts/fuzz-profondita.sh wkt_parse"
