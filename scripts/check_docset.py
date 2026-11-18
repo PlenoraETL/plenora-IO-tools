@@ -584,8 +584,12 @@ def product_blocks(binary):
         [d["id"], o["key"], o["phase"], o["value"], o["default"], o["description"]] for d in catalog for o in d["format_options"]])
     blocks["quote"] = _table(["Flag / campo", "Default", "Unità", "Ambito", "Fasi"], [
         [q["flag"] or q["name"], q["default"], q["unit"], q["scope"], q["phases"]] for q in tables["quotas"]] + [["--deadline-ms", tables["deadline_ms"], "ms", "operazione; scadenza distinta dalle quote", "timeout"]])
-    blocks["errori"] = _table(["Situazione", "Categoria", "Fase", "Codice", "Exit", "Messaggio"], [
-        [e[k] for k in ("situation", "category", "phase", "code", "exit", "message")] for e in tables["errors"]])
+    try:
+        from .doc_runtime import cases
+    except ImportError:
+        from doc_runtime import cases
+    blocks["errori"] = _table(["Situazione", "Driver", "Caso eseguito", "Categoria", "Fase", "Codice", "Exit", "Messaggio"], [
+        [e[k] for k in ("situation", "driver", "scenario", "category", "phase", "code", "exit", "message")] for e in cases(tables)])
     blocks["perdite"] = "Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara la trasformazione indicata.\n\n" + _table(
         ["Driver", "Elemento", "Lettura", "Scrittura"], [[d["driver"], e["element"], e["read"], e["write"]] for d in tables["losses"] for e in d["elements"]])
     source = (ROOT / "crates/plenora-io-tools/src/lib.rs").read_text(encoding="utf-8")
@@ -726,7 +730,13 @@ def main(argv: list[str] | None = None) -> int:
     if opzioni.riscrivi_stato:
         return riscrivi_stato()
 
-    errori = product_docset(opzioni.binary) + document_examples(opzioni.binary)
+    try:
+        from .doc_runtime import verify, run
+    except ImportError:
+        from doc_runtime import verify, run
+    suffix = ".exe" if sys.platform == "win32" else ""
+    tables = run(opzioni.binary.resolve().parent / "examples" / ("doc_tables" + suffix), [])[1]
+    errori = product_docset(opzioni.binary) + document_examples(opzioni.binary) + verify(opzioni.binary, tables)
     for error in errori:
         print(error, file=sys.stderr)
     for nome, controllo in CONTROLLI:

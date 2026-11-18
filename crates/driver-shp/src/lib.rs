@@ -605,7 +605,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     Some(FormatWriteCapabilities {
         field_names: DBF_FIELD_NAMES,
         allowed_types: plenora_io_core::loss_table::SHP.allowed_types,
-        type_coercion: TypeCoercionPolicy::ExplicitText,
+        type_coercion: TypeCoercionPolicy::Reject,
         attributes: AttributeWriteSupport::All,
         geometry: plenora_io_core::GeometryWriteSupport {
             dimensions: plenora_io_core::loss_table::SHP.dimensions,
@@ -1765,9 +1765,7 @@ fn resolved_crs_id(crs: &ResolvedCrs) -> Result<&str> {
 }
 
 fn contraddice_il_prj() -> PlenoraIoError {
-    PlenoraIoError::crs_redatto(&PublicMessage::Curated(
-        "Shapefile: --assume-crs contraddice il CRS del .prj",
-    ))
+    plenora_io_model::error_table::Situation::ContradictedCrs.error()
 }
 
 /// Classe dbf per l'inferenza (Numeric/Double/Float=numero, Integer=int).

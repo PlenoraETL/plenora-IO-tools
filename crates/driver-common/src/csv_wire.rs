@@ -9,8 +9,37 @@ pub struct Reader<R> {
     cell: Vec<u8>,
 }
 
+#[derive(Debug)]
+enum DecodeError {
+    Utf8,
+    Width,
+    Quoting,
+}
+impl std::fmt::Display for DecodeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+impl std::error::Error for DecodeError {}
 fn invalid() -> std::io::Error {
-    std::io::Error::from(std::io::ErrorKind::InvalidData)
+    std::io::Error::new(std::io::ErrorKind::InvalidData, DecodeError::Quoting)
+}
+/// Diagnostica curata del parser, senza contenuti delle celle.
+#[must_use]
+pub fn read_error(error: std::io::Error) -> plenora_io_model::PlenoraIoError {
+    let message = match error
+        .get_ref()
+        .and_then(|e| e.downcast_ref::<DecodeError>())
+    {
+        Some(DecodeError::Utf8) => "CSV non valido: richiesto testo UTF-8",
+        Some(DecodeError::Width) => {
+            "CSV non valido: numero di campi diverso dall'intestazione; verificare il delimitatore"
+        }
+        Some(DecodeError::Quoting) => "CSV non valido: quoting non valido",
+        None => return error.into(),
+    };
+    plenora_io_model::error_table::Situation::InvalidContent
+        .error_with(&plenora_io_model::PublicMessage::Curated(message))
 }
 
 impl<R: Read> Reader<R> {
@@ -117,10 +146,14 @@ impl<R: Read> Reader<R> {
             }
         }
         if self.width.is_some_and(|width| width != fields.len()) {
-            return Err(invalid());
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                DecodeError::Width,
+            ));
         }
         self.width = Some(fields.len());
-        *record = csv::StringRecord::from_byte_record(fields).map_err(|_| invalid())?;
+        *record = csv::StringRecord::from_byte_record(fields)
+            .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, DecodeError::Utf8))?;
         self.cell = cell;
         Ok(true)
     }

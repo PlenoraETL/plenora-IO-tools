@@ -77,7 +77,11 @@ class SondeRinvioControQualificazione(unittest.TestCase):
             if c["id"] == identita
         )
         self.assertEqual(voce["verifica"]["tipo"], "gate")
-        return voce["verifica"]["comando"]
+        import sys
+        command = list(voce["verifica"]["comando"])
+        if command[0] in ("python", "python3"):
+            command[0] = sys.executable
+        return command
 
     def test_in_sviluppo_il_rinvio_passa(self) -> None:
         # Lo stesso gate senza `--qualifica`: e' quello che gira in CI e nel

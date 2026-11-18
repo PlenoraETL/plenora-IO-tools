@@ -911,14 +911,7 @@ fn json_validated(array: &ArrayRef, row: usize) -> Result<JsonValue> {
     // nomi di campo e metadati letti dal file, e non e' un formato che arrow
     // abbia promesso di tenere stabile. Al suo posto la classe, che e' un
     // vocabolario nostro.
-    Err(
-        plenora_io_model::error_table::Situation::UnrepresentableWriteType.error_with(
-            &PublicMessage::CuratedPair(
-                "tipo Arrow non rappresentabile dal convertitore di celle, classe:",
-                classe_arrow(array.data_type()),
-            ),
-        ),
-    )
+    Err(plenora_io_model::error_table::Situation::UnrepresentableWriteType.error())
 }
 
 /// Conteggio saturante da `usize` a `u64`, per i numeri strutturali.
@@ -1030,14 +1023,4 @@ pub fn decimal_value_changes(text: &str) -> bool {
 }
 
 #[cfg(test)]
-mod decimal_comparison_tests {
-    #[test]
-    fn compares_values_in_both_directions() {
-        for text in ["1", "1.50", "1.5e0", "0.125", "-0", "1000.00", "1e3"] {
-            assert!(!super::decimal_value_changes(text), "{text}");
-        }
-        for text in ["9007199254740993", "1.00000000000000001", "1e-400"] {
-            assert!(super::decimal_value_changes(text), "{text}");
-        }
-    }
-}
+mod decimal_comparison_tests;

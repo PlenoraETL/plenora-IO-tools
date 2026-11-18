@@ -67,8 +67,7 @@ use plenora_io_model::contract::{
     DataContract, FieldId, GeometryColumnContract, GeometryType, LayerContract, LayerId,
 };
 use plenora_io_model::crs::ResolvedCrs;
-#[cfg(test)]
-use plenora_io_model::geometry::is_geometry_field;
+
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::decode_wkb;
 use plenora_io_model::wkb::{encode_wkb_into_bounded, WkbFlavor};

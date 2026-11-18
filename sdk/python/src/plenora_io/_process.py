@@ -1033,11 +1033,11 @@ class Runner:
         }
         atteso = ("plenora-error-v1" if completed.exit_code != 0
                   else contratti.get(completed.argv[0]))
-        from ._errors import valida_identita
+        from ._errors import _valida_identita
 
         if atteso is None:
             raise _dallo_sdk(ProtocolError, "processo.contratto")
-        valida_identita(documento, atteso)
+        _valida_identita(documento, atteso)
         return documento
 
 

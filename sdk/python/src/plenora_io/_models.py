@@ -435,7 +435,7 @@ class Catalog:
         return FrozenList([driver for driver in self.drivers if driver.available])
 
 
-# --- la sezione di fedelta', che tre buste su cinque portano ----------------
+# --- la sezione di fedelta', che le buste delle operazioni sui dati portano ----------------
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -649,7 +649,7 @@ class Geometry:
 
 
 def _stato_del_layer(documento: dict[str, Any]) -> dict[str, Any]:
-    from ._errors import ErrorEnvelope, valida_identita
+    from ._errors import ErrorEnvelope, _valida_identita
 
     status = documento["status"]
     if type(status.get("readable")) is not bool:
@@ -658,7 +658,7 @@ def _stato_del_layer(documento: dict[str, Any]) -> dict[str, Any]:
         error = status.get("error")
         if type(error) is not dict:
             raise _dallo_sdk(ProtocolError, "layer.stato")
-        valida_identita(error, "plenora-error-v1")
+        _valida_identita(error, "plenora-error-v1")
         ErrorEnvelope.from_json(error)
     return status
 

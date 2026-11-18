@@ -68,7 +68,7 @@ class PlenoraError(Exception):
     Qui gli assi hanno un valore per classe, scelto una volta e dichiarato
     accanto alla classe: `_CATEGORIA` e `_FASE`. L'effetto remoto parte da
     `none`; `ProtocolError`, `CleanupError` e `UnexpectedError` possono alzarlo
-    dopo l’avvio o la pubblicazione (vedi `process.py`).
+    dopo l’avvio o la pubblicazione (vedi `_process.py`).
     Il ritentativo e' sempre `never`: un errore dell'SDK non diventa un
     successo ripetendo la stessa chiamata, e dire il contrario sarebbe una
     promessa che nessuno ha verificato.
@@ -165,7 +165,7 @@ class PlenoraError(Exception):
         return getattr(self, "_effetto_remoto", None) or "none"
 
     @property
-    def retry(self) -> dict[str, Any]:
+    def retry(self) -> FrozenDict:
         """La disposizione al ritentativo, come `FrozenDict` immutabile `{kind}`."""
         return FrozenDict({"kind": "never"})
 
@@ -336,8 +336,7 @@ MESSAGGI: dict[str, str] = {
         "(pa.Table, pa.RecordBatch, pa.RecordBatchReader)."
     ),
     "arrow.illeggibile": (
-        "la sorgente Arrow non si e' potuta leggere come stream: il produttore "
-        "di `__arrow_c_stream__` ha sollevato, o pyarrow non ne legge lo stream."
+        "Arrow non disponibile o non leggibile: richiesto un oggetto Arrow o un produttore PyCapsule valido."
     ),
     "arrow.non_scrivibile": (
         "il file Arrow IPC temporaneo non si e' potuto scrivere nella "
@@ -1025,9 +1024,9 @@ class ErrorEnvelope:
     category: str
     phase: str
     remote_effect: str
-    retry: dict[str, Any]
+    retry: FrozenDict
     message: str
-    row_diagnostics: dict[str, Any] | None = None
+    row_diagnostics: FrozenDict | None = None
 
     def __post_init__(self) -> None:
         # La validazione sta **qui** e non solo in `from_json`: una busta
@@ -1794,7 +1793,7 @@ class CommandFailed(PlenoraError):
         return self.envelope._effetto_remoto
 
     @property
-    def retry(self) -> dict[str, Any]:
+    def retry(self) -> FrozenDict:
         """La disposizione fissata alla costruzione, come oggetto nuovo.
 
         Ricostruita dalle decisioni private della busta, fissate dopo la
@@ -2051,7 +2050,7 @@ def _failure_from_envelope(
 from ._contenitori import FrozenDict, FrozenList  # noqa: E402
 
 
-def valida_identita(documento: dict[str, Any], contratto: str) -> None:
+def _valida_identita(documento: dict[str, Any], contratto: str) -> None:
     """Contratto esatto e versione intera su una busta esterna o locale al layer."""
     if (type(documento.get("protocol_version")) is not int
             or documento["protocol_version"] != 2

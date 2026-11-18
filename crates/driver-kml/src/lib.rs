@@ -41,8 +41,7 @@ use plenora_io_core::{
     UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
 };
 use plenora_io_model::budget::{OperationBudget, SpillLease};
-#[cfg(test)]
-use plenora_io_model::contract::GeometryType;
+
 use plenora_io_model::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, LayerContract, LayerId,
 };

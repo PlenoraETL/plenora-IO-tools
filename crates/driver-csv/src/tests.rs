@@ -6,6 +6,7 @@
 
 use super::*;
 use driver_common::geometry_field;
+use plenora_io_model::geometry::is_geometry_field;
 
 /// Opzioni di lettura sul modello unificato.
 ///

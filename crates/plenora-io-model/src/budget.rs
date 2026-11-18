@@ -597,14 +597,12 @@ impl Default for PipelineLimits {
             max_output_bytes: Quota::OutputBytes.rule().default,
             output_expansion_ratio: Quota::OutputExpansionRatio.rule().default,
             max_wkb_cell_bytes: usize::try_from(Quota::WkbCellBytes.rule().default)
-                .expect("default quota entro usize"),
+                .unwrap_or(usize::MAX),
             max_wkb_components: usize::try_from(Quota::WkbComponents.rule().default)
-                .expect("default quota entro usize"),
+                .unwrap_or(usize::MAX),
             // GEO-011: la profondita' del contratto, non piu' i 64 storici.
-            max_wkb_depth: usize::try_from(Quota::WkbDepth.rule().default)
-                .expect("default quota entro usize"),
-            max_vertices: usize::try_from(Quota::Vertices.rule().default)
-                .expect("default quota entro usize"),
+            max_wkb_depth: usize::try_from(Quota::WkbDepth.rule().default).unwrap_or(usize::MAX),
+            max_vertices: usize::try_from(Quota::Vertices.rule().default).unwrap_or(usize::MAX),
             memory_bytes: Quota::MemoryBytes.rule().default,
             spill_bytes: Quota::SpillBytes.rule().default,
             duration_ms: 30_000,

@@ -5,6 +5,7 @@
 //! una riga la superficie pubblica del crate.
 
 use super::*;
+use plenora_io_model::geometry::is_geometry_field;
 
 fn req() -> ReadRequest {
     ReadRequest {

@@ -486,7 +486,10 @@ pub fn write_rejection_error(
         ErrorPhase::Write,
         RemoteEffect::None,
         RetryDisposition::Never,
-        &PublicMessage::Curated("righe rifiutate prima della scrittura"),
+        &prima.map_or(
+            PublicMessage::Curated("righe rifiutate prima della scrittura"),
+            |v| PublicMessage::CuratedPair("righe rifiutate prima della scrittura:", v.cause),
+        ),
     );
     error = error.with_row_diagnostics(diagnostics);
     error.driver = Some(driver.to_owned());

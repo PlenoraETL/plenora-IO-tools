@@ -37,8 +37,7 @@ use plenora_io_core::{
 use plenora_io_model::contract::{
     DataContract, FieldId, GeometryColumnContract, LayerContract, LayerId,
 };
-#[cfg(test)]
-use plenora_io_model::crs::CrsKind;
+
 use plenora_io_model::crs::CrsResolution;
 use plenora_io_model::geometry::{
     is_geometry_field, read_geometry_contract_metadata, validate_contract_version,

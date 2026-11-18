@@ -5,6 +5,7 @@
 //! una riga la superficie pubblica del crate.
 
 use super::*;
+use plenora_io_model::contract::GeometryType;
 
 /// Opzioni di lettura sul modello unificato.
 ///

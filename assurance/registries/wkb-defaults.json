@@ -33,6 +33,7 @@
   "test|crates/driver-filegdb/src/lib.rs::filegdb_measure_round_trip_preserves_xym_and_xyzm": 1,
   "test|crates/driver-filegdb/src/lib.rs::filegdb_multipart_xyzm_round_trip_preserves_every_ordinate": 1,
   "test|crates/driver-filegdb/src/lib.rs::filegdb_xyz_round_trip_preserves_z_and_contract_metadata": 1,
+  "test|crates/driver-filegdb/src/lib.rs::geometry_losses_match_the_reopened_database": 2,
   "test|crates/driver-filegdb/src/lib.rs::repeated_filegdb_writes_are_semantically_deterministic": 1,
   "test|crates/driver-geojson/src/geometria_progressiva/sonde.rs::accetta_esattamente_cio_che_accettava_il_confine_precedente": 1,
   "test|crates/driver-geojson/src/geometria_progressiva/sonde.rs::i_componenti_coincidono_con_quelli_del_parser_condiviso": 1,

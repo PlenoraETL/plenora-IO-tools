@@ -38,6 +38,8 @@ MARCATORE = Path("release") / "cli-protocol-v2.json"
 def radice() -> Path | None:
     """La radice del repository, o `None` se le sonde girano altrove."""
     for candidata in Path(__file__).resolve().parents:
+        if (candidata / "pyproject.toml").is_file() and (candidata / "tests").is_dir():
+            return None  # La sdist estratta non eredita il repository contenitore.
         if (candidata / MARCATORE).is_file():
             return candidata
     return None

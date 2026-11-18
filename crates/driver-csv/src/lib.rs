@@ -117,8 +117,6 @@ fn native_read_loss(
     Ok(loss)
 }
 
-#[cfg(test)]
-use plenora_io_model::geometry::is_geometry_field;
 use plenora_io_model::geometry::with_geometry_contract_metadata;
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::{
@@ -565,11 +563,7 @@ impl FormatDriver for CsvDriver {
                 }
                 if !csv_attribute_type(field.data_type()) {
                     return Err(
-                        plenora_io_model::error_table::Situation::UnrepresentableWriteType
-                            .error_with(&PublicMessage::CuratedPair(
-                                "tipo attributo CSV non rappresentabile, classe:",
-                                driver_common::classe_arrow(field.data_type()),
-                            )),
+                        plenora_io_model::error_table::Situation::UnrepresentableWriteType.error(),
                     );
                 }
             }

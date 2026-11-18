@@ -2551,7 +2551,7 @@ fn r1_stale_wal_is_never_published_beside_a_new_database() {
     let old_wal = std::fs::read(dir.path().join("old.db-wal")).unwrap();
     assert!(!old_wal.is_empty());
     let path = dir.path().join("out.gpkg");
-    let wal = dir.path().join("OUT.GPKG-WAL");
+    let wal = dir.path().join("out.gpkg-wal");
     std::fs::write(&wal, &old_wal).unwrap();
     let schema = Arc::new(Schema::new(vec![geometry_field("geom", "EPSG:4326")]));
     let plan = WritePlan {
@@ -2583,7 +2583,7 @@ fn r1_companion_appearing_after_create_blocks_publication() {
     let writer = GpkgDriver
         .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
         .unwrap();
-    std::fs::write(dir.path().join("CUSTOM-NAME.GPKG-JOURNAL"), b"foreign").unwrap();
+    std::fs::write(dir.path().join("custom-name.gpkg-journal"), b"foreign").unwrap();
     assert_eq!(
         writer.finish().err().unwrap().code,
         plenora_io_model::IoErrorCode::OutputExists

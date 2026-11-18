@@ -12,7 +12,7 @@ La scoperta del binario, il manifesto dell'artefatto, il controllo del profilo,
 `version()` del pacchetto, `Client.capabilities()` del binario, e i comandi:
 `--version`, `catalog`, `inspect`, `layers`, `validate`, `read`, `write` e
 `convert`. Con l'extra `plenora-io[pyarrow]`, `Client.read_table()` e
-`Client.write()` da un oggetto Arrow (vedi `arrow.py`).
+`Client.write()` da un oggetto Arrow (vedi `_arrow.py`).
 
 # Il contratto Python
 

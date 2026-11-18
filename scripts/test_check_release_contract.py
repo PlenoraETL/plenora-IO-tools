@@ -961,7 +961,7 @@ class SondeCondizioni(unittest.TestCase):
         voce["stato"] = "release_blocking"
         with tempfile.TemporaryDirectory(dir=gate.ROOT / "target") as directory:
             root = pathlib.Path(directory)
-            for name in ("contracts/adoption-source.json", "crates/plenora-io-core/src/property_plan.rs"):
+            for name in ("contracts/adoption-source.json", "crates/plenora-io-core/src/loss_table.rs"):
                 path = root / name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes((gate.ROOT / name).read_bytes())

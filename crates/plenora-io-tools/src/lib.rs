@@ -127,6 +127,14 @@ fn err_doc(code: &str, error: &PlenoraIoError) -> Value {
             }
         }
     }
+    if let Some(quota) = &error.quota_details {
+        if error_document.get("details").is_none() {
+            error_document["details"] = json!({});
+        }
+        error_document["details"]["quota"] = json!(quota.quota);
+        error_document["details"]["observed"] = json!(quota.observed);
+        error_document["details"]["limit"] = json!(quota.limit);
+    }
     if let Some(reason) = error.capability_reason {
         if error_document.get("details").is_none() {
             error_document["details"] = json!({});
@@ -964,6 +972,26 @@ fn piano_di_scrittura(
 /// per un `--to` fuori dal catalogo, l'errore d'uso senza `--to`, e i rifiuti
 /// di capacita' del formato di destinazione.
 pub fn cmd_write(cli: &Cli) -> CliResult {
+    cmd_write_inner(cli).map_err(|(code, mut document)| {
+        let error = &mut document["error"];
+        if error["category"] == "resource_limit"
+            && error["phase"] == "read"
+            && error["message"]
+                .as_str()
+                .is_some_and(|message| message.starts_with("max_output_bytes "))
+        {
+            error["phase"] = json!("write");
+            if error.get("details").is_none() {
+                error["details"] = json!({});
+            }
+            error["details"]["quota"] = json!("max_output_bytes");
+            error["details"]["limit"] = json!(cli.limits.max_output_bytes());
+        }
+        (code, document)
+    })
+}
+
+fn cmd_write_inner(cli: &Cli) -> CliResult {
     if cli.positionals.len() < 2 {
         return Err(usage_err(&PublicMessage::Curated(
             "write richiede <ingresso.arrow> <destinazione> --to <formato>",
@@ -1571,7 +1599,7 @@ COMANDI
 
 SCOPERTA
     --help, -h         questo testo; anche <comando> --help
-    --version          la versione del componente, nella busta comune
+    --version, -V      la versione del componente, nella busta comune
 
 Ogni comando emette un documento JSON su stdout e niente su stderr. Il codice
 d'uscita e' la proiezione della categoria d'errore: 0 riuscito, 2 configurazione
@@ -1603,12 +1631,14 @@ pub fn run() -> EsitoDelComando {
 /// segnali li governa l'interprete. Le due vie chiamano questa funzione, e
 /// rendono quindi lo stesso esito per gli stessi argomenti.
 pub fn esegui(args: &[String], cancellazione: &CancellationToken) -> EsitoDelComando {
-    if args.len() == 2
+    if args.len() >= 2
         && matches!(
             args[0].as_str(),
             "catalog" | "capabilities" | "read" | "write" | "convert" | "inspect" | "layers"
         )
-        && matches!(args[1].as_str(), "--help" | "-h")
+        && args[1..]
+            .iter()
+            .any(|arg| matches!(arg.as_str(), "--help" | "-h"))
     {
         return ("help", Ok(Value::Null));
     }

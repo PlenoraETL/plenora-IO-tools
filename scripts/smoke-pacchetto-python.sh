@@ -184,7 +184,7 @@ echo "=== 4. suite dell'SDK, contro il pacchetto installato"
 tar xzf "$SDIST" -C "$LAVORO"
 ESTRATTA="$LAVORO/$(basename "$SDIST" .tar.gz)"
 cd "$ESTRATTA"
-"$LAVORO/da-wheel/bin/python" -m unittest discover -s tests -p "test_*.py" 2>&1 | tail -4
+"$LAVORO/da-wheel/bin/python" -m unittest discover -s tests -p "test_*.py"
 
 # --- 5. e quali sonde non ha potuto esercitare -----------------------------
 #

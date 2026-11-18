@@ -198,7 +198,7 @@ fn enumeration_guards_driver_and_surface_routes() {
         ),
         (
             "plenora-io-tools/src/lib.rs",
-            "cmd_write",
+            "cmd_write_inner",
             "piano_di_scrittura",
         ),
         (

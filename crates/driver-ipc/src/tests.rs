@@ -5,6 +5,7 @@
 //! una riga la superficie pubblica del crate.
 
 use super::*;
+use plenora_io_model::crs::CrsKind;
 use plenora_io_model::crs::ResolvedCrs;
 use plenora_io_model::geometry::GEO_CRS_KEY;
 

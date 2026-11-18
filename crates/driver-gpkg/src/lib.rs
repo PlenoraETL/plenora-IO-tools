@@ -1497,14 +1497,7 @@ fn arrow_cell_to_sql_ref(array: &ArrayRef, row: usize) -> Result<BorrowedSqlValu
     if let Some(x) = a.downcast_ref::<FixedSizeBinaryArray>() {
         return Ok(BorrowedSqlValue::Blob(x.value(row)));
     }
-    Err(
-        plenora_io_model::error_table::Situation::UnrepresentableWriteType.error_with(
-            &PublicMessage::CuratedPair(
-                "GeoPackage: tipo Arrow non rappresentabile senza conversione esplicita, classe:",
-                driver_common::classe_arrow(array.data_type()),
-            ),
-        ),
-    )
+    Err(plenora_io_model::error_table::Situation::UnrepresentableWriteType.error())
 }
 
 // --- helpers comuni --------------------------------------------------------

@@ -2889,7 +2889,9 @@ fn un_codice_testuale_non_canonico_segue_la_regola_del_wkt() {
         .expect_err(definizione);
         assert_eq!(
             errore.code,
-            plenora_io_model::IoErrorCode::Crs,
+            plenora_io_model::error_table::Situation::ContradictedCrs
+                .rule()
+                .code,
             "{definizione}"
         );
     }

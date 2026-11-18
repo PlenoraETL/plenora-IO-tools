@@ -484,9 +484,14 @@ dependencies = [
  "arrow-array",
  "arrow-ipc",
  "arrow-schema",
+ "csv",
+ "plenora-io-core",
  "plenora-io-model",
+ "quick-xml 0.42.0",
+ "serde",
  "serde_json",
  "wkt",
+ "zip",
 ]
 
 [[package]]
@@ -522,10 +527,12 @@ version = "10.0.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
+ "chrono",
  "driver-common",
  "plenora-fork-gdal",
  "plenora-io-core",
  "plenora-io-model",
+ "quick-xml 0.42.0",
  "tempfile",
 ]
 

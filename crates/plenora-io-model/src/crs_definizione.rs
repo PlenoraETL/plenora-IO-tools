@@ -282,6 +282,11 @@ impl RifiutoIdentita {
     /// la definizione ne' gli identificatori.
     #[must_use]
     pub fn errore(self, driver: &'static str) -> crate::PlenoraIoError {
+        if matches!(self, Self::Contraddetta) {
+            let mut error = crate::error_table::Situation::ContradictedCrs.error();
+            error.driver = Some(driver.to_owned());
+            return error;
+        }
         let messaggio = match self {
             Self::Malformata => {
                 "definizione WKT del CRS malformata: l'identificatore della radice non e' decidibile"

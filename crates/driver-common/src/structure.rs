@@ -125,7 +125,9 @@ fn validate(id: &str, path: &Path, opts: &ReadOptions) -> Result<()> {
             let mut deserializer = serde_json::Deserializer::from_reader(reader);
             let envelope = <GeoJsonEnvelope as serde::Deserialize>::deserialize(&mut deserializer)
                 .map_err(|_| invalid(id))?;
-            require(envelope.0, id)?;
+            if !envelope.0 {
+                return Err(Situation::InvalidContent.error_with(&PublicMessage::Curated("GeoJSON: richiesta FeatureCollection; una geometria nuda non e' un dataset")));
+            }
             deserializer.end().map_err(|_| invalid(id))
         }
         "kml" => xml(path, opts),
@@ -179,10 +181,16 @@ fn csv(path: &Path, opts: &ReadOptions) -> Result<()> {
     while opts.row_limit.is_none_or(|limit| rows <= limit)
         && reader
             .read_record(&mut record)
-            .map_err(|_| invalid("csv"))?
+            .map_err(crate::csv_wire::read_error)?
     {
         opts.ensure_active()?;
-        require(!record.iter().any(|s| s.contains('\0')), "csv")?;
+        if record.iter().any(|s| s.contains('\0')) {
+            return Err(
+                Situation::InvalidContent.error_with(&PublicMessage::Curated(
+                    "CSV non valido: richiesto testo UTF-8",
+                )),
+            );
+        }
         rows += 1;
     }
     require(rows > 0, "csv")

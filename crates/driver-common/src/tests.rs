@@ -298,7 +298,10 @@ fn le_durate_non_sono_istanti_e_restano_un_rifiuto() {
         panic!("una durata non ha una forma testuale decisa: deve essere rifiutata");
     };
     assert!(
-        errore.message.contains("temporal"),
+        errore.message
+            == plenora_io_model::error_table::Situation::UnrepresentableWriteType
+                .rule()
+                .message,
         "il rifiuto deve nominare la classe, arrivato «{}»",
         errore.message
     );
@@ -366,7 +369,7 @@ fn large_utf8_rejection_names_the_base_class() {
         (error.category, error.phase, error.code),
         (rule.category, rule.phase, rule.code)
     );
-    assert!(error.message.contains("utf8"));
+    assert_eq!(error.message, rule.message);
     assert!(!error.message.contains("large_utf8"));
     assert!(!error.message.contains("SECRET"));
     assert_eq!(json_from_array(&array, 1).unwrap(), serde_json::Value::Null);

@@ -852,10 +852,11 @@ fn csv_con_booleano_a_filegdb_rifiuta_il_tipo() {
     let uscita = dir.path().join("uscita.gdb");
     let esito = converti("canonico.csv", &uscita, &con(CRS_PROIETTATO, WKT));
     assert!(!esito.riuscito, "atteso un rifiuto: {}", esito.stdout);
-    assert!(
-        esito.messaggio().contains("boolean"),
-        "atteso il rifiuto sul tipo, arrivato «{}»",
-        esito.messaggio()
+    assert_eq!(esito.errore()["category"], "unsupported");
+    assert_eq!(esito.errore()["phase"], "write");
+    assert_eq!(
+        esito.messaggio(),
+        "tipo non rappresentabile nel formato di destinazione"
     );
 }
 
@@ -887,12 +888,9 @@ fn tabella_non_spaziale_a_geoparquet_rifiuta_per_capability_del_bersaglio() {
         errore["phase"], "write",
         "il rifiuto del sink avviene nella fase write: {errore}"
     );
-    assert!(
-        esito
-            .messaggio()
-            .contains("richiede una colonna geometrica"),
-        "arrivato «{}»",
-        esito.messaggio()
+    assert_eq!(
+        esito.messaggio(),
+        "il formato di destinazione richiede una geometria"
     );
 }
 

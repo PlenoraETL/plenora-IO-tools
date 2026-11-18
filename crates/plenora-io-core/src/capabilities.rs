@@ -28,7 +28,7 @@ fn violation(
         CapabilityReason::TypeNotRepresentable => {
             Some(plenora_io_model::error_table::Situation::UnrepresentableWriteType)
         }
-        CapabilityReason::GeometryNotSupported => {
+        CapabilityReason::GeometryNotSupported if field.is_none() => {
             Some(plenora_io_model::error_table::Situation::MissingGeometry)
         }
         _ => None,
@@ -38,6 +38,7 @@ fn violation(
         error.category = rule.category;
         error.phase = rule.phase;
         error.code = rule.code;
+        rule.message.clone_into(&mut error.message);
     }
     error
 }
@@ -458,6 +459,19 @@ pub fn validate_write(
                 | AttributeWriteSupport::LossReported => {}
             }
 
+            if matches!(driver, "shp" | "kml") && matches!(field.data_type(), DataType::Duration(_))
+            {
+                return Err(violation(
+                    driver,
+                    campo.as_ref(),
+                    CapabilityReason::TypeNotRepresentable,
+                    &PublicMessage::Curated(
+                        plenora_io_model::error_table::Situation::UnrepresentableWriteType
+                            .rule()
+                            .message,
+                    ),
+                ));
+            }
             let class = arrow_type_class(field.data_type());
             if !caps.allowed_types.contains(&class)
                 && caps.type_coercion == TypeCoercionPolicy::Reject
@@ -515,7 +529,10 @@ pub fn validate_write(
                     driver,
                     ContractIdentifier::from_geometry_column(geometry).as_ref(),
                     CapabilityReason::CoordinateDimensions,
-                    &PublicMessage::Curated(geometry.dimensions.nome()),
+                    &PublicMessage::CuratedPair(
+                        "dimensioni geometriche non rappresentabili nel formato di destinazione:",
+                        geometry.dimensions.nome(),
+                    ),
                 ));
             }
             if !caps

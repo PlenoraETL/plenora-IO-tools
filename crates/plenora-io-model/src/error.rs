@@ -448,6 +448,17 @@ pub struct PlenoraIoError {
     pub message: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub row_diagnostics: Option<Box<RowDiagnostics>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quota_details: Option<Box<QuotaExceeded>>,
+}
+
+/// Misura strutturale di una quota, senza contenuto della sorgente.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct QuotaExceeded {
+    pub quota: String,
+    pub observed: u64,
+    pub limit: u64,
 }
 
 /// L'identificatore di un elemento di un contratto **gia' validato**: il nome
@@ -967,6 +978,7 @@ impl PlenoraIoError {
             capability_reason: None,
             message: limita_messaggio(message.into()),
             row_diagnostics: None,
+            quota_details: None,
         }
     }
 

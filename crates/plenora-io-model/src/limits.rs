@@ -28,11 +28,11 @@ impl Default for WkbLimits {
     fn default() -> Self {
         Self {
             max_cell_bytes: usize::try_from(crate::quota::Quota::WkbCellBytes.rule().default)
-                .expect("default quota entro usize"),
+                .unwrap_or(usize::MAX),
             max_components: usize::try_from(crate::quota::Quota::WkbComponents.rule().default)
-                .expect("default quota entro usize"),
+                .unwrap_or(usize::MAX),
             max_depth: usize::try_from(crate::quota::Quota::WkbDepth.rule().default)
-                .expect("default quota entro usize"),
+                .unwrap_or(usize::MAX),
         }
     }
 }

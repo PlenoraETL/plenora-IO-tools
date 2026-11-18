@@ -361,9 +361,7 @@ fn resolve_dxf_crs_testuale(definition: &str, assunta: Option<&str>) -> Result<R
     if assunta
         .is_some_and(|assunta| !plenora_io_model::crs::stesso_identificatore(assunta, &dichiarato))
     {
-        return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
-            "DXF: --assume-crs contraddice il CRS dichiarato dal GEODATA",
-        )));
+        return Err(plenora_io_model::error_table::Situation::ContradictedCrs.error());
     }
     // La regola del WKT (`identificatore_wkt`, passo 5): senza opzione si
     // risolve solo un codice EPSG canonico; con l'opzione uguale come testo
@@ -2018,10 +2016,11 @@ impl Walker {
         text: Option<String>,
     ) -> Result<()> {
         if self.emitted_rows >= self.max_rows {
-            return Err(PlenoraIoError::limite_redatto(&PublicMessage::CuratedWith(
-                "righe DXF oltre il limite di",
-                NumeroStrutturale::Limite(driver_common::saturating_u64(self.max_rows)),
-            )));
+            return Err(plenora_io_model::quota::Quota::Rows.exceeded_measured(
+                plenora_io_model::ErrorPhase::Read,
+                driver_common::saturating_u64(self.emitted_rows).saturating_add(1),
+                driver_common::saturating_u64(self.max_rows),
+            ));
         }
         self.emitted_rows = self.emitted_rows.saturating_add(1);
         let vertices = value_coordinate_count(&value);

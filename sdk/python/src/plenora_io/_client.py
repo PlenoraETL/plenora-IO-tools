@@ -4,7 +4,7 @@
 
 Qui c'e' un metodo per comando, e ciascuno fa due cose: costruire la riga di
 argomenti e dire quale tipo si aspetta. L'esecuzione, la scelta del flusso e la
-decodifica stanno in `process.py`, perche' sono le stesse per tutti i
+decodifica stanno in `_process.py`, perche' sono le stesse per tutti i
 comandi -- e perche' un difetto in quella catena si ripara in un posto solo.
 
 # Perche' nessun comando ha un timeout predefinito

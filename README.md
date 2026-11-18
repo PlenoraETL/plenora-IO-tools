@@ -35,14 +35,14 @@ che cosa serve per chiuderle, sono in [docs/RELEASE.md](docs/RELEASE.md).
 | Id | Estensioni | Direzione | Feature | Lettura nativa | Lettura effettiva | Pruning spaziale / predicati | Fedeltà | Tipi scrivibili |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | csv | ["csv"] | bidirectional | assente | streaming_sequential | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
-| dxf | ["dxf"] | bidirectional | assente | materialized | streaming_sequential | none / none | approximating | ["boolean","signed_integer","unsigned_integer","floating","utf8","binary","temporal","decimal"] |
+| dxf | ["dxf"] | bidirectional | assente | materialized | streaming_sequential | none / none | approximating | ["boolean","signed_integer","unsigned_integer","floating","utf8","binary","temporal","decimal","nested","other"] |
 | filegdb | ["gdb"] | bidirectional | gdal-backend | streaming_sequential | materializing | none / none | conditional | ["signed_integer","floating","utf8"] |
 | geojson | ["geojson","json"] | bidirectional | assente | streaming_sequential | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
 | geoparquet | ["parquet"] | bidirectional | assente | streaming_random | streaming_columnar | bounding_box_statistics / numeric_min_max_statistics | lossless | ["boolean","signed_integer","unsigned_integer","floating","utf8","binary","temporal","decimal","nested","other"] |
 | gpkg | ["gpkg"] | bidirectional | assente | streaming_random | streaming_sequential | optional_rtree_index / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","binary"] |
 | ipc | ["arrow","arrows"] | bidirectional | assente | streaming_random | streaming_sequential | none / none | lossless | ["boolean","signed_integer","unsigned_integer","floating","utf8","binary","temporal","decimal","nested","other"] |
 | kml | ["kml"] | bidirectional | assente | materialized | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
-| shp | ["shp","shp.d"] | bidirectional | assente | streaming_sequential | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","binary","temporal","decimal"] |
+| shp | ["shp","shp.d"] | bidirectional | assente | streaming_sequential | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
 | xls | ["xlsx"] | bidirectional | assente | materialized | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
 
 <!-- generato da codice/formati: fine -->

@@ -115,6 +115,10 @@ class IlModuloInline(unittest.TestCase):
             gate.ATTRIBUTO_SU_UN_ELEMENTO.findall("#[cfg(test)]\nmod tests;\n"), []
         )
 
+    def test_modulo_indentato_con_path_non_e_un_elemento(self):
+        self.assertEqual(gate.ATTRIBUTO_SU_UN_ELEMENTO.findall(
+            '#[cfg(test)]\n    #[path = "../tests.rs"]\n    mod tests;\n'), [])
+
     def test_un_attributo_su_un_elemento_conta(self) -> None:
         self.assertEqual(
             len(gate.ATTRIBUTO_SU_UN_ELEMENTO.findall("#[cfg(test)]\nfn aiutante() {}\n")),

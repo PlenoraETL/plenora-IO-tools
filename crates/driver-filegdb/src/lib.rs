@@ -616,14 +616,9 @@ mod backend {
                 DataType::Int32 => Self::Int32,
                 DataType::Float64 => Self::Float64,
                 DataType::Utf8 => Self::Utf8,
-                other => {
+                _ => {
                     let mut error =
-                        plenora_io_model::error_table::Situation::UnrepresentableWriteType
-                            .error_with(&PublicMessage::CuratedPair(
-                                "tipo Arrow non round-trip nativo (supportati esattamente Int32, \
-                             Float64 e Utf8), classe:",
-                                driver_common::classe_arrow(other),
-                            ));
+                        plenora_io_model::error_table::Situation::UnrepresentableWriteType.error();
                     error.driver = Some("filegdb".to_owned());
                     error.capability_reason = Some(CapabilityReason::TypeNotRepresentable);
                     return Err(error);
@@ -2696,9 +2691,8 @@ mod backend {
     }
 
     #[cfg(test)]
-    mod r2_tests {
-        include!("r2_tests.rs");
-    }
+    #[path = "../r2_tests.rs"]
+    mod r2_tests;
 
     #[cfg(test)]
     mod tests {

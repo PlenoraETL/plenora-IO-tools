@@ -39,7 +39,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 # lavora. Cercarne uno solo avrebbe fatto **saltare** in silenzio la meta' delle
 # sonde nell'altro ambiente -- e una suite che salta e' una suite che non
 # protegge, che e' peggio di una rossa perche' non si vede.
-CANDIDATI = (ROOT / ".plenora-contracts", ROOT / ".s9-checkpoint" / "contratti")
+CANDIDATI = (pathlib.Path(os.environ["PLENORA_CONTRACTS"]),) if os.environ.get("PLENORA_CONTRACTS") else (ROOT / ".plenora-contracts", ROOT / ".s9-checkpoint" / "contratti")
 
 
 def contratti() -> pathlib.Path | None:

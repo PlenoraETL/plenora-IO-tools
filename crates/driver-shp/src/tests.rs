@@ -5084,7 +5084,7 @@ fn n1_create_rifiuta_il_contratto_il_nome_campo_e_la_destinazione_occupata() {
     // invece di un errore di formato scoperto mentre si scrive.
     assert_eq!(
         errore.message,
-        "il formato di destinazione richiede una colonna geometrica, e il layer non ne ha"
+        "il formato di destinazione richiede una geometria"
     );
     assert_eq!(
         errore.capability_reason,
@@ -5298,33 +5298,27 @@ fn n1_write_nomina_la_causa_di_ogni_riga_che_non_sa_scrivere() {
             true,
         ),
     ]));
-    let con_data = RecordBatch::try_new(
-        schema_data,
-        vec![
-            Arc::new(BinaryArray::from(vec![Some(punto.as_slice())])),
-            Arc::new(arrow_array::DurationSecondArray::from(vec![Some(90_i64)])),
-        ],
-    )
-    .unwrap();
-    let mut writer = scrittore(
-        "cella.shp",
-        vec![Field::new(
-            "QUANDO",
-            arrow_schema::DataType::Duration(arrow_schema::TimeUnit::Second),
-            true,
-        )],
-    );
-    writer.declare_input_total(LayerId(0), 1).unwrap();
-    let Err(errore) = writer.write(&con_data) else {
-        panic!("una cella senza resa DBF non puo' diventare un valore approssimato");
+    let plan = WritePlan {
+        layers: vec![WriteLayer {
+            name: "layer".to_owned(),
+            contract: DataContract::from_schema(schema_data).unwrap(),
+        }],
     };
-    let diagnostica = errore.row_diagnostics.as_deref().unwrap();
+    let error = ShpDriver
+        .create(
+            Sink::Path(dir.path().join("cella.shp")),
+            &plan,
+            &opzioni_scrittura_loose(),
+        )
+        .err()
+        .unwrap();
+    let rule = plenora_io_model::error_table::Situation::UnrepresentableWriteType.rule();
     assert_eq!(
-        diagnostica.counts.get("shapefile.cell_not_representable"),
-        Some(&1),
-        "arrivate {:?}",
-        diagnostica.counts
+        (error.category, error.phase, error.code),
+        (rule.category, rule.phase, rule.code)
     );
+    assert_eq!(error.message, rule.message);
+    assert!(!dir.path().join("cella.shp").exists());
 
     // Il controllo positivo: un lotto interamente scrivibile passa, e senza
     // di lui una tabella di soli rifiuti la passerebbe anche un `write` che
@@ -5857,7 +5851,11 @@ fn il_prj_segue_la_regola_unica_dell_identificatore() {
     let rifiuto = |prj: &str, assunto: Option<&str>| match leggi(prj, assunto) {
         Ok(crs) => panic!("{prj}, {assunto:?}: accettato come {:?}", crs.id),
         Err(errore) => {
-            assert_eq!(errore.code, plenora_io_model::IoErrorCode::Crs, "{prj}");
+            assert_eq!(
+                errore.category,
+                plenora_io_model::ErrorCategory::Crs,
+                "{prj}"
+            );
             assert_eq!(errore.driver.as_deref(), Some("shp"));
         }
     };

@@ -941,6 +941,10 @@ jobs:
             --cli target/debug/plenora-io \
             --referto vettori-primary-geometry.json
 
+      - name: Dipendenza delle fixture dei conflitti footer e campo
+        if: ${{ !cancelled() }}
+        run: python3 -m pip install --only-binary=":all:" pyarrow==25.0.1
+
       - name: Conflitti footer e campo, tutte le celle anche dopo un errore
         if: ${{ !cancelled() }}
         run: python3 scripts/check_footer_field_conflicts.py --cli target/debug/plenora-io
