@@ -11,9 +11,10 @@ on:
         description: "Run di Distribuzione con i byte congelati, se il manifesto non e' nella release/draft"
         required: false
         type: string
-  push:
-    tags:
-      - "v*"
+# Niente trigger sul push dei tag: il commit del tag e' la candidate congelata
+# e non contiene ancora le registrazioni di qualifica che vengono dopo il
+# congelamento, quindi quella corsa falliva per costruzione (7.0.0-9.0.0).
+# La qualifica valida e' questo dispatch con la revisione esatta.
 
 permissions:
   contents: read
@@ -35,10 +36,14 @@ jobs:
           # sotto verificava gia' che coincidessero, ma fallire e' peggio che
           # non sbagliare: chiedendo lo SHA esatto la qualifica misura cio' che
           # le e' stato indicato anche se il ramo e' avanzato nel frattempo.
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_revision || github.sha }}
+          ref: ${{ inputs.expected_revision }}
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
           python-version-file: .python-version
+      # Le stesse dipendenze, con gli stessi pin, del job delle sonde in ci.yml:
+      # i test della semantica di rilascio importano jsonschema.
+      - name: Dipendenze delle sonde e degli inventari
+        run: python -m pip install pyarrow==25.0.1 PyYAML==6.0.3 openpyxl==3.1.5 jsonschema==4.26.0
       - name: Leggi il pin dei contratti dal checkout qualificato
         id: contracts-pin
         run: |
@@ -106,7 +111,7 @@ jobs:
       - name: Qualify the exact clean checkout selected by GitHub
         if: ${{ !cancelled() }}
         env:
-          EXPECTED_REVISION: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_revision || github.sha }}
+          EXPECTED_REVISION: ${{ inputs.expected_revision }}
         run: |
           set -euo pipefail
           head="$(git rev-parse HEAD)"
