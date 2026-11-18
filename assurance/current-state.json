@@ -77,7 +77,7 @@
       "misura": "assurance/profondita-fuzz-filegdb.json",
       "requisiti_di_profondita": 12,
       "confine_asan": "assurance/asan-filegdb.json",
-      "contatori_di_copertura": 181700,
+      "contatori_di_copertura": 181833,
       "file_sorgente_gdal_strumentati": 0,
       "nota": "lo spike ammetteva due esiti e l'esito e' il primo: il target esiste e attraversa il percorso vero. Il limite e' misurato sulla **libreria**, non dedotto dai contatori:  non porta un solo simbolo del runtime del sanitizer, quindi non e' strumentata. Ne segue che AddressSanitizer non verifica gli accessi dentro GDAL -- il controllo lo inserisce il compilatore, e codice non strumentato non consulta la shadow memory -- e restano osservabili solo gli errori dell'allocatore, quelli dentro le funzioni intercettate e i crash ordinari. Il fuzzer, separatamente, non ha feedback oltre il confine: un solo modulo porta contatori.",
       "simboli_asan_nella_libreria": 0
@@ -120,7 +120,7 @@
       "release_action_allowed": false,
       "release_blocking": false,
       "stato": "iniziale",
-      "nota": "Candidate 10.0.0 aperta, non congelata, senza artefatti o autorizzazione. Rimozione della compatibilita con release Plenora precedenti secondo decisione del titolare del 15 e 17 novembre 2026. Le prove registrate conservano la propria revisione; qualifica finale e rimisure della 10.0.0 da eseguire."
+      "nota": "Preparazione 10.0.0 del 2026-11-18, prima del congelamento sul commit di merge della PR. Nessuna revisione candidate, nessun artefatto congelato o autorizzazione. Rimozione della compatibilita con release Plenora precedenti secondo decisione del titolare del 15 e 17 novembre 2026. Le cinque rimisure fornite dall operatore sono state eseguite con exit 0 sulla VM Ubuntu 24.04 (192.168.2.140), da un clone pulito di d196f7a621b76b91b4d19b85ea7ca6abc7b31f68 con contratti al pin: quattro profondita fuzz e confine ASan FileGDB corrispondono al perimetro corrente; i cinque rinvii sono chiusi. Checkpoint e replay registrati conservano la propria revisione storica e non qualificano la 10.0.0. Distribuzione candidate, replay completo e qualifica L2 sul commit congelato restano da eseguire secondo prove-release.json."
     }
   },
   "docset": {

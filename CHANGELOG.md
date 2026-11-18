@@ -1,6 +1,6 @@
 # Changelog
 
-## 10.0.0 - non rilasciata
+## 10.0.0 - 2026-11-18
 
 ### Cambiamenti incompatibili
 
