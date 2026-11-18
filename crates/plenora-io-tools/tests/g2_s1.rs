@@ -166,11 +166,12 @@ fn numeric_declarations_match_observed_reconstructed_values_in_both_directions()
 
 #[cfg(feature = "gdal-backend")]
 #[test]
+#[allow(clippy::too_many_lines)] // Keep the two-layer fixture and CLI assertions together.
 fn filegdb_cli_multilayer_selection_is_explicit() {
-    let dir = tempfile::tempdir().unwrap();
     use plenora_io_core::driver::{FormatDriver, ReadOptions, Sink, Source, WriteOptions};
     use plenora_io_core::{WriteLayer, WritePlan};
     use plenora_io_model::{budget::PipelineBudget, contract::LayerId};
+    let dir = tempfile::tempdir().unwrap();
     let driver = driver_filegdb::FileGdbDriver;
     let dataset = driver
         .open(
@@ -218,7 +219,7 @@ fn filegdb_cli_multilayer_selection_is_explicit() {
         spatial_pruning_hint: None,
         scope: plenora_io_core::ReadScope::default(),
         batch_target: plenora_io_core::BatchTarget::default(),
-        cancellation: Default::default(),
+        cancellation: plenora_io_model::CancellationToken::default(),
     };
     let mut reader = dataset.open_layer_reader(&request).unwrap();
     let mut rows = 0;

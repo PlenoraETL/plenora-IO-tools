@@ -1,5 +1,6 @@
-//! Executed IO witnesses and a fail-closed coverage register for the first group.
-//! The coverage assertion intentionally exposes cells without an IO witness.
+//! Generated loss qualification and retained regressions from S1d.
+#[path = "loss_enumeration/generated.rs"]
+mod generated;
 use arrow_array::{ArrayRef, BinaryArray, RecordBatch};
 use arrow_schema::{DataType, Field, Schema};
 use plenora_io_model::{
@@ -27,11 +28,16 @@ fn save(path: &Path, batch: &RecordBatch) {
 }
 
 fn load(path: &Path) -> RecordBatch {
-    arrow_ipc::reader::FileReader::try_new(File::open(path).unwrap(), None)
-        .unwrap()
+    let mut reader =
+        arrow_ipc::reader::FileReader::try_new(File::open(path).unwrap(), None).unwrap();
+    let batch = reader
         .next()
-        .unwrap()
-        .unwrap()
+        .map_or_else(|| RecordBatch::new_empty(reader.schema()), Result::unwrap);
+    assert!(
+        reader.next().is_none(),
+        "fixture unexpectedly spans multiple batches"
+    );
+    batch
 }
 
 fn convert(source: &Path, target: &Path, from: &str, to: &str) -> Value {
@@ -72,6 +78,11 @@ fn native_batch(path: &Path, ipc: &Path, driver: &str) -> RecordBatch {
         "csv" => Box::new(driver_csv::CsvDriver),
         "xls" => Box::new(driver_xls::XlsDriver),
         "ipc" => Box::new(driver_ipc::IpcDriver),
+        "shp" => Box::new(driver_shp::ShpDriver),
+        "dxf" => Box::new(driver_dxf::DxfDriver),
+        "gpkg" => Box::new(driver_gpkg::GpkgDriver),
+        "geoparquet" => Box::new(driver_geoparquet::GeoParquetDriver),
+        "filegdb" => Box::new(driver_filegdb::FileGdbDriver),
         _ => unreachable!(),
     };
     let mut options = plenora_io_core::ReadOptions::from_read_parts(
@@ -141,10 +152,10 @@ const fn child(value: WkbValue) -> WkbGeometry {
 
 #[test]
 fn geometry_roundtrips_compare_values_and_both_reports() {
-    exercise_geometry(&mut Coverage::default());
+    exercise_geometry();
 }
 
-fn exercise_geometry(coverage: &mut Coverage) {
+fn exercise_geometry() {
     let point = WkbValue::Point(coordinate(1.0, 2.0));
     let line = WkbValue::LineString(vec![coordinate(-0.0, 2.0), coordinate(3.0, 4.0)]);
     let polygon = WkbValue::Polygon(vec![vec![
@@ -212,22 +223,15 @@ fn exercise_geometry(coverage: &mut Coverage) {
             }
             empty_report(&read, "read_loss", &format!("{driver} {kind:?}"));
         }
-        for element in [
-            NativeElement::GeometryType,
-            NativeElement::SignedZero,
-            NativeElement::RingOrientation,
-        ] {
-            coverage.both(driver, element);
-        }
     }
 }
 
 #[test]
 fn attribute_roundtrips_compare_values_and_both_reports() {
-    exercise_attributes(&mut Coverage::default());
+    exercise_attributes();
 }
 
-fn exercise_attributes(coverage: &mut Coverage) {
+fn exercise_attributes() {
     use arrow_array::{BooleanArray, Float64Array, Int64Array, StringArray};
     let cases: Vec<ArrayRef> = vec![
         Arc::new(StringArray::from(vec![Some("text"), Some(""), None])),
@@ -300,70 +304,7 @@ fn exercise_attributes(coverage: &mut Coverage) {
                 empty_report(&read, "read_loss", driver);
             }
         }
-        for element in [
-            NativeElement::Utf8,
-            NativeElement::Null,
-            NativeElement::EmptyString,
-            NativeElement::Boolean,
-            NativeElement::Floating,
-        ] {
-            coverage.both(driver, element);
-        }
-        if *driver != "xls" {
-            coverage.both(driver, NativeElement::SignedInteger);
-        }
     }
-}
-
-use plenora_io_core::loss_table::{NativeElement, TransportDirection, NATIVE_ELEMENTS};
-
-#[derive(Default)]
-struct Coverage(std::collections::BTreeSet<String>);
-
-impl Coverage {
-    fn both(&mut self, driver: &str, element: NativeElement) {
-        for direction in [TransportDirection::Read, TransportDirection::Write] {
-            self.0.insert(format!("{driver}/{direction:?}/{element:?}"));
-        }
-    }
-
-    fn missing(&self) -> Vec<String> {
-        let mut missing = Vec::new();
-        for (driver, _) in DRIVERS {
-            for direction in [TransportDirection::Read, TransportDirection::Write] {
-                for element in NATIVE_ELEMENTS {
-                    let cell = format!("{driver}/{direction:?}/{element:?}");
-                    if !self.0.contains(&cell) {
-                        missing.push(cell);
-                    }
-                }
-            }
-        }
-        missing
-    }
-}
-
-#[test]
-fn bidirectional_enumeration_requires_every_first_group_cell() {
-    let mut coverage = Coverage::default();
-    exercise_geometry(&mut coverage);
-    exercise_attributes(&mut coverage);
-    let missing = coverage.missing();
-    assert!(
-        missing.is_empty(),
-        "{} exercised; {} missing IO witnesses:\n{}",
-        coverage.0.len(),
-        missing.len(),
-        missing.join("\n")
-    );
-}
-
-#[test]
-fn coverage_register_never_accepts_an_inventory_as_execution() {
-    assert_eq!(
-        Coverage::default().missing().len(),
-        DRIVERS.len() * 2 * NATIVE_ELEMENTS.len()
-    );
 }
 
 #[test]
