@@ -8,20 +8,20 @@
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "7314ca2",
+      "sha": "edb482d",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "7314ca2",
-    "evidenza": "assurance/evidence/checkpoint-7314ca2.json",
+    "sha": "edb482d",
+    "evidenza": "assurance/evidence/checkpoint-edb482d.json",
     "checkpoint": {
-      "passi_eseguiti": 112,
-      "passi_verdi": 112,
+      "passi_eseguiti": 110,
+      "passi_verdi": 110,
       "passi_omessi": 0,
       "passi_falliti": 0,
-      "riconciliazione": "112 identificatori distinti, 0 duplicati; conteggi derivati da risultato.json."
+      "riconciliazione": "110 identificatori distinti, 0 duplicati; conteggi derivati da risultato.json."
     },
     "fuzz": {
       "replay_input": 207,
@@ -33,27 +33,27 @@
       "quarantena": 0
     },
     "copertura": {
-      "lcov_percentuale": 88.87,
-      "lcov_righe_coperte": 32418,
-      "lcov_righe_strumentate": 36480,
-      "cargo_lines_percentuale": 86.79,
+      "lcov_percentuale": 88.9,
+      "lcov_righe_coperte": 32224,
+      "lcov_righe_strumentate": 36247,
+      "cargo_lines_percentuale": 86.81,
       "soglia": 80.0,
       "misurata_con": "cargo llvm-cov --workspace --all-targets --all-features --locked --no-report; proiezione di libreria con esclusioni dello script congelato.",
       "nota": "LCOV e sommario cargo contano insiemi diversi dello stesso profdata."
     },
     "diagnostica_differenziale": {
-      "esito": "96.42%",
-      "righe_cambiate_eseguibili": 699,
-      "coperte": 674,
-      "scoperte": 25,
-      "cambiate_non_eseguibili": 1343,
-      "ragione": "Confronto di libreria fra 6e494a6 e candidate 7314ca2.",
+      "esito": "100.00%",
+      "righe_cambiate_eseguibili": 29,
+      "coperte": 29,
+      "scoperte": 0,
+      "cambiate_non_eseguibili": 146,
+      "ragione": "Confronto di libreria fra 7314ca2 e candidate edb482d.",
       "che_cosa_sono_le_scoperte": "Righe cambiate ed eseguibili non esercitate dai test; non una misura del fuzzing.",
-      "baseline": "6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0"
+      "baseline": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea"
     }
   },
   "ultima_campagna_fuzz": {
-    "sha": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea",
+    "sha": "edb482d892da11ecb421d5441079209a65d61fa0",
     "verbale": "assurance/evidence/fuzz-smoke-ultima.json",
     "significato": "Replay finito ASan io-9-replay-v1; ricevuta L2 copiata byte per byte, riuso della ricevuta esterna verificato tramite source_sha256. Il passo fuzz_smoke verifica la ricevuta senza seconda campagna; nessun soak previsto o registrato."
   },
@@ -62,7 +62,7 @@
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "7314ca2"
+      "qualificato_su": "edb482d"
     },
     "fuzz_reader_shapefile": {
       "stato": "chiuso",
@@ -118,9 +118,55 @@
       "tag_creato": false,
       "tag_sulla_candidate": false,
       "release_action_allowed": false,
-      "release_blocking": false,
-      "stato": "iniziale",
-      "nota": "Preparazione 10.0.0 del 2026-11-18, prima del congelamento sul commit di merge della PR. Nessuna revisione candidate, nessun artefatto congelato o autorizzazione. Rimozione della compatibilita con release Plenora precedenti secondo decisione del titolare del 15 e 17 novembre 2026. Le cinque rimisure fornite dall operatore sono state eseguite con exit 0 sulla VM Ubuntu 24.04 (192.168.2.140), da un clone pulito di d196f7a621b76b91b4d19b85ea7ca6abc7b31f68 con contratti al pin: quattro profondita fuzz e confine ASan FileGDB corrispondono al perimetro corrente; i cinque rinvii sono chiusi. Checkpoint e replay registrati conservano la propria revisione storica e non qualificano la 10.0.0. Distribuzione candidate, replay completo e qualifica L2 sul commit congelato restano da eseguire secondo prove-release.json."
+      "release_blocking": true,
+      "stato": "attiva",
+      "nota": "Candidate congelata su edb482d892da11ecb421d5441079209a65d61fa0: sette archivi della Distribuzione 44222062212 verificati dai byte locali, checksum e provenance; 32 referti verificati. Replay finito e L2 registrati in checkpoint-edb482d.json. Restano manifesto di adozione e attestazioni del profilo pubblico della stessa corsa, bozza e confronto dei byte, decisione del titolare, tag e gate finale; permessi false. Nessuna consultazione GitHub.",
+      "revisione_candidate": "edb482d892da11ecb421d5441079209a65d61fa0",
+      "assurance_entro_l_allowlist": true,
+      "artefatti": [
+        {
+          "nome": "plenora-io-10.0.0-linux-x86_64-base.tar.gz",
+          "sha256": "553bf256d03d8c7c8fa64d1be68627c0f5d83dc099cce7c2a8e63f4294478a88",
+          "dimensione": 9256444,
+          "revisione": "edb482d892da11ecb421d5441079209a65d61fa0"
+        },
+        {
+          "nome": "plenora-io-10.0.0-linux-x86_64-filegdb.tar.gz",
+          "sha256": "5e5111bc1693f000ed2c0e01b9f1b75e8e2750b6546a716b56860a35ba53f6aa",
+          "dimensione": 65104744,
+          "revisione": "edb482d892da11ecb421d5441079209a65d61fa0"
+        },
+        {
+          "nome": "plenora-io-10.0.0-src.tar.gz",
+          "sha256": "4d0874bbbb5263b7727d8ba0e9504ef78edf6f055ad9a41fd433b910667710a4",
+          "dimensione": 21328035,
+          "revisione": "edb482d892da11ecb421d5441079209a65d61fa0"
+        },
+        {
+          "nome": "plenora-io-10.0.0-windows-x86_64-base.zip",
+          "sha256": "d5544982d8abbe21ec60419d9f74e921f07a2430e0e23ed7560710617759eafe",
+          "dimensione": 10506497,
+          "revisione": "edb482d892da11ecb421d5441079209a65d61fa0"
+        },
+        {
+          "nome": "plenora-io-10.0.0-windows-x86_64-filegdb.zip",
+          "sha256": "40e3f354c725d77d2b0f299ef3ef932e1bf184e48a13029edc660afd6b627be8",
+          "dimensione": 50898733,
+          "revisione": "edb482d892da11ecb421d5441079209a65d61fa0"
+        },
+        {
+          "nome": "plenora_io-10.0.0-py3-none-any.whl",
+          "sha256": "3d014313c848bd266ae289b96494833094d80f5a188edb18142683ceb990db72",
+          "dimensione": 117972,
+          "revisione": "edb482d892da11ecb421d5441079209a65d61fa0"
+        },
+        {
+          "nome": "plenora_io-10.0.0.tar.gz",
+          "sha256": "f5d7e030bcbec97d31d401e0bceca393cb9e71d8148504827ceb67df9b5619f5",
+          "dimensione": 227168,
+          "revisione": "edb482d892da11ecb421d5441079209a65d61fa0"
+        }
+      ]
     }
   },
   "docset": {
