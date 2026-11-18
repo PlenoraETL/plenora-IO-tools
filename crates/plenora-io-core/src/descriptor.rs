@@ -1000,6 +1000,8 @@ pub enum SpatialPruningSupport {
 #[non_exhaustive]
 pub struct FormatDescriptor {
     id: &'static str,
+    #[serde(skip)]
+    files: &'static crate::dataset_files::FileSet,
     direction: Direction,
     /// **Legacy**, e preservato driver per driver, byte per byte.
     ///
@@ -1112,6 +1114,7 @@ impl FormatDescriptor {
     #[allow(clippy::too_many_arguments, clippy::fn_params_excessive_bools)]
     pub const fn const_new(
         id: &'static str,
+        files: &'static crate::dataset_files::FileSet,
         direction: Direction,
         read_mode: ReadMode,
         native_read_mode: NativeReadMode,
@@ -1140,6 +1143,7 @@ impl FormatDescriptor {
     ) -> Self {
         Self {
             id,
+            files,
             direction,
             read_mode,
             native_read_mode,
@@ -1190,6 +1194,11 @@ impl FormatDescriptor {
     ) -> Self {
         self.write_capabilities = write_capabilities;
         self
+    }
+
+    #[must_use]
+    pub const fn files(&self) -> &'static crate::dataset_files::FileSet {
+        self.files
     }
 
     #[must_use]

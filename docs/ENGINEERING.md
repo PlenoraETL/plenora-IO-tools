@@ -81,6 +81,18 @@ stessa sorgente.
 
 ## Pipeline di lettura
 
+Il perimetro fisico e' dichiarato in `plenora-io-core/src/dataset_files.rs`:
+il costruttore di ogni `FormatDescriptor` richiede la sua dichiarazione,
+anche per i driver a file singolo. La stessa tabella guida preflight,
+risoluzione dei companion e no-clobber. Un companion presente partecipa a
+quota, identita' e footprint anche quando il decoder lo ignora; gli alberi
+comprendono tutti i discendenti. La risoluzione confronta i nomi senza
+maiuscole e rifiuta le ambiguita', senza preferire la grafia richiesta.
+Le prove enumerano ogni voce della tabella; il seam dell'enumeratore simula
+due nomi distinti anche sui filesystem Windows non sensibili alle maiuscole.
+I test dei symlink li creano quando il sistema concede il privilegio.
+
+
 ```
 Source ──preflight──> open ──> OpenDatasetHandle ──> open_layer_reader ──> next_batch*
            │                        │                                          │

@@ -4,6 +4,7 @@
 #![forbid(unsafe_code)]
 
 pub mod capabilities;
+pub mod dataset_files;
 pub mod descriptor;
 pub mod driver;
 pub mod ewkb;

@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "candidate_ritirata": {
+    "versione_manifesto": "10.0.0",
+    "versione_workspace": "10.0.0",
+    "tag_previsto": "v10.0.0",
+    "tag_creato": false,
+    "tag_sulla_candidate": false,
+    "release_action_allowed": false,
+    "release_blocking": true,
+    "stato": "ritirata",
+    "nota": "Candidate congelata su edb482d892da11ecb421d5441079209a65d61fa0: sette archivi della Distribuzione 44222062212 verificati dai byte locali, checksum e provenance; 32 referti verificati. Replay finito e L2 registrati in checkpoint-edb482d.json. Restano manifesto di adozione e attestazioni del profilo pubblico della stessa corsa, bozza e confronto dei byte, decisione del titolare, tag e gate finale; permessi false. Nessuna consultazione GitHub.",
+    "revisione_candidate": "edb482d892da11ecb421d5441079209a65d61fa0",
+    "assurance_entro_l_allowlist": true,
+    "artefatti": [
+      {
+        "nome": "plenora-io-10.0.0-linux-x86_64-base.tar.gz",
+        "sha256": "553bf256d03d8c7c8fa64d1be68627c0f5d83dc099cce7c2a8e63f4294478a88",
+        "dimensione": 9256444,
+        "revisione": "edb482d892da11ecb421d5441079209a65d61fa0"
+      },
+      {
+        "nome": "plenora-io-10.0.0-linux-x86_64-filegdb.tar.gz",
+        "sha256": "5e5111bc1693f000ed2c0e01b9f1b75e8e2750b6546a716b56860a35ba53f6aa",
+        "dimensione": 65104744,
+        "revisione": "edb482d892da11ecb421d5441079209a65d61fa0"
+      },
+      {
+        "nome": "plenora-io-10.0.0-src.tar.gz",
+        "sha256": "4d0874bbbb5263b7727d8ba0e9504ef78edf6f055ad9a41fd433b910667710a4",
+        "dimensione": 21328035,
+        "revisione": "edb482d892da11ecb421d5441079209a65d61fa0"
+      },
+      {
+        "nome": "plenora-io-10.0.0-windows-x86_64-base.zip",
+        "sha256": "d5544982d8abbe21ec60419d9f74e921f07a2430e0e23ed7560710617759eafe",
+        "dimensione": 10506497,
+        "revisione": "edb482d892da11ecb421d5441079209a65d61fa0"
+      },
+      {
+        "nome": "plenora-io-10.0.0-windows-x86_64-filegdb.zip",
+        "sha256": "40e3f354c725d77d2b0f299ef3ef932e1bf184e48a13029edc660afd6b627be8",
+        "dimensione": 50898733,
+        "revisione": "edb482d892da11ecb421d5441079209a65d61fa0"
+      },
+      {
+        "nome": "plenora_io-10.0.0-py3-none-any.whl",
+        "sha256": "3d014313c848bd266ae289b96494833094d80f5a188edb18142683ceb990db72",
+        "dimensione": 117972,
+        "revisione": "edb482d892da11ecb421d5441079209a65d61fa0"
+      },
+      {
+        "nome": "plenora_io-10.0.0.tar.gz",
+        "sha256": "f5d7e030bcbec97d31d401e0bceca393cb9e71d8148504827ceb67df9b5619f5",
+        "dimensione": 227168,
+        "revisione": "edb482d892da11ecb421d5441079209a65d61fa0"
+      }
+    ],
+    "motivo_del_ritiro": "Release fermata dal titolare per difetti silenziosi trovati nella raccolta indipendente del 18/11/2026; correzioni R1..R5 prima di una nuova candidate 10.0.0."
+  },
+  "motivo": "Release fermata dal titolare per difetti silenziosi trovati nella raccolta indipendente del 18/11/2026; correzioni R1..R5 prima di una nuova candidate 10.0.0.",
+  "elenchi": [
+    {
+      "percorso": "C:\\pg\\inventario\\raccolta-io-1000\\A-accessori-layer.md",
+      "sha256": "7dc91ecb50757b82d305918f051256dfe437e0ecf0420153c4810f51d9c44298"
+    },
+    {
+      "percorso": "C:\\pg\\inventario\\raccolta-io-1000\\B-perdite.md",
+      "sha256": "0269fc9e3b8e7d6e985341e92da47412ae88686c37134f079be8fc0ed48b961c"
+    },
+    {
+      "percorso": "C:\\pg\\inventario\\raccolta-io-1000\\C-documentazione-categorie.md",
+      "sha256": "f83e1c6b91493b88cfd3698a205603cfa54b81ea08c90717a0989870dce980f7"
+    }
+  ],
+  "artefatti_validi_per_release": false,
+  "bozza_valida_per_release": false,
+  "bozza_remota": "Non consultata o modificata; esistenza comunicata dal titolare.",
+  "transizione": "attiva -> ritirata (archiviata qui) -> iniziale, stessi numero di versione e tag previsto; nessuna nuova qualifica.",
+  "tipo": "registrazione_documentale_owner_non_checkpoint"
+}

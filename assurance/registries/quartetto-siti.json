@@ -373,8 +373,6 @@
     ],
     "create": [
       "Unsupported/Validate/Unsupported/Never",
-      "Conflict/Commit/OutputExists/Never",
-      "Conflict/Commit/OutputExists/Never",
       "Unsupported/Validate/Unsupported/Never"
     ],
     "declare_input_total": [
@@ -396,6 +394,7 @@
     "leggi_prj": [
       "Crs/Validate/Crs/Never",
       "ResourceLimit/Validate/LimitExceeded/Never",
+      "Crs/Validate/Crs/Never",
       "Crs/Validate/Crs/Never"
     ],
     "opt_in_loose_mancante": [
@@ -473,6 +472,14 @@
     ],
     "violation": [
       "Unsupported/Validate/Capability/Never"
+    ]
+  },
+  "crates/plenora-io-core/src/dataset_files.rs": {
+    "ambiguous": [
+      "DataMapping/Read/Format/Never"
+    ],
+    "ensure_absent_except_staging": [
+      "Conflict/Commit/OutputExists/Never"
     ]
   },
   "crates/plenora-io-core/src/driver.rs": {
@@ -653,9 +660,6 @@
     ]
   },
   "crates/plenora-io-core/src/publish.rs": {
-    "ensure_destination_absent": [
-      "Conflict/Commit/OutputExists/Never"
-    ],
     "ensure_same_filesystem": [
       "Unsupported/Validate/Unsupported/Never"
     ],

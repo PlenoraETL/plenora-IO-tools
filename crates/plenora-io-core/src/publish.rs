@@ -55,6 +55,7 @@ pub enum PublishOutcome {
 /// essere riutilizzato o pubblicato una seconda volta.
 pub struct StagedFile {
     temp: Option<NamedTempFile>,
+    files: crate::dataset_files::FileSet,
     destination: PathBuf,
     durable: bool,
     max_output_bytes: u64,
@@ -76,6 +77,7 @@ impl StagedFile {
     ) -> Result<Self> {
         Ok(Self {
             temp: Some(create_staged_file(destination)?),
+            files: crate::dataset_files::SINGLE,
             destination: destination.to_owned(),
             durable,
             max_output_bytes,
@@ -99,11 +101,22 @@ impl StagedFile {
     ) -> Result<Self> {
         Ok(Self {
             temp: Some(create_staged_file_with_suffix(destination, suffix)?),
+            files: crate::dataset_files::SINGLE,
             destination: destination.to_owned(),
             durable,
             max_output_bytes,
             contesto: contesto.clone(),
         })
+    }
+
+    /// Associa l'insieme dichiarato al controllo prima del publish.
+    ///
+    /// # Errors
+    /// Destinazione o companion gia' esistenti.
+    pub fn for_dataset(mut self, files: crate::dataset_files::FileSet) -> Result<Self> {
+        files.ensure_absent(&self.destination)?;
+        self.files = files;
+        Ok(self)
     }
 
     /// Percorso dello staging file.
@@ -157,6 +170,7 @@ impl StagedFile {
     /// esiste già, o l'errore di I/O di `fsync`/rename.
     pub fn publish(&mut self) -> Result<(u64, PublishOutcome)> {
         let temp = self.temp.take().ok_or_else(Self::terminal_state_error)?;
+        self.files.ensure_absent(&self.destination)?;
         publish_file_atomic_limited(
             temp,
             &self.destination,
@@ -466,11 +480,7 @@ fn destination_parent(dest: &Path) -> &Path {
 }
 
 fn ensure_destination_absent(dest: &Path) -> Result<()> {
-    match std::fs::symlink_metadata(dest) {
-        Ok(_) => Err(PlenoraIoError::destinazione_esistente()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(PlenoraIoError::Io(error)),
-    }
+    crate::dataset_files::SINGLE.ensure_absent(dest)
 }
 
 fn publish_rename_error(error: std::io::Error, dest: &Path) -> PlenoraIoError {

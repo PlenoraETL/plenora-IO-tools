@@ -88,6 +88,14 @@ impl Source {
     /// l'errore di cancellazione o deadline; l'errore di I/O se la sorgente
     /// non e' accessibile; `Unsupported` su un symlink.
     pub fn into_path_observed(self, opts: &mut ReadOptions) -> Result<PathBuf> {
+        self.into_paths_observed(opts, None)
+    }
+
+    fn into_paths_observed(
+        self,
+        opts: &mut ReadOptions,
+        files: Option<&crate::dataset_files::FileSet>,
+    ) -> Result<PathBuf> {
         let Self::Path(path) = self;
         let budget = opts.budget().clone();
         let context = budget.context();
@@ -96,20 +104,29 @@ impl Source {
         // La liveness la verifica `scopri` per **ogni** voce, radice
         // compresa: qui non serve un controllo in piu'.
         let mut pending = Vec::new();
-        if scopri(context, &path)? {
-            pending.push(path.clone());
+        let paths = match files {
+            Some(files) => files.input(&path)?,
+            None => vec![path.clone()],
+        };
+        for actual in &paths {
+            if scopri(context, actual)? {
+                pending.push(actual.clone());
+            }
         }
         while let Some(directory) = pending.pop() {
+            let mut names = std::collections::BTreeSet::new();
             for entry in std::fs::read_dir(&directory)? {
-                let figlio = entry?.path();
+                let entry = entry?;
+                let figlio = entry.path();
                 if scopri(context, &figlio)? {
                     pending.push(figlio);
                 }
+                crate::dataset_files::note_name(&mut names, &entry.file_name())?;
             }
         }
 
         context.observe_input(permit)?;
-        Ok(path)
+        Ok(paths.first().cloned().unwrap_or(path))
     }
 }
 
@@ -858,7 +875,7 @@ pub fn preflight_source(
         &opts.format_options,
         plenora_io_model::format_options::FaseOpzione::Lettura,
     )?;
-    source.into_path_observed(opts)
+    source.into_paths_observed(opts, Some(descriptor.files()))
 }
 
 /// Applica i limiti indipendenti dal formato a qualunque writer. I vincoli

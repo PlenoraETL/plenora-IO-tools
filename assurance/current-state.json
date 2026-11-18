@@ -119,54 +119,8 @@
       "tag_sulla_candidate": false,
       "release_action_allowed": false,
       "release_blocking": true,
-      "stato": "attiva",
-      "nota": "Candidate congelata su edb482d892da11ecb421d5441079209a65d61fa0: sette archivi della Distribuzione 44222062212 verificati dai byte locali, checksum e provenance; 32 referti verificati. Replay finito e L2 registrati in checkpoint-edb482d.json. Restano manifesto di adozione e attestazioni del profilo pubblico della stessa corsa, bozza e confronto dei byte, decisione del titolare, tag e gate finale; permessi false. Nessuna consultazione GitHub.",
-      "revisione_candidate": "edb482d892da11ecb421d5441079209a65d61fa0",
-      "assurance_entro_l_allowlist": true,
-      "artefatti": [
-        {
-          "nome": "plenora-io-10.0.0-linux-x86_64-base.tar.gz",
-          "sha256": "553bf256d03d8c7c8fa64d1be68627c0f5d83dc099cce7c2a8e63f4294478a88",
-          "dimensione": 9256444,
-          "revisione": "edb482d892da11ecb421d5441079209a65d61fa0"
-        },
-        {
-          "nome": "plenora-io-10.0.0-linux-x86_64-filegdb.tar.gz",
-          "sha256": "5e5111bc1693f000ed2c0e01b9f1b75e8e2750b6546a716b56860a35ba53f6aa",
-          "dimensione": 65104744,
-          "revisione": "edb482d892da11ecb421d5441079209a65d61fa0"
-        },
-        {
-          "nome": "plenora-io-10.0.0-src.tar.gz",
-          "sha256": "4d0874bbbb5263b7727d8ba0e9504ef78edf6f055ad9a41fd433b910667710a4",
-          "dimensione": 21328035,
-          "revisione": "edb482d892da11ecb421d5441079209a65d61fa0"
-        },
-        {
-          "nome": "plenora-io-10.0.0-windows-x86_64-base.zip",
-          "sha256": "d5544982d8abbe21ec60419d9f74e921f07a2430e0e23ed7560710617759eafe",
-          "dimensione": 10506497,
-          "revisione": "edb482d892da11ecb421d5441079209a65d61fa0"
-        },
-        {
-          "nome": "plenora-io-10.0.0-windows-x86_64-filegdb.zip",
-          "sha256": "40e3f354c725d77d2b0f299ef3ef932e1bf184e48a13029edc660afd6b627be8",
-          "dimensione": 50898733,
-          "revisione": "edb482d892da11ecb421d5441079209a65d61fa0"
-        },
-        {
-          "nome": "plenora_io-10.0.0-py3-none-any.whl",
-          "sha256": "3d014313c848bd266ae289b96494833094d80f5a188edb18142683ceb990db72",
-          "dimensione": 117972,
-          "revisione": "edb482d892da11ecb421d5441079209a65d61fa0"
-        },
-        {
-          "nome": "plenora_io-10.0.0.tar.gz",
-          "sha256": "f5d7e030bcbec97d31d401e0bceca393cb9e71d8148504827ceb67df9b5619f5",
-          "dimensione": 227168,
-          "revisione": "edb482d892da11ecb421d5441079209a65d61fa0"
-        }
-      ]
+      "stato": "iniziale",
+      "nota": "Release fermata dal titolare per difetti silenziosi trovati nella raccolta indipendente del 18/11/2026; correzioni R1..R5 prima di una nuova candidate 10.0.0. Ritiro e invalidazione di artefatti e bozza: assurance/evidence/ritiro-candidate-1000.json. Le misure precedenti restano storiche e non qualificano lo sviluppo."
     }
   },
   "docset": {
@@ -180,6 +134,10 @@
       {
         "percorso": "assurance/evidence/autorizzazione-9.0.0.json",
         "sha256": "2c315775985240df44652a5ecf52c87a2c4b2076f2374c270233987bf5079940"
+      },
+      {
+        "percorso": "assurance/evidence/ritiro-candidate-1000.json",
+        "sha256": "01685ae698403dc69d99e063dce3230dba96a7d0f1da0bbd0361231f3f1a838c"
       }
     ]
   },

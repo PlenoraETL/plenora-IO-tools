@@ -79,6 +79,7 @@ fn err(reason: &PublicMessage) -> PlenoraIoError {
 
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     "geojson",
+    &plenora_io_core::dataset_files::FILE_SETS[4],
     Direction::Bidirectional,
     ReadMode::StreamingSequential, // array `features` scorso in streaming
     // INV-7: deserializer serde streaming direttamente nei builder.
@@ -221,6 +222,7 @@ impl FormatDriver for GeoJsonDriver {
             &opts.format_options,
         )?;
         let Sink::Path(path) = sink;
+        self.descriptor().files().ensure_absent(&path)?;
         if path.exists() {
             return Err(PlenoraIoError::destinazione_esistente());
         }
@@ -250,7 +252,8 @@ impl FormatDriver for GeoJsonDriver {
             opts.durable,
             opts.max_output_bytes(),
             opts.budget().context(),
-        )?;
+        )?
+        .for_dataset(*DESCRIPTOR.files())?;
         let mut writer = BufWriter::new(staging.reopen()?);
         writer.write_all(b"{\"type\":\"FeatureCollection\",\"features\":[")?;
         with_write_validation(

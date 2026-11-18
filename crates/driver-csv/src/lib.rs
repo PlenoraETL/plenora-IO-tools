@@ -120,6 +120,7 @@ const SCHEMA_OPZIONI: SchemaOpzioniFormato = SchemaOpzioniFormato::nuovo(&[
 
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     "csv",
+    &plenora_io_core::dataset_files::FILE_SETS[0],
     Direction::Bidirectional,
     ReadMode::StreamingSequential,
     // INV-7: `read_record` riga per riga, canale a profondita' 2.
@@ -479,6 +480,7 @@ impl FormatDriver for CsvDriver {
             }
         }
         let Sink::Path(path) = sink;
+        self.descriptor().files().ensure_absent(&path)?;
         if path.exists() {
             return Err(PlenoraIoError::destinazione_esistente());
         }
@@ -535,7 +537,8 @@ impl FormatDriver for CsvDriver {
             opts.durable,
             opts.max_output_bytes(),
             opts.budget().context(),
-        )?;
+        )?
+        .for_dataset(*DESCRIPTOR.files())?;
         let writer = wire::Writer::new(
             staging.reopen()?,
             delimiter(&opts.format_options).ok_or_else(delimiter_non_valido)?,

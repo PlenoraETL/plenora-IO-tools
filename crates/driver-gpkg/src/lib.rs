@@ -92,16 +92,16 @@ fn apri_in_lettura(path: &std::path::Path) -> Result<Connection> {
 }
 
 fn controlla_companion(path: &std::path::Path) -> Result<()> {
-    for suffix in ["-wal", "-shm", "-journal"] {
-        let mut companion = path.as_os_str().to_os_string();
-        companion.push(suffix);
-        match std::fs::symlink_metadata(std::path::Path::new(&companion)) {
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            _ => {
-                return Err(err(&PublicMessage::Curated(
-                    "companion SQLite WAL/SHM/journal non ammesso",
-                )))
-            }
+    for member in DESCRIPTOR
+        .files()
+        .members
+        .iter()
+        .filter(|member| member.read == plenora_io_core::dataset_files::ReadMember::Forbidden)
+    {
+        if plenora_io_core::dataset_files::resolve(&member.path(path))?.is_some() {
+            return Err(err(&PublicMessage::Curated(
+                "companion SQLite WAL/SHM/journal non ammesso",
+            )));
         }
     }
     Ok(())
@@ -330,6 +330,7 @@ const GPKG_ATTRIBUTE_TYPES: &[ArrowTypeClass] = &[
 
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     "gpkg",
+    &plenora_io_core::dataset_files::FILE_SETS[2],
     Direction::Bidirectional,
     ReadMode::StreamingSequential, // pagine keyset, O(batch)
     // INV-7: cursore keyset su rowid.
@@ -571,6 +572,7 @@ impl FormatDriver for GpkgDriver {
         let planned_options = contract_plan::prepare_write(plan, opts)?;
         let opts = &planned_options;
         let Sink::Path(path) = sink;
+        self.descriptor().files().ensure_absent(&path)?;
         if path.exists() {
             return Err(PlenoraIoError::destinazione_esistente());
         }
@@ -620,7 +622,8 @@ impl FormatDriver for GpkgDriver {
             opts.durable,
             opts.max_output_bytes(),
             opts.budget().context(),
-        )?;
+        )?
+        .for_dataset(*DESCRIPTOR.files())?;
         let conn = Connection::open(staging.path()?).map_err(sql_err)?;
         // Bulk-load veloce: la durabilità è garantita dal publish atomico, non
         // dal file temporaneo (un crash a metà non pubblica nulla).

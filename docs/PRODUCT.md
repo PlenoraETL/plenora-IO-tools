@@ -126,17 +126,17 @@ sul disco se il nostro muore a metà.
 |---|---|---|
 | file singolo | `csv`, `geojson`, `kml`, `xlsx`, `dxf`, `gpkg`, `geoparquet`, `arrow` | un rename: il file c'è per intero o non c'è |
 | directory-dataset | `filegdb`, e `shp` con destinazione `*.shp.d` | un rename della directory: tutti i file insieme, o nessuno |
-| set di file sciolti | `shp` con destinazione `*.shp` | **nessuna**: quattro rename in sequenza |
+| set di file sciolti | `shp` con destinazione `*.shp` | **non atomica**: fino a cinque rename in sequenza, con rollback best-effort |
 
 La forma raccomandata in produzione per lo Shapefile è la **directory-dataset**,
 e si ottiene chiedendo una destinazione che finisce in `*.shp.d`. Dentro ci sono
-`data.shp`, `data.shx`, `data.dbf` e `data.prj`, e la directory diventa visibile
+`data.shp`, `data.shx`, `data.dbf`, `data.cpg` e `data.prj`, e la directory diventa visibile
 con un rename solo.
 
 #### Il set sciolto va accettato, non subìto
 
-La forma compatibile — `dati.shp` accanto a `dati.shx`, `dati.dbf`, `dati.prj` —
-**non ha quella garanzia e non può averla**: quattro file separati non si rendono
+La forma compatibile — `dati.shp` accanto a `dati.shx`, `dati.dbf`, `dati.prj`, `dati.cpg` —
+**non ha quella garanzia e non può averla**: cinque file separati non si rendono
 visibili in un atto solo su nessuno dei filesystem supportati. Per questo non si
 ottiene più deducendola dall'estensione: una destinazione `*.shp` è **rifiutata**
 finché non la si accetta con l'opzione di formato
@@ -176,9 +176,36 @@ accanto alla destinazione.
 4. **Ripetere la conversione**, preferibilmente verso `*.shp.d`, dove questa
    procedura non serve.
 
-Lo staging non va cercato: è una directory temporanea che il processo rimuove al
-termine, anche in errore. Ciò che il crollo può lasciare è **solo** accanto alla
-destinazione.
+Lo staging viene rimosso al rientro ordinato, anche in errore. Un arresto
+brusco può lasciare sia file pubblicati parzialmente sia una directory temporanea
+adiacente: dopo aver accertato che nessuna scrittura sia attiva, isolare i residui
+attribuibili al tentativo fallito e ripetere la conversione. Non cancellare
+accessori di provenienza incerta: scegliere una destinazione libera.
+
+Il no-clobber riguarda l'intero insieme dichiarato dal driver, inclusi accessori
+che IO non scrive ma altri programmi rileggono. Qualunque grafia già presente
+produce `OUTPUT_EXISTS`, senza cancellarla. Per SHP comprende `.qix`, `.sbn`,
+`.sbx`, `.shp.xml`, `.prj` e `.cpg`; per CSV `.prj` e `.csvt`; per GPKG
+`-wal`, `-shm` e `-journal`. `VEC.SHP` produce `VEC.SHP`, `VEC.SHX`,
+`VEC.DBF`, `VEC.PRJ`, `VEC.CPG`: ogni lettera dell'estensione conserva la
+forma richiesta (anche `ShP` → `ShX`). Il nome del layer di `nome.shp.d` è
+`nome`; i file interni mantengono il prefisso `data`.
+
+In lettura i companion si risolvono senza distinguere maiuscole e minuscole;
+due candidati con grafie diverse sono un errore di ambiguità. Quota, footprint,
+identità e rifiuto dei symlink comprendono tutti i membri presenti, anche quelli
+estranei noti. SHP richiede `.shp` e `.dbf`; `.shx` è facoltativo, ma se presente
+deve indicizzare tutti i record in ordine, con lunghezze coerenti. Il conteggio
+SHP/DBF viene verificato anche senza SHX. Un `.prj` vuoto va ripristinato oppure
+rimosso fornendo `--assume-crs`; un `.cpg` vuoto va sostituito con una codepage
+supportata oppure rimosso per usare LDID. L'assenza non equivale a un file vuoto.
+
+FileGDB comprende l'intero albero, inclusi indici e lock. Gli staging adiacenti
+`<stem>.plenora-tmp-*.gdb` e i corrispondenti `.lock`, anche maiuscoli, impediscono
+una nuova scrittura con `OUTPUT_EXISTS`. Dopo un crash, verificare che il
+processo proprietario sia terminato, conservare o isolare il relativo staging e
+lock e ripetere verso una destinazione libera. Non rimuovere lock di processi
+attivi. Le directory continuano a essere pubblicate con un solo rename.
 
 ### Che cosa significano le classi di fedeltà
 

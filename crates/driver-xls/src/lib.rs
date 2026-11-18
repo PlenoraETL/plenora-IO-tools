@@ -249,6 +249,7 @@ const SCHEMA_OPZIONI: SchemaOpzioniFormato = SchemaOpzioniFormato::nuovo(&[
 
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     "xls",
+    &plenora_io_core::dataset_files::FILE_SETS[7],
     Direction::Bidirectional,
     ReadMode::StreamingSequential,
     // INV-7: `infer_layout` restituisce lo spool completo prima che `open` costruisca il dataset.
@@ -384,6 +385,7 @@ impl FormatDriver for XlsDriver {
             &opts.format_options,
         )?;
         let Sink::Path(path) = sink;
+        self.descriptor().files().ensure_absent(&path)?;
         if path.exists() {
             return Err(PlenoraIoError::destinazione_esistente());
         }

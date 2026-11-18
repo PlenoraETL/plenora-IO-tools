@@ -12,6 +12,7 @@
 const DESCRITTORE_DI_PROVA: crate::descriptor::FormatDescriptor =
     crate::descriptor::FormatDescriptor::const_new(
         "prova",
+        &crate::dataset_files::FILE_SETS[4],
         crate::descriptor::Direction::Read,
         crate::descriptor::ReadMode::StreamingSequential,
         // I tre assi di INV-7: il descrittore di prova dichiara la
@@ -1402,6 +1403,7 @@ fn geoarrow_field(name: &str, dimensions: Option<&str>) -> Field {
 fn descrittore_che_dichiara_perdite() -> crate::descriptor::FormatDescriptor {
     crate::descriptor::FormatDescriptor::const_new(
         "prova-con-perdite",
+        &crate::dataset_files::FILE_SETS[4],
         crate::descriptor::Direction::Bidirectional,
         crate::descriptor::ReadMode::StreamingSequential,
         crate::descriptor::NativeReadMode::StreamingSequential,
@@ -2142,5 +2144,125 @@ fn bbox_e_orientamento_perduti_sono_dichiarati_tranne_in_ipc() {
             dove,
         );
         assert!(senza.is_empty());
+    }
+}
+
+#[test]
+fn every_dataset_member_is_charged_and_identified() {
+    use crate::dataset_files::{ReadMember, FILE_SETS};
+    for spec in FILE_SETS {
+        for member in spec.members {
+            let dir = tempfile::tempdir().unwrap();
+            let main = dir.path().join("set.main");
+            std::fs::write(&main, b"x").unwrap();
+            for required in spec
+                .members
+                .iter()
+                .filter(|m| m.read == ReadMember::Required)
+            {
+                std::fs::write(required.path(&main), b"").unwrap();
+            }
+            let accessory = member.path(&main);
+            std::fs::write(&accessory, b"123456789").unwrap();
+            let mut small = opzioni_pipeline(PipelineLimits::default().with_max_input_bytes(9));
+            let error = Source::Path(main.clone())
+                .into_paths_observed(&mut small, Some(&spec))
+                .unwrap_err();
+            assert_eq!(error.code, IoErrorCode::LimitExceeded);
+            let mut adequate = opzioni_pipeline(PipelineLimits::default().with_max_input_bytes(10));
+            Source::Path(main.clone())
+                .into_paths_observed(&mut adequate, Some(&spec))
+                .unwrap();
+            assert_eq!(
+                adequate.budget().context().observed_input(),
+                plenora_io_model::budget::ObservedInput::Bytes(10)
+            );
+            let snapshot = || {
+                let mut opts = opzioni_pipeline(PipelineLimits::default());
+                let permit = opts.take_input_permit().unwrap();
+                for path in spec.input(&main).unwrap() {
+                    scopri(opts.budget().context(), &path).unwrap();
+                }
+                opts.budget()
+                    .context()
+                    .observe_input(permit)
+                    .unwrap()
+                    .snapshot()
+            };
+            let before = snapshot();
+            std::fs::write(&accessory, b"1234567890").unwrap();
+            assert!(!before.matches(&snapshot()));
+        }
+    }
+}
+
+#[test]
+fn every_dataset_member_rejects_symlinks_when_supported() {
+    use crate::dataset_files::{ReadMember, FILE_SETS};
+    for spec in FILE_SETS {
+        for member in spec.members {
+            let dir = tempfile::tempdir().unwrap();
+            let main = dir.path().join("set.main");
+            std::fs::write(&main, b"x").unwrap();
+            for required in spec
+                .members
+                .iter()
+                .filter(|m| m.read == ReadMember::Required)
+            {
+                std::fs::write(required.path(&main), b"").unwrap();
+            }
+            let accessory = member.path(&main);
+            if accessory.exists() {
+                std::fs::remove_file(&accessory).unwrap();
+            }
+            #[cfg(windows)]
+            let linked = std::os::windows::fs::symlink_file(&main, &accessory);
+            #[cfg(unix)]
+            let linked = std::os::unix::fs::symlink(&main, &accessory);
+            if let Err(error) = linked {
+                assert!(
+                    error.kind() == std::io::ErrorKind::PermissionDenied
+                        || error.raw_os_error() == Some(1314),
+                    "{error:?}"
+                );
+                eprintln!("symlink non creabile: privilegi insufficienti");
+                return;
+            }
+            let mut opts = opzioni_pipeline(PipelineLimits::default());
+            let error = Source::Path(main)
+                .into_paths_observed(&mut opts, Some(&spec))
+                .unwrap_err();
+            assert!(error.message.contains("symlink"));
+        }
+    }
+}
+
+#[test]
+fn every_primary_and_directory_tree_is_charged() {
+    for spec in crate::dataset_files::FILE_SETS {
+        let dir = tempfile::tempdir().unwrap();
+        let main = dir.path().join("data");
+        if spec.tree {
+            std::fs::create_dir(&main).unwrap();
+            std::fs::write(main.join("a.gdbtable"), b"123456").unwrap();
+            std::fs::write(main.join("b.lock"), b"123456").unwrap();
+        } else {
+            std::fs::write(&main, b"123456789012").unwrap();
+            for required in spec
+                .members
+                .iter()
+                .filter(|m| m.read == crate::dataset_files::ReadMember::Required)
+            {
+                std::fs::write(required.path(&main), b"").unwrap();
+            }
+        }
+        let mut opts = opzioni_pipeline(PipelineLimits::default().with_max_input_bytes(11));
+        assert_eq!(
+            Source::Path(main)
+                .into_paths_observed(&mut opts, Some(&spec))
+                .unwrap_err()
+                .code,
+            IoErrorCode::LimitExceeded
+        );
     }
 }

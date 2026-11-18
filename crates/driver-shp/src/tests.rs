@@ -164,10 +164,7 @@ fn i_conteggi_disallineati_sono_rifiutati_all_apertura_quando_c_e_l_indice() {
         );
 }
 
-/// Lo stesso disallineamento **senza** indice: `shape_count()` non risponde,
-/// il confronto anticipato non avviene, e l'incoerenza emerge durante il
-/// drenaggio. Due rami diversi dello stesso difetto del file — questo
-/// attraversa il parsing delle geometrie, l'altro no.
+/// Anche senza indice la catena dei record viene contata prima del drenaggio.
 #[test]
 fn i_conteggi_disallineati_emergono_nel_drenaggio_senza_indice() {
     let errore = __fuzz_leggi_bundle(
@@ -176,9 +173,9 @@ fn i_conteggi_disallineati_emergono_nel_drenaggio_senza_indice() {
     )
     .expect_err("l'incoerenza va rilevata anche senza `.shx`");
     assert_eq!(
-            errore.message, "cardinalita' Shapefile cambiata durante la lettura",
-            "senza indice il rifiuto deve arrivare dalla lettura, non              dall'apertura: {errore:?}"
-        );
+        errore.message, "numero di geometrie diverso dal numero di record DBF",
+        "anche senza indice il confronto precede la lettura: {errore:?}"
+    );
 }
 
 /// I due punti di arresto di `shapefile`, e la loro regressione.
@@ -4028,30 +4025,8 @@ fn bundle_disallineato(dir: &Path, nome: &str, geometrie: usize, record: usize) 
     corto
 }
 
-/// `spawn_parser` si ferma quando le geometrie finiscono prima dei record,
-/// e i due contatori non possono traboccare.
-///
-/// # Perche' passa dalla costruzione diretta dell'ingresso
-///
-/// Dal driver questa difesa non ha input: `infer_geometry_info` confronta
-/// geometrie e record all'apertura e rifiuta prima. Resta nel parser perche'
-/// fra l'apertura e la lettura il file puo' cambiare, e allora la difesa e'
-/// l'ultima cosa che sta fra un troncamento e una riga con gli attributi di
-/// un'altra. `ShpParserInput` e' privato del modulo, quindi la sonda lo
-/// costruisce dove vive.
-///
-/// # I due contatori
-///
-/// «numero di record Shapefile fuori intervallo u64» e «numero di record DBF
-/// attivi fuori intervallo u64» non hanno input, e non serve una guardia per
-/// dirlo: il ciclo gira al piu' `record_count` volte, e `record_count` e' un
-/// `u32` letto dall'header. Un contatore `u64` che parte da zero e cresce di
-/// uno per giro arriva al massimo a `u32::MAX`.
-///
-/// La difesa simmetrica -- i record che finiscono prima delle geometrie --
-/// e' chiusa altrove: pretenderebbe che l'iteratore di `dbase` si esaurisse
-/// prima del lettore raw, e le due strade per farlo sono percorse e chiuse
-/// in `n1_le_due_letture_del_dbf_non_possono_divergere`.
+/// La prevalidazione confronta nuovamente SHP e DBF prima di avviare il thread.
+/// L'ingresso diretto esercita il rifiuto di un insieme cambiato dopo l'apertura.
 #[test]
 fn n1_spawn_parser_si_ferma_quando_le_geometrie_finiscono_prima_dei_record() {
     let dir = tempfile::tempdir().unwrap();
@@ -4083,67 +4058,12 @@ fn n1_spawn_parser_si_ferma_quando_le_geometrie_finiscono_prima_dei_record() {
         cancellation: plenora_io_model::CancellationToken::new(),
     };
 
-    let mut lettore = spawn_parser(ingresso).expect("le validazioni pre-thread passano");
-    let mut errore = None;
-    loop {
-        match lettore.next_batch() {
-            Ok(Some(_)) => {}
-            Ok(None) => break,
-            Err(e) => {
-                errore = Some(e);
-                break;
-            }
-        }
-    }
-    let Some(errore) = errore else {
-        panic!("tre record contro una geometria non sono un allineamento");
-    };
+    let errore = spawn_parser(ingresso)
+        .err()
+        .expect("il confronto precede il thread");
     assert_eq!(
-        errore.message, "numero di geometrie incoerente con i record DBF",
-        "il messaggio deve dire quale dei due file e' finito prima"
-    );
-
-    // I due contatori: il ciclo gira al piu' `record_count` volte, e quello
-    // e' un `u32`. Un `u64` che cresce di uno per giro non ci arriva.
-    assert!(
-        u64::from(u32::MAX).checked_add(1).is_some(),
-        "un contatore u64 che sale fino a u32::MAX non trabocca: e' la ragione per cui \
-             i due «fuori intervallo u64» non hanno input"
-    );
-
-    // Il controllo positivo, con lo stesso parser: un bundle allineato si
-    // legge fino in fondo. Senza, «fallisce sempre» supererebbe la prova.
-    let allineato = bundle_di_righe(dir.path(), "allineato.shp", &["NOME"], 3, |_| {});
-    let layout = read_dbf_layout(&allineato).expect("il bundle e' conforme");
-    let ingresso = ShpParserInput {
-        path: allineato,
-        schema: schema.clone(),
-        cols: Vec::new(),
-        dbf_layout: layout.clone(),
-        dimensions: CoordinateDimensions::Xy,
-        expected_shape_type: Some("point-xy"),
-        expected_active_rows: u64::from(layout.record_count),
-        include_geometry: true,
-        batch_sizer: plenora_io_core::AdaptiveBatchSizer::new(&schema, BatchTarget::default()),
-        layer: LayerContract {
-            id: LayerId(0),
-            name: "allineato".to_owned(),
-            contract: DataContract::from_schema(schema).unwrap(),
-        },
-        loss: LossReport::default(),
-        row_diagnostics: ShpRowDiagnosticsConfig::from_options(&BTreeMap::new(), &[], &layout)
-            .expect("nessuna opzione di diagnostica"),
-        scope: ReadScope::Complete,
-        cancellation: plenora_io_model::CancellationToken::new(),
-    };
-    let mut lettore = spawn_parser(ingresso).expect("le validazioni pre-thread passano");
-    let mut righe = 0_usize;
-    while let Some(lotto) = lettore.next_batch().expect("un bundle allineato si legge") {
-        righe += lotto.num_rows();
-    }
-    assert_eq!(
-        righe, 3,
-        "tre record allineati a tre geometrie fanno tre righe"
+        errore.message,
+        "numero di geometrie diverso dal numero di record DBF"
     );
 }
 
@@ -6146,4 +6066,213 @@ fn un_prj_oltre_il_tetto_e_un_limite() {
     let errore = resolve_crs(&path, &opzioni_lettura()).unwrap_err();
     assert_eq!(errore.code, plenora_io_model::IoErrorCode::LimitExceeded);
     assert_eq!(errore.driver.as_deref(), Some("shp"));
+}
+
+fn r1_fixture(path: &Path) {
+    let schema = Arc::new(Schema::new(vec![geometry_field(GEOMETRY, "EPSG:4326")]));
+    let plan = WritePlan {
+        layers: vec![WriteLayer {
+            name: "test".to_owned(),
+            contract: DataContract::from_schema(schema.clone()).unwrap(),
+        }],
+    };
+    let point = to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(1.0, 2.0))).unwrap();
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![Arc::new(BinaryArray::from(vec![
+            Some(point.as_slice()),
+            Some(point.as_slice()),
+        ]))],
+    )
+    .unwrap();
+    let mut writer = ShpDriver
+        .create(
+            Sink::Path(path.to_owned()),
+            &plan,
+            &opzioni_scrittura_loose(),
+        )
+        .unwrap();
+    writer.write(&batch).unwrap();
+    writer.finish().unwrap();
+}
+
+#[test]
+fn r1_uppercase_set_preserves_name_and_reads_real_companions() {
+    let dir = tempfile::tempdir().unwrap();
+    let main = dir.path().join("VEC.SHP");
+    r1_fixture(&main);
+    let names = std::fs::read_dir(dir.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .collect::<Vec<_>>();
+    for ext in ["SHP", "SHX", "DBF", "PRJ", "CPG"] {
+        assert!(names.contains(&format!("VEC.{ext}")));
+    }
+    let dataset = ShpDriver.open(Source::Path(main), read_opts()).unwrap();
+    assert_eq!(
+        dataset
+            .open_layer_reader(&req())
+            .unwrap()
+            .next_batch()
+            .unwrap()
+            .unwrap()
+            .num_rows(),
+        2
+    );
+}
+
+#[test]
+fn r1_rejects_duplicate_offsets_and_unindexed_records_before_reading() {
+    for defect in [0, 1, 2, 3] {
+        let dir = tempfile::tempdir().unwrap();
+        let main = dir.path().join("vec.shp");
+        r1_fixture(&main);
+        let shx = main.with_extension("shx");
+        let mut bytes = std::fs::read(&shx).unwrap();
+        if defect == 0 {
+            let first = bytes[100..108].to_vec();
+            bytes[108..116].copy_from_slice(&first);
+            std::fs::write(shx, bytes).unwrap();
+        } else if defect == 1 {
+            bytes.truncate(108);
+            bytes[24..28].copy_from_slice(&54_i32.to_be_bytes());
+            std::fs::write(shx, bytes).unwrap();
+        } else if defect == 2 {
+            std::fs::remove_file(shx).unwrap();
+            let dbf = main.with_extension("dbf");
+            let mut bytes = std::fs::read(&dbf).unwrap();
+            bytes[4..8].copy_from_slice(&1_u32.to_le_bytes());
+            std::fs::write(dbf, bytes).unwrap();
+        } else {
+            let mut bytes = std::fs::read(&main).unwrap();
+            let record = bytes[100..128].to_vec();
+            bytes.extend_from_slice(&record);
+            std::fs::write(&main, bytes).unwrap();
+        }
+        let error = ShpDriver
+            .open(Source::Path(main), read_opts())
+            .err()
+            .unwrap();
+        assert_eq!(error.category, plenora_io_model::ErrorCategory::DataMapping);
+        assert!(
+            error.message.contains("indice")
+                || error.message.contains("numero di record")
+                || error.message.contains("numero di geometrie")
+                || error.message.contains("oltre la lunghezza dichiarata")
+        );
+    }
+}
+
+#[test]
+fn r1_missing_index_is_read_sequentially_and_empty_metadata_has_recovery() {
+    let dir = tempfile::tempdir().unwrap();
+    let main = dir.path().join("vec.shp");
+    r1_fixture(&main);
+    std::fs::remove_file(main.with_extension("shx")).unwrap();
+    let dataset = ShpDriver
+        .open(Source::Path(main.clone()), read_opts())
+        .unwrap();
+    assert_eq!(
+        dataset
+            .open_layer_reader(&req())
+            .unwrap()
+            .next_batch()
+            .unwrap()
+            .unwrap()
+            .num_rows(),
+        2
+    );
+    for ext in ["prj", "cpg"] {
+        let path = main.with_extension(ext);
+        let original = std::fs::read(&path).unwrap();
+        std::fs::write(&path, b"").unwrap();
+        let error = ShpDriver
+            .open(Source::Path(main.clone()), read_opts())
+            .err()
+            .unwrap();
+        assert!(error.message.contains("vuoto"));
+        assert!(error.message.contains("rimuov"));
+        std::fs::write(path, original).unwrap();
+    }
+}
+
+#[test]
+fn r1_directory_set_uses_actual_internal_case_and_container_layer_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("Requested.SHP.D");
+    std::fs::create_dir(&root).unwrap();
+    let main = root.join("DATA.SHP");
+    r1_fixture(&main);
+    let dataset = ShpDriver.open(Source::Path(root), read_opts()).unwrap();
+    assert_eq!(dataset.layers()[0].name, "Requested");
+    assert_eq!(
+        dataset
+            .open_layer_reader(&req())
+            .unwrap()
+            .next_batch()
+            .unwrap()
+            .unwrap()
+            .num_rows(),
+        2
+    );
+}
+
+#[test]
+fn r1_foreign_companion_after_create_blocks_the_entire_loose_set() {
+    let dir = tempfile::tempdir().unwrap();
+    let main = dir.path().join("VEC.SHP");
+    let schema = Arc::new(Schema::new(vec![geometry_field(GEOMETRY, "EPSG:4326")]));
+    let plan = WritePlan {
+        layers: vec![WriteLayer {
+            name: "test".to_owned(),
+            contract: DataContract::from_schema(schema).unwrap(),
+        }],
+    };
+    let writer = ShpDriver
+        .create(Sink::Path(main.clone()), &plan, &opzioni_scrittura_loose())
+        .unwrap();
+    let foreign = dir.path().join("VEC.ShP.XmL");
+    std::fs::write(&foreign, b"foreign").unwrap();
+    assert_eq!(
+        writer.finish().err().unwrap().code,
+        plenora_io_model::IoErrorCode::OutputExists
+    );
+    assert!(!main.exists());
+    assert_eq!(std::fs::read(foreign).unwrap(), b"foreign");
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+}
+
+#[test]
+fn r1_mixed_old_set_is_refused_without_modifying_any_member() {
+    let dir = tempfile::tempdir().unwrap();
+    let main = dir.path().join("VEC.SHP");
+    r1_fixture(&main);
+    let before = std::fs::read_dir(dir.path())
+        .unwrap()
+        .map(|entry| {
+            let path = entry.unwrap().path();
+            let bytes = std::fs::read(&path).unwrap();
+            (path, bytes)
+        })
+        .collect::<Vec<_>>();
+    let schema = Arc::new(Schema::new(vec![geometry_field(GEOMETRY, "EPSG:4326")]));
+    let plan = WritePlan {
+        layers: vec![WriteLayer {
+            name: "new".to_owned(),
+            contract: DataContract::from_schema(schema).unwrap(),
+        }],
+    };
+    let error = ShpDriver
+        .create(
+            Sink::Path(dir.path().join("vec.shp")),
+            &plan,
+            &opzioni_scrittura_loose(),
+        )
+        .err()
+        .unwrap();
+    assert_eq!(error.code, plenora_io_model::IoErrorCode::OutputExists);
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), before.len());
+    for (path, bytes) in before {
+        assert_eq!(std::fs::read(path).unwrap(), bytes);
+    }
 }

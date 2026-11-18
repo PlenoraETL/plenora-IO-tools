@@ -37,6 +37,7 @@ fn senza_opzioni() -> std::collections::BTreeMap<String, String> {
 fn descriptor(crs: CrsWriteSupport) -> FormatDescriptor {
     FormatDescriptor::const_new(
         "test",
+        &crate::dataset_files::FILE_SETS[4],
         Direction::Bidirectional,
         ReadMode::StreamingSequential,
         // I tre assi di INV-7: il descrittore di prova dichiara la

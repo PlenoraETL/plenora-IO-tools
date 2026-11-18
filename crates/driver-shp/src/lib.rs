@@ -517,7 +517,8 @@ fn shapefile_source_path(path: PathBuf) -> Result<PathBuf> {
             &PublicMessage::Curated("directory Shapefile non riconosciuta (atteso *.shp.d)"),
         ));
     }
-    let source = path.join("data.shp");
+    let source = plenora_io_core::dataset_files::resolve(&path.join("data.shp"))?
+        .unwrap_or_else(|| path.join("data.shp"));
     if !source.is_file() {
         return Err(err(&PublicMessage::Curated(
             "directory dataset senza data.shp",
@@ -571,6 +572,7 @@ const SCHEMA_OPZIONI: SchemaOpzioniFormato = SchemaOpzioniFormato::nuovo(&[
 
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     "shp",
+    &plenora_io_core::dataset_files::FILE_SETS[1],
     Direction::Bidirectional,
     ReadMode::StreamingSequential,
     // INV-7: una sola `seek` per saltare l'header, poi sequenziale.
@@ -644,11 +646,20 @@ impl FormatDriver for ShpDriver {
     }
 
     fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
+        let source_name = match &source {
+            Source::Path(p) => p
+                .file_name()
+                .and_then(|n| n.to_str())
+                .filter(|n| n.to_ascii_lowercase().ends_with(".shp.d"))
+                .map(|n| &n[..n.len() - 6])
+                .map(str::to_owned),
+        };
         let path = shapefile_source_path(plenora_io_core::preflight_source(
             self.descriptor(),
             source,
             &mut opts,
         )?)?;
+        valida_struttura_shp(&path)?;
         let crs = resolve_crs(&path, &opts)?;
         // Pass 1: inferenza schema (nomi + tipi) dai record, a RAM O(ncol).
         let ShpInference {
@@ -693,11 +704,12 @@ impl FormatDriver for ShpDriver {
             plenora_io_model::geometry::schema_from_native_fields(&schema, &geometry_contract),
             Some(geometry_contract.clone()),
         );
-        let name = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("layer")
-            .to_owned();
+        let name = source_name.unwrap_or_else(|| {
+            path.file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("layer")
+                .to_owned()
+        });
         plenora_io_core::with_read_budget(
             Box::new(ShpDataset {
                 path,
@@ -732,27 +744,12 @@ impl FormatDriver for ShpDriver {
             &opts.format_options,
         )?;
         let Sink::Path(dest) = sink;
+        self.descriptor().files().ensure_absent(&dest)?;
         let publish_mode = publish_mode(&dest, opts)?;
         if plan.layers.len() != 1 {
             return Err(PlenoraIoError::non_supportato_redatto(
                 &PublicMessage::Curated("Shapefile: un solo layer per file"),
             ));
-        }
-        match publish_mode {
-            ShapefilePublishMode::DirectoryDataset => {
-                if dest.exists() {
-                    return Err(PlenoraIoError::destinazione_esistente());
-                }
-            }
-            ShapefilePublishMode::LooseSet => {
-                // no-clobber sull'intero set.
-                for ext in ["shp", "shx", "dbf", "prj", "cpg"] {
-                    let sibling = dest.with_extension(ext);
-                    if sibling.exists() {
-                        return Err(PlenoraIoError::destinazione_esistente());
-                    }
-                }
-            }
         }
 
         let layer = &plan.layers[0];
@@ -1086,12 +1083,23 @@ impl FormatWriter for ShpWriter {
             }
             ShapefilePublishMode::LooseSet => {
                 // Companion prima, .shp marker per ultimo.
-                let files = ["dbf", "shx", "prj", "cpg", "shp"]
-                    .into_iter()
+                DESCRIPTOR.files().ensure_absent(&self.dest)?;
+                let files = DESCRIPTOR
+                    .files()
+                    .members
+                    .iter()
+                    .filter(|member| member.written)
+                    .filter_map(|member| match member.naming {
+                        plenora_io_core::dataset_files::Naming::Extension(extension) => {
+                            Some(extension)
+                        }
+                        plenora_io_core::dataset_files::Naming::Suffix(_) => None,
+                    })
+                    .chain(std::iter::once("shp"))
                     .map(|extension| {
                         (
                             staging.path().join(format!("data.{extension}")),
-                            self.dest.with_extension(extension),
+                            plenora_io_core::dataset_files::output_companion(&self.dest, extension),
                         )
                     })
                     .filter(|(source, _)| source.exists())
@@ -1623,7 +1631,7 @@ const GRAMMATICHE_DEL_PRJ: &[CrsDefinitionFormat] =
 // --- lettura: helpers ------------------------------------------------------
 
 fn resolve_crs(path: &Path, opts: &ReadOptions) -> Result<ResolvedCrs> {
-    let prj = path.with_extension("prj");
+    let prj = plenora_io_core::dataset_files::companion(path, "prj")?;
     if let Some(wkt) = leggi_prj(&prj)? {
         let assunta = opts.assume_crs.as_deref();
         // Il `.prj` che e' soltanto il nome `OGC:CRS84` lo dichiara; l'opzione
@@ -1706,15 +1714,16 @@ fn leggi_prj(prj: &Path) -> Result<Option<String>> {
         errore.driver = Some("shp".to_owned());
         return Err(errore);
     }
-    // Un BOM iniziale non fa parte del WKT: si toglie, e la definizione
-    // emessa e' quella senza.
-    String::from_utf8(byte)
-        .map(|testo| Some(plenora_io_model::crs_definizione::senza_bom(testo)))
-        .map_err(|_| {
-            PlenoraIoError::crs_redatto(&PublicMessage::Curated(
-                "Shapefile: il .prj non e' testo UTF-8",
-            ))
-        })
+    let testo = String::from_utf8(byte).map_err(|_| {
+        PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+            "Shapefile: il .prj non e' testo UTF-8",
+        ))
+    })?;
+    let testo = plenora_io_model::crs_definizione::senza_bom(testo);
+    if testo.trim().is_empty() {
+        return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated("Shapefile: .prj vuoto; ripristinare il CRS oppure rimuovere il file vuoto e fornire --assume-crs")));
+    }
+    Ok(Some(testo))
 }
 
 fn resolved_crs_id(crs: &ResolvedCrs) -> Result<&str> {
@@ -2038,9 +2047,11 @@ fn byte_utili_dichiarati(intestazione: &[u8; SHP_HEADER_SIZE], dimensione: u64) 
         )));
     }
     let byte = dichiarate * 2;
-    // Un file piu' grande di `i64::MAX` byte non esiste su nessun filesystem
-    // che ci interessa; se esistesse, sarebbe comunque piu' grande di qualunque
-    // lunghezza dichiarabile in `i32`, quindi il confronto passerebbe.
+    if u64::try_from(byte).is_ok_and(|byte| byte < dimensione) {
+        return Err(err(&PublicMessage::Curated(
+            "byte Shapefile oltre la lunghezza dichiarata nell'header",
+        )));
+    }
     if let Ok(reale) = i64::try_from(dimensione) {
         if byte > reale {
             return Err(err(&PublicMessage::Curated(
@@ -2052,7 +2063,7 @@ fn byte_utili_dichiarati(intestazione: &[u8; SHP_HEADER_SIZE], dimensione: u64) 
 }
 
 /// La catena dei record del `.shp`, e i conteggi che ciascuno dichiara.
-fn valida_geometrie_shp(path: &Path) -> Result<i64> {
+fn valida_geometrie_shp(path: &Path) -> Result<(i64, u32)> {
     let file =
         File::open(path).map_err(|_| err(&PublicMessage::Curated("shapefile non valido")))?;
     let dimensione = file
@@ -2066,6 +2077,7 @@ fn valida_geometrie_shp(path: &Path) -> Result<i64> {
         .map_err(|_| err(&PublicMessage::Curated("header Shapefile incompleto")))?;
     let byte_utili = byte_utili_dichiarati(&intestazione, dimensione)?;
 
+    let mut count = 0_u32;
     let mut posizione = SHP_HEADER_BYTE;
     while posizione < byte_utili {
         let mut testa_del_record = [0_u8; 8];
@@ -2101,9 +2113,10 @@ fn valida_geometrie_shp(path: &Path) -> Result<i64> {
                 .seek_relative(saltati)
                 .map_err(|_| err(&PublicMessage::Curated("shapefile non valido")))?;
         }
+        count += 1;
         posizione += SHP_RECORD_HEADER_BYTE + byte_del_record;
     }
-    Ok(byte_utili)
+    Ok((byte_utili, count))
 }
 
 /// La testa di un record, letta **dove l'indice manda**.
@@ -2150,8 +2163,10 @@ fn valida_record_indicizzato(
 /// L'indice e' facoltativo: senza, `shapefile` legge i record in sequenza. Con,
 /// ne usa gli scostamenti per cercare -- e li raddoppia dentro un `i32`.
 fn valida_indice_shx(path: &Path, shp_path: &Path, byte_utili_shp: i64) -> Result<()> {
-    let Ok(file) = File::open(path) else {
-        return Ok(());
+    let file = match File::open(path) {
+        Ok(file) => file,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e.into()),
     };
     let dimensione = file
         .metadata()
@@ -2177,6 +2192,7 @@ fn valida_indice_shx(path: &Path, shp_path: &Path, byte_utili_shp: i64) -> Resul
     );
 
     let mut posizione = SHP_HEADER_BYTE;
+    let mut next_offset = SHP_HEADER_PAROLE;
     while posizione < byte_utili {
         let mut grezza = [0_u8; 8];
         lettore
@@ -2203,7 +2219,18 @@ fn valida_indice_shx(path: &Path, shp_path: &Path, byte_utili_shp: i64) -> Resul
             )));
         }
         valida_record_indicizzato(&mut geometrie, scostamento, parole)?;
+        if scostamento != next_offset {
+            return Err(err(&PublicMessage::Curated(
+                "indice Shapefile incoerente: offset non consecutivi o duplicati",
+            )));
+        }
+        next_offset = scostamento + 4 + parole;
         posizione += SHX_RECORD_BYTE;
+    }
+    if next_offset * 2 != byte_utili_shp {
+        return Err(err(&PublicMessage::Curated(
+            "numero di record .shp diverso dall indice .shx",
+        )));
     }
     Ok(())
 }
@@ -2222,8 +2249,22 @@ fn valida_indice_shx(path: &Path, shp_path: &Path, byte_utili_shp: i64) -> Resul
 /// rifiutato dal decoder, ed e' giusto cosi'. Serve a garantire che il rifiuto
 /// sia un `Err`.
 fn valida_struttura_shp(shp_path: &Path) -> Result<()> {
-    let byte_utili = valida_geometrie_shp(shp_path)?;
-    valida_indice_shx(&shp_path.with_extension("shx"), shp_path, byte_utili)
+    let (byte_utili, count) = valida_geometrie_shp(shp_path)?;
+    let mut header = [0_u8; 8];
+    File::open(plenora_io_core::dataset_files::required(
+        &shp_path.with_extension("dbf"),
+    )?)?
+    .read_exact(&mut header)?;
+    if count != u32::from_le_bytes([header[4], header[5], header[6], header[7]]) {
+        return Err(err(&PublicMessage::Curated(
+            "numero di geometrie diverso dal numero di record DBF",
+        )));
+    }
+    valida_indice_shx(
+        &plenora_io_core::dataset_files::companion(shp_path, "shx")?,
+        shp_path,
+        byte_utili,
+    )
 }
 
 /// La lunghezza minima che `dbase` legge da un campo, per tipo.
@@ -2674,7 +2715,7 @@ fn descrittori_concordi(dichiarati: usize, decodificati: usize) -> Result<()> {
 }
 
 fn read_dbf_layout(shp_path: &Path) -> Result<DbfLayout> {
-    let path = shp_path.with_extension("dbf");
+    let path = plenora_io_core::dataset_files::companion(shp_path, "dbf")?;
     valida_intestazione_dbf(&path)?;
     let encoding = dbf_fidelity::TextEncoding::from_path(&path)?;
     let decoded_names = dbf_fidelity::reader(&path)
@@ -2769,7 +2810,7 @@ enum DbfPhysicalRow {
 impl DbfExactIntegerRows {
     fn open(shp_path: &Path, layout: &DbfLayout) -> Result<Self> {
         let mut reader = BufReader::new(
-            File::open(shp_path.with_extension("dbf"))
+            File::open(plenora_io_core::dataset_files::companion(shp_path, "dbf")?)
                 .map_err(|_| err(&PublicMessage::Curated("apertura del DBF fallita")))?,
         );
         reader
@@ -3259,13 +3300,23 @@ fn shape_type_label(shape_type: Option<&str>) -> &str {
 /// soltanto, M e' opzionale record per record e richiede una scansione; i
 /// comuni percorsi XY/M non devono decodificare tutte le geometrie durante
 /// l'apertura per poi decodificarle di nuovo durante la lettura.
-fn infer_geometry_info(path: &Path, dbf_record_count: u32) -> Result<ShpGeometryInfo> {
+fn open_shapes(path: &Path) -> Result<ShapeReader<BufReader<File>>> {
     valida_struttura_shp(path)?;
-    let mut reader = ShapeReader::from_path(path).map_err(|_| {
+    let source = BufReader::new(File::open(path)?);
+    let index = plenora_io_core::dataset_files::resolve(&path.with_extension("shx"))?;
+    let result = match index {
+        Some(index) => ShapeReader::with_shx(source, BufReader::new(File::open(index)?)),
+        None => ShapeReader::new(source),
+    };
+    result.map_err(|_| {
         err(&PublicMessage::Curated(
-            "apertura delle geometrie Shapefile fallita",
+            "geometrie o indice Shapefile non leggibili",
         ))
-    })?;
+    })
+}
+
+fn infer_geometry_info(path: &Path, dbf_record_count: u32) -> Result<ShpGeometryInfo> {
+    let mut reader = open_shapes(path)?;
     let native_type = reader.header().shape_type;
     if let Ok(shape_count) = reader.shape_count() {
         if shape_count != dbf_record_count as usize {
@@ -3320,8 +3371,8 @@ fn infer_shp_schema(path: &Path) -> Result<ShpInference> {
     // non ci sono campi temporali, una scansione dei record quando ce ne sono --
     // perche' li' il valore, non il descrittore, e' cio' che puo' fermare il
     // lettore.
-    valida_intestazione_dbf(&path.with_extension("dbf"))?;
-    let mut reader = dbf_fidelity::reader(&path.with_extension("dbf"))
+    valida_intestazione_dbf(&plenora_io_core::dataset_files::companion(path, "dbf")?)?;
+    let mut reader = dbf_fidelity::reader(&plenora_io_core::dataset_files::companion(path, "dbf")?)
         .map_err(|_| err(&PublicMessage::Curated("apertura del DBF fallita")))?;
     let mut accs: HashMap<String, TypeAccumulator> = dbf_layout
         .fields
@@ -3463,15 +3514,16 @@ fn spawn_parser(input: ShpParserInput) -> Result<Box<dyn LayerReader>> {
     // dal chiamante come errore tipizzato, invece che dentro un thread appena
     // creato -- dove il panico diventa un abort che nessun `catch_unwind` vede.
     valida_struttura_shp(&path)?;
-    valida_intestazione_dbf(&path.with_extension("dbf"))?;
+    valida_intestazione_dbf(&plenora_io_core::dataset_files::companion(&path, "dbf")?)?;
     let reader = spawn_batch_reader(DESCRIPTOR.id(), layer, 2, move |emitter: BatchEmitter| {
         if scope == ReadScope::AcceptedRows(0) {
             return Ok(());
         }
-        let mut shape_reader = shapefile::ShapeReader::from_path(&path)
-            .map_err(|_| err(&PublicMessage::Curated("shapefile non valido")))?;
-        let mut dbf_reader = dbf_fidelity::reader(&path.with_extension("dbf"))
-            .map_err(|_| err(&PublicMessage::Curated("apertura del DBF fallita")))?;
+        let mut shape_reader =
+            open_shapes(&path).map_err(|_| err(&PublicMessage::Curated("shapefile non valido")))?;
+        let mut dbf_reader =
+            dbf_fidelity::reader(&plenora_io_core::dataset_files::companion(&path, "dbf")?)
+                .map_err(|_| err(&PublicMessage::Curated("apertura del DBF fallita")))?;
         let mut shapes = shape_reader.iter_shapes();
         let mut records = dbf_reader.iter_records();
         let mut exact_rows = DbfExactIntegerRows::open(&path, &dbf_layout)?;

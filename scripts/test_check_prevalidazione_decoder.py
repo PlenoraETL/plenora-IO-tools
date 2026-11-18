@@ -77,7 +77,8 @@ fn valida_bit_width_dizionario(sorgente: &Arc<File>, chunk: &ColumnChunkMetaData
 SHP_CONFORME = """
 fn infer_geometry_info(path: &Path, dbf_record_count: u32) -> Result<ShpGeometryInfo> {
     valida_struttura_shp(path)?;
-    let mut reader = ShapeReader::from_path(path)?;
+    let mut reader = ShapeReader::with_shx(source, index)?;
+    let sequential = ShapeReader::new(source)?;
     Ok(reader.header())
 }
 
@@ -127,6 +128,19 @@ class SondeChiamataNuda(unittest.TestCase):
 
     def test_albero_conforme_non_produce_violazioni(self) -> None:
         self.assertEqual(self.violazioni(verifica(self.albero())), [])
+
+    def test_ogni_costruttore_shp_esige_prevalidazione(self) -> None:
+        for constructor in ("ShapeReader::new", "ShapeReader::with_shx", "ShapeReader::from_path"):
+            with self.subTest(constructor=constructor):
+                mutato = SHP_CONFORME + (
+                    "\nfn senza_guardia() {\n"
+                    f"    let reader = {constructor}(source)?;\n"
+                    "}\n"
+                )
+                errori = self.violazioni(verifica(self.albero({
+                    "crates/driver-shp/src/lib.rs": mutato,
+                })))
+                self.assertTrue(any(constructor in e and "senza" in e for e in errori), errori)
 
     def test_il_decoder_dbf_ritirato_puo_essere_assente(self) -> None:
         mutato = SHP_CONFORME[:SHP_CONFORME.index("fn read_dbf_layout")]

@@ -451,6 +451,7 @@ fn embed_dxf_crs(drawing: &mut Drawing, geometry: &GeometryColumnContract) -> Re
 
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     "dxf",
+    &plenora_io_core::dataset_files::FILE_SETS[6],
     Direction::Bidirectional,
     ReadMode::StreamingSequential,
     // INV-7: il parser riversa l'intera sorgente in uno spool all'apertura.
@@ -611,6 +612,7 @@ impl FormatDriver for DxfDriver {
             &opts.format_options,
         )?;
         let Sink::Path(path) = sink;
+        self.descriptor().files().ensure_absent(&path)?;
         if path.exists() {
             return Err(PlenoraIoError::destinazione_esistente());
         }

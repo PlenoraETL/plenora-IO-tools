@@ -993,6 +993,7 @@ const SCHEMA_OPZIONI: SchemaOpzioniFormato = SchemaOpzioniFormato::nuovo(&[Opzio
 
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     "geoparquet",
+    &plenora_io_core::dataset_files::FILE_SETS[8],
     Direction::Bidirectional,
     ReadMode::StreamingColumnar,
     // INV-7: row group indirizzabili, `SeekFrom::Start` sugli offset del footer.
@@ -1250,6 +1251,7 @@ impl FormatDriver for GeoParquetDriver {
             &opts.format_options,
         )?;
         let Sink::Path(path) = sink;
+        self.descriptor().files().ensure_absent(&path)?;
         if path.exists() {
             return Err(PlenoraIoError::destinazione_esistente());
         }
@@ -1342,7 +1344,8 @@ impl FormatDriver for GeoParquetDriver {
             opts.durable,
             opts.max_output_bytes(),
             opts.budget().context(),
-        )?;
+        )?
+        .for_dataset(*DESCRIPTOR.files())?;
         // Row group da 64k righe: statistiche min/max abbastanza granulari da
         // rendere efficace il row-group pruning in lettura (Fase 2C).
         let props = WriterProperties::builder()

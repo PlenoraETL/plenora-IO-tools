@@ -285,6 +285,7 @@ fn validate_kml_xml<R: BufRead>(input: R, input_bytes: usize) -> Result<()> {
 
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     "kml",
+    &plenora_io_core::dataset_files::FILE_SETS[5],
     Direction::Bidirectional,
     ReadMode::StreamingSequential,
     // INV-7: il parser riversa l'intera sorgente in uno spool all'apertura.
@@ -424,6 +425,7 @@ impl FormatDriver for KmlDriver {
             &opts.format_options,
         )?;
         let Sink::Path(path) = sink;
+        self.descriptor().files().ensure_absent(&path)?;
         if path.exists() {
             return Err(PlenoraIoError::destinazione_esistente());
         }
@@ -453,7 +455,8 @@ impl FormatDriver for KmlDriver {
             opts.durable,
             opts.max_output_bytes(),
             opts.budget().context(),
-        )?;
+        )?
+        .for_dataset(*DESCRIPTOR.files())?;
         let mut output = BufWriter::with_capacity(KML_IO_BUFFER_BYTES, staging.reopen()?);
         output.write_all(
             br#"<?xml version="1.0" encoding="UTF-8"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document>"#,

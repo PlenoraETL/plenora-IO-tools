@@ -50,6 +50,7 @@ const FILEGDB_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport {
 
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     "filegdb",
+    &plenora_io_core::dataset_files::FILE_SETS[3],
     Direction::Bidirectional,
     ReadMode::Materializing,
     // INV-7: `for feature in layer.features()`, iteratore GDAL in avanti.
@@ -514,6 +515,7 @@ impl FormatDriver for FileGdbDriver {
         #[cfg(feature = "gdal-backend")]
         {
             let Sink::Path(path) = sink;
+            self.descriptor().files().ensure_absent(&path)?;
             return backend::create(&path, plan, opts).and_then(|writer| {
                 plenora_io_core::with_write_validation(writer, self.descriptor(), plan, opts)
             });
@@ -535,7 +537,9 @@ mod backend {
     use super::DESCRIPTOR;
 
     use std::collections::{HashMap, HashSet};
-    use std::fs::{File, OpenOptions, TryLockError};
+    #[cfg(test)]
+    use std::fs::TryLockError;
+    use std::fs::{File, OpenOptions};
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Arc;
 
@@ -593,7 +597,7 @@ mod backend {
     const OGR_FIELD_TYPE_KEY: &str = "plenora.filegdb.ogr_field_type";
     const OGR_FIELD_WIDTH_KEY: &str = "plenora.filegdb.width";
     const OGR_FIELD_PRECISION_KEY: &str = "plenora.filegdb.precision";
-    const STAGING_MARKER: &str = ".plenora-tmp-";
+    const STAGING_MARKER: &str = plenora_io_core::dataset_files::FILEGDB_STAGING_MARKER;
     static STAGING_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
     #[derive(Clone, Copy)]
@@ -684,7 +688,7 @@ mod backend {
 
     impl StagingGuard {
         fn create(dest: &Path) -> Result<Self> {
-            recover_orphaned_staging(dest)?;
+            DESCRIPTOR.files().ensure_absent(dest)?;
             let parent = dataset_parent(dest);
             let prefix = staging_prefix(dest);
             loop {
@@ -906,6 +910,7 @@ mod backend {
         format!("{stem}{STAGING_MARKER}")
     }
 
+    #[cfg(test)]
     fn recover_orphaned_staging(dest: &Path) -> Result<usize> {
         let parent = dataset_parent(dest);
         let prefix = staging_prefix(dest);
@@ -1328,6 +1333,10 @@ mod backend {
             }
             #[cfg(test)]
             crash_failpoint("before_publish");
+            DESCRIPTOR.files().ensure_absent_except_staging(
+                &self.dest,
+                &[self.staging.path(), &self.staging.lock_path],
+            )?;
             let outcome = publish_dir_atomic(
                 self.staging.path(),
                 &self.dest,
@@ -2907,6 +2916,25 @@ mod backend {
         }
 
         #[test]
+        fn foreign_staging_lock_before_finish_blocks_publication() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("locked.gdb");
+            let (plan, batch) = point_write_fixture();
+            let mut writer = super::super::FileGdbDriver
+                .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
+                .unwrap();
+            writer.write(&batch).unwrap();
+            let foreign = dir.path().join("LOCKED.PLENORA-TMP-FOREIGN.LOCK");
+            std::fs::write(&foreign, b"foreign").unwrap();
+            assert_eq!(
+                writer.finish().err().unwrap().code,
+                plenora_io_model::IoErrorCode::OutputExists
+            );
+            assert!(!path.exists());
+            assert_eq!(std::fs::read(foreign).unwrap(), b"foreign");
+        }
+
+        #[test]
         fn filegdb_concurrent_staging_does_not_delete_active_writer() {
             let dir = tempfile::tempdir().unwrap();
             let path = dir.path().join("concurrent.gdb");
@@ -2923,13 +2951,14 @@ mod backend {
             let first_artifacts = staging_artifacts(&path);
             assert_eq!(first_artifacts.len(), 2);
 
-            let second = super::super::FileGdbDriver
+            let error = super::super::FileGdbDriver
                 .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
+                .err()
                 .unwrap();
-            assert_eq!(staging_artifacts(&path).len(), 4);
+            assert_eq!(error.code, plenora_io_model::IoErrorCode::OutputExists);
+            assert_eq!(staging_artifacts(&path).len(), 2);
             assert!(first_artifacts.iter().all(|artifact| artifact.exists()));
 
-            drop(second);
             assert!(first_artifacts.iter().all(|artifact| artifact.exists()));
             first.finish().unwrap();
             assert!(path.exists());
@@ -2980,12 +3009,13 @@ mod backend {
 
             let active_artifacts = staging_artifacts(&path);
             let (plan, _) = point_write_fixture();
-            let second = super::super::FileGdbDriver
+            let error = super::super::FileGdbDriver
                 .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
+                .err()
                 .unwrap();
-            let both_stagings_exist = staging_artifacts(&path).len() == 4;
+            assert_eq!(error.code, plenora_io_model::IoErrorCode::OutputExists);
+            let only_active_staging_exists = staging_artifacts(&path).len() == 2;
             let active_was_preserved = active_artifacts.iter().all(|artifact| artifact.exists());
-            drop(second);
             let active_survived_second_cleanup =
                 active_artifacts.iter().all(|artifact| artifact.exists());
 
@@ -2993,7 +3023,7 @@ mod backend {
             let status = child.wait().unwrap();
             assert!(status.success(), "writer attivo fallito: {status}");
             assert_eq!(active_artifacts.len(), 2);
-            assert!(both_stagings_exist);
+            assert!(only_active_staging_exists);
             assert!(active_was_preserved);
             assert!(active_survived_second_cleanup);
             assert!(staging_artifacts(&path).is_empty());
@@ -3046,6 +3076,12 @@ mod backend {
                     assert_eq!(orphaned.len(), 2, "staging orfano atteso");
 
                     let (plan, batch) = point_write_fixture();
+                    let error = super::super::FileGdbDriver
+                        .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
+                        .err()
+                        .unwrap();
+                    assert_eq!(error.code, plenora_io_model::IoErrorCode::OutputExists);
+                    assert_eq!(recover_orphaned_staging(&path).unwrap(), 1);
                     let mut writer = super::super::FileGdbDriver
                         .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
                         .unwrap();
