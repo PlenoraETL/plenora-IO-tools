@@ -123,7 +123,7 @@ fn il_wkb_codificato_non_supera_il_tetto_anche_se_il_json_ci_sta() {
     assert!(
         matches!(
             esito,
-            Err(ref errore) if errore.message.contains("oltre il limite")
+            Err(ref errore) if errore.message.contains("max_wkb_cell_bytes")
         ),
         "la codifica WKB deve fermarsi al tetto: {esito:?}"
     );
@@ -289,7 +289,7 @@ fn inference_uses_configured_wkt_cell_bytes_not_default() {
         matches!(
             esito,
             Err(ref errore) if errore.code == plenora_io_model::IoErrorCode::LimitExceeded
-                || errore.message.contains("oltre il limite")
+                || errore.message.contains("max_wkb_cell_bytes")
         ),
         "una geometria oltre il tetto configurato deve fallire: {esito:?}"
     );
@@ -318,7 +318,7 @@ fn inference_respects_max_rows_before_materialising() {
         unreachable!("l'inferenza deve fermarsi al tetto di feature");
     };
     assert!(
-        errore.message.contains("inferenza"),
+        errore.message.contains("max_rows"),
         "il messaggio deve dire dove ci si e' fermati: {}",
         errore.message
     );

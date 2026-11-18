@@ -15,7 +15,7 @@ pub struct ErrorRule {
 }
 
 macro_rules! rules {
-    ($(($s:ident, $c:ident, $p:ident, $i:ident, $w:literal, $m:literal)),+ $(,)?) => {
+    ($(($s:ident, $c:ident, $p:ident, $i:ident, $w:literal, $m:expr)),+ $(,)?) => {
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         pub enum Situation { $($s),+ }
         pub const ERROR_RULES: &[ErrorRule] = &[$(Situation::$s.rule()),+];
@@ -41,7 +41,7 @@ rules! {
     (MissingGeometry, Unsupported, Write, Capability, "UNSUPPORTED", "il formato di destinazione richiede una geometria"),
     (UnrepresentableWriteType, Unsupported, Write, Capability, "UNSUPPORTED", "tipo non rappresentabile nel formato di destinazione"),
     (NonFiniteWriteValue, DataMapping, Write, Format, "FORMAT_ERROR", "valore non finito non rappresentabile in scrittura"),
-    (ReadMemoryExceeded, ResourceLimit, Read, LimitExceeded, "LIMIT_EXCEEDED", "quota memory_bytes superata durante la lettura"),
+    (ReadMemoryExceeded, ResourceLimit, Read, LimitExceeded, "LIMIT_EXCEEDED", crate::quota::Quota::MemoryBytes.rule().message),
     (IneffectiveCrsAssumption, InvalidConfiguration, Validate, Generic, "CLI_USAGE", "--assume-crs senza effetto: il layer non contiene geometrie"),
     (MissingLayer, NotFound, Prepare, Generic, "NO_LAYER", "layer richiesto non presente"),
     (InvalidQuota, InvalidConfiguration, Validate, Generic, "CLI_USAGE", "le quote devono essere positive e coerenti"),

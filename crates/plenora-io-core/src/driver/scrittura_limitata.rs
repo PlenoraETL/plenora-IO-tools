@@ -77,9 +77,8 @@ impl WriteBatchResources {
         if self.geometry_components > 0 {
             self.geometry_lease
                 .ok_or_else(|| {
-                    PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                        "budget geometrico esaurito",
-                    ))
+                    plenora_io_model::quota::Quota::GeometryComponents
+                        .exceeded(plenora_io_model::ErrorPhase::Write)
                 })?
                 .commit(self.geometry_components)?;
         }
@@ -88,6 +87,19 @@ impl WriteBatchResources {
 }
 
 impl LimitedWriter {
+    fn geometry_quota_error(&self, error: PlenoraIoError) -> PlenoraIoError {
+        let limits = self.budget.context().limits();
+        if error.category == ErrorCategory::ResourceLimit
+            && error.message == plenora_io_model::quota::Quota::WkbComponents.rule().message
+            && self.budget.remaining(OperationCounter::GeometryComponents)
+                < super::saturating_u64(limits.effective_wkb_components())
+        {
+            plenora_io_model::quota::Quota::GeometryComponents.exceeded(ErrorPhase::Write)
+        } else {
+            limits.quota_error(error, ErrorPhase::Write)
+        }
+    }
+
     // Sequenza lineare di contabilizzazioni e guardie, una per limite: la
     // lunghezza e' nel numero di limiti, non in complessita' logica.
     #[allow(clippy::too_many_lines)]
@@ -127,19 +139,11 @@ impl LimitedWriter {
             ));
         }
         if batch.num_columns() > self.limits.max_columns {
-            return Err(PlenoraIoError::limite_redatto(
-                &PublicMessage::CuratedBetween(
-                    "batch con",
-                    NumeroStrutturale::Conteggio(saturating_u64(batch.num_columns())),
-                    "colonne oltre il limite di",
-                    NumeroStrutturale::Limite(saturating_u64(self.limits.max_columns)),
-                ),
-            ));
+            return Err(plenora_io_model::quota::Quota::Columns
+                .exceeded(plenora_io_model::ErrorPhase::Write));
         }
         let batch_rows = u64::try_from(batch.num_rows()).map_err(|_| {
-            PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                "batch oltre il conteggio supportato",
-            ))
+            plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Write)
         })?;
         let layer_rows = *self.layer_rows.get(layer).ok_or_else(|| {
             PlenoraIoError::contratto_redatto(&layer_fuori_dal_piano(saturating_u64(layer)))
@@ -160,19 +164,12 @@ impl LimitedWriter {
             )));
         }
         self.rows = self.rows.checked_add(batch.num_rows()).ok_or_else(|| {
-            PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                "overflow nel conteggio delle righe",
-            ))
+            plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Write)
         })?;
         if self.rows > self.limits.max_rows {
-            return Err(PlenoraIoError::limite_redatto(
-                &PublicMessage::CuratedBetween(
-                    "scritte",
-                    NumeroStrutturale::Conteggio(saturating_u64(self.rows)),
-                    "righe oltre il limite di",
-                    NumeroStrutturale::Limite(saturating_u64(self.limits.max_rows)),
-                ),
-            ));
+            return Err(
+                plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Write)
+            );
         }
         let geometry_components = if let Some(validation) = &self.geometry_validation {
             let mut effective_limits = self.limits;
@@ -203,7 +200,8 @@ impl LimitedWriter {
                 effective_limits.wkb,
                 layer_rows,
                 self.input_totals.get(layer).copied().flatten(),
-            )?;
+            )
+            .map_err(|error| self.geometry_quota_error(error))?;
             for geometry in geometries {
                 let count = validate_geometry_batch_at(
                     validation.driver,
@@ -213,11 +211,11 @@ impl LimitedWriter {
                     effective_limits.wkb,
                     layer_rows,
                     self.input_totals.get(layer).copied().flatten(),
-                )?;
+                )
+                .map_err(|error| self.geometry_quota_error(error))?;
                 components = components.checked_add(count).ok_or_else(|| {
-                    PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                        "overflow nel conteggio dei componenti geometrici",
-                    ))
+                    plenora_io_model::quota::Quota::GeometryComponents
+                        .exceeded(plenora_io_model::ErrorPhase::Write)
                 })?;
             }
             components
@@ -237,9 +235,8 @@ impl LimitedWriter {
             });
         }
         let bytes = u64::try_from(incremental_batch_memory_size(batch)).map_err(|_| {
-            PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                "batch oltre il conteggio byte supportato",
-            ))
+            plenora_io_model::quota::Quota::MemoryBytes
+                .exceeded(plenora_io_model::ErrorPhase::Write)
         })?;
         Ok(WriteBatchResources {
             rows,
@@ -307,9 +304,7 @@ impl FormatWriter for LimitedWriter {
                 .map_err(|error| error.during(ErrorPhase::Write))?;
             resources.commit()?;
             self.layer_rows[0] = self.layer_rows[0].checked_add(rows).ok_or_else(|| {
-                PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                    "overflow nel conteggio righe layer",
-                ))
+                plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Write)
             })?;
             Ok(())
         });
@@ -346,9 +341,7 @@ impl FormatWriter for LimitedWriter {
                 PlenoraIoError::contratto_redatto(&layer_fuori_dal_piano(u64::from(layer.0)))
             })?;
             *layer_rows = layer_rows.checked_add(rows).ok_or_else(|| {
-                PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                    "overflow nel conteggio righe layer",
-                ))
+                plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Write)
             })?;
             Ok(())
         });

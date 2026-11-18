@@ -72,7 +72,7 @@ use plenora_io_model::geometry::is_geometry_field;
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::decode_wkb;
 use plenora_io_model::wkb::{encode_wkb_into_bounded, WkbFlavor};
-use plenora_io_model::{NumeroStrutturale, PlenoraIoError, PublicMessage, Result};
+use plenora_io_model::{PlenoraIoError, PublicMessage, Result};
 
 const NATIVE_READ: (NativeDriver, TransportDirection) =
     (NativeDriver::GeoJson, TransportDirection::Read);
@@ -888,13 +888,9 @@ impl<'de> Visitor<'de> for FeatureVisitor<'_> {
                     .ferma(err(&PublicMessage::Curated("troppe feature GeoJSON")))
             })?;
         if self.accs.source_rows_seen > self.accs.max_feature {
-            let tetto = self.accs.max_feature;
-            return Err(self.accs.ferma(PlenoraIoError::limite_redatto(
-                &PublicMessage::CuratedWith(
-                    "l'inferenza si e' fermata al tetto di feature:",
-                    NumeroStrutturale::Limite(tetto),
-                ),
-            )));
+            return Err(self.accs.ferma(
+                plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Read),
+            ));
         }
         Ok(())
     }
@@ -1289,19 +1285,10 @@ impl<'de> Visitor<'de> for FeatureSink<'_> {
                                 // veniva deserializzata comunque.
                                 let max_bytes = self.sink.limiti_wkb.max_cell_bytes;
                                 if raw_text.len() > max_bytes {
-                                    let letti = raw_text.len();
-                                    return Err(self.sink.ferma(PlenoraIoError::limite_redatto(
-                                        &PublicMessage::CuratedBetween(
-                                            "geometria GeoJSON di",
-                                            NumeroStrutturale::Conteggio(
-                                                driver_common::saturating_u64(letti),
-                                            ),
-                                            "byte oltre il limite di",
-                                            NumeroStrutturale::Limite(
-                                                driver_common::saturating_u64(max_bytes),
-                                            ),
-                                        ),
-                                    )));
+                                    return Err(self.sink.ferma(
+                                        plenora_io_model::quota::Quota::WkbCellBytes
+                                            .exceeded(plenora_io_model::ErrorPhase::Read),
+                                    ));
                                 }
                                 // L'errore e' gia' nostro, con il suo codice:
                                 // passa intero invece di essere appiattito nel

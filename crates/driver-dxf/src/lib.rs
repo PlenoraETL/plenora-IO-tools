@@ -584,7 +584,8 @@ impl FormatDriver for DxfDriver {
                 }
             }
             source_index = source_index.checked_add(1).ok_or_else(|| {
-                PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppe entita DXF"))
+                plenora_io_model::quota::Quota::InputEntries
+                    .exceeded(plenora_io_model::ErrorPhase::Read)
             })?;
         }
         let spool = spool_writer.finish()?;
@@ -617,7 +618,8 @@ impl FormatDriver for DxfDriver {
         for block in drawing.blocks() {
             opts.ensure_active()?;
             let id = LayerId(u32::try_from(layers.len()).map_err(|_| {
-                PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppi blocchi DXF"))
+                plenora_io_model::quota::Quota::InputEntries
+                    .exceeded(plenora_io_model::ErrorPhase::Read)
             })?);
             let result = read_block_object(&drawing, block, &opts, &crs, u64::from(id.0));
             let (contract, content) = match result {
@@ -881,10 +883,10 @@ impl FormatWriter for DxfWriterState {
         self.rows = self
             .rows
             .checked_add(u64::try_from(batch.num_rows()).map_err(|_| {
-                PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppe righe DXF"))
+                plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Read)
             })?)
             .ok_or_else(|| {
-                PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppe righe DXF"))
+                plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Read)
             })?;
         Ok(())
     }
@@ -906,10 +908,8 @@ impl FormatWriter for DxfWriterState {
         let mut output = BoundedOutput::new(buffered, self.max_output_bytes);
         let save_result = self.drawing.save(&mut output);
         if output.exceeded() {
-            return Err(PlenoraIoError::limite_redatto(&PublicMessage::CuratedWith(
-                "output DXF oltre il limite di byte:",
-                NumeroStrutturale::Limite(self.max_output_bytes),
-            )));
+            return Err(plenora_io_model::quota::Quota::OutputBytes
+                .exceeded(plenora_io_model::ErrorPhase::Write));
         }
         save_result.map_err(|_| err(&PublicMessage::Curated("serializzazione DXF fallita")))?;
         output.flush()?;
@@ -1370,9 +1370,8 @@ impl DxfSpoolWriter {
         let length = match value {
             None => DXF_SPOOL_NULL,
             Some(bytes) => u32::try_from(bytes.len()).map_err(|_| {
-                PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                    "valore DXF troppo grande per lo spool",
-                ))
+                plenora_io_model::quota::Quota::InputBytes
+                    .exceeded(plenora_io_model::ErrorPhase::Read)
             })?,
         };
         output.write_all(&length.to_le_bytes())?;
@@ -1427,14 +1426,8 @@ impl DxfSpoolWriter {
             ))
         })?;
         if next > self.limit {
-            return Err(PlenoraIoError::limite_redatto(
-                &PublicMessage::CuratedBetween(
-                    "spool DXF di",
-                    NumeroStrutturale::Conteggio(next),
-                    "byte oltre il limite di",
-                    NumeroStrutturale::Limite(self.limit),
-                ),
-            ));
+            return Err(plenora_io_model::quota::Quota::InputBytes
+                .exceeded(plenora_io_model::ErrorPhase::Read));
         }
         let memory_bytes = dxf_spool_row_memory(&row);
         let spill = matches!(
@@ -2004,12 +1997,9 @@ impl Walker {
         self.emitted_rows = self.emitted_rows.saturating_add(1);
         let vertices = value_coordinate_count(&value);
         if vertices > self.remaining_vertices {
-            return Err(PlenoraIoError::limite_redatto(&PublicMessage::CuratedWith(
-                "vertici DXF oltre il limite residuo di",
-                NumeroStrutturale::Limite(driver_common::saturating_u64(self.remaining_vertices)),
-            )));
+            return Err(plenora_io_model::quota::Quota::Vertices
+                .exceeded(plenora_io_model::ErrorPhase::Read));
         }
-        self.remaining_vertices -= vertices;
         self.geometries.push(Some(WkbGeometry {
             value,
             dimensions: CoordinateDimensions::Xyz,

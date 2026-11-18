@@ -261,7 +261,7 @@ impl BudgetedReader {
     ) -> Result<Self> {
         let columns =
             u64::try_from(inner.contract().contract.schema.fields().len()).map_err(|_| {
-                PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppe colonne nel reader"))
+                plenora_io_model::quota::Quota::Columns.exceeded(plenora_io_model::ErrorPhase::Read)
             })?;
         if columns > 0 {
             budget
@@ -335,9 +335,8 @@ impl BudgetedReader {
                 return Err(terminal_scan_error(
                     limite_o_scadenza(
                         self.budget.context(),
-                        PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                            "budget di memoria esaurito prima della materializzazione del batch",
-                        )),
+                        plenora_io_model::quota::Quota::MemoryBytes
+                            .exceeded(plenora_io_model::ErrorPhase::Read),
                         ErrorPhase::Read,
                     ),
                     &violations,
@@ -373,9 +372,12 @@ impl BudgetedReader {
                     return Err(terminal_scan_error(
                         limite_o_scadenza(
                             self.budget.context(),
-                            PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                                "budget esaurito prima della materializzazione del batch",
-                            )),
+                            (if available_rows == 0 {
+                                plenora_io_model::quota::Quota::Rows
+                            } else {
+                                self.budget.output_quota()
+                            })
+                            .exceeded(ErrorPhase::Read),
                             ErrorPhase::Read,
                         ),
                         &violations,
@@ -439,9 +441,8 @@ impl BudgetedReader {
                 terminal_scan_error(
                     limite_o_scadenza(
                         self.budget.context(),
-                        PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                            "batch oltre il conteggio supportato",
-                        )),
+                        plenora_io_model::quota::Quota::Rows
+                            .exceeded(plenora_io_model::ErrorPhase::Read),
                         ErrorPhase::Read,
                     ),
                     &violations,
@@ -452,9 +453,8 @@ impl BudgetedReader {
                 terminal_scan_error(
                     limite_o_scadenza(
                         self.budget.context(),
-                        PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                            "batch oltre il conteggio byte supportato",
-                        )),
+                        plenora_io_model::quota::Quota::MemoryBytes
+                            .exceeded(plenora_io_model::ErrorPhase::Read),
                         ErrorPhase::Read,
                     ),
                     &violations,
@@ -468,15 +468,14 @@ impl BudgetedReader {
                 return Err(terminal_scan_error(
                     limite_o_scadenza(
                         self.budget.context(),
-                        PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                            if rows > rows_lease.amount() {
-                                "max_rows: batch oltre la quota di righe"
-                            } else if bytes > memory_lease.bytes() {
-                                "memory_bytes: batch oltre la memoria prenotata"
-                            } else {
-                                "max_output_bytes: batch oltre la quota di uscita"
-                            },
-                        )),
+                        (if rows > rows_lease.amount() {
+                            plenora_io_model::quota::Quota::Rows
+                        } else if bytes > memory_lease.bytes() {
+                            plenora_io_model::quota::Quota::MemoryBytes
+                        } else {
+                            self.budget.output_quota()
+                        })
+                        .exceeded(ErrorPhase::Read),
                         ErrorPhase::Read,
                     ),
                     &violations,
@@ -581,9 +580,8 @@ impl BudgetedReader {
                 terminal_scan_error(
                     limite_o_scadenza(
                         self.budget.context(),
-                        PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                            "overflow nel conteggio righe lette",
-                        )),
+                        plenora_io_model::quota::Quota::Rows
+                            .exceeded(plenora_io_model::ErrorPhase::Read),
                         ErrorPhase::Read,
                     ),
                     &violations,
@@ -617,12 +615,8 @@ impl BudgetedReader {
                 return Err(terminal_scan_error(
                     limite_o_scadenza(
                         self.budget.context(),
-                        PlenoraIoError::limite_redatto(&PublicMessage::CuratedBetween(
-                            "ingombro contabilizzato del batch",
-                            NumeroStrutturale::Conteggio(accounted),
-                            "byte oltre la prenotazione di materializzazione di",
-                            NumeroStrutturale::Limite(memory_lease.bytes()),
-                        )),
+                        plenora_io_model::quota::Quota::MemoryBytes
+                            .exceeded(plenora_io_model::ErrorPhase::Read),
                         ErrorPhase::Read,
                     ),
                     &violations,
@@ -891,7 +885,13 @@ fn collect_read_violations(
                 }
                 return Ok(());
             };
-            let Ok(inspected) = inspect_wkb(bytes, &limits) else {
+            let inspection = inspect_wkb(bytes, &limits);
+            if let Err(ref error) = inspection {
+                if error.category == ErrorCategory::ResourceLimit {
+                    return Err(error.clone());
+                }
+            }
+            let Ok(inspected) = inspection else {
                 violations.insert(
                     source_index,
                     ("conversion.invalid_geometry", geometry.name.clone()),
@@ -1023,10 +1023,10 @@ fn read_schema_mismatch() -> PlenoraIoError {
 fn physical_index(row_offset: u64, row: usize) -> Result<u64> {
     row_offset
         .checked_add(u64::try_from(row).map_err(|_| {
-            PlenoraIoError::limite_redatto(&PublicMessage::Curated("indice riga oltre u64"))
+            plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Read)
         })?)
         .ok_or_else(|| {
-            PlenoraIoError::limite_redatto(&PublicMessage::Curated("overflow nell'indice riga"))
+            plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Read)
         })
 }
 
@@ -1085,9 +1085,7 @@ impl ReadViolationAccumulator {
             let column = RowDiagnosticColumn::attest(column);
             self.column_names_attestable &= column.is_attested();
             self.observed_total = self.observed_total.checked_add(1).ok_or_else(|| {
-                PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                    "overflow nel conteggio delle righe diagnosticate",
-                ))
+                plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Read)
             })?;
             let cause_count = self.counts.entry(cause.to_owned()).or_default();
             *cause_count = cause_count.checked_add(1).ok_or_else(|| {
@@ -1351,9 +1349,8 @@ fn geometry_components(
         total = total
             .checked_add(column_geometry_components(geometry, batch, budget)?)
             .ok_or_else(|| {
-                PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                    "overflow nel conteggio dei componenti geometrici",
-                ))
+                plenora_io_model::quota::Quota::GeometryComponents
+                    .exceeded(plenora_io_model::ErrorPhase::Read)
             })?;
     }
     Ok(total)
@@ -1395,15 +1392,33 @@ fn column_geometry_components(
     let array = batch.column(index);
     let mut total = 0_u64;
     let mut inspect = |bytes: &[u8]| -> Result<()> {
-        let components = u64::try_from(inspect_wkb(bytes, &limits)?.components).map_err(|_| {
-            PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                "geometria oltre il conteggio supportato",
-            ))
+        let components = u64::try_from(
+            inspect_wkb(bytes, &limits)
+                .map_err(|error| {
+                    if error.category == ErrorCategory::ResourceLimit
+                        && error.message
+                            == plenora_io_model::quota::Quota::WkbComponents
+                                .exceeded(ErrorPhase::Read)
+                                .message
+                        && budget.remaining(OperationCounter::GeometryComponents)
+                            < u64::try_from(context_limits.effective_wkb_components())
+                                .unwrap_or(u64::MAX)
+                    {
+                        plenora_io_model::quota::Quota::GeometryComponents
+                            .exceeded(ErrorPhase::Read)
+                    } else {
+                        context_limits.quota_error(error, ErrorPhase::Read)
+                    }
+                })?
+                .components,
+        )
+        .map_err(|_| {
+            plenora_io_model::quota::Quota::GeometryComponents
+                .exceeded(plenora_io_model::ErrorPhase::Read)
         })?;
         total = total.checked_add(components).ok_or_else(|| {
-            PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                "overflow nel conteggio dei componenti geometrici",
-            ))
+            plenora_io_model::quota::Quota::GeometryComponents
+                .exceeded(plenora_io_model::ErrorPhase::Read)
         })?;
         Ok(())
     };

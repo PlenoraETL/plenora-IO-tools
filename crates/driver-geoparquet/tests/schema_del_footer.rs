@@ -214,7 +214,7 @@ fn un_footer_oltre_meta_del_tetto_si_rifiuta_dalla_coda() {
     assert!(
         errore
             .to_string()
-            .contains("footer Parquet che dichiara piu' metadati della memoria disponibile"),
+            .contains(plenora_io_model::quota::Quota::MemoryBytes.rule().name),
         "il rifiuto atteso e' quello della coda: {errore}"
     );
 }

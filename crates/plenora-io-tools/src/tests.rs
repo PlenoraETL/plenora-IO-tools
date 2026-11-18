@@ -53,16 +53,14 @@ fn i_flag_atterrano_nei_limiti_della_pipeline() {
 fn la_pipeline_rifiuta_flag_a_zero() {
     // `PipelineLimits::validate` rifiuta le quote nulle: la costruzione
     // propaga l'errore invece di degradare a un default silenzioso.
-    let cli = parse(&[
+    let error = parse(&[
         "convert".to_owned(),
         "--max-rows".to_owned(),
         "0".to_owned(),
     ])
-    .expect("il parser accetta lo zero, e' il modello a rifiutarlo");
-    assert!(PipelineBudget::builder()
-        .limits(cli.limits)
-        .build()
-        .is_err());
+    .err()
+    .expect("la quota zero viene rifiutata dal catalogo");
+    assert_eq!(error.1["error"]["category"], "invalid_configuration");
 }
 
 /// Le due transizioni, nell'ordine, senza un segnale.
@@ -308,20 +306,13 @@ fn memory_bytes_rifiuta_zero_e_valori_non_rappresentabili() {
     ])
     .is_err());
 
-    // Zero: il parser lo accetta come intero, il **modello** lo rifiuta.
-    // La divisione dei compiti è voluta — il parser sa cos'è un numero, il
-    // modello sa quali numeri hanno senso insieme.
-    let cli = parse(&[
+    assert!(parse(&[
         "read".to_owned(),
         "x".to_owned(),
         "--memory-bytes".to_owned(),
-        "0".to_owned(),
+        "0".to_owned()
     ])
-    .expect("il parser accetta lo zero");
-    assert!(PipelineBudget::builder()
-        .limits(cli.limits)
-        .build()
-        .is_err());
+    .is_err());
 
     // Sotto `max_wkb_cell_bytes` senza abbassarla: rifiutato, perché una
     // cella non può valere più di tutta la memoria.

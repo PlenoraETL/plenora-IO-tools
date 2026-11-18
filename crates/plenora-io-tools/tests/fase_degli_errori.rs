@@ -141,8 +141,8 @@ fn l_inferenza_xlsx_dichiara_l_allestimento_del_reader() {
     assert!(
         errore["message"]
             .as_str()
-            .is_some_and(|m| m.contains(&byte_wkt.to_string())),
-        "il messaggio deve nominare la dimensione vera della cella: {busta}"
+            .is_some_and(|m| m.contains("max_wkb_cell_bytes")),
+        "il messaggio deve nominare la quota della cella: {busta}"
     );
 
     assert!(!stretta.exists(), "la destinazione non deve esistere");

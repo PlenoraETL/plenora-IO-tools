@@ -28,6 +28,7 @@ pub mod limits;
 #[cfg(feature = "metrics")]
 pub mod metrics;
 pub mod primary;
+pub mod quota;
 pub mod vocabolario;
 pub mod wkb;
 mod wkb_lossless;

@@ -39,7 +39,7 @@ pub type CliResult = Result<Value, (i32, Value)>;
 pub(crate) const FORMATI_AMMESSI: &str =
     "geoparquet, geojson, csv, gpkg, shp, kml, xls, dxf, filegdb, ipc";
 
-pub(crate) const OPZIONI_AMMESSE: &str = "--assume-crs, --deadline-ms, --durable, --in-opt, --layer, --limit, --max-columns, --max-input-bytes, --max-input-entries, --max-output-bytes, --max-rows, --max-vertices, --max-wkb-cell-bytes, --format, --max-wkb-components, --max-wkb-depth, --memory-bytes, --spill-bytes, --output-expansion-ratio, --decompression-ratio, --opt, --out-opt, --output, --from, --to";
+pub(crate) const OPZIONI_AMMESSE: &str = "--assume-crs, --deadline-ms, --durable, --in-opt, --layer, --limit, --max-columns, --max-geometry-components, --max-input-bytes, --max-input-entries, --max-output-bytes, --max-rows, --max-vertices, --max-wkb-cell-bytes, --format, --max-wkb-components, --max-wkb-depth, --memory-bytes, --spill-bytes, --output-expansion-ratio, --decompression-ratio, --opt, --out-opt, --output, --from, --to";
 
 #[allow(clippy::cast_possible_truncation)]
 const fn saturating_u64(value: usize) -> u64 {
@@ -1029,9 +1029,9 @@ pub fn cmd_write(cli: &Cli) -> CliResult {
         .map_err(map_err)?;
         perdita_in_ingresso.merge(&reader.loss_report());
         righe_totali = righe_totali.checked_add(righe).ok_or_else(|| {
-            map_err(PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                "overflow nel conteggio delle righe scritte",
-            )))
+            map_err(
+                plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Read),
+            )
         })?;
         rapporti.push(json!({"name": strato.name, "rows": righe, "batches": batch}));
     }
@@ -1303,9 +1303,7 @@ fn trasferisci_layer(
     let (mut rows, mut batches) = (0usize, 0usize);
     while let Some(batch) = corrente.take() {
         rows = rows.checked_add(batch.num_rows()).ok_or_else(|| {
-            PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                "overflow nel conteggio righe CLI",
-            ))
+            plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Read)
         })?;
         batches = batches.checked_add(1).ok_or_else(|| {
             PlenoraIoError::limite_redatto(&PublicMessage::Curated(

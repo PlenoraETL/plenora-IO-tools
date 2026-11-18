@@ -549,7 +549,7 @@ pub fn limite_o_scadenza(
     }
     match contesto.ensure_active() {
         Err(scadenza) => scadenza.during(fase),
-        Ok(()) => errore,
+        Ok(()) => contesto.limits().quota_error(errore, fase),
     }
 }
 
@@ -962,20 +962,19 @@ pub fn with_write_validation(
         total
             .checked_add(
                 u64::try_from(layer.contract.schema.fields().len()).map_err(|_| {
-                    PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                        "troppe colonne nel piano",
-                    ))
+                    plenora_io_model::quota::Quota::Columns
+                        .exceeded(plenora_io_model::ErrorPhase::Prepare)
                 })?,
             )
             .ok_or_else(|| {
-                PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                    "overflow nel conteggio delle colonne",
-                ))
+                plenora_io_model::quota::Quota::Columns
+                    .exceeded(plenora_io_model::ErrorPhase::Prepare)
             })
     })?;
     if columns > 0 {
         budget
-            .try_lease(OperationCounter::Columns, columns)?
+            .try_lease(OperationCounter::Columns, columns)
+            .map_err(|error| error.during(ErrorPhase::Prepare))?
             .commit(columns)?;
     }
     Ok(Box::new(LimitedWriter {

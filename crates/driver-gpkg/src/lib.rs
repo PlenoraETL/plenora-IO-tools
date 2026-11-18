@@ -416,7 +416,8 @@ impl FormatDriver for GpkgDriver {
         let mut rifiuti = BTreeMap::new();
         for (i, table_meta) in tables.into_iter().enumerate() {
             let layer_id = LayerId(u32::try_from(i).map_err(|_| {
-                PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppi oggetti GeoPackage"))
+                plenora_io_model::quota::Quota::InputEntries
+                    .exceeded(plenora_io_model::ErrorPhase::Read)
             })?);
             let result = (|| -> Result<(LayerContract, LayerRead)> {
                 validate_object(&conn, &table_meta)?;
@@ -2045,9 +2046,8 @@ impl BudgetForma {
     /// di cui non si e' guardato il resto.
     fn addebita(&mut self, quanti: usize) -> Result<()> {
         self.componenti_residui = self.componenti_residui.checked_sub(quanti).ok_or_else(|| {
-            err(&PublicMessage::Curated(
-                "troppi componenti nella geometria WKB",
-            ))
+            plenora_io_model::quota::Quota::WkbComponents
+                .exceeded(plenora_io_model::ErrorPhase::Write)
         })?;
         Ok(())
     }
@@ -2419,9 +2419,8 @@ fn wkb_shape(payload: &[u8], limiti: &WkbLimits) -> Result<WkbShape> {
     // solo byte: una cella oltre il contratto non e' una geometria di cui
     // valga la pena chiedersi la forma.
     if payload.len() > limiti.max_cell_bytes {
-        return Err(err(&PublicMessage::Curated(
-            "cella WKB oltre il limite di byte",
-        )));
+        return Err(plenora_io_model::quota::Quota::WkbCellBytes
+            .exceeded(plenora_io_model::ErrorPhase::Write));
     }
     let mut budget = BudgetForma::nuovo(limiti);
     Ok(match forma_e_lunghezza(payload, 0, &mut budget)? {

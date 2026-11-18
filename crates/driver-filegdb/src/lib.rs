@@ -1356,12 +1356,13 @@ mod backend {
                 // li' viene prima della quota.
                 return Err(plenora_io_core::driver::limite_o_scadenza(
                     &self.contesto,
-                    PlenoraIoError::limite_redatto(&PublicMessage::CuratedBetween(
-                        "output FileGDB da",
-                        NumeroStrutturale::Conteggio(bytes),
-                        "byte oltre il limite di",
-                        NumeroStrutturale::Limite(self.max_output_bytes),
-                    )),
+                    self.contesto
+                        .output_quota(self.max_output_bytes)
+                        .exceeded_measured(
+                            plenora_io_model::ErrorPhase::Finalize,
+                            bytes,
+                            self.max_output_bytes,
+                        ),
                     plenora_io_model::ErrorPhase::Finalize,
                 ));
             }
@@ -1757,9 +1758,8 @@ mod backend {
                 Ok(value) => value,
                 Err(error) => {
                     let id = LayerId(u32::try_from(i).map_err(|_| {
-                        PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                            "troppi oggetti FileGDB",
-                        ))
+                        plenora_io_model::quota::Quota::InputEntries
+                            .exceeded(plenora_io_model::ErrorPhase::Read)
                     })?);
                     rifiuti.insert(id.0, error);
                     (

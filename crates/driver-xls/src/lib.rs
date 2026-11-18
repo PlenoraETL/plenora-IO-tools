@@ -365,7 +365,8 @@ impl FormatDriver for XlsDriver {
         for (index, sheet) in sheets.iter().enumerate() {
             opts.ensure_active()?;
             let id = LayerId(u32::try_from(index).map_err(|_| {
-                PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppi fogli XLSX"))
+                plenora_io_model::quota::Quota::InputEntries
+                    .exceeded(plenora_io_model::ErrorPhase::Read)
             })?);
             let result = (|| {
                 if sheet.typ != calamine::SheetType::WorkSheet {
@@ -533,32 +534,20 @@ fn validate_archive_ratio(path: &PathBuf, budget: &OperationBudget) -> Result<()
         compressed = compressed
             .checked_add(entry.compressed_size())
             .ok_or_else(|| {
-                PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                    "overflow nel conteggio dei byte compressi XLSX",
-                ))
+                plenora_io_model::quota::Quota::DecompressionRatio
+                    .exceeded(plenora_io_model::ErrorPhase::Read)
             })?;
         expanded = expanded.checked_add(entry.size()).ok_or_else(|| {
-            PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                "overflow nel conteggio dei byte decompressi XLSX",
-            ))
+            plenora_io_model::quota::Quota::DecompressionRatio
+                .exceeded(plenora_io_model::ErrorPhase::Read)
         })?;
     }
-    let allowed = compressed.checked_mul(maximum_ratio).ok_or_else(|| {
-        PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-            "overflow nel calcolo del rapporto di decompressione XLSX",
-        ))
-    })?;
-    if expanded > 0 && (compressed == 0 || expanded > allowed) {
-        return Err(PlenoraIoError::limite_redatto(
-            &PublicMessage::CuratedBetween(
-                "XLSX:",
-                NumeroStrutturale::Conteggio(expanded),
-                "byte decompressi superano il rapporto massimo, moltiplicatore",
-                NumeroStrutturale::Limite(maximum_ratio),
-            ),
-        ));
-    }
-    Ok(())
+    plenora_io_model::quota::Quota::DecompressionRatio.check_ratio(
+        expanded,
+        compressed,
+        maximum_ratio,
+        plenora_io_model::ErrorPhase::Read,
+    )
 }
 
 /// Tetto sulla **lunghezza** di un token, ricavato dai massimi del formato
@@ -1199,25 +1188,14 @@ where
         cornice.end.1 = cornice.end.1.max(colonna);
         let larghezza = data_row_width(*cornice)?;
         if larghezza > quote.colonne {
-            return Err(PlenoraIoError::limite_redatto(
-                &PublicMessage::CuratedBetween(
-                    "XLSX:",
-                    NumeroStrutturale::Conteggio(driver_common::saturating_u64(larghezza)),
-                    "colonne oltre il limite di",
-                    NumeroStrutturale::Limite(driver_common::saturating_u64(quote.colonne)),
-                ),
-            ));
+            return Err(plenora_io_model::quota::Quota::Columns
+                .exceeded(plenora_io_model::ErrorPhase::Read));
         }
         let righe = data_row_count(*cornice)?;
         if righe > quote.righe {
-            return Err(PlenoraIoError::limite_redatto(
-                &PublicMessage::CuratedBetween(
-                    "XLSX:",
-                    NumeroStrutturale::Conteggio(driver_common::saturating_u64(righe)),
-                    "righe oltre il limite di",
-                    NumeroStrutturale::Limite(driver_common::saturating_u64(quote.righe)),
-                ),
-            ));
+            return Err(
+                plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Read)
+            );
         }
     }
     // Nessuna cella: si restituisce la cornice degenere, e a dire che il foglio
@@ -1539,14 +1517,8 @@ impl<'a> BoundedSpoolWriter<'a> {
             ))
         })?;
         if next > self.limit {
-            return Err(PlenoraIoError::limite_redatto(
-                &PublicMessage::CuratedBetween(
-                    "spool XLSX di",
-                    NumeroStrutturale::Conteggio(next),
-                    "byte oltre il limite di",
-                    NumeroStrutturale::Limite(self.limit),
-                ),
-            ));
+            return Err(plenora_io_model::quota::Quota::InputBytes
+                .exceeded(plenora_io_model::ErrorPhase::Read));
         }
         let lease = self.budget.context().lease_spill(length)?;
         self.writer.write_all(bytes)?;
@@ -1696,24 +1668,14 @@ where
     let width = data_row_width(bounds)?;
     let row_count = data_row_count(bounds)?;
     if width > quote.colonne {
-        return Err(PlenoraIoError::limite_redatto(
-            &PublicMessage::CuratedBetween(
-                "XLSX:",
-                NumeroStrutturale::Conteggio(driver_common::saturating_u64(width)),
-                "colonne oltre il limite di",
-                NumeroStrutturale::Limite(driver_common::saturating_u64(quote.colonne)),
-            ),
-        ));
+        return Err(
+            plenora_io_model::quota::Quota::Columns.exceeded(plenora_io_model::ErrorPhase::Read)
+        );
     }
     if row_count > quote.righe {
-        return Err(PlenoraIoError::limite_redatto(
-            &PublicMessage::CuratedBetween(
-                "XLSX:",
-                NumeroStrutturale::Conteggio(driver_common::saturating_u64(row_count)),
-                "righe oltre il limite di",
-                NumeroStrutturale::Limite(driver_common::saturating_u64(quote.righe)),
-            ),
-        ));
+        return Err(
+            plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Read)
+        );
     }
 
     let mut native_loss = LossReport::default();

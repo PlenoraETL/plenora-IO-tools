@@ -398,7 +398,7 @@ fn eof_probe_requires_memory_quota_instead_of_reading_outside_it() {
     let mut reader = budgeted_sequence_with_budget(eventi, budget);
     let errore = reader.next_batch().unwrap_err();
     assert!(
-        errore.message.contains("memoria"),
+        errore.message.contains("memory_bytes"),
         "l'errore deve dire che manca la memoria, non confondersi con le altre quote: {}",
         errore.message
     );
@@ -1757,13 +1757,13 @@ fn collect_read_violations_usa_i_limiti_ricevuti() {
         max_cell_bytes: bytes.len() - 1,
         ..WkbLimits::default()
     };
-    let violazioni = collect_read_violations(&contratto, &batch, 0, &stretto)
-        .expect("il tetto produce una violazione, non un errore");
+    let error = collect_read_violations(&contratto, &batch, 0, &stretto)
+        .expect_err("la quota non deve diventare una violazione dei dati");
     assert_eq!(
-        violazioni.len(),
-        1,
-        "il tetto ricevuto deve essere applicato, non quello predefinito"
+        error.category,
+        plenora_io_model::ErrorCategory::ResourceLimit
     );
+    assert!(error.message.contains("max_wkb_cell_bytes"));
 }
 
 #[test]

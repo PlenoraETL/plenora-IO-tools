@@ -125,7 +125,7 @@ fn entry_cap_is_checked_before_the_byte_sum() {
         .with_max_input_bytes(u64::MAX);
     let error = scan_dir_with(8, limits).expect_err("il tetto entry deve intervenire");
     assert!(
-        error.message.contains("entry"),
+        error.message.contains("max_input_entries"),
         "messaggio: {}",
         error.message
     );

@@ -246,14 +246,12 @@ fn nullability_violations(
             if array.is_null(row) {
                 let source_index = row_offset
                     .checked_add(u64::try_from(row).map_err(|_| {
-                        PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                            "indice riga oltre u64",
-                        ))
+                        plenora_io_model::quota::Quota::Rows
+                            .exceeded(plenora_io_model::ErrorPhase::Write)
                     })?)
                     .ok_or_else(|| {
-                        PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                            "overflow nell'indice riga",
-                        ))
+                        plenora_io_model::quota::Quota::Rows
+                            .exceeded(plenora_io_model::ErrorPhase::Write)
                     })?;
                 violations
                     .entry(source_index)
@@ -283,10 +281,10 @@ fn inspect_geometry_row(
 ) -> Result<()> {
     let source_index = row_offset
         .checked_add(u64::try_from(row).map_err(|_| {
-            PlenoraIoError::limite_redatto(&PublicMessage::Curated("indice riga oltre u64"))
+            plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Write)
         })?)
         .ok_or_else(|| {
-            PlenoraIoError::limite_redatto(&PublicMessage::Curated("overflow nell'indice riga"))
+            plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Write)
         })?;
     if violations.contains_key(&source_index) {
         return Ok(());
@@ -305,7 +303,13 @@ fn inspect_geometry_row(
         }
         return Ok(());
     };
-    let Ok(inspection) = inspect_wkb(bytes, limits) else {
+    let inspection = inspect_wkb(bytes, limits);
+    if let Err(ref error) = inspection {
+        if error.category == plenora_io_model::ErrorCategory::ResourceLimit {
+            return Err(error.clone().during(plenora_io_model::ErrorPhase::Write));
+        }
+    }
+    let Ok(inspection) = inspection else {
         violations.insert(
             source_index,
             WriteRowViolation {
@@ -341,14 +345,12 @@ fn inspect_geometry_row(
     }
     *components = components
         .checked_add(u64::try_from(inspection.components).map_err(|_| {
-            PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                "geometria oltre il conteggio supportato",
-            ))
+            plenora_io_model::quota::Quota::GeometryComponents
+                .exceeded(plenora_io_model::ErrorPhase::Write)
         })?)
         .ok_or_else(|| {
-            PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                "overflow nel conteggio dei componenti geometrici",
-            ))
+            plenora_io_model::quota::Quota::GeometryComponents
+                .exceeded(plenora_io_model::ErrorPhase::Write)
         })?;
     Ok(())
 }

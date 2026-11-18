@@ -3,7 +3,7 @@
 use plenora_io_model::contract::{CoordinateDimensions, GeometryType};
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::{WkbCoordinate, WkbGeometry, WkbValue};
-use plenora_io_model::{NumeroStrutturale, PlenoraIoError, PublicMessage, Result};
+use plenora_io_model::{PlenoraIoError, PublicMessage, Result};
 use wkt::types::{
     Coord, Dimension, GeometryCollection, LineString, MultiLineString, MultiPoint, MultiPolygon,
     Point, Polygon,
@@ -77,14 +77,8 @@ fn validate_finite_coordinate(x: f64, y: f64, z: Option<f64>, m: Option<f64>) ->
 pub fn parse_wkt_bounded(text: &str, limiti: &WkbLimits) -> Result<WkbGeometry> {
     let max_bytes = limiti.max_cell_bytes;
     if text.len() > max_bytes {
-        return Err(PlenoraIoError::limite_redatto(
-            &PublicMessage::CuratedBetween(
-                "cella WKT di",
-                NumeroStrutturale::Conteggio(crate::saturating_u64(text.len())),
-                "byte oltre il limite di",
-                NumeroStrutturale::Limite(crate::saturating_u64(max_bytes)),
-            ),
-        ));
+        return Err(plenora_io_model::quota::Quota::WkbCellBytes
+            .exceeded(plenora_io_model::ErrorPhase::Read));
     }
     let geometria = crate::wkt_progressivo::analizza(text, limiti)?;
     // Simmetria con la scrittura: quello che accettiamo da testo deve poter

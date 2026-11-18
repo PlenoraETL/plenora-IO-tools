@@ -188,24 +188,33 @@ I default sono quelli del modello.
 | `--max-input-bytes` | `268435456` | i byte della sorgente, contati prima di aprirla |
 | `--max-input-entries` | `10000` | le entry di una sorgente che è una directory |
 | `--max-output-bytes` | `1073741824` | i byte della destinazione |
-| `--output-expansion-ratio` | `1000` | rapporto massimo tra byte di uscita e ingresso osservato; resta valido il tetto assoluto |
+| `--output-expansion-ratio` | `1073741824` | rapporto massimo tra byte di uscita e ingresso osservato non vuoto; con i default prevale il tetto assoluto, anche per contenitori con overhead fisso |
 | `--spill-bytes` | `4294967296` | spazio temporaneo di spill |
 | `--decompression-ratio` | `1000` | rapporto massimo di decompressione |
 | `--max-rows` | `10000000` | le righe dell'operazione |
 | `--max-columns` | `4096` | le colonne del contratto |
-| `--max-vertices` | `50000000` | i vertici complessivi |
+| `--max-vertices` | `50000000` | per geometria; alias storico che stringe il conteggio di coordinate e membri di `max_wkb_components` |
+| `--max-geometry-components` | `16777216` | componenti geometrici totali per operazione |
 | `--max-wkb-cell-bytes` | `67108864` | i byte di **una** geometria; non può superare `--memory-bytes` |
 | `--max-wkb-components` | `100000` | i componenti di una geometria |
 | `--max-wkb-depth` | `32` | l'annidamento di una geometria; non può superare i 32 livelli di GEO-011 |
 
-Due vincoli di coerenza si notano solo quando si stringe:
+La coerenza della configurazione si verifica prima della lettura:
 
 * `--max-wkb-cell-bytes` non può superare `--memory-bytes`, e la validazione lo
   rifiuta invece di ridurlo in silenzio;
-* `--memory-bytes` deve restare **oltre il doppio** di un batch materializzato —
-  il target di default è 8 MiB — perché sotto soglia lo spool non ha ancora
-  migrato e la quota deve reggere buffer e batch insieme. Sotto quel valore
-  l'errore è `LIMIT_EXCEEDED`, «batch materializzato oltre la quota prenotata».
+* `--max-wkb-depth` non può superare 32, il limite strutturale del contratto.
+
+Il target di batch (8 MiB) non è una soglia minima di memoria: le prenotazioni
+si adattano al budget disponibile. Il superamento effettivo nomina la quota
+(`memory_bytes`, `max_rows`, `max_output_bytes`, ecc.) ed è `resource_limit`
+nella fase in cui avviene: `read`, `write` o `finalize` per la misura dello
+staging prima della pubblicazione. Un rapporto di espansione esplicitamente
+ristretto può ancora rifiutare un piccolo GPKG: il messaggio nomina
+`output_expansion_ratio`, distinto dal tetto assoluto `max_output_bytes`.
+La tabella autoritativa in codice è `plenora_io_model::quota::QUOTAS`, con
+nomi, flag, campi SDK/runtime, default, unità, ambito e fasi. Il pool runtime
+condivide memoria/spill e aggiunge `concurrent_operations` (default 64).
 
 `--deadline-ms` non è una quota come le altre: quando scade l'operazione si
 ferma e l'errore è `timeout` (`DEADLINE_EXCEEDED`, exit code `5`), come vuole

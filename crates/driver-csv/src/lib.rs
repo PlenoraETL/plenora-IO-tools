@@ -764,11 +764,8 @@ impl QuoteInferenza {
 }
 
 /// Errore di una passata di inferenza che supera il tetto di righe.
-fn oltre_le_righe(righe: usize) -> PlenoraIoError {
-    PlenoraIoError::limite_redatto(&PublicMessage::CuratedWith(
-        "l'inferenza si e' fermata al tetto di righe:",
-        NumeroStrutturale::Limite(driver_common::saturating_u64(righe)),
-    ))
+fn oltre_le_righe(_righe: usize) -> PlenoraIoError {
+    plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Read)
 }
 
 fn infer_types(

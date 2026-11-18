@@ -806,7 +806,7 @@ fn valida_lunghezza_del_footer(file: &File, dimensione: u64, tetto: u64) -> Resu
 
 /// Il footer chiede piu' memoria di quanta la lettura ne abbia.
 pub const MSG_FOOTER_OLTRE_IL_TETTO: &str =
-    "footer Parquet che dichiara piu' metadati della memoria disponibile";
+    plenora_io_model::quota::Quota::MemoryBytes.rule().message;
 
 fn valida_schema_arrow_incorporato(file: File, dimensione: u64, tetto: u64) -> Result<()> {
     use base64::Engine as _;

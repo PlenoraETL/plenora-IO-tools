@@ -383,15 +383,11 @@ fn n1_le_dimensioni_dichiarate_in_zip64_non_sommano_in_silenzio() {
     // Un accumulatore per volta: `(compressa, decompressa)` per ciascuna
     // delle due voci, e il messaggio che deve arrivare.
     let casi: [CasoDiOverflow; 2] = [
-        (
-            "compressi",
-            [(u64::MAX, 2), (1, 3)],
-            "overflow nel conteggio dei byte compressi",
-        ),
+        ("compressi", [(u64::MAX, 2), (1, 3)], "decompression_ratio"),
         (
             "decompressi",
             [(2, u64::MAX), (3, 1)],
-            "overflow nel conteggio dei byte decompressi",
+            "decompression_ratio",
         ),
     ];
 
@@ -634,7 +630,7 @@ fn n1_infer_layout_rifiuta_le_due_quote() {
         panic!("tre colonne oltre una quota di due devono essere rifiutate");
     };
     assert!(
-        errore.message.contains("colonne oltre il limite"),
+        errore.message.contains("max_columns"),
         "atteso il rifiuto sulla larghezza, arrivato «{}»",
         errore.message
     );
@@ -654,7 +650,7 @@ fn n1_infer_layout_rifiuta_le_due_quote() {
         panic!("tre righe oltre una quota di una devono essere rifiutate");
     };
     assert!(
-        errore.message.contains("righe oltre il limite"),
+        errore.message.contains("max_rows"),
         "atteso il rifiuto sull'altezza, arrivato «{}»",
         errore.message
     );
@@ -1526,7 +1522,7 @@ fn n1_bounded_spool_writer_distingue_la_quota_dall_overflow_e_dal_disco() {
         errore.message
     );
     assert!(
-        errore.message.contains("byte oltre il limite di"),
+        errore.message.contains("max_input_bytes"),
         "il messaggio deve dire qual e' il limite, arrivato «{}»",
         errore.message
     );
@@ -2480,7 +2476,7 @@ fn il_wkb_codificato_non_supera_il_tetto_anche_se_il_testo_ci_sta() {
         .err()
         .map(|errore| errore.message);
     assert!(
-        matches!(messaggio, Some(ref testo) if testo.contains("oltre il limite")),
+        matches!(messaggio, Some(ref testo) if testo.contains("max_wkb_cell_bytes")),
         "la codifica WKB deve fermarsi al tetto, non il parsing del testo: {messaggio:?}"
     );
 }
@@ -2945,18 +2941,9 @@ fn n1_il_rapporto_di_decompressione_non_trabocca_in_silenzio() {
             plenora_io_model::budget::PipelineLimits::default().with_decompression_ratio(u64::MAX),
         ),
     );
-    let Err(errore) = esito else {
-        panic!("il prodotto deve traboccare e fallire chiuso");
-    };
-    assert_eq!(
-        errore.category,
-        plenora_io_model::ErrorCategory::ResourceLimit,
-        "un overflow di calcolo e' un limite, non un formato non valido"
-    );
     assert!(
-        errore.message.contains("overflow"),
-        "il messaggio deve dire che si tratta di un overflow: {}",
-        errore.message
+        esito.is_ok(),
+        "un rapporto ampio non deve creare un falso superamento"
     );
 }
 
@@ -3205,6 +3192,12 @@ fn xlsx_decompression_ratio_is_checked_before_cell_materialization() {
         error.category,
         plenora_io_model::ErrorCategory::ResourceLimit
     );
+    assert_eq!(error.phase, plenora_io_model::ErrorPhase::Read);
+    assert!(error.message.contains(
+        plenora_io_model::quota::Quota::DecompressionRatio
+            .rule()
+            .name
+    ));
 }
 
 #[test]
@@ -3627,7 +3620,7 @@ fn n1_le_quote_valgono_anche_sui_limiti_ricavati() {
         panic!("due colonne ricavate oltre una quota di una devono essere rifiutate");
     };
     assert!(
-        errore.message.contains("colonne oltre il limite"),
+        errore.message.contains("max_columns"),
         "atteso il rifiuto sulla larghezza ricavata, arrivato «{}»",
         errore.message
     );

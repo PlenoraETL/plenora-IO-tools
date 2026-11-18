@@ -345,6 +345,21 @@ class ContrIlBinarioVero(unittest.TestCase):
                 cliente.validate(source, limits=Limits(max_rows=0))
             self.assertEqual(invalid.exception.envelope.code, "CLI_USAGE")
 
+    def test_r4c_tutte_le_quote_sdk_rifiutano_zero_e_negativi(self) -> None:
+        from dataclasses import fields
+        cliente = self.nuovo_client()
+        with TemporaryDirectory() as directory:
+            source = Path(directory) / "missing.csv"
+            for field in fields(Limits):
+                if field.name == "deadline":
+                    continue
+                for value in (0, -1):
+                    with self.subTest(quota=field.name, value=value):
+                        with self.assertRaises(InvalidConfigurationError) as invalid:
+                            cliente.validate(source, limits=Limits(**{field.name: value}))
+                        self.assertEqual(invalid.exception.envelope.code, "CLI_USAGE")
+                        self.assertIn(field.name, invalid.exception.envelope.message)
+
     def test_un_tetto_superato_e_un_errore_tipizzato(self) -> None:
         """La difesa che scatta e' un'informazione, non un guasto: chi la
         incontra alza il tetto o riduce il lavoro, e in entrambi i casi decide."""

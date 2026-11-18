@@ -54,7 +54,7 @@ class ITetti(unittest.TestCase):
 
     def test_zero_non_e_assente(self) -> None:
         """`None` vuol dire «non lo passo», `0` vuol dire «zero», e il prodotto
-        li tratta diversamente: `--limit 0` produce una busta con zero righe."""
+        li tratta diversamente: `max_rows=0` produce invalid_configuration dal prodotto."""
         self.assertEqual(Limits(max_rows=0).to_argv(), ["--max-rows", "0"])
 
 

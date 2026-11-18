@@ -27,9 +27,12 @@ pub struct WkbLimits {
 impl Default for WkbLimits {
     fn default() -> Self {
         Self {
-            max_cell_bytes: 64 * 1024 * 1024,
-            max_components: 100_000,
-            max_depth: PROFONDITA_WKB_CONTRATTO,
+            max_cell_bytes: usize::try_from(crate::quota::Quota::WkbCellBytes.rule().default)
+                .expect("default quota entro usize"),
+            max_components: usize::try_from(crate::quota::Quota::WkbComponents.rule().default)
+                .expect("default quota entro usize"),
+            max_depth: usize::try_from(crate::quota::Quota::WkbDepth.rule().default)
+                .expect("default quota entro usize"),
         }
     }
 }

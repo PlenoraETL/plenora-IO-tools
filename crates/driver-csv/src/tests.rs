@@ -59,7 +59,7 @@ fn il_wkb_codificato_non_supera_il_tetto_anche_se_il_testo_ci_sta() {
     assert!(
         matches!(
             esito,
-            Err(ref errore) if errore.message.contains("oltre il limite")
+            Err(ref errore) if errore.message.contains("max_wkb_cell_bytes")
         ),
         "la codifica WKB deve fermarsi al tetto: {esito:?}"
     );
@@ -407,7 +407,7 @@ fn inference_respects_max_rows_before_materialising() {
     };
     assert_eq!(errore.code, plenora_io_model::IoErrorCode::LimitExceeded);
     assert!(
-        errore.message.contains("inferenza"),
+        errore.message.contains("max_rows"),
         "il messaggio deve dire dove ci si e' fermati: {}",
         errore.message
     );

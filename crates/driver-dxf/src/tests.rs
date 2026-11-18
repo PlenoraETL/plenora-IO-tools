@@ -2159,10 +2159,14 @@ fn lo_spool_su_file_dichiara_la_fase_di_lettura_sul_tetto_per_cella() {
         "lo spool si sta scorrendo: valeva `validate` finche' la fase la          dichiarava l'analizzatore condiviso: {errore}"
     );
     // La correzione riguarda la sola fase: gli altri assi non si muovono.
-    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Wkb, "{errore}");
+    assert_eq!(
+        errore.code,
+        plenora_io_model::IoErrorCode::LimitExceeded,
+        "{errore}"
+    );
     assert_eq!(
         errore.category,
-        plenora_io_model::ErrorCategory::DataMapping,
+        plenora_io_model::ErrorCategory::ResourceLimit,
         "{errore}"
     );
     assert_eq!(

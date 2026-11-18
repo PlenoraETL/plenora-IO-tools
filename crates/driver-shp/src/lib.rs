@@ -1082,12 +1082,13 @@ impl FormatWriter for ShpWriter {
             // viene prima della quota.
             return Err(plenora_io_core::driver::limite_o_scadenza(
                 &self.contesto,
-                PlenoraIoError::limite_redatto(&PublicMessage::CuratedBetween(
-                    "output Shapefile da",
-                    NumeroStrutturale::Conteggio(staged_bytes),
-                    "byte oltre il limite di",
-                    NumeroStrutturale::Limite(self.max_output_bytes),
-                )),
+                self.contesto
+                    .output_quota(self.max_output_bytes)
+                    .exceeded_measured(
+                        plenora_io_model::ErrorPhase::Finalize,
+                        staged_bytes,
+                        self.max_output_bytes,
+                    ),
                 plenora_io_model::ErrorPhase::Finalize,
             ));
         }
@@ -1462,7 +1463,7 @@ const fn shape_tag(s: &Shape) -> &'static str {
 /// lotto non entra in `u64`, o se la somma con le righe gia' scritte trabocca.
 fn righe_dopo_il_lotto(gia_scritte: u64, nel_lotto: usize) -> Result<u64> {
     let troppe =
-        || PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppe righe Shapefile"));
+        || plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Read);
     let nel_lotto = u64::try_from(nel_lotto).map_err(|_| troppe())?;
     gia_scritte.checked_add(nel_lotto).ok_or_else(troppe)
 }
@@ -1480,9 +1481,8 @@ fn righe_dopo_il_lotto(gia_scritte: u64, nel_lotto: usize) -> Result<u64> {
 fn byte_dello_staging(dimensioni: impl IntoIterator<Item = u64>) -> Result<u64> {
     dimensioni.into_iter().try_fold(0_u64, |totale, byte| {
         totale.checked_add(byte).ok_or_else(|| {
-            PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                "overflow nel conteggio dell'output Shapefile",
-            ))
+            plenora_io_model::quota::Quota::OutputBytes
+                .exceeded(plenora_io_model::ErrorPhase::Finalize)
         })
     })
 }

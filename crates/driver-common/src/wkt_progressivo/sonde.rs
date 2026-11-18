@@ -57,7 +57,7 @@ fn il_rifiuto_e_quello_del_tetto_non_quello_della_coda() {
     let errore = analizza(&testo, &stretti(3, 64)).unwrap_err();
     let reso = format!("{errore}");
     assert!(
-        reso.contains("limite") || reso.contains("componenti"),
+        reso.contains("max_wkb_components"),
         "atteso il rifiuto del tetto, ottenuto: {reso}"
     );
 }

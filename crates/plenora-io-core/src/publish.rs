@@ -9,7 +9,7 @@ use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 
 use plenora_io_model::budget::PipelineContext;
-use plenora_io_model::{ErrorPhase, NumeroStrutturale, PublicMessage};
+use plenora_io_model::{ErrorPhase, PublicMessage};
 use plenora_io_model::{PlenoraIoError, RemoteEffect, Result, RetryDisposition};
 use tempfile::{NamedTempFile, TempDir};
 
@@ -275,12 +275,11 @@ pub fn publish_file_atomic_limited(
         // scadenza e' passata li', viene prima della quota.
         return Err(crate::driver::limite_o_scadenza(
             contesto,
-            PlenoraIoError::limite_alla_pubblicazione_redatto(&PublicMessage::CuratedBetween(
-                "output da",
-                NumeroStrutturale::Conteggio(bytes),
-                "byte oltre il limite di",
-                NumeroStrutturale::Limite(max_output_bytes),
-            )),
+            contesto.output_quota(max_output_bytes).exceeded_measured(
+                ErrorPhase::Finalize,
+                bytes,
+                max_output_bytes,
+            ),
             ErrorPhase::Finalize,
         ));
     }
@@ -372,9 +371,8 @@ pub fn publish_files_ordered_limited(
         bytes = bytes.checked_add(metadata.len()).ok_or_else(|| {
             crate::driver::limite_o_scadenza(
                 contesto,
-                PlenoraIoError::limite_alla_pubblicazione_redatto(&PublicMessage::Curated(
-                    "overflow nel conteggio dell'output",
-                )),
+                plenora_io_model::quota::Quota::OutputBytes
+                    .exceeded(plenora_io_model::ErrorPhase::Finalize),
                 ErrorPhase::Finalize,
             )
         })?;
@@ -382,12 +380,11 @@ pub fn publish_files_ordered_limited(
     if bytes > max_output_bytes {
         return Err(crate::driver::limite_o_scadenza(
             contesto,
-            PlenoraIoError::limite_alla_pubblicazione_redatto(&PublicMessage::CuratedBetween(
-                "output da",
-                NumeroStrutturale::Conteggio(bytes),
-                "byte oltre il limite di",
-                NumeroStrutturale::Limite(max_output_bytes),
-            )),
+            contesto.output_quota(max_output_bytes).exceeded_measured(
+                ErrorPhase::Finalize,
+                bytes,
+                max_output_bytes,
+            ),
             ErrorPhase::Finalize,
         ));
     }

@@ -327,16 +327,8 @@ pub fn validate_write(
             ));
         }
         if layer.contract.schema.fields().len() > max_columns {
-            return Err(PlenoraIoError::limite_redatto(
-                &PublicMessage::CuratedBetween(
-                    "layer con",
-                    NumeroStrutturale::Conteggio(crate::driver::saturating_u64(
-                        layer.contract.schema.fields().len(),
-                    )),
-                    "colonne oltre il limite di",
-                    NumeroStrutturale::Limite(crate::driver::saturating_u64(max_columns)),
-                ),
-            ));
+            return Err(plenora_io_model::quota::Quota::Columns
+                .exceeded(plenora_io_model::ErrorPhase::Validate));
         }
 
         plenora_io_model::primary::validate_contract(&layer.contract)?;

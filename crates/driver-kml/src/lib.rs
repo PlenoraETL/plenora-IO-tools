@@ -369,19 +369,17 @@ impl FormatDriver for KmlDriver {
         while let Some(placemark) = stream.next_isolated_placemark(
             opts.cancellation(),
             u64::try_from(stats.rows).map_err(|_| {
-                PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppe righe KML"))
+                plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Read)
             })?,
             &mut rifiuti,
         )? {
             opts.ensure_active()?;
             if stats.rows >= opts.max_rows() {
-                return Err(PlenoraIoError::limite_redatto(&PublicMessage::CuratedWith(
-                    "KML: Placemark oltre il limite di",
-                    NumeroStrutturale::Limite(driver_common::saturating_u64(opts.max_rows())),
-                )));
+                return Err(plenora_io_model::quota::Quota::Rows
+                    .exceeded(plenora_io_model::ErrorPhase::Read));
             }
             let source_index = u64::try_from(stats.rows).map_err(|_| {
-                PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppe righe KML"))
+                plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Read)
             })?;
             let geometry = stats
                 .observe(&placemark, opts.cancellation())
@@ -416,7 +414,8 @@ impl FormatDriver for KmlDriver {
         let mut ranges = vec![(0, rows)];
         for (name, start, end) in stream.objects {
             let id = LayerId(u32::try_from(layers.len()).map_err(|_| {
-                PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppi oggetti KML"))
+                plenora_io_model::quota::Quota::InputEntries
+                    .exceeded(plenora_io_model::ErrorPhase::Read)
             })?);
             layers.push(LayerContract {
                 id,
@@ -697,14 +696,8 @@ impl<'a> KmlSpoolWriter<'a> {
             ))
         })?;
         if next > self.limit {
-            return Err(PlenoraIoError::limite_redatto(
-                &PublicMessage::CuratedBetween(
-                    "spool KML di",
-                    NumeroStrutturale::Conteggio(next),
-                    "byte oltre il limite di",
-                    NumeroStrutturale::Limite(self.limit),
-                ),
-            ));
+            return Err(plenora_io_model::quota::Quota::InputBytes
+                .exceeded(plenora_io_model::ErrorPhase::Read));
         }
         let lease = self.budget.context().lease_spill(length)?;
         self.output.write_all(bytes)?;
@@ -717,9 +710,8 @@ impl<'a> KmlSpoolWriter<'a> {
         let length = match value {
             None => SPOOL_NULL,
             Some(bytes) => u32::try_from(bytes.len()).map_err(|_| {
-                PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                    "valore KML troppo grande per lo spool",
-                ))
+                plenora_io_model::quota::Quota::InputBytes
+                    .exceeded(plenora_io_model::ErrorPhase::Read)
             })?,
         };
         self.write(&length.to_le_bytes())?;
@@ -1349,7 +1341,8 @@ impl PlacemarkStream {
                     self.next_event(cancellation)?;
                 }
                 let id = u32::try_from(self.objects.len()).map_err(|_| {
-                    PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppi oggetti KML"))
+                    plenora_io_model::quota::Quota::InputEntries
+                        .exceeded(plenora_io_model::ErrorPhase::Read)
                 })?;
                 rejections.insert(id, error);
                 self.unsupported = self.unsupported.saturating_add(1);
@@ -1589,10 +1582,10 @@ impl FormatWriter for KmlWriterState {
         self.rows = self
             .rows
             .checked_add(u64::try_from(batch.num_rows()).map_err(|_| {
-                PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppe righe KML"))
+                plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Read)
             })?)
             .ok_or_else(|| {
-                PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppe righe KML"))
+                plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Read)
             })?;
         Ok(())
     }

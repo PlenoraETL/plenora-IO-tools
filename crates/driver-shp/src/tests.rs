@@ -4134,7 +4134,7 @@ fn n1_righe_dopo_il_lotto_ferma_il_contatore_che_traboccherebbe() {
     let Err(errore) = righe_dopo_il_lotto(u64::MAX, 1) else {
         panic!("una riga oltre l'ultimo valore rappresentabile non si conta");
     };
-    assert_eq!(errore.message, "troppe righe Shapefile");
+    assert_eq!(errore.message, "max_rows quota superata");
     assert_eq!(
         errore.category,
         plenora_io_model::ErrorCategory::ResourceLimit
@@ -4194,7 +4194,7 @@ fn n1_il_contatore_che_trabocca_ferma_il_lotto_prima_di_scriverlo() {
     let Err(errore) = stato.write(&lotto) else {
         panic!("un lotto che fa traboccare il contatore non si scrive");
     };
-    assert_eq!(errore.message, "troppe righe Shapefile");
+    assert_eq!(errore.message, "max_rows quota superata");
     assert_eq!(
         std::fs::metadata(&percorso_shp)
             .expect("il file di staging esiste ancora")
@@ -4229,10 +4229,7 @@ fn n1_byte_dello_staging_non_trabocca_in_silenzio() {
     let Err(errore) = byte_dello_staging([u64::MAX, 1]) else {
         panic!("una somma oltre u64::MAX non e' un conteggio");
     };
-    assert_eq!(
-        errore.message,
-        "overflow nel conteggio dell'output Shapefile"
-    );
+    assert_eq!(errore.message, "max_output_bytes quota superata");
     assert_eq!(
         errore.category,
         plenora_io_model::ErrorCategory::ResourceLimit
@@ -5458,7 +5455,7 @@ fn n1_finish_conta_i_byte_dello_staging_prima_di_pubblicare() {
         errore.message
     );
     assert!(
-        errore.message.contains("byte oltre il limite di"),
+        errore.message.contains("max_output_bytes"),
         "il messaggio deve dire qual e' il limite: «{}»",
         errore.message
     );
