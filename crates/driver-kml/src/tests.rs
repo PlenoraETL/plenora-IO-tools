@@ -1020,6 +1020,45 @@ fn native_inventory_kml_reproduction() {
 }
 
 #[test]
+fn native_object_children_are_not_additional_foreign_omissions() {
+    for (extra, category) in [
+        (
+            "<ExtendedData><Data name=\"value\"><value>payload</value></Data></ExtendedData>",
+            "kml_extended_data_not_preserved",
+        ),
+        (
+            "<NetworkLink><Link><href>relative.kml</href></Link></NetworkLink>",
+            "native_external_reference_not_followed",
+        ),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("native.kml");
+        std::fs::write(&path, format!("<kml><Placemark>{extra}<Point><altitudeMode>absolute</altitudeMode><coordinates>1,2</coordinates></Point></Placemark></kml>")).unwrap();
+        let dataset = KmlDriver
+            .open(Source::Path(path), opzioni_lettura())
+            .unwrap();
+        let mut reader = dataset
+            .open_layer_reader(&ReadRequest {
+                layer: LayerId(0),
+                projected_fields: None,
+                projection_mode: ProjectionMode::BestEffort,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                scope: ReadScope::Complete,
+                batch_target: BatchTarget::default(),
+                cancellation: CancellationToken::default(),
+            })
+            .unwrap();
+        let batch = reader.next_batch().unwrap().unwrap();
+        assert_eq!(batch.num_rows(), 1);
+        assert_eq!(batch.num_columns(), 3);
+        let report = reader.loss_report();
+        assert_eq!(report.counts.get(category), Some(&1));
+        assert_eq!(report.counts.len(), 1, "{report:?}");
+    }
+}
+
+#[test]
 fn native_fourth_ordinate_is_not_silently_discarded() {
     let error = event_parser_error(
         "<kml><Placemark><Point><coordinates>1,2,3,4</coordinates></Point></Placemark></kml>",

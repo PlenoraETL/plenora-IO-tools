@@ -1,6 +1,8 @@
 //! Additive qualification for group A. Native bytes never use an IO writer.
 use super::native::group_a_xlsx_document;
 use super::*;
+#[path = "group_a_second.rs"]
+mod second;
 
 pub(super) fn owns(driver: &str) -> bool {
     matches!(driver, "geojson" | "kml" | "csv" | "xls" | "ipc")
@@ -39,6 +41,9 @@ pub(super) fn exercise(
         return ipc_read(element, root, row);
     }
     if direction == D::Read && driver != "ipc" {
+        if second::rejection(driver, element, root, row) {
+            return true;
+        }
         return read(driver, native, element, root, row);
     }
     let Some(fixtures) = factory(element) else {
@@ -400,7 +405,8 @@ fn document_read(
     root: &Path,
     row: &mut Value,
 ) -> bool {
-    let Some(document) = document(driver, element) else {
+    let Some(document) = document(driver, element).or_else(|| second::document(driver, element))
+    else {
         return false;
     };
     let dir = tempfile::tempdir_in(root).unwrap();
@@ -413,6 +419,7 @@ fn document_read(
         let after = native_batch(&input, &output, driver);
         let differences = compare(&document.faithful, &after);
         let mut observed = counts(native, D::Read, &differences);
+        second::normalize_native_order(&differences, &mut observed);
         // A native-only omission is valid only if no unexpected representation
         // appears in the returned schema/columns. Added metadata is inspected too.
         let extra_fields = after.num_columns() != document.faithful.num_columns()

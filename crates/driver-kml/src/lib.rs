@@ -820,6 +820,16 @@ impl PlacemarkStream {
     }
 
     fn observe_native_element(&mut self, element: &BytesStart<'_>) {
+        // These semantic objects are omitted as a whole. Their native children
+        // and attributes are part of that same omission, not foreign members.
+        if self.element_stack.iter().any(|ancestor| {
+            matches!(
+                local_xml_name(ancestor),
+                b"ExtendedData" | b"NetworkLink" | b"GroundOverlay"
+            )
+        }) {
+            return;
+        }
         let name = element.local_name();
         let name = name.as_ref();
         let parent = self.element_stack.last().map(|n| local_xml_name(n));
