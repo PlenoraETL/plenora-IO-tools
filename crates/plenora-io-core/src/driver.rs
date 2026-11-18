@@ -88,13 +88,14 @@ impl Source {
     /// l'errore di cancellazione o deadline; l'errore di I/O se la sorgente
     /// non e' accessibile; `Unsupported` su un symlink.
     pub fn into_path_observed(self, opts: &mut ReadOptions) -> Result<PathBuf> {
-        self.into_paths_observed(opts, None)
+        self.into_paths_observed(opts, None, None)
     }
 
     fn into_paths_observed(
         self,
         opts: &mut ReadOptions,
         files: Option<&crate::dataset_files::FileSet>,
+        validate: Option<&StructureValidator<'_>>,
     ) -> Result<PathBuf> {
         let Self::Path(path) = self;
         let budget = opts.budget().clone();
@@ -106,7 +107,12 @@ impl Source {
         let mut pending = Vec::new();
         check_cancelled(context.cancellation(), ErrorPhase::Probe)?;
         let paths = match files {
-            Some(files) => files.input(&path)?,
+            Some(files) => files.input_validated(&path, |main| {
+                if let Some(validate) = validate {
+                    validate(main, opts)?;
+                }
+                Ok(())
+            })?,
             None => vec![path.clone()],
         };
         for actual in &paths {
@@ -886,7 +892,31 @@ pub fn preflight_source(
         plenora_io_model::format_options::FaseOpzione::Lettura,
     )?;
     spool::spill_directory()?;
-    source.into_paths_observed(opts, Some(descriptor.files()))
+    source.into_paths_observed(opts, Some(descriptor.files()), None)
+}
+
+/// Validatore del contenitore, prima di accessori, opzioni e CRS.
+type StructureValidator<'a> = dyn Fn(&std::path::Path, &ReadOptions) -> Result<()> + 'a;
+
+/// Preflight con un unico passo strutturale dichiarato dal driver.
+///
+/// # Errors
+/// Struttura, insieme fisico, quote o configurazione non validi.
+pub fn preflight_source_validated(
+    descriptor: &FormatDescriptor,
+    source: Source,
+    opts: &mut ReadOptions,
+    validate: &StructureValidator<'_>,
+) -> Result<PathBuf> {
+    let path = source.into_paths_observed(opts, Some(descriptor.files()), Some(validate))?;
+    plenora_io_model::format_options::valida_opzioni(
+        descriptor.id(),
+        descriptor.format_options(),
+        &opts.format_options,
+        plenora_io_model::format_options::FaseOpzione::Lettura,
+    )?;
+    spool::spill_directory()?;
+    Ok(path)
 }
 
 /// Applica i limiti indipendenti dal formato a qualunque writer. I vincoli

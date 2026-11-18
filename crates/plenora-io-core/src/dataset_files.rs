@@ -235,6 +235,14 @@ impl FileSet {
     /// # Errors
     /// Membro assente, ambiguo o errore I/O.
     pub fn input(self, path: &Path) -> Result<Vec<PathBuf>> {
+        self.input_validated(path, |_| Ok(()))
+    }
+
+    pub(crate) fn input_validated(
+        self,
+        path: &Path,
+        validate: impl FnOnce(&Path) -> Result<()>,
+    ) -> Result<Vec<PathBuf>> {
         let main = required(path)?;
         let metadata = std::fs::symlink_metadata(&main)?;
         let shapefile_directory = self.directory_main.is_some()
@@ -246,6 +254,12 @@ impl FileSet {
         if metadata.is_dir() && !self.tree && !shapefile_directory {
             return Err(plenora_io_model::error_table::Situation::DirectoryInsteadOfFile.error());
         }
+        if metadata.file_type().is_symlink() {
+            return Err(PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated("symlink non ammesso nella sorgente"),
+            ));
+        }
+        validate(&main)?;
         if metadata.is_file() && metadata.len() == 0 {
             return Err(plenora_io_model::error_table::Situation::InvalidContent.error());
         }

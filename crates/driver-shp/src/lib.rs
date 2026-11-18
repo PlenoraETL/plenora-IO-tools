@@ -662,7 +662,7 @@ impl FormatDriver for ShpDriver {
                 .map(|n| &n[..n.len() - 6])
                 .map(str::to_owned),
         };
-        let path = shapefile_source_path(plenora_io_core::preflight_source(
+        let path = shapefile_source_path(driver_common::structure::preflight(
             self.descriptor(),
             source,
             &mut opts,

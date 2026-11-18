@@ -123,7 +123,7 @@ use plenora_io_model::wkb::{
 };
 use plenora_io_model::{NumeroStrutturale, PlenoraIoError, PublicMessage, Result};
 
-mod wire;
+use driver_common::csv_wire as wire;
 
 const GEOMETRY: &str = "geometry";
 
@@ -423,7 +423,7 @@ impl FormatDriver for CsvDriver {
     }
 
     fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = plenora_io_core::preflight_source(self.descriptor(), source, &mut opts)?;
+        let path = driver_common::structure::preflight(self.descriptor(), source, &mut opts)?;
         let delim = delimiter(&opts.format_options).ok_or_else(delimiter_non_valido)?;
 
         // Intestazione (nomi colonna).

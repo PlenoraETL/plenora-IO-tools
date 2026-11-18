@@ -1445,12 +1445,12 @@ fn una_sequenza_a_cavallo_dei_frammenti_si_decodifica_ricomposta() {
 /// solo spazio bianco: restano un documento e un documento vuoto, e non
 /// diventano errori con la distinzione fra riga vuota e fine dell'ingresso.
 #[test]
-fn lo_spazio_bianco_finale_e_un_ingresso_di_soli_spazi_si_leggono() {
+fn lo_spazio_bianco_non_sostituisce_la_struttura_dxf() {
     let mut con_coda = b"0\nSECTION\n2\nENTITIES\n".to_vec();
     con_coda.extend_from_slice(LINEA.as_bytes());
     con_coda.extend_from_slice(b"0\nENDSEC\n\n  \n\t\n");
-    letto("spazi in coda, senza EOF", &con_coda, 1);
-    letto("solo spazi", b"  \n\n \t \n", 0);
+    assert!(esito_dei_due_lettori(&con_coda).1.is_err());
+    assert!(esito_dei_due_lettori(b"  \n\n \t \n").1.is_err());
 }
 
 /// GEODATA con punti sorgente e destinazione in numero diverso, e IMAGE con

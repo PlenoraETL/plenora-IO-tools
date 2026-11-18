@@ -355,7 +355,7 @@ impl FormatDriver for KmlDriver {
     }
 
     fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = plenora_io_core::preflight_source(self.descriptor(), source, &mut opts)?;
+        let path = driver_common::structure::preflight(self.descriptor(), source, &mut opts)?;
         let mut stream = PlacemarkStream::open(&path)?;
         let mut stats = KmlContractStats::default();
         let mut unsupported_prefix = vec![0_u64];

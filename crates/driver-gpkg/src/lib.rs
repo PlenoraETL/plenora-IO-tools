@@ -408,7 +408,25 @@ impl FormatDriver for GpkgDriver {
     // Apertura per layer: conserva il rifiuto locale anche della riconciliazione.
     #[allow(clippy::too_many_lines)]
     fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = plenora_io_core::preflight_source(self.descriptor(), source, &mut opts)?;
+        let path = driver_common::structure::preflight_with(
+            self.descriptor(),
+            source,
+            &mut opts,
+            |path, _| {
+                let conn = apri_in_lettura(path)?;
+                for query in [
+                    "SELECT table_name,data_type,srs_id FROM gpkg_contents LIMIT 0",
+                    "SELECT srs_id,definition FROM gpkg_spatial_ref_sys LIMIT 0",
+                ] {
+                    conn.prepare(query).map_err(|_| {
+                        plenora_io_model::error_table::Situation::InvalidContent.error_with(
+                            &PublicMessage::Curated("catalogo GeoPackage assente o non valido"),
+                        )
+                    })?;
+                }
+                Ok(())
+            },
+        )?;
         let conn = apri_in_lettura(&path)?;
         let tables = feature_tables(&conn)?;
         let mut layers = Vec::new();

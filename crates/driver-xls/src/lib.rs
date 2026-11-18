@@ -314,7 +314,7 @@ impl FormatDriver for XlsDriver {
 
     #[allow(clippy::too_many_lines)] // Il workbook resta posseduto fino alla chiusura di tutti gli spool.
     fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = plenora_io_core::preflight_source(self.descriptor(), source, &mut opts)?;
+        let path = driver_common::structure::preflight(self.descriptor(), source, &mut opts)?;
         if !path
             .extension()
             .and_then(|extension| extension.to_str())

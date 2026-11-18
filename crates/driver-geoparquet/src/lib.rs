@@ -1098,7 +1098,7 @@ pub struct GeoParquetDriver;
 /// unificato e rimozione dei controlli legacy — dovra' avvenire in un punto
 /// solo per driver, non sparso nel corpo di `open`.
 fn percorso_verificato(source: Source, opts: &mut ReadOptions) -> Result<PathBuf> {
-    plenora_io_core::preflight_source(&DESCRIPTOR, source, opts)
+    driver_common::structure::preflight(&DESCRIPTOR, source, opts)
 }
 
 // Un Parquet con schema Arrow geometrico non usa il fallback legacy per nome.

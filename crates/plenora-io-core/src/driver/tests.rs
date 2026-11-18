@@ -2167,12 +2167,12 @@ fn every_dataset_member_is_charged_and_identified() {
             std::fs::write(&accessory, b"123456789").unwrap();
             let mut small = opzioni_pipeline(PipelineLimits::default().with_max_input_bytes(9));
             let error = Source::Path(main.clone())
-                .into_paths_observed(&mut small, Some(&spec))
+                .into_paths_observed(&mut small, Some(&spec), None)
                 .unwrap_err();
             assert_eq!(error.code, IoErrorCode::LimitExceeded);
             let mut adequate = opzioni_pipeline(PipelineLimits::default().with_max_input_bytes(10));
             Source::Path(main.clone())
-                .into_paths_observed(&mut adequate, Some(&spec))
+                .into_paths_observed(&mut adequate, Some(&spec), None)
                 .unwrap();
             assert_eq!(
                 adequate.budget().context().observed_input(),
@@ -2231,7 +2231,7 @@ fn every_dataset_member_rejects_symlinks_when_supported() {
             }
             let mut opts = opzioni_pipeline(PipelineLimits::default());
             let error = Source::Path(main)
-                .into_paths_observed(&mut opts, Some(&spec))
+                .into_paths_observed(&mut opts, Some(&spec), None)
                 .unwrap_err();
             assert!(error.message.contains("symlink"));
         }
@@ -2260,7 +2260,7 @@ fn every_primary_and_directory_tree_is_charged() {
         let mut opts = opzioni_pipeline(PipelineLimits::default().with_max_input_bytes(11));
         assert_eq!(
             Source::Path(main)
-                .into_paths_observed(&mut opts, Some(&spec))
+                .into_paths_observed(&mut opts, Some(&spec), None)
                 .unwrap_err()
                 .code,
             IoErrorCode::LimitExceeded

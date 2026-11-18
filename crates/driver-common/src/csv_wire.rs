@@ -33,6 +33,8 @@ impl<R: Read> Reader<R> {
     }
 
     // Strict quoting: malformed input cannot silently acquire a different presence.
+    /// # Errors
+    /// I/O, UTF-8, quoting o numero di campi non validi.
     pub fn read_record(&mut self, record: &mut csv::StringRecord) -> std::io::Result<bool> {
         if self.width.is_none() && self.input.fill_buf()?.starts_with(b"\xef\xbb\xbf") {
             self.input.consume(3);
@@ -139,10 +141,14 @@ impl<W: Write> Writer<W> {
         }
     }
 
+    /// # Errors
+    /// Errore I/O durante la scrittura.
     pub fn write_field(&mut self, value: impl AsRef<[u8]>) -> std::io::Result<()> {
         self.field(value.as_ref(), false)
     }
 
+    /// # Errors
+    /// Errore I/O durante la scrittura.
     pub fn write_text(&mut self, value: impl AsRef<[u8]>) -> std::io::Result<()> {
         self.field(value.as_ref(), true)
     }
@@ -171,6 +177,8 @@ impl<W: Write> Writer<W> {
         Ok(())
     }
 
+    /// # Errors
+    /// Errore I/O durante la scrittura.
     pub fn write_record<I, T>(&mut self, fields: I) -> std::io::Result<()>
     where
         I: IntoIterator<Item = T>,
@@ -188,6 +196,8 @@ impl<W: Write> Writer<W> {
         Ok(())
     }
 
+    /// # Errors
+    /// Errore I/O durante lo svuotamento del buffer.
     pub fn flush(&mut self) -> std::io::Result<()> {
         self.output.flush()
     }

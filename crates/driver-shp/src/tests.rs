@@ -763,7 +763,7 @@ fn un_offset_del_primo_record_troppo_corto_e_un_errore_non_un_panico() {
     .expect_err("un offset sotto l'intestazione non e' un DBF leggibile");
     assert_eq!(
         errore.message,
-        "offset del primo record DBF piu' corto dell'intestazione"
+        "contenuto vuoto o struttura non valida; formato atteso: Shapefile"
     );
 }
 
@@ -775,8 +775,8 @@ fn un_visual_foxpro_piu_corto_del_backlink_e_un_errore_non_un_panico() {
     )
     .expect_err("263 byte di backlink non stanno in 100");
     assert_eq!(
-        errore.message, "header Visual FoxPro piu' corto del backlink",
-        "il rifiuto deve venire dal ramo Visual FoxPro: {errore:?}"
+        errore.message, "contenuto vuoto o struttura non valida; formato atteso: Shapefile",
+        "il contenitore incompleto deve precedere il decoder Visual FoxPro: {errore:?}"
     );
 }
 
@@ -4393,9 +4393,8 @@ fn n1_open_propaga_i_rifiuti_della_catena_e_nomina_il_layer_dal_file() {
         panic!("un header DBF incoerente non produce uno schema");
     };
     assert_eq!(
-        errore.message,
-        "lunghezza di record DBF dichiarata incoerente con i campi, byte richiesti 11",
-        "il messaggio del lettore deve uscire da `open` invariato"
+        errore.message, "contenuto vuoto o struttura non valida; formato atteso: Shapefile",
+        "il contenitore incompleto deve precedere l'inferenza"
     );
 }
 
@@ -6158,6 +6157,8 @@ fn r1_rejects_duplicate_offsets_and_unindexed_records_before_reading() {
                 || error.message.contains("numero di record")
                 || error.message.contains("numero di geometrie")
                 || error.message.contains("oltre la lunghezza dichiarata")
+                || error.message
+                    == "contenuto vuoto o struttura non valida; formato atteso: Shapefile"
         );
     }
 }

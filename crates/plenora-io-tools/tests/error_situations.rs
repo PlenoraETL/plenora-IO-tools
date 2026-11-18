@@ -177,8 +177,13 @@ fn invalid_options_are_redacted_in_both_driver_directions() {
             let mut args = if direction == "read" {
                 vec![
                     "read".to_owned(),
-                    root.path()
-                        .join(format!("missing.{extension}"))
+                    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                        .join("tests/fixtures/canoniche")
+                        .join(if driver == "shp" {
+                            "canonico_punti.shp".to_owned()
+                        } else {
+                            format!("canonico.{extension}")
+                        })
                         .to_str()
                         .unwrap()
                         .to_owned(),

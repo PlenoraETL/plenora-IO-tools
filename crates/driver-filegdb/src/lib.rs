@@ -473,13 +473,13 @@ impl FormatDriver for FileGdbDriver {
         #[cfg(feature = "gdal-backend")]
         {
             radici::applica();
-            let path = plenora_io_core::preflight_source(self.descriptor(), source, &mut opts)?;
+            let path = driver_common::structure::preflight(self.descriptor(), source, &mut opts)?;
             let dataset = backend::open(&path, opts.assume_crs.as_deref())?;
             return plenora_io_core::with_read_budget(dataset, &opts, false);
         }
         #[cfg(not(feature = "gdal-backend"))]
         {
-            let _ = plenora_io_core::preflight_source(self.descriptor(), source, &mut opts)?;
+            let _ = driver_common::structure::preflight(self.descriptor(), source, &mut opts)?;
             Err(plenora_io_model::PlenoraIoError::non_supportato_redatto(
                 &plenora_io_model::PublicMessage::Curated(
                     "FileGDB richiede il tier GDB: compilare con --features gdal-backend",

@@ -197,21 +197,25 @@ impl FormatDriver for IpcDriver {
     }
 
     fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = plenora_io_core::preflight_source(self.descriptor(), source, &mut opts)?;
+        let path = driver_common::structure::preflight_with(
+            self.descriptor(),
+            source,
+            &mut opts,
+            |path, _| match serializzazione_del_file(path)? {
+                Serializzazione::File => {
+                    driver_common::prevalida_arrow::valida_file_ipc("arrow", path)
+                }
+                Serializzazione::Flusso => {
+                    driver_common::prevalida_arrow::valida_flusso_ipc("arrow", path)
+                }
+            },
+        )?;
         // FZ-0: schema e buffer dichiarati vengono verificati **prima** che
         // arrow li converta. `try_new` restituisce `Result`, ma la conversione
         // dello schema e l'affettamento del corpo sono infallibili nel tipo e
         // panicano sull'input non conforme; la barriera `leggendo_arrow` sotto
         // resta come difesa in profondita', non come mitigazione.
         let serializzazione = serializzazione_del_file(&path)?;
-        match serializzazione {
-            Serializzazione::File => {
-                driver_common::prevalida_arrow::valida_file_ipc("arrow", &path)?;
-            }
-            Serializzazione::Flusso => {
-                driver_common::prevalida_arrow::valida_flusso_ipc("arrow", &path)?;
-            }
-        }
         let schema = plenora_io_core::driver::leggendo_arrow("arrow", || match serializzazione {
             Serializzazione::File => FileReader::try_new(File::open(&path)?, None)
                 .map(|lettore| lettore.schema())

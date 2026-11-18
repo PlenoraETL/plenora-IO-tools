@@ -158,7 +158,7 @@ impl FormatDriver for GeoJsonDriver {
     }
 
     fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = plenora_io_core::preflight_source(self.descriptor(), source, &mut opts)?;
+        let path = driver_common::structure::preflight(self.descriptor(), source, &mut opts)?;
         // Pass 1: inferenza schema in streaming (RAM O(1)).
         let quote = QuoteInferenza::from_read_options(&opts);
         let (schema, cols, tipi, loss) = infer_schema(&path, quote)?;

@@ -162,6 +162,9 @@ fn workbook_rinominato_accettato_da_calamine_ma_rifiutato_da_io() {
         else {
             panic!("i percorsi fissi di NativeStyles devono rifiutare la parte mancante");
         };
-        assert_eq!(errore.message, "metadati temporali XML XLSX non validi");
+        assert_eq!(
+            errore.message,
+            "contenuto vuoto o struttura non valida; formato atteso: XLSX"
+        );
     }
 }

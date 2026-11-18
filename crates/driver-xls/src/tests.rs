@@ -2675,7 +2675,12 @@ fn coordinate_cells_fail_closed_on_invalid_or_lossy_values() {
 fn n1_open_rifiuta_xls_come_capability_non_come_formato() {
     let dir = tempfile::tempdir().unwrap();
     let percorso = dir.path().join("storico.xls");
-    std::fs::write(&percorso, b"non importa: l'estensione basta").unwrap();
+    std::fs::copy(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../plenora-io-tools/tests/fixtures/canoniche/canonico.xlsx"),
+        &percorso,
+    )
+    .unwrap();
 
     let esito = XlsDriver.open(Source::Path(percorso), opzioni_lettura());
     let Err(errore) = esito else {

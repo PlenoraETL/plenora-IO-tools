@@ -33,9 +33,6 @@
     ],
     "error": [
       "DataMapping/Validate/Wkb/Never"
-    ],
-    "parse_wkt_bounded": [
-      "ResourceLimit/Validate/LimitExceeded/Never"
     ]
   },
   "crates/driver-common/src/wkt_progressivo.rs": {
@@ -44,9 +41,6 @@
     ],
     "errore": [
       "DataMapping/Validate/Wkb/Never"
-    ],
-    "oltre_il_tetto": [
-      "ResourceLimit/Validate/LimitExceeded/Never"
     ]
   },
   "crates/driver-csv/src/lib.rs": {
@@ -64,9 +58,6 @@
     ],
     "err": [
       "DataMapping/Read/Format/Never"
-    ],
-    "oltre_le_righe": [
-      "ResourceLimit/Validate/LimitExceeded/Never"
     ],
     "open": [
       "Crs/Validate/Crs/Never"
@@ -102,16 +93,7 @@
     "err": [
       "DataMapping/Read/Format/Never"
     ],
-    "finish": [
-      "ResourceLimit/Validate/LimitExceeded/Never"
-    ],
-    "open": [
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never"
-    ],
     "push": [
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never",
       "ResourceLimit/Validate/LimitExceeded/Never"
     ],
     "read_block_object": [
@@ -130,13 +112,6 @@
     ],
     "walk_insert": [
       "Unsupported/Validate/Capability/Never"
-    ],
-    "write": [
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never"
-    ],
-    "write_file_value": [
-      "ResourceLimit/Validate/LimitExceeded/Never"
     ]
   },
   "crates/driver-filegdb/src/lib.rs": {
@@ -150,9 +125,6 @@
     ],
     "err": [
       "DataMapping/Read/Format/Never"
-    ],
-    "finish": [
-      "ResourceLimit/Validate/LimitExceeded/Never"
     ],
     "from": [
       "Unsupported/Validate/Capability/Never"
@@ -179,9 +151,6 @@
     "open": [
       "Unsupported/Validate/Unsupported/Never"
     ],
-    "open_objects": [
-      "ResourceLimit/Validate/LimitExceeded/Never"
-    ],
     "resolve_layer_crs": [
       "Crs/Validate/Crs/Never",
       "Crs/Validate/CrsUnresolved/Never",
@@ -196,17 +165,6 @@
       "Crs/Validate/Crs/Never"
     ]
   },
-  "crates/driver-geojson/src/geometria_progressiva.rs": {
-    "addebita": [
-      "ResourceLimit/Validate/LimitExceeded/Never"
-    ],
-    "addebita_membri": [
-      "ResourceLimit/Validate/LimitExceeded/Never"
-    ],
-    "dentro_la_profondita": [
-      "ResourceLimit/Validate/LimitExceeded/Never"
-    ]
-  },
   "crates/driver-geojson/src/geometry.rs": {
     "format_error": [
       "DataMapping/Read/Format/Never"
@@ -219,10 +177,6 @@
     ],
     "err": [
       "DataMapping/Read/Format/Never"
-    ],
-    "visit_map": [
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never"
     ]
   },
   "crates/driver-geoparquet/src/lib.rs": {
@@ -325,9 +279,6 @@
     "object_error": [
       "Unsupported/Validate/Capability/Never"
     ],
-    "open": [
-      "ResourceLimit/Validate/LimitExceeded/Never"
-    ],
     "register_srs": [
       "Unsupported/Validate/Unsupported/Never",
       "Crs/Validate/Crs/Never",
@@ -363,29 +314,9 @@
     ],
     "err": [
       "DataMapping/Read/Format/Never"
-    ],
-    "next_isolated_placemark": [
-      "ResourceLimit/Validate/LimitExceeded/Never"
-    ],
-    "open": [
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never"
-    ],
-    "value": [
-      "ResourceLimit/Validate/LimitExceeded/Never"
-    ],
-    "write": [
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never"
     ]
   },
   "crates/driver-shp/src/lib.rs": {
-    "byte_dello_staging": [
-      "ResourceLimit/Validate/LimitExceeded/Never"
-    ],
     "contraddice_il_prj": [
       "Crs/Validate/Crs/Never"
     ],
@@ -398,9 +329,6 @@
     ],
     "err": [
       "DataMapping/Read/Format/Never"
-    ],
-    "finish": [
-      "ResourceLimit/Validate/LimitExceeded/Never"
     ],
     "from_options": [
       "esplicito/esplicito/Generic/esplicito",
@@ -433,9 +361,6 @@
     "resolved_crs_id": [
       "Crs/Validate/Crs/Never"
     ],
-    "righe_dopo_il_lotto": [
-      "ResourceLimit/Validate/LimitExceeded/Never"
-    ],
     "shapefile_source_path": [
       "Unsupported/Validate/Unsupported/Never"
     ]
@@ -450,21 +375,14 @@
       "DataMapping/Read/Format/Never"
     ],
     "infer_layout": [
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never",
       "Crs/Validate/Crs/Never"
-    ],
-    "limiti_osservati": [
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never"
     ],
     "lunghezza_dello_spool": [
       "ResourceLimit/Validate/LimitExceeded/Never"
     ],
     "open": [
       "Unsupported/Validate/Unsupported/Never",
-      "esplicito/esplicito/Format/esplicito",
-      "ResourceLimit/Validate/LimitExceeded/Never"
+      "esplicito/esplicito/Format/esplicito"
     ],
     "resolve_geometry": [
       "esplicito/esplicito/Generic/esplicito"
@@ -475,20 +393,10 @@
     "valida_riferimenti_selezionati": [
       "ResourceLimit/Validate/LimitExceeded/Never",
       "ResourceLimit/Validate/LimitExceeded/Never"
-    ],
-    "validate_archive_ratio": [
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never"
-    ],
-    "write": [
-      "ResourceLimit/Validate/LimitExceeded/Never"
     ]
   },
   "crates/plenora-io-core/src/capabilities.rs": {
     "validate_write": [
-      "ResourceLimit/Validate/LimitExceeded/Never",
       "Unsupported/Validate/Unsupported/Never",
       "Unsupported/Validate/Unsupported/Never",
       "Unsupported/Validate/Unsupported/Never"
@@ -503,6 +411,9 @@
     ],
     "ensure_absent_except_staging": [
       "Conflict/Commit/OutputExists/Never"
+    ],
+    "input_validated": [
+      "Unsupported/Validate/Unsupported/Never"
     ]
   },
   "crates/plenora-io-core/src/driver.rs": {
@@ -514,10 +425,6 @@
     ],
     "scopri": [
       "Unsupported/Validate/Unsupported/Never"
-    ],
-    "with_write_validation": [
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never"
     ],
     "write_row_rejection": [
       "esplicito/esplicito/Generic/esplicito"
@@ -552,37 +459,15 @@
       "esplicito/esplicito/Generic/esplicito"
     ],
     "column_geometry_components": [
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never"
-    ],
-    "drain_operation": [
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never"
-    ],
-    "geometry_components": [
       "ResourceLimit/Validate/LimitExceeded/Never"
     ],
     "into_error": [
       "esplicito/esplicito/Generic/esplicito"
     ],
-    "new": [
-      "ResourceLimit/Validate/LimitExceeded/Never"
-    ],
-    "physical_index": [
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never"
-    ],
     "read_schema_mismatch": [
       "esplicito/esplicito/Generic/esplicito"
     ],
     "record_all": [
-      "ResourceLimit/Validate/LimitExceeded/Never",
       "ResourceLimit/Validate/LimitExceeded/Never"
     ],
     "with_read_budget": [
@@ -593,18 +478,9 @@
     "account": [
       "esplicito/esplicito/Generic/esplicito",
       "Unsupported/Validate/Capability/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never",
       "InvalidPlan/Validate/Contract/Never",
       "InvalidPlan/Validate/Contract/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "Unsupported/Validate/Capability/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never"
-    ],
-    "commit": [
-      "ResourceLimit/Validate/LimitExceeded/Never"
+      "Unsupported/Validate/Capability/Never"
     ],
     "declare_input_total": [
       "InvalidPlan/Validate/Contract/Never",
@@ -616,13 +492,11 @@
       "InvalidPlan/Validate/Contract/Never"
     ],
     "write": [
-      "DataMapping/Write/Format/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never"
+      "DataMapping/Write/Format/Never"
     ],
     "write_to_layer": [
       "DataMapping/Write/Format/Never",
-      "InvalidPlan/Validate/Contract/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never"
+      "InvalidPlan/Validate/Contract/Never"
     ]
   },
   "crates/plenora-io-core/src/driver/spool.rs": {
@@ -639,16 +513,6 @@
     ],
     "geometry_violation": [
       "Unsupported/Validate/Capability/Never"
-    ],
-    "inspect_geometry_row": [
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never"
-    ],
-    "nullability_violations": [
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never"
     ],
     "write_rejection_error": [
       "esplicito/esplicito/Generic/esplicito"
@@ -691,15 +555,10 @@
     "ensure_same_filesystem": [
       "Unsupported/Validate/Unsupported/Never"
     ],
-    "publish_file_atomic_limited": [
-      "ResourceLimit/Commit/LimitExceeded/Never"
-    ],
     "publish_files_ordered_limited": [
       "Unsupported/Validate/Unsupported/Never",
       "Unsupported/Validate/Unsupported/Never",
-      "Unsupported/Validate/Unsupported/Never",
-      "ResourceLimit/Commit/LimitExceeded/Never",
-      "ResourceLimit/Commit/LimitExceeded/Never"
+      "Unsupported/Validate/Unsupported/Never"
     ],
     "publish_rename_error": [
       "Conflict/Commit/OutputExists/Never"
@@ -778,6 +637,14 @@
       "Schema/Validate/Schema/Never"
     ]
   },
+  "crates/plenora-io-model/src/quota.rs": {
+    "exceeded": [
+      "esplicito/esplicito/LimitExceeded/esplicito"
+    ],
+    "exceeded_measured": [
+      "esplicito/esplicito/LimitExceeded/esplicito"
+    ]
+  },
   "crates/plenora-io-model/src/vocabolario.rs": {
     "crs": [
       "Crs/Validate/Crs/Never",
@@ -814,7 +681,6 @@
       "ResourceLimit/Validate/LimitExceeded/Never"
     ],
     "cmd_write": [
-      "ResourceLimit/Validate/LimitExceeded/Never",
       "ResourceLimit/Validate/LimitExceeded/Never"
     ],
     "local_err_doc": [
@@ -822,7 +688,6 @@
     ],
     "trasferisci_layer": [
       "InvalidPlan/Validate/Contract/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never",
       "ResourceLimit/Validate/LimitExceeded/Never"
     ]
   },

@@ -3,7 +3,9 @@
 //! conversione array Arrow → JSON. Nessuna logica di formato qui.
 #![forbid(unsafe_code)]
 
+pub mod csv_wire;
 pub mod prevalida_arrow;
+pub mod structure;
 pub mod wkt_lossless;
 // L'analisi progressiva del WKT: usata da `wkt_lossless`, non esposta.
 // Il confine pubblico resta `parse_wkt_bounded`, che aggiunge il tetto in byte

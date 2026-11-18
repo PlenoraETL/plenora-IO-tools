@@ -510,9 +510,14 @@ dependencies = [
  "arrow-array",
  "arrow-ipc",
  "arrow-schema",
+ "csv",
+ "plenora-io-core",
  "plenora-io-model",
+ "quick-xml 0.42.0",
+ "serde",
  "serde_json",
  "wkt",
+ "zip",
 ]
 
 [[package]]

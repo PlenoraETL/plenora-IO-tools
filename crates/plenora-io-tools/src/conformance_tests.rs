@@ -1540,7 +1540,6 @@ fn every_driver_has_a_schema_for_options() {
 
 #[test]
 fn unknown_option_key_produces_typed_error_not_silent_ignore() {
-    let directory = tempfile::tempdir().unwrap();
     for driver in drivers() {
         let descriptor = driver.descriptor();
         // Senza il tier GDB, FileGDB rifiuta per driver indisponibile prima di
@@ -1555,10 +1554,7 @@ fn unknown_option_key_produces_typed_error_not_silent_ignore() {
         opts.format_options
             .insert("optzione_inesistente".to_owned(), "x".to_owned());
 
-        let esito = driver.open(
-            Source::Path(directory.path().join("non-serve-che-esista")),
-            opts,
-        );
+        let esito = driver.open(Source::Path(structural_fixture(descriptor.id())), opts);
         let Err(errore) = esito else {
             panic!(
                 "{}: una chiave sconosciuta e' stata ignorata",
@@ -1640,7 +1636,6 @@ fn unknown_compression_value_produces_typed_error_not_snappy_default() {
 
 #[test]
 fn una_chiave_di_scrittura_passata_in_lettura_e_rifiutata() {
-    let directory = tempfile::tempdir().unwrap();
     let mut provati = 0;
     for driver in drivers() {
         let descriptor = driver.descriptor();
@@ -1662,7 +1657,7 @@ fn una_chiave_di_scrittura_passata_in_lettura_e_rifiutata() {
             opts.format_options
                 .insert(opzione.chiave.to_owned(), valore);
 
-            let esito = driver.open(Source::Path(directory.path().join("qualunque")), opts);
+            let esito = driver.open(Source::Path(structural_fixture(descriptor.id())), opts);
             let Err(errore) = esito else {
                 panic!(
                     "{}: '{}' vale in scrittura ma la lettura l'ha accettata",
@@ -1865,4 +1860,23 @@ fn il_default_dichiarato_e_quello_applicato() {
         provati > 0,
         "nessun default di scrittura dichiarato: il test non ha verificato niente"
     );
+}
+
+fn structural_fixture(id: &str) -> std::path::PathBuf {
+    let name = match id {
+        "csv" => "canonico.csv",
+        "shp" => "canonico_punti.shp",
+        "gpkg" => "canonico.gpkg",
+        "filegdb" => "canonico.gdb",
+        "geojson" => "canonico.geojson",
+        "kml" => "canonico.kml",
+        "dxf" => "canonico.dxf",
+        "geoparquet" => "canonico.parquet",
+        "ipc" => "canonico.arrow",
+        "xls" => "canonico.xlsx",
+        _ => panic!("driver non enumerato"),
+    };
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/canoniche")
+        .join(name)
 }

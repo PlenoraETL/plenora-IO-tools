@@ -92,9 +92,10 @@ fn create_without_gdal_feature_is_typed() {
 #[test]
 fn open_without_gdal_feature_is_typed() {
     // Il percorso esiste: si verifica il backend, non un file mancante.
-    let directory = tempfile::tempdir().unwrap();
+    let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../plenora-io-tools/tests/fixtures/canoniche/canonico.gdb");
     let e = FileGdbDriver
-        .open(Source::Path(directory.path().to_owned()), opzioni_lettura())
+        .open(Source::Path(directory), opzioni_lettura())
         .map(|_| ())
         .unwrap_err();
     assert!(matches!(
