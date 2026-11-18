@@ -132,7 +132,7 @@ pub const PROPERTIES: &[(&str, &str, Rule, Rule)] = &[
 
 use plenora_io_model::contract::CoordinateDimensions;
 
-use crate::descriptor::{ArrowTypeClass, ALL_ARROW_TYPES, SCALAR_TYPES};
+use crate::descriptor::{ArrowTypeClass, ALL_ARROW_TYPES};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MetadataTransport {
@@ -167,11 +167,6 @@ const SQL_SCALARS: &[ArrowTypeClass] = &[
     ArrowTypeClass::Utf8,
     ArrowTypeClass::Binary,
 ];
-const GDB_SCALARS: &[ArrowTypeClass] = &[
-    ArrowTypeClass::SignedInteger,
-    ArrowTypeClass::Floating,
-    ArrowTypeClass::Utf8,
-];
 
 pub const CSV: DriverRules = DriverRules {
     driver: "csv",
@@ -183,9 +178,9 @@ pub const CSV: DriverRules = DriverRules {
 };
 pub const SHP: DriverRules = DriverRules {
     driver: "shp",
-    qualified_native: None,
+    qualified_native: Some(NativeDriver::Shp),
     dimensions: ALL_DIMENSIONS,
-    allowed_types: SCALAR_TYPES,
+    allowed_types: &SHP_NATIVE_CLASSES,
     stable_types: &[
         DataType::Int64,
         DataType::Float64,
@@ -209,9 +204,9 @@ pub const GPKG: DriverRules = DriverRules {
 };
 pub const FILEGDB: DriverRules = DriverRules {
     driver: "filegdb",
-    qualified_native: None,
+    qualified_native: Some(NativeDriver::FileGdb),
     dimensions: GDB_DIMENSIONS,
-    allowed_types: GDB_SCALARS,
+    allowed_types: &FILEGDB_NATIVE_CLASSES,
     stable_types: &[
         DataType::Int32,
         DataType::Int64,
@@ -243,9 +238,9 @@ pub const KML: DriverRules = DriverRules {
 };
 pub const DXF: DriverRules = DriverRules {
     driver: "dxf",
-    qualified_native: None,
+    qualified_native: Some(NativeDriver::Dxf),
     dimensions: XYZ_DIMENSIONS,
-    allowed_types: SCALAR_TYPES,
+    allowed_types: &DXF_NATIVE_CLASSES,
     stable_types: &[],
     metadata: MetadataTransport::Native,
 };
@@ -360,6 +355,11 @@ pub fn metadata_rule(
 /// Native observations use the same rules as schema transport.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NativeChange {
+    DxfAttribute,
+    NativeHierarchy,
+    NativeStyles,
+    CoordinatePrecision,
+    RingOrientation,
     ArrowMetadata,
     ArrowCoercion,
     FieldNames,
@@ -384,6 +384,11 @@ pub enum NativeChange {
     GeometryType,
     AltitudeMode,
 }
+const NATIVE_RINGORIENTATION: &str = "native_ring_orientation_changed";
+const NATIVE_COORDINATEPRECISION: &str = "native_coordinate_precision";
+const NATIVE_NATIVESTYLES: &str = "native_styles_not_preserved";
+const NATIVE_NATIVEHIERARCHY: &str = "native_hierarchy_flattened";
+const NATIVE_DXFATTRIBUTE: &str = "dxf_attribute_not_represented";
 const NATIVE_ARROW_COERCION: &str = "coercion tipo attributo";
 const NATIVE_FIELD_NAMES: &str = "native_fields_reconstructed";
 const NATIVE_ARROW_METADATA: &str = "arrow_metadata_not_preserved";
@@ -411,6 +416,11 @@ impl NativeChange {
     #[must_use]
     pub const fn category(self) -> &'static str {
         match self {
+            Self::RingOrientation => NATIVE_RINGORIENTATION,
+            Self::CoordinatePrecision => NATIVE_COORDINATEPRECISION,
+            Self::NativeStyles => NATIVE_NATIVESTYLES,
+            Self::NativeHierarchy => NATIVE_NATIVEHIERARCHY,
+            Self::DxfAttribute => NATIVE_DXFATTRIBUTE,
             Self::ArrowCoercion => NATIVE_ARROW_COERCION,
             Self::FieldNames => NATIVE_FIELD_NAMES,
             Self::ArrowMetadata => NATIVE_ARROW_METADATA,
@@ -438,11 +448,14 @@ impl NativeChange {
     }
 }
 
-/// Each row requires both directions for both qualified native drivers.
+/// Each row requires both directions for every qualified native driver.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NativeDriver {
     GeoJson,
     Kml,
+    Shp,
+    Dxf,
+    FileGdb,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NativeRule {
@@ -452,61 +465,77 @@ pub enum NativeRule {
 }
 
 macro_rules! native_elements {
-    ($($element:ident => [$gr:expr, $gw:expr, $kr:expr, $kw:expr];)+) => {
+    ($($element:ident => [$gr:expr, $gw:expr, $kr:expr, $kw:expr, $sr:expr, $sw:expr, $dr:expr, $dw:expr, $fr:expr, $fw:expr];)+) => {
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         pub enum NativeElement { $($element,)+ }
         pub const NATIVE_ELEMENTS: &[NativeElement] = &[$(NativeElement::$element,)+];
         impl NativeElement {
             #[must_use]
-            pub const fn rules(self) -> [NativeRule; 4] {
-                match self { $(Self::$element => [$gr, $gw, $kr, $kw],)+ }
+            pub const fn rules(self) -> [NativeRule; 10] {
+                match self { $(Self::$element => [$gr, $gw, $kr, $kw, $sr, $sw, $dr, $dw, $fr, $fw],)+ }
             }
         }
     };
 }
 use NativeRule::{Preserved as P, Rejected as R, Transformed as T};
 native_elements! {
-    Utf8 => [P, P, P, P];
-    Null => [P, P, P, P];
-    EmptyString => [P, P, P, P];
-    SignedInteger => [T(NativeChange::Inference), T(NativeChange::ArrowCoercion), R, T(NativeChange::ArrowCoercion)];
-    UnsignedInteger => [T(NativeChange::Inference), T(NativeChange::ArrowCoercion), R, T(NativeChange::ArrowCoercion)];
-    Floating => [T(NativeChange::NumberPrecision), T(NativeChange::ArrowCoercion), R, T(NativeChange::ArrowCoercion)];
-    Boolean => [P, P, R, T(NativeChange::ArrowCoercion)];
-    Binary => [R, R, R, R];
-    Decimal => [R, R, R, R];
-    Temporal => [R, T(NativeChange::ArrowCoercion), R, T(NativeChange::ArrowCoercion)];
-    NestedDictionary => [T(NativeChange::StructuredValue), R, R, R];
-    FieldNames => [P, T(NativeChange::FieldNames), T(NativeChange::ExtendedData), T(NativeChange::FieldNames)];
-    NotNull => [P, T(NativeChange::NotNull), P, T(NativeChange::NotNull)];
-    FieldOrder => [T(NativeChange::FieldOrder), T(NativeChange::FieldOrder), T(NativeChange::FieldOrder), T(NativeChange::FieldOrder)];
-    SchemaMetadata => [P, T(NativeChange::ArrowMetadata), P, T(NativeChange::ArrowMetadata)];
-    FieldMetadata => [P, T(NativeChange::ArrowMetadata), P, T(NativeChange::ArrowMetadata)];
-    NativeMetadata => [T(NativeChange::ForeignMembers), T(NativeChange::ArrowMetadata), T(NativeChange::ForeignMembers), T(NativeChange::ArrowMetadata)];
-    Z => [P, P, T(NativeChange::AltitudeMode), P];
-    M => [R, R, R, R];
-    Dimensions => [T(NativeChange::Dimensions), T(NativeChange::Dimensions), T(NativeChange::Dimensions), T(NativeChange::Dimensions)];
-    GeometryType => [P, P, T(NativeChange::GeometryType), T(NativeChange::GeometryType)];
-    RingOrientation => [P, P, P, P];
-    EmptyGeometry => [R, R, R, R];
-    CoordinatePrecision => [T(NativeChange::NumberPrecision), P, T(NativeChange::NumberPrecision), P];
-    CrsId => [P, T(NativeChange::CrsId), P, T(NativeChange::CrsId)];
-    CrsDefinition => [P, T(NativeChange::CrsDefinition), P, T(NativeChange::CrsDefinition)];
-    FeatureId => [T(NativeChange::FeatureId), T(NativeChange::ArrowMetadata), T(NativeChange::FeatureId), T(NativeChange::ArrowMetadata)];
-    Bbox => [T(NativeChange::Bbox), T(NativeChange::ArrowMetadata), R, T(NativeChange::ArrowMetadata)];
-    ForeignMembers => [T(NativeChange::ForeignMembers), T(NativeChange::ArrowMetadata), T(NativeChange::ForeignMembers), T(NativeChange::ArrowMetadata)];
-    LayerMetadata => [T(NativeChange::ForeignMembers), T(NativeChange::ArrowMetadata), T(NativeChange::LayerMetadata), T(NativeChange::ArrowMetadata)];
-    Styles => [T(NativeChange::ForeignMembers), T(NativeChange::ArrowMetadata), T(NativeChange::Styles), T(NativeChange::ArrowMetadata)];
-    Hierarchy => [R, R, T(NativeChange::Hierarchy), T(NativeChange::ArrowMetadata)];
-    Extensions => [T(NativeChange::ForeignMembers), T(NativeChange::ArrowMetadata), T(NativeChange::ForeignMembers), T(NativeChange::ArrowMetadata)];
-    ExternalReference => [T(NativeChange::ForeignMembers), T(NativeChange::ArrowMetadata), T(NativeChange::ExternalReference), T(NativeChange::ArrowMetadata)];
-    ExtendedData => [R, R, T(NativeChange::ExtendedData), T(NativeChange::ExtendedData)];
-    FeatureMetadata => [T(NativeChange::ForeignMembers), T(NativeChange::ArrowMetadata), T(NativeChange::FeatureMetadata), T(NativeChange::ArrowMetadata)];
-    AltitudeMode => [R, R, T(NativeChange::AltitudeMode), P];
-    Inference => [T(NativeChange::Inference), T(NativeChange::Inference), R, T(NativeChange::Inference)];
-    NumberPrecision => [T(NativeChange::NumberPrecision), P, T(NativeChange::NumberPrecision), P];
-    StructuredValue => [T(NativeChange::StructuredValue), R, T(NativeChange::ExtendedData), R];
-    MissingValue => [T(NativeChange::MissingValue), P, T(NativeChange::MissingValue), P];
+    NullGeometry => [P, P, P, P, P, P, R, R, P, P];
+    EmptyPoint => [R, R, R, R, P, P, R, R, T(NativeChange::MissingValue), T(NativeChange::MissingValue)];
+    SignedZero => [P, P, P, P, P, P, P, T(NativeChange::CoordinatePrecision), P, T(NativeChange::CoordinatePrecision)];
+    Subtypes => [R, R, R, R, R, R, R, R, T(NativeChange::LayerMetadata), T(NativeChange::ArrowMetadata)];
+    Aliases => [R, R, R, R, R, R, R, R, T(NativeChange::LayerMetadata), T(NativeChange::ArrowMetadata)];
+    Domains => [R, R, R, R, R, R, R, R, T(NativeChange::LayerMetadata), T(NativeChange::ArrowMetadata)];
+    TextStyle => [R, R, R, R, R, R, T(NativeChange::NativeStyles), T(NativeChange::ArrowMetadata), R, R];
+    PaperSpace => [R, R, R, R, R, R, T(NativeChange::NativeHierarchy), T(NativeChange::ArrowMetadata), R, R];
+    Xdata => [R, R, R, R, R, R, T(NativeChange::LayerMetadata), T(NativeChange::ArrowMetadata), R, R];
+    Width => [R, R, R, R, R, R, T(NativeChange::NativeStyles), T(NativeChange::ArrowMetadata), R, R];
+    Thickness => [R, R, R, R, R, R, T(NativeChange::NativeStyles), T(NativeChange::ArrowMetadata), R, R];
+    Lineweight => [R, R, R, R, R, R, T(NativeChange::NativeStyles), T(NativeChange::ArrowMetadata), R, R];
+    Linetype => [R, R, R, R, R, R, T(NativeChange::NativeStyles), T(NativeChange::ArrowMetadata), R, R];
+    Color => [R, R, R, R, R, R, T(NativeChange::NativeStyles), T(NativeChange::ArrowMetadata), R, R];
+    Handle => [R, R, R, R, R, R, T(NativeChange::FeatureId), T(NativeChange::ArrowMetadata), R, R];
+    DbfDate => [R, R, R, R, T(NativeChange::ArrowCoercion), T(NativeChange::ArrowCoercion), R, R, R, R];
+    Utf8 => [P, P, P, P, P, P, P, T(NativeChange::DxfAttribute), P, P];
+    Null => [P, P, P, P, P, P, P, T(NativeChange::DxfAttribute), P, P];
+    EmptyString => [P, P, P, P, R, R, P, T(NativeChange::DxfAttribute), P, P];
+    SignedInteger => [T(NativeChange::Inference), T(NativeChange::ArrowCoercion), R, T(NativeChange::ArrowCoercion), T(NativeChange::Inference), T(NativeChange::ArrowCoercion), R, T(NativeChange::DxfAttribute), P, T(NativeChange::ArrowCoercion)];
+    UnsignedInteger => [T(NativeChange::Inference), T(NativeChange::ArrowCoercion), R, T(NativeChange::ArrowCoercion), R, T(NativeChange::ArrowCoercion), R, T(NativeChange::DxfAttribute), R, R];
+    Floating => [T(NativeChange::NumberPrecision), T(NativeChange::ArrowCoercion), R, T(NativeChange::ArrowCoercion), P, T(NativeChange::ArrowCoercion), R, T(NativeChange::DxfAttribute), P, T(NativeChange::ArrowCoercion)];
+    Boolean => [P, P, R, T(NativeChange::ArrowCoercion), P, P, R, T(NativeChange::DxfAttribute), R, R];
+    Binary => [R, R, R, R, R, T(NativeChange::ArrowCoercion), R, T(NativeChange::DxfAttribute), R, R];
+    Decimal => [R, R, R, R, R, T(NativeChange::ArrowCoercion), R, T(NativeChange::DxfAttribute), R, R];
+    Temporal => [R, T(NativeChange::ArrowCoercion), R, T(NativeChange::ArrowCoercion), T(NativeChange::ArrowCoercion), T(NativeChange::ArrowCoercion), R, T(NativeChange::DxfAttribute), R, R];
+    NestedDictionary => [T(NativeChange::StructuredValue), R, R, R, R, R, R, R, R, R];
+    FieldNames => [P, T(NativeChange::FieldNames), T(NativeChange::ExtendedData), T(NativeChange::FieldNames), P, T(NativeChange::FieldNames), T(NativeChange::FieldNames), T(NativeChange::FieldNames), P, T(NativeChange::FieldNames)];
+    NotNull => [P, T(NativeChange::NotNull), P, T(NativeChange::NotNull), P, T(NativeChange::NotNull), P, T(NativeChange::NotNull), T(NativeChange::NotNull), T(NativeChange::NotNull)];
+    FieldOrder => [T(NativeChange::FieldOrder), T(NativeChange::FieldOrder), T(NativeChange::FieldOrder), T(NativeChange::FieldOrder), T(NativeChange::FieldOrder), T(NativeChange::FieldOrder), T(NativeChange::FieldOrder), T(NativeChange::FieldOrder), T(NativeChange::FieldOrder), T(NativeChange::FieldOrder)];
+    SchemaMetadata => [P, T(NativeChange::ArrowMetadata), P, T(NativeChange::ArrowMetadata), P, T(NativeChange::ArrowMetadata), P, T(NativeChange::ArrowMetadata), P, T(NativeChange::ArrowMetadata)];
+    FieldMetadata => [P, T(NativeChange::ArrowMetadata), P, T(NativeChange::ArrowMetadata), P, T(NativeChange::ArrowMetadata), P, T(NativeChange::ArrowMetadata), P, T(NativeChange::ArrowMetadata)];
+    NativeMetadata => [T(NativeChange::ForeignMembers), T(NativeChange::ArrowMetadata), T(NativeChange::ForeignMembers), T(NativeChange::ArrowMetadata), P, T(NativeChange::ArrowMetadata), P, T(NativeChange::ArrowMetadata), P, T(NativeChange::ArrowMetadata)];
+    Z => [P, P, T(NativeChange::AltitudeMode), P, P, P, P, P, P, P];
+    M => [R, R, R, R, P, P, R, R, P, P];
+    Dimensions => [T(NativeChange::Dimensions), T(NativeChange::Dimensions), T(NativeChange::Dimensions), T(NativeChange::Dimensions), P, P, T(NativeChange::Dimensions), T(NativeChange::Dimensions), P, P];
+    GeometryType => [P, P, T(NativeChange::GeometryType), T(NativeChange::GeometryType), T(NativeChange::GeometryType), T(NativeChange::GeometryType), T(NativeChange::GeometryType), T(NativeChange::GeometryType), P, P];
+    RingOrientation => [P, P, P, P, P, T(NativeChange::RingOrientation), P, P, P, T(NativeChange::RingOrientation)];
+    EmptyGeometry => [R, R, R, R, R, R, R, R, T(NativeChange::MissingValue), T(NativeChange::MissingValue)];
+    CoordinatePrecision => [T(NativeChange::NumberPrecision), P, T(NativeChange::NumberPrecision), P, P, P, P, T(NativeChange::CoordinatePrecision), P, T(NativeChange::CoordinatePrecision)];
+    CrsId => [P, T(NativeChange::CrsId), P, T(NativeChange::CrsId), P, T(NativeChange::CrsId), P, T(NativeChange::CrsId), P, T(NativeChange::CrsId)];
+    CrsDefinition => [P, T(NativeChange::CrsDefinition), P, T(NativeChange::CrsDefinition), P, T(NativeChange::CrsDefinition), P, T(NativeChange::CrsDefinition), P, T(NativeChange::CrsDefinition)];
+    FeatureId => [T(NativeChange::FeatureId), T(NativeChange::ArrowMetadata), T(NativeChange::FeatureId), T(NativeChange::ArrowMetadata), T(NativeChange::FeatureId), T(NativeChange::ArrowMetadata), T(NativeChange::FeatureId), T(NativeChange::ArrowMetadata), T(NativeChange::FeatureId), T(NativeChange::ArrowMetadata)];
+    Bbox => [T(NativeChange::Bbox), T(NativeChange::ArrowMetadata), R, T(NativeChange::ArrowMetadata), T(NativeChange::Bbox), T(NativeChange::ArrowMetadata), R, T(NativeChange::ArrowMetadata), T(NativeChange::Bbox), T(NativeChange::ArrowMetadata)];
+    ForeignMembers => [T(NativeChange::ForeignMembers), T(NativeChange::ArrowMetadata), T(NativeChange::ForeignMembers), T(NativeChange::ArrowMetadata), R, T(NativeChange::ArrowMetadata), R, T(NativeChange::ArrowMetadata), R, T(NativeChange::ArrowMetadata)];
+    LayerMetadata => [T(NativeChange::ForeignMembers), T(NativeChange::ArrowMetadata), T(NativeChange::LayerMetadata), T(NativeChange::ArrowMetadata), T(NativeChange::LayerMetadata), T(NativeChange::ArrowMetadata), T(NativeChange::LayerMetadata), T(NativeChange::ArrowMetadata), T(NativeChange::LayerMetadata), T(NativeChange::ArrowMetadata)];
+    Styles => [T(NativeChange::ForeignMembers), T(NativeChange::ArrowMetadata), T(NativeChange::Styles), T(NativeChange::ArrowMetadata), R, T(NativeChange::ArrowMetadata), T(NativeChange::NativeStyles), T(NativeChange::ArrowMetadata), R, T(NativeChange::ArrowMetadata)];
+    Hierarchy => [R, R, T(NativeChange::Hierarchy), T(NativeChange::ArrowMetadata), R, R, T(NativeChange::NativeHierarchy), T(NativeChange::ArrowMetadata), T(NativeChange::NativeHierarchy), T(NativeChange::ArrowMetadata)];
+    Extensions => [T(NativeChange::ForeignMembers), T(NativeChange::ArrowMetadata), T(NativeChange::ForeignMembers), T(NativeChange::ArrowMetadata), T(NativeChange::LayerMetadata), T(NativeChange::ArrowMetadata), T(NativeChange::LayerMetadata), T(NativeChange::ArrowMetadata), T(NativeChange::LayerMetadata), T(NativeChange::ArrowMetadata)];
+    ExternalReference => [T(NativeChange::ForeignMembers), T(NativeChange::ArrowMetadata), T(NativeChange::ExternalReference), T(NativeChange::ArrowMetadata), R, R, R, T(NativeChange::ArrowMetadata), T(NativeChange::ExternalReference), T(NativeChange::ArrowMetadata)];
+    ExtendedData => [R, R, T(NativeChange::ExtendedData), T(NativeChange::ExtendedData), R, R, T(NativeChange::LayerMetadata), T(NativeChange::ArrowMetadata), R, R];
+    FeatureMetadata => [T(NativeChange::ForeignMembers), T(NativeChange::ArrowMetadata), T(NativeChange::FeatureMetadata), T(NativeChange::ArrowMetadata), R, R, T(NativeChange::LayerMetadata), T(NativeChange::ArrowMetadata), R, R];
+    AltitudeMode => [R, R, T(NativeChange::AltitudeMode), P, R, R, R, R, R, R];
+    Inference => [T(NativeChange::Inference), T(NativeChange::Inference), R, T(NativeChange::Inference), T(NativeChange::Inference), P, R, R, R, R];
+    NumberPrecision => [T(NativeChange::NumberPrecision), P, T(NativeChange::NumberPrecision), P, P, P, P, T(NativeChange::CoordinatePrecision), P, T(NativeChange::CoordinatePrecision)];
+    StructuredValue => [T(NativeChange::StructuredValue), R, T(NativeChange::ExtendedData), R, R, R, R, R, R, R];
+    MissingValue => [T(NativeChange::MissingValue), P, T(NativeChange::MissingValue), P, P, P, P, P, P, P];
 }
 #[must_use]
 pub const fn native_rule(
@@ -519,6 +548,12 @@ pub const fn native_rule(
         (NativeDriver::GeoJson, TransportDirection::Write) => 1,
         (NativeDriver::Kml, TransportDirection::Read) => 2,
         (NativeDriver::Kml, TransportDirection::Write) => 3,
+        (NativeDriver::Shp, TransportDirection::Read) => 4,
+        (NativeDriver::Shp, TransportDirection::Write) => 5,
+        (NativeDriver::Dxf, TransportDirection::Read) => 6,
+        (NativeDriver::Dxf, TransportDirection::Write) => 7,
+        (NativeDriver::FileGdb, TransportDirection::Read) => 8,
+        (NativeDriver::FileGdb, TransportDirection::Write) => 9,
     };
     element.rules()[index]
 }
@@ -614,11 +649,14 @@ pub fn observe_native(
         },
         context: match change {
             NativeChange::AltitudeMode => "non-absolute or implicit altitude mode discarded; Z is unconverted, not absolute elevation",
+            NativeChange::CoordinatePrecision if transport.0 == NativeDriver::Dxf => "coordinates rounded to twelve decimal places, including signed zero normalization",
+            NativeChange::CoordinatePrecision => "coordinates quantized on the native grid, including signed zero normalization",
+            NativeChange::RingOrientation => "native ring orientation normalization; count is rings or polygonal geometries, not changed vertices",
             NativeChange::NumberPrecision => "native numeric representation converted to binary64; decimal precision is not retained",
             NativeChange::Dimensions => "dimension declaration reconstructed from native data; GeoJSON remains unknown",
             NativeChange::ExtendedData => "ExtendedData fields are emitted but not read, including SchemaData",
             _ => "native element transformed or omitted; structural indices only",
-        }.to_owned(),
+        }.to_owned() + &format!("; element={element:?}"),
     });
 }
 
@@ -630,17 +668,70 @@ fn native_field_order(driver: NativeDriver, fields: &arrow_schema::Fields) -> Ve
         geometry_b.cmp(&geometry_a).then_with(|| {
             if driver == NativeDriver::GeoJson {
                 fields[a].name().cmp(fields[b].name())
-            } else {
+            } else if driver == NativeDriver::Kml {
                 let rank = |i: usize| match fields[i].name().as_str() {
                     "name" => 0,
                     "description" => 1,
                     _ => 2,
                 };
                 rank(a).cmp(&rank(b))
+            } else {
+                std::cmp::Ordering::Equal
             }
         })
     });
     order
+}
+
+/// Counts native geometry normalization units, not measured coordinate errors.
+pub fn observe_geometry_write(
+    report: &mut crate::LossReport,
+    driver: NativeDriver,
+    geometry: &plenora_io_model::wkb::WkbGeometry,
+    layer: u64,
+    field: u64,
+) {
+    use plenora_io_model::wkb::WkbValue;
+    fn rings(value: &WkbValue) -> usize {
+        match value {
+            WkbValue::Polygon(rings) => rings.len(),
+            WkbValue::MultiPolygon(children) | WkbValue::GeometryCollection(children) => {
+                children.iter().map(|child| rings(&child.value)).sum()
+            }
+            _ => 0,
+        }
+    }
+    let transport = (driver, TransportDirection::Write);
+    let promoted = driver == NativeDriver::Shp
+        && matches!(
+            geometry.value,
+            WkbValue::LineString(_) | WkbValue::Polygon(_)
+        );
+    let rings = rings(&geometry.value);
+    observe_native(
+        report,
+        transport,
+        NativeElement::GeometryType,
+        u64::from(promoted),
+        layer,
+        Some(field),
+    );
+    observe_native(
+        report,
+        transport,
+        NativeElement::RingOrientation,
+        rings as u64,
+        layer,
+        Some(field),
+    );
+    observe_native(
+        report,
+        transport,
+        NativeElement::CoordinatePrecision,
+        1,
+        layer,
+        Some(field),
+    );
 }
 
 /// Losses of the native schema that are known before the first batch.
@@ -769,12 +860,37 @@ impl crate::LayerReader for NativeReportReader {
     }
 }
 
+const SHP_NATIVE_CLASSES: [ArrowTypeClass; native_class_count(NativeDriver::Shp)] =
+    native_classes(NativeDriver::Shp);
+
+const DXF_NATIVE_CLASSES: [ArrowTypeClass; native_class_count(NativeDriver::Dxf)] =
+    native_classes(NativeDriver::Dxf);
+
+const FILEGDB_NATIVE_CLASSES: [ArrowTypeClass; native_class_count(NativeDriver::FileGdb)] =
+    native_classes(NativeDriver::FileGdb);
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::collections::HashMap;
 
     const EXPECTED_NATIVE_ELEMENTS: &[&str] = &[
+        "NullGeometry",
+        "EmptyPoint",
+        "SignedZero",
+        "Subtypes",
+        "Aliases",
+        "Domains",
+        "TextStyle",
+        "PaperSpace",
+        "Xdata",
+        "Width",
+        "Thickness",
+        "Lineweight",
+        "Linetype",
+        "Color",
+        "Handle",
+        "DbfDate",
         "Utf8",
         "Null",
         "EmptyString",
@@ -827,8 +943,11 @@ mod tests {
         assert_eq!(
             qualified,
             [
+                ("shp", NativeDriver::Shp),
+                ("filegdb", NativeDriver::FileGdb),
                 ("geojson", NativeDriver::GeoJson),
-                ("kml", NativeDriver::Kml)
+                ("kml", NativeDriver::Kml),
+                ("dxf", NativeDriver::Dxf)
             ]
         );
         for (id, driver) in &qualified {
@@ -857,11 +976,21 @@ mod tests {
                 native_rule(*driver, TransportDirection::Write, NativeElement::Z),
                 NativeRule::Preserved
             );
-            assert!(!catalog.dimensions.contains(&CoordinateDimensions::Xym));
-            assert!(!catalog.dimensions.contains(&CoordinateDimensions::Xyzm));
+            assert_eq!(
+                catalog.dimensions.contains(&CoordinateDimensions::Xym),
+                matches!(driver, NativeDriver::Shp | NativeDriver::FileGdb)
+            );
+            assert_eq!(
+                catalog.dimensions.contains(&CoordinateDimensions::Xyzm),
+                matches!(driver, NativeDriver::Shp | NativeDriver::FileGdb)
+            );
             assert_eq!(
                 native_rule(*driver, TransportDirection::Write, NativeElement::M),
-                NativeRule::Rejected
+                if matches!(driver, NativeDriver::Shp | NativeDriver::FileGdb) {
+                    P
+                } else {
+                    R
+                }
             );
         }
         let actual: Vec<_> = NATIVE_ELEMENTS
@@ -869,7 +998,13 @@ mod tests {
             .map(|element| format!("{element:?}"))
             .collect();
         assert_eq!(actual, EXPECTED_NATIVE_ELEMENTS);
-        for driver in [NativeDriver::GeoJson, NativeDriver::Kml] {
+        for driver in [
+            NativeDriver::GeoJson,
+            NativeDriver::Kml,
+            NativeDriver::Shp,
+            NativeDriver::Dxf,
+            NativeDriver::FileGdb,
+        ] {
             for direction in [TransportDirection::Read, TransportDirection::Write] {
                 for &element in NATIVE_ELEMENTS {
                     let mut report = crate::LossReport::default();

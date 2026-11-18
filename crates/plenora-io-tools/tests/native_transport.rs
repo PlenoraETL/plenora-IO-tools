@@ -42,6 +42,262 @@ fn load(path: &Path) -> RecordBatch {
 }
 
 #[test]
+fn shp_dxf_filegdb_native_roundtrip_declares_schema_and_coordinate_changes() {
+    let mut drivers = vec![("shp", "shp.d"), ("dxf", "dxf")];
+    if cfg!(feature = "gdal-backend") {
+        drivers.push(("filegdb", "gdb"));
+    }
+    for (driver, extension) in drivers {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("source.arrow");
+        let native = dir.path().join(format!("native.{extension}"));
+        let back = dir.path().join("back.arrow");
+        let mut geometry =
+            GeometryColumnContract::wkb_xy(FieldId(1), "geom", ResolvedCrs::wgs84(), false);
+        geometry.set_exact_geometry_types(vec![GeometryType::Point]);
+        let field = plenora_io_model::geometry::with_geometry_contract_metadata(
+            &Field::new("geom", DataType::Binary, false).with_metadata(HashMap::from([(
+                "ARROW:extension:name".into(),
+                "geoarrow.wkb".into(),
+            )])),
+            &geometry,
+        );
+        let point = [
+            vec![1, 1, 0, 0, 0],
+            1.123_456_789_012_345_f64.to_le_bytes().to_vec(),
+            1e-20_f64.to_le_bytes().to_vec(),
+        ]
+        .concat();
+        let schema =
+            plenora_io_model::geometry::with_contract_version(Arc::new(Schema::new(vec![
+                Field::new("secret", DataType::Utf8, false),
+                field,
+            ])));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(StringArray::from(vec!["payload"])),
+                Arc::new(BinaryArray::from(vec![point.as_slice()])),
+            ],
+        )
+        .unwrap();
+        let mut writer =
+            arrow_ipc::writer::FileWriter::try_new(File::create(&source).unwrap(), &schema)
+                .unwrap();
+        writer.write(&batch).unwrap();
+        writer.finish().unwrap();
+        drop(writer);
+        let written = convert(&source, &native, "ipc", driver);
+        assert_eq!(
+            count(&written, "write_loss", "native_field_order_changed"),
+            2
+        );
+        assert_eq!(
+            count(&written, "write_loss", "native_not_null_not_preserved"),
+            2
+        );
+        assert!(!written["result"]["write_loss"]
+            .to_string()
+            .contains("secret"));
+        assert!(!written["result"]["write_loss"]
+            .to_string()
+            .contains("payload"));
+        let read = convert(&native, &back, driver, "ipc");
+        let actual = load(&back);
+        assert_eq!(actual.num_rows(), 1);
+        assert_eq!(actual.schema().field(0).name(), "geometry");
+        if driver == "dxf" {
+            assert_eq!(
+                count(&written, "write_loss", "dxf_attribute_not_represented"),
+                1
+            );
+            assert!(actual.schema().index_of("secret").is_err());
+        } else {
+            assert_eq!(actual.column(1), batch.column(0));
+            assert_eq!(count(&read, "read_loss", "native_field_order_changed"), 1);
+        }
+        if driver == "shp" {
+            assert_eq!(actual.column(0), batch.column(1));
+        } else {
+            assert_ne!(actual.column(0), batch.column(1));
+            assert_eq!(
+                count(&written, "write_loss", "native_coordinate_precision"),
+                1
+            );
+        }
+    }
+}
+
+// La matrice tiene adiacenti fixture, esito e confronto dei valori per ogni driver.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn native_geometry_promotions_rings_empty_and_signed_zero() {
+    use arrow_array::Array;
+    use plenora_io_model::contract::CoordinateDimensions;
+    use plenora_io_model::wkb::{encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue};
+    let coord = |x, y| WkbCoordinate {
+        x,
+        y,
+        z: None,
+        m: None,
+    };
+    let ring = vec![
+        coord(0.0, 0.0),
+        coord(10.0, 0.0),
+        coord(10.0, 10.0),
+        coord(0.0, 10.0),
+        coord(0.0, 0.0),
+    ];
+    let cases = [
+        (
+            GeometryType::LineString,
+            WkbValue::LineString(vec![coord(1e-20, -0.0), coord(1.123_456_789_012_345, 2.0)]),
+        ),
+        (GeometryType::Polygon, WkbValue::Polygon(vec![ring])),
+        (
+            GeometryType::Point,
+            WkbValue::Point(coord(f64::NAN, f64::NAN)),
+        ),
+        (GeometryType::MultiPolygon, WkbValue::MultiPolygon(vec![])),
+    ];
+    for (kind, value) in cases {
+        let empty = matches!(kind, GeometryType::Point | GeometryType::MultiPolygon);
+        let mut drivers = vec![("shp", "shp.d"), ("dxf", "dxf")];
+        if cfg!(feature = "gdal-backend") {
+            drivers.push(("filegdb", "gdb"));
+        }
+        for (driver, extension) in drivers {
+            let (native_kind, native_value) = if driver == "filegdb" && !empty {
+                let child = WkbGeometry {
+                    value: value.clone(),
+                    dimensions: CoordinateDimensions::Xy,
+                    srid: None,
+                };
+                if kind == GeometryType::Polygon {
+                    (
+                        GeometryType::MultiPolygon,
+                        WkbValue::MultiPolygon(vec![child]),
+                    )
+                } else {
+                    (
+                        GeometryType::MultiLineString,
+                        WkbValue::MultiLineString(vec![child]),
+                    )
+                }
+            } else {
+                (kind, value.clone())
+            };
+            let dir = tempfile::tempdir().unwrap();
+            let source = dir.path().join("source.arrow");
+            let native = dir.path().join(format!("native.{extension}"));
+            let back = dir.path().join("back.arrow");
+            let mut geometry =
+                GeometryColumnContract::wkb_xy(FieldId(0), "geometry", ResolvedCrs::wgs84(), true);
+            geometry.set_exact_geometry_types(vec![native_kind]);
+            let field = plenora_io_model::geometry::with_geometry_contract_metadata(
+                &Field::new("geometry", DataType::Binary, true).with_metadata(HashMap::from([(
+                    "ARROW:extension:name".into(),
+                    "geoarrow.wkb".into(),
+                )])),
+                &geometry,
+            );
+            let schema =
+                plenora_io_model::geometry::with_contract_version(Arc::new(Schema::new(vec![
+                    field,
+                ])));
+            let bytes = encode_wkb(
+                &WkbGeometry {
+                    value: native_value,
+                    dimensions: CoordinateDimensions::Xy,
+                    srid: None,
+                },
+                WkbFlavor::Iso,
+            )
+            .unwrap();
+            let batch = RecordBatch::try_new(
+                schema.clone(),
+                vec![Arc::new(BinaryArray::from(vec![bytes.as_slice()]))],
+            )
+            .unwrap();
+            let mut writer =
+                arrow_ipc::writer::FileWriter::try_new(File::create(&source).unwrap(), &schema)
+                    .unwrap();
+            writer.write(&batch).unwrap();
+            writer.finish().unwrap();
+            drop(writer);
+            if empty && driver != "filegdb" && !(driver == "shp" && kind == GeometryType::Point) {
+                let output = Command::new(env!("CARGO_BIN_EXE_plenora-io"))
+                    .arg("convert")
+                    .arg(&source)
+                    .arg(&native)
+                    .args(["--from", "ipc", "--to", driver])
+                    .output()
+                    .unwrap();
+                assert!(
+                    !output.status.success(),
+                    "driver={driver}, kind={kind:?}, stdout={}",
+                    String::from_utf8_lossy(&output.stdout)
+                );
+                assert!(output.stderr.is_empty());
+                assert!(!native.exists());
+                continue;
+            }
+            let written = convert(&source, &native, "ipc", driver);
+            convert(&native, &back, driver, "ipc");
+            let actual = load(&back);
+            assert_eq!(actual.num_rows(), 1);
+            if empty && driver == "shp" {
+                assert_eq!(actual.column(0), batch.column(0));
+            } else if empty {
+                assert!(actual.column(0).is_null(0));
+                assert_eq!(count(&written, "write_loss", "native_missing_as_null"), 1);
+            } else {
+                if driver == "shp" {
+                    assert_eq!(
+                        count(&written, "write_loss", "native_geometry_type_changed"),
+                        1
+                    );
+                    let expected = if kind == GeometryType::Polygon {
+                        "multipolygon"
+                    } else {
+                        "multilinestring"
+                    };
+                    assert_eq!(
+                        actual.schema().field(0).metadata()["plenora.geometry.types"],
+                        expected
+                    );
+                } else {
+                    assert_eq!(
+                        count(&written, "write_loss", "native_coordinate_precision"),
+                        1
+                    );
+                }
+                if kind == GeometryType::Polygon && driver != "dxf" {
+                    assert_eq!(
+                        count(&written, "write_loss", "native_ring_orientation_changed"),
+                        1
+                    );
+                    assert_ne!(actual.column(0), batch.column(0));
+                }
+                if kind == GeometryType::LineString && driver != "shp" {
+                    let binary = actual
+                        .column(0)
+                        .as_any()
+                        .downcast_ref::<BinaryArray>()
+                        .unwrap();
+                    let got = binary.value(0);
+                    let offset = if driver == "filegdb" { 18 } else { 9 };
+                    let x = f64::from_le_bytes(got[offset..offset + 8].try_into().unwrap());
+                    let y = f64::from_le_bytes(got[offset + 8..offset + 16].try_into().unwrap());
+                    assert_eq!(x.to_bits(), 0.0_f64.to_bits());
+                    assert_eq!(y.to_bits(), 0.0_f64.to_bits());
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn native_schema_values_and_losses_roundtrip() {
     let arrays: Vec<ArrayRef> = vec![
         Arc::new(Int8Array::from(vec![Some(-128), None])),

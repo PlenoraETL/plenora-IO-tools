@@ -43,6 +43,10 @@ use plenora_io_core::driver::{
     Published, ReadOptions, Sink, Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
+use plenora_io_core::loss_table::{
+    native_write_report, observe_native, NativeDriver, NativeElement, TransportDirection,
+};
+
 use plenora_io_core::publish::{
     create_staged_dir, publish_dir_atomic, publish_files_ordered_limited,
 };
@@ -50,8 +54,8 @@ use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadRequest, ReadSco
 use plenora_io_core::{
     validate_write, with_write_validation, write_row_rejection, AttributeWriteSupport,
     CrsDerivation, CrsRepresentationCapabilities, CrsRepresentationState, CrsWriteSupport,
-    FormatWriteCapabilities, NullabilitySupport, SinkPathConstraint, SinkPathReason,
-    TypeCoercionPolicy, WritePlan, DBF_FIELD_NAMES, WKB_SINGLE_TYPE_ALL_DIMENSIONS_GEOMETRY,
+    FormatWriteCapabilities, SinkPathConstraint, SinkPathReason, TypeCoercionPolicy, WritePlan,
+    DBF_FIELD_NAMES, WKB_SINGLE_TYPE_ALL_DIMENSIONS_GEOMETRY,
 };
 use plenora_io_model::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
@@ -626,7 +630,9 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
             GRAMMATICHE_DEL_PRJ,
             CrsRepresentationState::Derived(CrsDerivation::FromIdentifier),
         ),
-        nullability: NullabilitySupport::FormatDefined,
+        nullability: plenora_io_core::loss_table::native_nullability(
+            plenora_io_core::loss_table::NativeDriver::Shp,
+        ),
         multi_layer: false,
         sink_path: SinkPathConstraint::Required {
             suffixes: &["shp", "shp.d"],
@@ -794,6 +800,7 @@ impl FormatDriver for ShpDriver {
 
         with_write_validation(
             Box::new(ShpWriter {
+                loss: native_write_report(NativeDriver::Shp, plan),
                 staging: Some(staging),
                 writer: Some(writer),
                 dest,
@@ -911,6 +918,7 @@ impl DbfKind {
 }
 
 struct ShpWriter {
+    loss: LossReport,
     staging: Option<tempfile::TempDir>,
     writer: Option<Writer<BufWriter<File>>>,
     dest: PathBuf,
@@ -981,6 +989,13 @@ impl FormatWriter for ShpWriter {
                 rejections.push((row, "shapefile.invalid_geometry", GEOMETRY));
                 continue;
             };
+            plenora_io_core::loss_table::observe_geometry_write(
+                &mut self.loss,
+                NativeDriver::Shp,
+                &geometry,
+                0,
+                self.geom_idx as u64,
+            );
             let Ok(shape) = shape_from_wkb(geometry) else {
                 rejections.push((row, "shapefile.geometry_not_representable", GEOMETRY));
                 continue;
@@ -1116,7 +1131,7 @@ impl FormatWriter for ShpWriter {
         };
         Ok(Published {
             bytes,
-            loss: LossReport::default(),
+            loss: self.loss.clone(),
             fidelity: plenora_io_core::FidelityAssessment::lossless(),
             outcome,
         })
@@ -3395,7 +3410,38 @@ fn infer_shp_schema(path: &Path) -> Result<ShpInference> {
             (field.name.clone(), accumulator)
         })
         .collect();
-    let loss = LossReport::default();
+    let mut loss = LossReport::default();
+    for (index, field) in dbf_layout.fields.iter().enumerate() {
+        observe_native(
+            &mut loss,
+            (NativeDriver::Shp, TransportDirection::Read),
+            NativeElement::DbfDate,
+            u64::from(field.field_type == b'D'),
+            0,
+            Some(index as u64 + 1),
+        );
+    }
+    observe_native(
+        &mut loss,
+        (NativeDriver::Shp, TransportDirection::Read),
+        NativeElement::FieldOrder,
+        1,
+        0,
+        Some(0),
+    );
+    observe_native(
+        &mut loss,
+        (NativeDriver::Shp, TransportDirection::Read),
+        NativeElement::GeometryType,
+        u64::from(geometry_info.geometry_types.iter().any(|kind| {
+            matches!(
+                kind,
+                GeometryType::MultiLineString | GeometryType::MultiPolygon
+            )
+        })),
+        0,
+        Some(0),
+    );
     let mut active_row_count = 0_u64;
     let mut records = reader.iter_records();
     while let Some(physical_row) = exact_rows.next_physical(None)? {

@@ -925,7 +925,7 @@ per i nuovi rifiuti e la migrazione dalla 7.x. La matrice interop e le campagne
 | XLSX | interi scrivibili nell'intervallo inclusivo [-2^53, 2^53]; oltre, rifiuto prima della pubblicazione. Float32 ampliato esattamente a Float64; float non finiti e decimali rifiutati. In lettura date native: Date32 per formato solo data e millisecondi multipli di 86_400_000, Timestamp(Microsecond, senza fuso) con ora, Duration(Microsecond) per stili durata. Epoca 1900/1904 dal workbook; giorni 1-59 del 1900 esatti, giorni 0 e 60 ambigui/inesistenti rifiutati. Seriali negativi, fuori dominio o non canonici al millisecondo rifiutati: candidato ms arrotondato razionalmente e accettato solo se ms/86_400_000 arrotondato a binary64 (round-half-even) riproduce gli stessi bit. Timestamp e Duration Arrow conservano ms*1000 microsecondi. Colonne temporali miste ed errori Excel rifiutati; solo il vuoto diventa null. Date/durate ISO restano testo. Le date native diventavano silenziosamente null nelle versioni 1.0.0-6.0.0 elencate in RELEASE.md; ora si leggono |
 | KML, XLSX, DXF | lettura materializzata: la libreria sottostante ha bisogno di **tutto l'input** prima della prima riga. Dove stia quell'input lo decide il buffering, che è un asse separato: non è una promessa che stia tutto in RAM. I limiti di input sono l'unica difesa, e vengono applicati prima del parser |
 | DXF | un `DATATABLE` oltre 2^20 righe, colonne o celle, e un'anteprima (`THUMBNAILIMAGE`) la cui decodifica supererebbe 16 MiB, rendono il documento illeggibile (`FORMAT_ERROR`). Sono tetti espliciti del prodotto contro le prenotazioni dimensionate dall'input, **non** una garanzia di leggere ogni file AutoCAD. L'ordine delle celle del `DATATABLE` (per colonne, un valore per ogni riga) segue la specifica Autodesk come la scrive il fork ed è verificato solo in round-trip interno, non contro file AutoCAD reali: il driver non legge `DATATABLE`, ma il lettore li attraversa. In scrittura il fork accetta solo `DATATABLE` completi (un nome per colonna, un valore per ogni riga di ogni colonna, un tipo per colonna) e rifiuta gli altri con un errore; il driver scrive entità e `GEODATA`, non `DATATABLE` |
-| DXF | i reali si scrivono in ASCII con dodici decimali: per le coordinate è sotto la precisione geografica di 1 cm (un dodicesimo decimale di grado è circa 1e-7 m), per altri valori reali è un arrotondamento che il formato non segnala |
+| DXF | le coordinate si scrivono in ASCII con dodici decimali; `native_coordinate_precision` dichiara arrotondamento, possibile collasso di vertici distinti e normalizzazione di -0 |
 | GeoParquet | dalla 4.2.0 il decoder del footer (`parquet` 60 più il fork `vendor/parquet`) lega ai byte residui ogni elenco Thrift e i row group, rifiuta uno schema più profondo di 64 livelli prima di convertirlo, e addebita ogni prenotazione -- elenchi, column chunk, percorsi delle foglie, il footer stesso -- al tetto delle pagine (metà della capacità effettiva) **prima** di farla; un footer più lungo di metà del tetto si rifiuta dalla coda. Il caso della 4.1.1 (3966 byte, `malloc(2315255472)`) è un errore. Restano fuori dal tetto le espansioni vere dei dati (un dizionario ripetuto su molte righe), che governa il budget delle pagine, e il page index, che il driver non legge. Anche i decoder delle pagine non si fidano piu' dei valori del file: lunghezze, indici di dizionario, prefissi e suffissi delta, corse RLE e livelli v2 o `BIT_PACKED` oltre i byte della pagina sono un errore invece di un panico, e i quattro casi che prima si leggevano in silenzio con un valore sbagliato (un prefisso delta oltre il valore precedente, il resto di una pagina `BYTE_STREAM_SPLIT` o FLBA `PLAIN`, una corsa RLE oltre `u32`) si rifiutano. Il delta e' lo stesso del fork di plenora-data-tools2 (`vendor/parquet`, registro `vendor-parquet-fork.json`) |
 | Runtime `io.read`: vettore di richiesta | Deviazione, regola 4, da RUNTIME-VECTORS-1.0 §5 (`io-read-request`), limitata al payload illustrativo: `artifact_source`, `format` e `layer` stringa non rispettano `plenora-io-read-input-v1`, che richiede `source` e `layer` intero. Il binding rifiuta con `RUNTIME_PAYLOAD_INVALID` prima del risolutore. Conseguenza per il consumatore e hazard: copiare la fixture impedisce l'invocazione, anche con metadati validi; usare il payload dello schema IO sullo stesso riferimento consente la lettura. Rientro: allineare la fixture in plenora-contracts oppure pubblicare una v2 dello schema di ingresso. Registro: `contracts/adozione-4.0.0.json`; prove: `runtime_vettori` |
 | Runtime `io.read`: vettore di cancellazione | Deviazione, regola 4, da RUNTIME-VECTORS-1.0 §3 (`io-read-cancelled-error`), per la lettura con token gia' cancellato: `CANCELLED`, fase `probe`, retry `never`, contro `READ_CANCELLED`, `read`, `safe` della fixture. Categoria `cancelled` ed effetto `none` coincidono. Il binding conserva gli assi delle operazioni comuni a CLI e Rust (SURFACE-BINDINGS-1.0 §1). Conseguenza per il consumatore: nessun retry automatico. Hazard: chi instrada per codice/fase della fixture puo' non riconoscere l'errore; chi presume `safe` puo' ritentare contro l'indicazione effettiva. Rientro: allineare la fixture in plenora-contracts oppure cambiare gli assi su tutte le superfici in una release dichiarata. Registro: `contracts/adozione-4.0.0.json`; prove: `runtime_vettori` |
@@ -1289,3 +1289,50 @@ I conteggi sono strutturali, non misure dell'errore numerico:
 Gli esempi riportano indici di layer/campo, mai nomi, ID, URI o valori del file.
 Gli esempi restano limitati; i conteggi sono aggregati. I metadati Arrow e le
 rappresentazioni CRS continuano a seguire i piani comuni per chiave.
+
+### Perdite native Shapefile, DXF e FileGDB
+
+Le celle di lettura e scrittura di questi driver sono nella stessa tabella
+`loss_table` usata da GeoJSON e KML. Le classi Arrow e la nullabilità del catalogo
+derivano dalle celle; i limiti su valori e sottotipi geometrici restano quelli
+delle capability e dei validatori del formato. Una cella di classe non rende
+scrivibile ogni valore: per esempio FileGDB rifiuta LineString e Polygon singoli
+e accetta i corrispondenti multi, mentre Shapefile promuove i singoli.
+
+Shapefile dichiara la geometria ricostruita in testa: il piano di scrittura conta
+i campi spostati; la lettura conta una ricostruzione dell'ordine del dataset
+SHP/DBF. `native_geometry_type_changed` conta le geometrie singole promosse in
+scrittura e una dichiarazione di tipo polyline/polygon ricostruita come multi
+in lettura. `native_ring_orientation_changed` conta gli anelli sottoposti alla
+normalizzazione di orientamento, anche se già orientati come richiesto. Un campo
+DBF D letto come Utf8 produce `coercion tipo attributo`, con indice del campo:
+il valore testuale della data resta quello restituito dal reader. Il Point vuoto
+NaN si conserva; le collezioni vuote non rappresentabili sono rifiutate.
+
+DXF dichiara handle, colore, linetype, lineweight, thickness, larghezze, XDATA,
+attributi grafici TEXT/MTEXT e paper space. Le categorie sono rispettivamente
+`native_feature_id_not_preserved`, `native_styles_not_preserved`,
+`native_layer_metadata_not_preserved` e `native_hierarchy_flattened`; il dettaglio
+curato identifica l'elemento, senza riportarne il valore. Si contano gli elementi
+non predefiniti osservati, i contenitori XDATA e le entità testuali/paper space.
+Il testo TEXT resta una colonna; altezza, rotazione e stile non sono conservati.
+Le entità paper space rimangono nel medesimo oggetto del model space, con perdita
+esplicita della distinzione. Un blocco XREF o il model space che lo usa tramite
+INSERT è rifiutato localmente: nessun riferimento esterno viene seguito.
+`dxf_attribute_not_represented` conta le celle delle colonne scartate in scrittura;
+gli esempi ne riportano l'indice, mai il nome nella categoria o nel dettaglio.
+
+FileGDB dichiara l'ordine geometria-prima e i vincoli NOT NULL non trasportati,
+per campo. La lettura esamina anche la definizione XML nativa ottenuta da GDAL:
+alias e riferimenti a domini non vuoti, e sottotipi, sono contati come
+`native_layer_metadata_not_preserved`. Le definizioni non diventano metadati
+Arrow; i loro nomi e contenuti non entrano nel report. Le categorie restano
+separate dai rifiuti locali dei tipi Date/DateTime/Binary non supportati.
+
+`native_coordinate_precision` conta una geometria non null sottoposta al
+renderer DXF o alla griglia FileGDB, non cifre perse o errore misurato; comprende
+la normalizzazione di -0. FileGDB conta una geometria poligonale per la
+normalizzazione degli anelli e una geometria vuota per `native_missing_as_null`.
+I conteggi dichiarano il processo nativo anche quando un valore è già esatto.
+NOT NULL e ordine sono dichiarati anche per layer senza righe. Tutti gli esempi
+usano indici di layer/campo; il limite degli esempi non cambia.

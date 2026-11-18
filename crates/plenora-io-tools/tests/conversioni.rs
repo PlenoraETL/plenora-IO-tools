@@ -569,22 +569,10 @@ fn ipc_con_wkt_a_dxf_dichiara_ogni_approssimazione() {
     );
     assert!(esito.riuscito, "{}", esito.stdout);
     let perdite_misurate = esito.perdite();
-    for colonna in [
-        "id",
-        "codice",
-        "etichetta",
-        "intero_largo",
-        "conteggio",
-        "misura",
-        "attivo",
-        "istante",
-    ] {
-        let categoria = format!("attributo non rappresentato in DXF: {colonna}");
-        assert!(
-            perdite_misurate.contains_key(&categoria),
-            "ogni attributo perduto va nominato, manca «{colonna}»: {perdite_misurate:?}"
-        );
-    }
+    assert_eq!(
+        perdite_misurate.get("dxf_attribute_not_represented"),
+        Some(&32)
+    );
     assert_eq!(
         esito.righe(),
         4,
@@ -737,7 +725,7 @@ fn filegdb_tabella_non_spaziale_diventa_un_csv_di_attributi() {
     assert!(esito.riuscito, "{}", esito.stderr);
     assert_eq!(
         esito.perdite(),
-        perdite(&[]),
+        perdite(&[("arrow_metadata_not_preserved", 10)]),
         "una tabella senza geometria non ha un CRS da perdere"
     );
     let testo = std::fs::read_to_string(&uscita).expect("il CSV si legge");
@@ -758,7 +746,11 @@ fn csv_a_filegdb_con_i_tipi_che_il_formato_rappresenta() {
     assert!(esito.riuscito, "{}", esito.stderr);
     assert_eq!(
         esito.perdite(),
-        perdite(&[("crs_id_not_preserved_derived", 1)]),
+        perdite(&[
+            ("crs_id_not_preserved_derived", 1),
+            ("arrow_metadata_not_preserved", 13),
+            ("native_coordinate_precision", 1)
+        ]),
         "il CRS lo ricava GDAL a runtime"
     );
     assert_eq!(esito.righe(), 2, "la fixture ristretta porta r1 e r5");

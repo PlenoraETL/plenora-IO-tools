@@ -2219,7 +2219,7 @@ fn wide_zero_decimal_dbf_numeric_is_read_exactly_as_i64() {
         .open(Source::Path(path), opzioni_lettura())
         .unwrap();
     let assessment = dataset.fidelity_assessment();
-    assert_eq!(assessment.level, Fidelity::Conditional);
+    assert_eq!(assessment.level, Fidelity::Approximating);
 
     let mut reader = dataset.open_layer_reader(&req()).unwrap();
     let loss = reader.loss_report();
@@ -4171,6 +4171,7 @@ fn n1_il_contatore_che_trabocca_ferma_il_lotto_prima_di_scriverlo() {
     let writer = Writer::from_path(&percorso_shp, TableWriterBuilder::new())
         .expect("il writer dello staging si apre");
     let mut stato = ShpWriter {
+        loss: LossReport::default(),
         staging: Some(staging),
         writer: Some(writer),
         dest: destinazione,
@@ -5788,6 +5789,7 @@ fn una_scadenza_prima_del_controllo_dimensionale_e_un_timeout_e_ripulisce() {
         Err(errore) => unreachable!("budget di prova non costruibile: {errore:?}"),
     };
     let mut stato = Box::new(ShpWriter {
+        loss: LossReport::default(),
         staging: Some(staging),
         writer: Some(writer),
         dest: destinazione.clone(),

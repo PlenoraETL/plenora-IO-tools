@@ -1,5 +1,28 @@
 use super::*;
 
+fn assert_native_alias(reader: &dyn LayerReader, index: usize) {
+    let loss = reader.loss_report();
+    assert!(loss.counts["native_layer_metadata_not_preserved"] > 0);
+    assert!(loss.esempi_canonici().all(|example| example.posizione.layer_index == Some(index as u64)));
+}
+
+#[test]
+fn native_domains_aliases_and_subtypes_are_declared() {
+    let mut report = LossReport::default();
+    observe_definition_xml(&mut report, "<DEFeatureClassInfo><AliasName>opaque_alias</AliasName><Fields><Field><DomainName>opaque_domain</DomainName></Field></Fields><Subtypes><Subtype><SubtypeName>opaque_subtype</SubtypeName></Subtype></Subtypes></DEFeatureClassInfo>", 3).unwrap();
+    assert_eq!(report.counts["native_layer_metadata_not_preserved"], 3);
+    for example in report.esempi_canonici() {
+        assert_eq!(example.posizione.layer_index, Some(3));
+        assert!(!example.context.contains("opaque"));
+    }
+    let mut empty = LossReport::default();
+    observe_definition_xml(&mut empty, "<Definition><DomainName/><AliasName></AliasName><Subtypes/></Definition>", 0).unwrap();
+    assert!(empty.is_empty());
+    let mut escaped = LossReport::default();
+    observe_definition_xml(&mut escaped, "<Definition><AliasName>A&amp;B<![CDATA[C]]></AliasName><DomainName><![CDATA[D]]></DomainName></Definition>", 0).unwrap();
+    assert_eq!(escaped.counts["native_layer_metadata_not_preserved"], 2);
+}
+
 #[test]
 fn catalogo_con_oggetti_non_leggibili_non_scala_gli_indici() {
     use gdal::vector::{FieldDefn, LayerOptions, OGRFieldType};
@@ -33,6 +56,7 @@ fn catalogo_con_oggetti_non_leggibili_non_scala_gli_indici() {
             .create_layer(LayerOptions {
                 name,
                 ty: gdal::vector::OGRwkbGeometryType::wkbNone,
+                options: Some(&["LAYER_ALIAS=opaque_native_alias"]),
                 ..Default::default()
             })
             .unwrap();
@@ -86,6 +110,9 @@ fn catalogo_con_oggetti_non_leggibili_non_scala_gli_indici() {
                 );
             } else {
                 assert!(dataset.rifiuto_del_layer(layer.id).is_none());
+                let reader = dataset.open_layer_reader(&request).unwrap();
+                assert_native_alias(reader.as_ref(), index);
+                drop(reader);
                 assert!(
                     dataset
                         .open_layer_reader(&request)

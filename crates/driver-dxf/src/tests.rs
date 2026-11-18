@@ -6,6 +6,88 @@
 
 use super::*;
 
+#[test]
+fn native_xref_insert_is_a_local_typed_rejection() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("xref.dxf");
+    std::fs::write(&path, include_str!("../tests/fixtures/xref.dxf")).unwrap();
+    let dataset = DxfDriver
+        .open(
+            Source::Path(path),
+            opzioni_lettura().with_assume_crs("EPSG:4326"),
+        )
+        .unwrap();
+    assert_eq!(dataset.layers().len(), 2);
+    for layer in dataset.layers() {
+        let error = dataset.rifiuto_del_layer(layer.id).unwrap();
+        assert_eq!(error.category, plenora_io_model::ErrorCategory::Unsupported);
+        assert!(!error.message.contains("ESTERNO"));
+        assert!(!error.message.contains("progetti"));
+        let mut req = request();
+        req.layer = layer.id;
+        assert_eq!(
+            dataset.open_layer_reader(&req).err().unwrap().code,
+            error.code
+        );
+    }
+}
+
+#[test]
+fn native_entity_metadata_is_declared_without_payload() {
+    for (text, category, minimum, rows) in [
+        (
+            include_str!("../tests/fixtures/line_attrs.dxf"),
+            "native_styles_not_preserved",
+            4,
+            1,
+        ),
+        (
+            include_str!("../tests/fixtures/paperspace.dxf"),
+            "native_hierarchy_flattened",
+            1,
+            2,
+        ),
+        (
+            include_str!("../tests/fixtures/text.dxf"),
+            "native_styles_not_preserved",
+            1,
+            1,
+        ),
+        (
+            include_str!("../tests/fixtures/lwpoly_width.dxf"),
+            "native_styles_not_preserved",
+            1,
+            1,
+        ),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("native.dxf");
+        std::fs::write(&path, text).unwrap();
+        let dataset = DxfDriver
+            .open(
+                Source::Path(path),
+                opzioni_lettura().with_assume_crs("EPSG:3003"),
+            )
+            .unwrap();
+        let mut reader = dataset.open_layer_reader(&request()).unwrap();
+        let batch = reader.next_batch().unwrap().unwrap();
+        assert_eq!(batch.num_rows(), rows);
+        let report = reader.loss_report();
+        assert!(report.counts[category] >= minimum);
+        if text.contains("A1") {
+            assert_eq!(report.counts["native_feature_id_not_preserved"], 1);
+            assert_eq!(report.counts["native_layer_metadata_not_preserved"], 1);
+        }
+        for example in report.esempi_canonici() {
+            assert_eq!(example.posizione.layer_index, Some(0));
+            for payload in ["Strade", "DASHED", "MIAAPP", "xdata testo", "Ciao", "A1"] {
+                assert!(!example.context.contains(payload));
+                assert!(!example.category.contains(payload));
+            }
+        }
+    }
+}
+
 /// Opzioni di lettura sul modello unificato.
 ///
 /// Da S4.d il percorso di lettura vive interamente li': la memoria dei
@@ -94,6 +176,9 @@ fn r2_blocchi_sani_e_non_rappresentabili_restano_elencati() {
             let mut reader = ds.open_layer_reader(&request).unwrap();
             if index == 1 {
                 assert_eq!(reader.next_batch().unwrap().unwrap().num_rows(), 1);
+                for example in reader.loss_report().esempi_canonici() {
+                    assert_eq!(example.posizione.layer_index, Some(1));
+                }
             }
         }
     }

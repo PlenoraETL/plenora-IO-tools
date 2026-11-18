@@ -3,6 +3,34 @@
 //! esatto fornito dal test. Nessun writer numerico genera i byte sotto prova.
 use super::*;
 
+#[test]
+fn native_dbf_date_declares_utf8_coercion_by_field_index() {
+    let (_dir, path) = fixture(b'D', 0, b"20240229", 0, None);
+    let dataset = ShpDriver
+        .open(Source::Path(path), opzioni_lettura())
+        .unwrap();
+    let mut reader = dataset.open_layer_reader(&req()).unwrap();
+    let batch = reader.next_batch().unwrap().unwrap();
+    assert_eq!(
+        batch.schema().field(1).data_type(),
+        &arrow_schema::DataType::Utf8
+    );
+    let values = batch
+        .column(1)
+        .as_any()
+        .downcast_ref::<arrow_array::StringArray>()
+        .unwrap();
+    assert_eq!(values.value(0), "2024-02-29");
+    let report = reader.loss_report();
+    assert_eq!(report.counts["coercion tipo attributo"], 1);
+    let example = report
+        .esempi_canonici()
+        .find(|e| e.category == "coercion tipo attributo")
+        .unwrap();
+    assert_eq!(example.posizione.field_index, Some(1));
+    assert!(!example.context.contains("valore"));
+}
+
 fn fixture(
     kind: u8,
     scale: u8,
@@ -42,7 +70,7 @@ fn read(path: &Path) -> Result<RecordBatch> {
     let dataset = ShpDriver.open(Source::Path(path.to_owned()), opzioni_lettura())?;
     let mut reader = dataset.open_layer_reader(&req())?;
     let batch = reader.next_batch()?.unwrap();
-    assert!(reader.loss_report().counts.is_empty());
+    assert_eq!(reader.loss_report().counts["native_field_order_changed"], 1);
     assert!(reader.next_batch()?.is_none());
     Ok(batch)
 }

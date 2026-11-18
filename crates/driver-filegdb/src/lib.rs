@@ -13,8 +13,8 @@ use plenora_io_core::driver::{
 };
 use plenora_io_core::{
     validate_write, AttributeWriteSupport, CrsDerivation, CrsRepresentationCapabilities,
-    CrsRepresentationState, CrsWriteSupport, FormatWriteCapabilities, NullabilitySupport,
-    SinkPathConstraint, TypeCoercionPolicy, WritePlan, UTF8_FIELD_NAMES,
+    CrsRepresentationState, CrsWriteSupport, FormatWriteCapabilities, SinkPathConstraint,
+    TypeCoercionPolicy, WritePlan, UTF8_FIELD_NAMES,
 };
 use plenora_io_model::contract::{GeometryEncoding, GeometryType, SpatialSemantics};
 use plenora_io_model::Result;
@@ -79,7 +79,9 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
             CrsRepresentationState::Absent,
             CrsRepresentationState::Derived(CrsDerivation::RuntimeResolved),
         ),
-        nullability: NullabilitySupport::FormatDefined,
+        nullability: plenora_io_core::loss_table::native_nullability(
+            plenora_io_core::loss_table::NativeDriver::FileGdb,
+        ),
         multi_layer: true,
         sink_path: SinkPathConstraint::Free,
     }),
@@ -578,6 +580,10 @@ mod backend {
 
     use plenora_io_core::driver::{FormatWriter, Published, WriteOptions};
     use plenora_io_core::loss::LossReport;
+    use plenora_io_core::loss_table::{
+        native_write_report, observe_native, NativeDriver, NativeElement, TransportDirection,
+    };
+
     use plenora_io_core::publish::publish_dir_atomic;
     use plenora_io_core::{SingleReaderGate, WriteLayer, WritePlan};
 
@@ -731,6 +737,7 @@ mod backend {
     }
 
     struct GdbWriter {
+        loss: LossReport,
         ds: Option<Dataset>,
         staging: StagingGuard,
         dest: PathBuf,
@@ -1203,6 +1210,7 @@ mod backend {
         }
 
         Ok(Box::new(GdbWriter {
+            loss: native_write_report(NativeDriver::FileGdb, plan),
             ds: Some(ds),
             staging,
             dest: path.to_owned(),
@@ -1270,6 +1278,36 @@ mod backend {
                             "conversione WKB verso GDAL fallita",
                         ))
                     })?;
+                    observe_native(
+                        &mut self.loss,
+                        (NativeDriver::FileGdb, TransportDirection::Write),
+                        NativeElement::CoordinatePrecision,
+                        1,
+                        u64::from(layer.0),
+                        Some(geom_idx as u64),
+                    );
+                    observe_native(
+                        &mut self.loss,
+                        (NativeDriver::FileGdb, TransportDirection::Write),
+                        NativeElement::EmptyGeometry,
+                        u64::from(geometry.is_empty()),
+                        u64::from(layer.0),
+                        Some(geom_idx as u64),
+                    );
+                    observe_native(
+                        &mut self.loss,
+                        (NativeDriver::FileGdb, TransportDirection::Write),
+                        NativeElement::RingOrientation,
+                        u64::from(matches!(
+                            gdal::vector::geometry_type_flatten(geometry.geometry_type()),
+                            OGRwkbGeometryType::wkbPolygon
+                                | OGRwkbGeometryType::wkbMultiPolygon
+                                | OGRwkbGeometryType::wkbPolygon25D
+                                | OGRwkbGeometryType::wkbMultiPolygon25D
+                        )),
+                        u64::from(layer.0),
+                        Some(geom_idx as u64),
+                    );
                     feature.set_geometry(geometry).map_err(|_| {
                         err(&PublicMessage::Curated(
                             "assegnazione della geometria alla feature fallita",
@@ -1335,7 +1373,7 @@ mod backend {
             self.staging.disarm();
             Ok(Published {
                 bytes,
-                loss: LossReport::default(),
+                loss: self.loss.clone(),
                 fidelity: plenora_io_core::FidelityAssessment::lossless(),
                 outcome,
             })
@@ -1621,10 +1659,20 @@ mod backend {
                     }
                     None => None,
                 };
+                let mut loss = native_definition_report(&ds, &name, i as u64)?;
                 let native_fields: Vec<(LayerFieldMeta, Field)> = layer
                     .defn()
                     .fields()
-                    .map(|field| {
+                    .enumerate()
+                    .map(|(field_index, field)| {
+                        observe_native(
+                            &mut loss,
+                            (NativeDriver::FileGdb, TransportDirection::Read),
+                            NativeElement::NotNull,
+                            u64::from(!field.is_nullable()),
+                            i as u64,
+                            Some(field_index as u64 + u64::from(ogr_geometry_type.is_some())),
+                        );
                         let name = field.name();
                         let field_type = field.field_type();
                         ogr_to_arrow(field_type).map(|data_type| {
@@ -1679,7 +1727,16 @@ mod backend {
                     name: layer.name(),
                     contract,
                 };
+                observe_native(
+                    &mut loss,
+                    (NativeDriver::FileGdb, TransportDirection::Read),
+                    NativeElement::FieldOrder,
+                    u64::from(ha_geometria),
+                    i as u64,
+                    Some(0),
+                );
                 let meta = LayerMeta {
+                    loss,
                     gdal_idx,
                     fields,
                     ha_geometria,
@@ -1703,6 +1760,7 @@ mod backend {
                             contract: DataContract::new(Arc::new(Schema::empty()), None),
                         },
                         LayerMeta {
+                            loss: LossReport::default(),
                             gdal_idx: i,
                             fields: Vec::new(),
                             ha_geometria: false,
@@ -1721,6 +1779,94 @@ mod backend {
             rifiuti,
             reader_gate: SingleReaderGate::new(DESCRIPTOR.id()),
         }))
+    }
+
+    fn native_definition_report(ds: &Dataset, name: &str, layer: u64) -> Result<LossReport> {
+        let mut report = LossReport::default();
+        let query = format!("GetLayerDefinition {name}");
+        let mut result = ds
+            .execute_sql(&query, None, gdal::vector::sql::Dialect::DEFAULT)
+            .map_err(|_| {
+                err(&PublicMessage::Curated(
+                    "definizione nativa FileGDB non leggibile",
+                ))
+            })?
+            .ok_or_else(|| {
+                err(&PublicMessage::Curated(
+                    "definizione nativa FileGDB assente",
+                ))
+            })?;
+        for feature in result.features() {
+            let definition = feature.field_as_string(0).map_err(|_| {
+                err(&PublicMessage::Curated(
+                    "definizione nativa FileGDB non testuale",
+                ))
+            })?;
+            if let Some(definition) = definition {
+                observe_definition_xml(&mut report, &definition, layer)?;
+            }
+        }
+        Ok(report)
+    }
+
+    fn observe_definition_xml(report: &mut LossReport, xml: &str, layer: u64) -> Result<()> {
+        use quick_xml::events::Event;
+        let mut reader = quick_xml::Reader::from_str(xml);
+        let mut stack = Vec::new();
+        loop {
+            match reader.read_event() {
+                Ok(Event::Start(tag)) => {
+                    let element = match tag.local_name().as_ref() {
+                        "DomainName" => Some(NativeElement::Domains),
+                        "AliasName" => Some(NativeElement::Aliases),
+                        "Subtype" => Some(NativeElement::Subtypes),
+                        _ => None,
+                    };
+                    if element == Some(NativeElement::Subtypes) {
+                        observe_native(
+                            report,
+                            (NativeDriver::FileGdb, TransportDirection::Read),
+                            NativeElement::Subtypes,
+                            1,
+                            layer,
+                            None,
+                        );
+                    }
+                    stack.push(element);
+                }
+                Ok(event @ (Event::Text(_) | Event::CData(_) | Event::GeneralRef(_))) => {
+                    let present = match event {
+                        Event::Text(text) => !text.as_ref().is_empty(),
+                        Event::CData(text) => !text.as_ref().is_empty(),
+                        Event::GeneralRef(_) => true,
+                        _ => false,
+                    };
+                    if let Some(element @ (NativeElement::Domains | NativeElement::Aliases)) =
+                        stack.last_mut().filter(|_| present).and_then(Option::take)
+                    {
+                        observe_native(
+                            report,
+                            (NativeDriver::FileGdb, TransportDirection::Read),
+                            element,
+                            1,
+                            layer,
+                            None,
+                        );
+                    }
+                }
+                Ok(Event::End(_)) => {
+                    stack.pop();
+                }
+                Ok(Event::Eof) => break,
+                Err(_) => {
+                    return Err(err(&PublicMessage::Curated(
+                        "XML nativo FileGDB non valido",
+                    )))
+                }
+                _ => {}
+            }
+        }
+        Ok(())
     }
 
     fn ogr_to_arrow(ft: gdal::vector::OGRFieldType::Type) -> Result<DataType> {
@@ -1779,6 +1925,7 @@ mod backend {
     }
 
     struct LayerMeta {
+        loss: LossReport,
         gdal_idx: usize,
         fields: Vec<LayerFieldMeta>,
         /// Il layer porta una colonna geometrica.
@@ -1879,7 +2026,7 @@ mod backend {
                 )
             })?;
             Ok(plenora_io_core::with_cancellation(
-                reader,
+                plenora_io_core::loss_table::with_native_report(reader, m.loss.clone()),
                 request.cancellation.clone(),
             ))
         }

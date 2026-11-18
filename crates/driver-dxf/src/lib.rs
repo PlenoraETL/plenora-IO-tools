@@ -38,14 +38,18 @@ use plenora_io_core::driver::{
     Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
+use plenora_io_core::loss_table::{
+    native_write_report, observe_native, NativeDriver, NativeElement, TransportDirection,
+};
+
 use plenora_io_core::publish::{create_staged_file, publish_file_atomic_limited};
 use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
     check_cancelled, check_cancelled_periodically, read_row_error, validate_write,
     with_write_validation, write_row_rejection, AttributeWriteSupport, CrsDerivation,
     CrsRepresentationCapabilities, CrsRepresentationState, CrsWriteSupport,
-    FormatWriteCapabilities, NullabilitySupport, SingleReaderGate, SinkPathConstraint,
-    TypeCoercionPolicy, WritePlan, UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
+    FormatWriteCapabilities, SingleReaderGate, SinkPathConstraint, TypeCoercionPolicy, WritePlan,
+    UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
 };
 use plenora_io_model::budget::{OperationBudget, SpillLease};
 use plenora_io_model::contract::{
@@ -507,7 +511,9 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
             GRAMMATICHE_DEL_GEODATA,
             CrsRepresentationState::Derived(CrsDerivation::FromIdentifier),
         ),
-        nullability: NullabilitySupport::FormatDefined,
+        nullability: plenora_io_core::loss_table::native_nullability(
+            plenora_io_core::loss_table::NativeDriver::Dxf,
+        ),
         multi_layer: false,
         sink_path: SinkPathConstraint::Free,
     }),
@@ -613,7 +619,7 @@ impl FormatDriver for DxfDriver {
             let id = LayerId(u32::try_from(layers.len()).map_err(|_| {
                 PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppi blocchi DXF"))
             })?);
-            let result = read_block_object(&drawing, block, &opts, &crs);
+            let result = read_block_object(&drawing, block, &opts, &crs, u64::from(id.0));
             let (contract, content) = match result {
                 Ok((contract, spool, rows, loss)) => (contract, Some((spool, rows, loss))),
                 Err(error)
@@ -701,7 +707,7 @@ impl FormatDriver for DxfDriver {
                 drawing,
                 path,
                 durable: opts.durable,
-                loss: LossReport::default(),
+                loss: native_write_report(NativeDriver::Dxf, plan),
                 dropped_cols: Vec::new(),
                 rows: 0,
                 input_total: None,
@@ -724,7 +730,7 @@ struct DxfWriterState {
     path: PathBuf,
     durable: bool,
     loss: LossReport,
-    dropped_cols: Vec<String>,
+    dropped_cols: Vec<usize>,
     rows: u64,
     input_total: Option<u64>,
     first: bool,
@@ -803,9 +809,9 @@ impl FormatWriter for DxfWriterState {
             .ok_or_else(|| err(&PublicMessage::Curated("colonna geometria non binaria")))?;
         let layer_idx = schema.index_of("layer").ok();
         if self.first {
-            for (i, f) in schema.fields().iter().enumerate() {
+            for i in 0..schema.fields().len() {
                 if i != geom_idx && Some(i) != layer_idx {
-                    self.dropped_cols.push(f.name().clone());
+                    self.dropped_cols.push(i);
                 }
             }
             self.first = false;
@@ -863,6 +869,13 @@ impl FormatWriter for DxfWriterState {
             let g = geometry
                 .as_ref()
                 .ok_or_else(|| err(&PublicMessage::Curated("geometria DXF validata ma assente")))?;
+            plenora_io_core::loss_table::observe_geometry_write(
+                &mut self.loss,
+                NativeDriver::Dxf,
+                g,
+                0,
+                geom_idx as u64,
+            );
             add_geometry(&mut self.drawing, g, layer.as_deref(), &mut self.loss)?;
         }
         self.rows = self
@@ -879,9 +892,13 @@ impl FormatWriter for DxfWriterState {
     fn finish(mut self: Box<Self>) -> Result<Published> {
         // Gli attributi non rappresentabili in DXF sono dichiarati come perdita.
         for c in &self.dropped_cols {
-            self.loss.record(
-                &format!("attributo non rappresentato in DXF: {c}"),
+            observe_native(
+                &mut self.loss,
+                (NativeDriver::Dxf, TransportDirection::Write),
+                NativeElement::Utf8,
                 self.rows,
+                0,
+                Some(*c as u64),
             );
         }
         let mut temp = create_staged_file(&self.path)?;
@@ -1626,6 +1643,7 @@ fn read_block_object(
     block: &Block,
     opts: &ReadOptions,
     crs: &ResolvedCrs,
+    layer_index: u64,
 ) -> Result<(DataContract, DxfSpoolStorage, usize, LossReport)> {
     if block.is_xref()
         || block.is_xref_overlay()
@@ -1643,6 +1661,7 @@ fn read_block_object(
         DxfQuote::from_read_options(opts),
         opts.cancellation(),
     )?;
+    walker.layer_index = layer_index;
     let mut stats = DxfContractStats::default();
     let mut output = DxfSpoolWriter::new(opts.max_input_bytes(), opts.budget().clone());
     for entity in &block.entities {
@@ -1845,6 +1864,7 @@ struct Walker {
     remaining_vertices: usize,
     cancellation: CancellationToken,
     visited_entities: usize,
+    layer_index: u64,
     emitted_rows: usize,
 }
 
@@ -1875,8 +1895,88 @@ impl Walker {
             remaining_vertices: quote.vertici,
             cancellation: cancellation.clone(),
             visited_entities: 0,
+            layer_index: 0,
             emitted_rows: 0,
         })
+    }
+
+    fn observe_entity(&mut self, entity: &Entity) {
+        let common = &entity.common;
+        let thickness = match &entity.specific {
+            EntityType::Line(value) => value.thickness,
+            EntityType::LwPolyline(value) => value.thickness,
+            EntityType::Polyline(value) => value.thickness,
+            EntityType::Circle(value) => value.thickness,
+            EntityType::Arc(value) => value.thickness,
+            EntityType::ModelPoint(value) => value.thickness,
+            EntityType::Text(value) => value.thickness,
+            _ => 0.0,
+        };
+        let width = match &entity.specific {
+            EntityType::LwPolyline(value) => {
+                value.constant_width != 0.0
+                    || value
+                        .vertices
+                        .iter()
+                        .any(|v| v.starting_width != 0.0 || v.ending_width != 0.0)
+            }
+            EntityType::Polyline(value) => {
+                value.default_starting_width != 0.0
+                    || value.default_ending_width != 0.0
+                    || value
+                        .vertices()
+                        .any(|v| v.starting_width != 0.0 || v.ending_width != 0.0)
+            }
+            _ => false,
+        };
+        for (element, count) in [
+            (
+                NativeElement::Handle,
+                u64::from(common.handle != dxf::Handle::empty()),
+            ),
+            (
+                NativeElement::Color,
+                u64::from(
+                    common.color != dxf::Color::by_layer()
+                        || common.color_24_bit != 0
+                        || !common.color_name.is_empty(),
+                ),
+            ),
+            (
+                NativeElement::Linetype,
+                u64::from(common.line_type_name != "BYLAYER"),
+            ),
+            (
+                NativeElement::Lineweight,
+                u64::from(common.lineweight_enum_value != 0),
+            ),
+            (NativeElement::Thickness, u64::from(thickness != 0.0)),
+            (NativeElement::Width, u64::from(width)),
+            (
+                NativeElement::Xdata,
+                common.x_data.len() as u64 + common.extension_data_groups.len() as u64,
+            ),
+            (
+                NativeElement::PaperSpace,
+                u64::from(common.is_in_paper_space),
+            ),
+            (
+                NativeElement::TextStyle,
+                u64::from(matches!(
+                    entity.specific,
+                    EntityType::Text(_) | EntityType::MText(_)
+                )),
+            ),
+        ] {
+            observe_native(
+                &mut self.loss,
+                (NativeDriver::Dxf, TransportDirection::Read),
+                element,
+                count,
+                self.layer_index,
+                None,
+            );
+        }
     }
 
     /// Il layer "0" (o vuoto) eredita quello del contesto (blocco padre).
@@ -1943,6 +2043,7 @@ impl Walker {
             )));
         }
         let layer = Self::effective_layer(&entity.common.layer, context);
+        self.observe_entity(entity);
         match &entity.specific {
             EntityType::Line(l) => {
                 // LINE è già in WCS: nessun OCS.
