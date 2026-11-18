@@ -3574,18 +3574,18 @@
         }
       },
       "semantica": {
-        "nota": "R4: conteggio esatto delle righe richieste e osservazione della presenza di altre righe.",
+        "nota": "R4e: arresto alla riga N, senza esame della coda.",
         "limit": {
-          "clausola": "--limit N riporta al massimo N righe; zero e rifiutato come invalid_configuration.",
-          "cosa_non_e": "Una quota di sicurezza sul lavoro del decoder: i reader operano per batch e possono validare piu righe. Usare max_rows per una quota.",
+          "clausola": "--limit N ferma lettura e inferenza alla riga N; zero e rifiutato come invalid_configuration.",
+          "cosa_non_e": "Una quota di byte: i formati a blocchi possono acquisire il blocco contenente N e i metadati condivisi, ma non validano i valori delle righe oltre N.",
           "verificata_da": [
             "read_limit_counts_exact_rows"
           ]
         },
         "truncated": {
-          "clausola": "true solo se sono state osservate altre righe dopo il limite; false se il limite coincide con EOF.",
+          "clausola": "true significa limite raggiunto, coda non esaminata, anche con esattamente N righe; false significa EOF osservato prima del limite o in lettura senza limite.",
           "verificata_da": [
-            "read_truncated_means_more_rows_exist"
+            "read_truncated_means_limit_reached"
           ]
         }
       },

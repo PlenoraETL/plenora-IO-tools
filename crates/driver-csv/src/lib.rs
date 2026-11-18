@@ -279,7 +279,10 @@ fn colonne_geometriche(
             plenora_io_model::error_table::Situation::MissingOptionColumn
                 .error_with(&PublicMessage::Curated(assente)),
         ),
-        ColonnaPerNome::Ambigua => Err(err(&PublicMessage::Curated(ambigua))),
+        ColonnaPerNome::Ambigua => Err(
+            plenora_io_model::error_table::Situation::InvalidConfiguration
+                .error_with(&PublicMessage::Curated(ambigua)),
+        ),
     };
     // Due dichiarazioni di geometria per lo stesso layer: vinceva `wkt_column`
     // e le colonne x/y uscivano come attributi, una scelta fatta al posto di
@@ -555,9 +558,13 @@ impl FormatDriver for CsvDriver {
                     continue;
                 }
                 if !csv_attribute_type(field.data_type()) {
-                    return Err(PlenoraIoError::non_supportato_redatto(
-                        &PublicMessage::Curated("tipo attributo CSV non rappresentabile"),
-                    ));
+                    return Err(
+                        plenora_io_model::error_table::Situation::UnrepresentableWriteType
+                            .error_with(&PublicMessage::CuratedPair(
+                                "tipo attributo CSV non rappresentabile, classe:",
+                                driver_common::classe_arrow(field.data_type()),
+                            )),
+                    );
                 }
             }
         }
@@ -667,6 +674,10 @@ impl OpenDatasetHandle for CsvDataset {
         )
     }
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
+        if !self.layers.iter().any(|layer| layer.id == request.layer) {
+            return Err(plenora_io_model::error_table::Situation::MissingLayer.error());
+        }
+
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
         let (indices, layer) = plenora_io_core::project_layer_contract(&self.layers[0], request)?;
         let include_geometry = self.geom.is_some() && indices.binary_search(&0).is_ok();
@@ -694,6 +705,10 @@ impl OpenDatasetHandle for CsvDataset {
             layer.contract.schema.clone(),
             batch_sizer,
             layer,
+            match request.scope {
+                plenora_io_core::ReadScope::Complete => None,
+                plenora_io_core::ReadScope::AcceptedRows(limit) => Some(limit),
+            },
         )?;
         Ok(plenora_io_core::with_cancellation(
             loss_table::with_native_report(reader, self.loss.clone()),
@@ -752,6 +767,7 @@ struct QuoteInferenza {
     /// predefinito — decine di migliaia, calibrato sui file di una directory —
     /// rifiuterebbe un CSV di dimensioni ordinarie.
     righe: usize,
+    row_limit: Option<u64>,
 }
 
 impl QuoteInferenza {
@@ -759,6 +775,7 @@ impl QuoteInferenza {
         Self {
             cella_wkt: opts.wkb_limits(),
             righe: opts.max_rows(),
+            row_limit: opts.row_limit,
         }
     }
 }
@@ -782,11 +799,15 @@ fn infer_types(
     let mut rdr = csv_reader(path, delim)?;
     let mut rec = csv::StringRecord::new();
     let mut visitate = 0_usize;
-    while rdr.read_record(&mut rec).map_err(|_| {
-        err(&PublicMessage::Curated(
-            "riga CSV non valida: richiesti testo UTF-8 e quoting CSV valido",
-        ))
-    })? {
+    while quote
+        .row_limit
+        .is_none_or(|limit| (visitate as u64) < limit)
+        && rdr.read_record(&mut rec).map_err(|_| {
+            err(&PublicMessage::Curated(
+                "riga CSV non valida: richiesti testo UTF-8 e quoting CSV valido",
+            ))
+        })?
+    {
         // Prima di osservare le celle: un CSV ostile con miliardi di record
         // rende la passata di inferenza illimitata nel tempo anche se ogni
         // cella e' minuscola, e nessun contatore di riga e' ancora entrato in
@@ -824,11 +845,15 @@ fn infer_wkt_geometry(
     let mut dimensions = BTreeSet::new();
     let mut geometry_types = BTreeSet::new();
     let mut visitate = 0_usize;
-    while reader.read_record(&mut record).map_err(|_| {
-        err(&PublicMessage::Curated(
-            "riga CSV non valida: richiesti testo UTF-8 e quoting CSV valido",
-        ))
-    })? {
+    while quote
+        .row_limit
+        .is_none_or(|limit| (visitate as u64) < limit)
+        && reader.read_record(&mut record).map_err(|_| {
+            err(&PublicMessage::Curated(
+                "riga CSV non valida: richiesti testo UTF-8 e quoting CSV valido",
+            ))
+        })?
+    {
         // Il tetto sulle righe si applica **prima** di leggere la cella:
         // fermarsi dopo averla parsata vorrebbe dire aver gia' allocato cio'
         // che il limite doveva impedire.
@@ -893,6 +918,7 @@ fn spawn_parser(
     schema: SchemaRef,
     mut batch_sizer: plenora_io_core::AdaptiveBatchSizer,
     layer: LayerContract,
+    row_limit: Option<u64>,
 ) -> Result<Box<dyn LayerReader>> {
     let SorgenteCsv {
         path,
@@ -909,7 +935,9 @@ fn spawn_parser(
             .map(|(_, column_type)| InferredColumnBuilder::new(*column_type))
             .collect();
         let mut n = 0usize;
-        loop {
+        let mut remaining = row_limit.unwrap_or(u64::MAX);
+        while remaining > 0 {
+            remaining -= 1;
             let more = rdr.read_record(&mut rec).map_err(|_| {
                 err(&PublicMessage::Curated(
                     "riga CSV non valida: richiesti testo UTF-8 e quoting CSV valido",

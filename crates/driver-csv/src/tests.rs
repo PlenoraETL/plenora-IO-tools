@@ -160,7 +160,11 @@ fn con_byte(cella: usize) -> WkbLimits {
 }
 
 fn quote_con_cella(cella_wkt: WkbLimits, righe: usize) -> QuoteInferenza {
-    QuoteInferenza { cella_wkt, righe }
+    QuoteInferenza {
+        cella_wkt,
+        righe,
+        row_limit: None,
+    }
 }
 
 fn csv_con_righe(dir: &tempfile::TempDir, quante: u32) -> std::path::PathBuf {

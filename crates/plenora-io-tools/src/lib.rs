@@ -584,6 +584,7 @@ fn read_options(cli: &Cli) -> Result<ReadOptions, PlenoraIoError> {
     // la comune, per chiave.
     let mut opzioni = read_pipeline(cli)?.with_format_options(opts_uniti(&cli.opts, &cli.in_opts));
     opzioni.assume_crs.clone_from(&cli.assume_crs);
+    opzioni.row_limit = cli.limit.map(|limit| limit as u64);
     Ok(opzioni)
 }
 
@@ -761,7 +762,7 @@ fn legge_senza_consegnare(
         let remaining = cli
             .limit
             .map_or(usize::MAX, |limit| limit.saturating_sub(rows));
-        if batch.num_rows() > remaining {
+        if batch.num_rows() >= remaining {
             rows += remaining;
             batches += usize::from(remaining > 0);
             truncated = true;

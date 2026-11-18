@@ -108,6 +108,9 @@ fn validate(id: &str, path: &Path, opts: &ReadOptions) -> Result<()> {
             plenora_io_model::quota::Quota::InputBytes.exceeded(plenora_io_model::ErrorPhase::Read)
         );
     }
+    if opts.row_limit.is_some() && matches!(id, "geojson" | "dxf") {
+        return Ok(()); // The bounded decoder validates the observed prefix.
+    }
     match id {
         "shp" => shapefile(path),
         "filegdb" => filegdb(path, opts),
@@ -166,15 +169,17 @@ fn csv(path: &Path, opts: &ReadOptions) -> Result<()> {
     let delimiter = opts
         .format_options
         .get("delimiter")
+        .filter(|s| s.len() == 1 && s.is_ascii())
         .and_then(|s| s.as_bytes().first())
         .copied()
         .unwrap_or(b',');
     let mut reader = crate::csv_wire::Reader::new(File::open(path)?, delimiter);
     let mut record = csv::StringRecord::new();
     let mut rows = 0;
-    while reader
-        .read_record(&mut record)
-        .map_err(|_| invalid("csv"))?
+    while opts.row_limit.is_none_or(|limit| rows <= limit)
+        && reader
+            .read_record(&mut record)
+            .map_err(|_| invalid("csv"))?
     {
         opts.ensure_active()?;
         require(!record.iter().any(|s| s.contains('\0')), "csv")?;
@@ -220,6 +225,9 @@ fn xml(path: &Path, opts: &ReadOptions) -> Result<()> {
             }
             Event::Eof => return require(root && depth == 0, "kml"),
             _ => {}
+        }
+        if root && opts.row_limit.is_some() {
+            return Ok(());
         }
         buffer.clear();
     }

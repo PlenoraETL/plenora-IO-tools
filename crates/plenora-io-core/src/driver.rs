@@ -289,6 +289,8 @@ impl WriteLimitsView {
 /// fino a S4.d la seconda strada era quella presa: costruiva un ramo legacy
 /// con i valori storici, che nessun chiamante aveva chiesto.
 pub struct ReadOptions {
+    /// Optional prefix to inspect and decode, including schema inference.
+    pub row_limit: Option<u64>,
     /// CRS dichiarato per i formati che non lo portano (CSV/XLSX) — `PRODUCT.md § CRS`.
     pub assume_crs: Option<String>,
     /// Knob specifici del driver (es. csv: `x_column`/`y_column`/`wkt_column`/
@@ -312,6 +314,7 @@ impl ReadOptions {
     pub fn from_read_parts(parts: ReadBudgetParts) -> Self {
         let (budget, permit, expected) = parts.into_components();
         Self {
+            row_limit: None,
             assume_crs: None,
             format_options: BTreeMap::new(),
             budget,

@@ -1623,6 +1623,7 @@ fn read_limits_are_enforced_before_batch_creation() {
         &drawing,
         resolved_wgs84(),
         DxfQuote {
+            row_limit: None,
             righe: 0,
             ..DxfQuote::predefinite()
         },
@@ -1634,6 +1635,7 @@ fn read_limits_are_enforced_before_batch_creation() {
         &drawing,
         resolved_wgs84(),
         DxfQuote {
+            row_limit: None,
             colonne: 3,
             ..DxfQuote::predefinite()
         },

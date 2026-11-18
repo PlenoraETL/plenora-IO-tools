@@ -1400,3 +1400,34 @@ definizione, ordine degli assi, primaria ed estensioni hanno celle esplicite.
 Una chiave invariata non genera una perdita; le annotazioni nuove del
 contratto non sono contate come rimozioni di dati sorgenti. Le chiavi opache
 conservate non vengono esposte nei dettagli del report.
+
+### Lettura di un prefisso con `--limit`
+
+`read --limit N` arresta il decoder alla riga N, includendo nel limite le
+passate di inferenza. N deve essere positivo. `rows_read` non supera N.
+`truncated: true` significa «limite raggiunto, coda non esaminata», anche se
+il file contiene esattamente N righe. `truncated: false` significa che la
+lettura ha raggiunto EOF prima del limite (oppure senza un limite).
+Lo schema inferito, le osservazioni di fedeltà e la diagnostica riguardano
+il prefisso osservato. La coda non è attestata. Nell'SDK Python `complete`
+è `not truncated`: è vero soltanto quando EOF è stato osservato.
+
+CSV, GeoJSON, KML e DXF interrompono la scansione progressiva; XLSX prepara
+un prefisso XML dei fogli prima dell'inferenza e della decodifica delle celle.
+Shapefile limita anche la prevalidazione dei record e l'inferenza DBF.
+GeoPackage limita la query e FileGDB l'iteratore delle feature.
+Il limite è trasmesso ai decoder, non applicato soltanto al batch restituito.
+Parquet deve acquisire pagine/chunk del row group che contiene N; Arrow IPC
+acquisisce l'intero record batch che contiene N. I controlli strutturali
+necessari alla decodifica sicura del blocco restano applicati al blocco;
+la validazione dei valori e delle geometrie riguarda soltanto le prime N righe.
+I blocchi successivi non vengono decodificati. Cataloghi, footer, dizionari e
+metadati condivisi possono richiedere letture indipendenti dalle righe; il
+buffering del sistema o della decompressione può acquisire byte anticipati.
+`--limit` non sostituisce le quote di risorse e non è ammesso con `--output`.
+
+I tipi Arrow `LargeUtf8`/`Utf8View`, `LargeBinary`/`BinaryView` e
+`LargeList`/`ListView`/`LargeListView` hanno rispettivamente le classi pubbliche
+`utf8`, `binary` e `nested`, come i tipi base. Un writer che non li rappresenta
+usa la situazione `UnrepresentableWriteType`, con un messaggio che nomina la
+classe, senza riportare valori della cella.

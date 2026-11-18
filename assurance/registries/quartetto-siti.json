@@ -48,7 +48,6 @@
       "esplicito/esplicito/Generic/esplicito"
     ],
     "create": [
-      "Unsupported/Validate/Unsupported/Never",
       "Conflict/Commit/OutputExists/Never",
       "Unsupported/Validate/Unsupported/Never",
       "esplicito/esplicito/Generic/esplicito"
@@ -125,9 +124,6 @@
     ],
     "err": [
       "DataMapping/Read/Format/Never"
-    ],
-    "from": [
-      "Unsupported/Validate/Capability/Never"
     ],
     "geometry_capability": [
       "Unsupported/Validate/Capability/Never"
@@ -258,9 +254,6 @@
     ]
   },
   "crates/driver-gpkg/src/lib.rs": {
-    "arrow_cell_to_sql_ref": [
-      "Unsupported/Validate/Unsupported/Never"
-    ],
     "create": [
       "Conflict/Commit/OutputExists/Never",
       "Unsupported/Validate/Unsupported/Never"

@@ -551,14 +551,21 @@ impl FormatDriver for DxfDriver {
         let mut spool_writer = DxfSpoolWriter::new(opts.max_input_bytes(), opts.budget().clone());
         let mut source_index = 0_u64;
         let mut model_error = None;
-        while let Some(entity) = stream.next_entity().map_err(|_| {
-            read_row_error(
-                err(&PublicMessage::Curated("lettura di un'entità DXF fallita")),
-                None,
-                "dxf.entity_decode_failed",
-                Some(GEOMETRY),
-            )
-        })? {
+        while opts
+            .row_limit
+            .is_none_or(|n| (walker.emitted_rows as u64) < n)
+        {
+            let Some(entity) = stream.next_entity().map_err(|_| {
+                read_row_error(
+                    err(&PublicMessage::Curated("lettura di un'entità DXF fallita")),
+                    None,
+                    "dxf.entity_decode_failed",
+                    Some(GEOMETRY),
+                )
+            })?
+            else {
+                break;
+            };
             opts.ensure_active()?;
             let mut visiting = HashSet::new();
             if model_error.is_none() {
@@ -589,11 +596,18 @@ impl FormatDriver for DxfDriver {
             })?;
         }
         let spool = spool_writer.finish()?;
-        let drawing = stream.finish().map_err(|_| {
-            err(&PublicMessage::Curated(
-                "chiusura della scansione DXF fallita",
-            ))
-        })?;
+        let drawing = if opts
+            .row_limit
+            .is_some_and(|n| (walker.emitted_rows as u64) >= n)
+        {
+            stream.drawing().clone()
+        } else {
+            stream.finish().map_err(|_| {
+                err(&PublicMessage::Curated(
+                    "chiusura della scansione DXF fallita",
+                ))
+            })?
+        };
         if let Err(error) = rifiuta_entita_non_supportate_nel_modello(&drawing) {
             model_error = Some(error);
         }
@@ -1691,6 +1705,10 @@ impl OpenDatasetHandle for DxfDataset {
         )
     }
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
+        if !self.layers.iter().any(|layer| layer.id == request.layer) {
+            return Err(plenora_io_model::error_table::Situation::MissingLayer.error());
+        }
+
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
         if let Some(error) = self.rifiuto_del_layer(request.layer) {
             return Err(error);
@@ -1699,7 +1717,7 @@ impl OpenDatasetHandle for DxfDataset {
             .layers
             .iter()
             .position(|layer| layer.id == request.layer)
-            .ok_or_else(|| err(&PublicMessage::Curated("oggetto DXF inesistente")))?;
+            .ok_or_else(|| plenora_io_model::error_table::Situation::MissingLayer.error())?;
         let (spool, rows, loss) = self.objects[index]
             .as_ref()
             .ok_or_else(|| err(&PublicMessage::Curated("blocco DXF non leggibile")))?;
@@ -1859,6 +1877,7 @@ struct Walker {
     visited_entities: usize,
     layer_index: u64,
     emitted_rows: usize,
+    row_limit: Option<u64>,
 }
 
 impl Walker {
@@ -1890,6 +1909,7 @@ impl Walker {
             visited_entities: 0,
             layer_index: 0,
             emitted_rows: 0,
+            row_limit: quote.row_limit,
         })
     }
 
@@ -2023,6 +2043,12 @@ impl Walker {
         depth: usize,
         visiting: &mut HashSet<String>,
     ) -> Result<()> {
+        if self
+            .row_limit
+            .is_some_and(|n| (self.emitted_rows as u64) >= n)
+        {
+            return Ok(());
+        }
         check_cancelled_periodically(&self.cancellation, ErrorPhase::Read, self.visited_entities)?;
         self.visited_entities = self.visited_entities.saturating_add(1);
         self.budget = self.budget.saturating_sub(1);
@@ -2676,6 +2702,7 @@ fn batch_from_walker(
 /// migrazione.
 #[derive(Clone, Copy)]
 struct DxfQuote {
+    row_limit: Option<u64>,
     colonne: usize,
     righe: usize,
     vertici: usize,
@@ -2693,6 +2720,7 @@ impl DxfQuote {
     /// modello. Qui servono soltanto bound stabili che impediscano un OOM.
     const fn predefinite() -> Self {
         Self {
+            row_limit: None,
             colonne: 4_096,
             righe: 10_000_000,
             vertici: 50_000_000,
@@ -2701,6 +2729,7 @@ impl DxfQuote {
 
     fn from_read_options(opts: &ReadOptions) -> Self {
         Self {
+            row_limit: opts.row_limit,
             colonne: opts.max_columns(),
             righe: opts.max_rows(),
             vertici: opts.max_vertices(),

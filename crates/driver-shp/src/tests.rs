@@ -739,7 +739,7 @@ fn i_semi_validi_passano_la_verifica_strutturale() {
         let radice = temporanea.path().join(nome);
         std::fs::create_dir(&radice).expect("directory del seme");
         let principale = materializza_bundle(&radice, &parti).expect("materializzazione");
-        assert_eq!(valida_struttura_shp(&principale), Ok(()), "{nome}");
+        assert_eq!(valida_struttura_shp(&principale, None), Ok(()), "{nome}");
     }
 }
 
@@ -1019,7 +1019,7 @@ fn la_fine_del_dbf_ammette_il_terminatore_e_niente_altro() {
         dbf.extend_from_slice(coda);
         let percorso = temporanea.path().join(format!("c{}.dbf", coda.len()));
         std::fs::write(&percorso, &dbf).expect("il DBF si scrive");
-        let esito = valida_intestazione_dbf(&percorso);
+        let esito = valida_intestazione_dbf(&percorso, None);
         match (atteso, esito) {
             (Ok(()), Ok(())) | (Err(_), Err(_)) => {}
             (Ok(()), Err(errore)) => {
@@ -1162,7 +1162,7 @@ fn le_tre_versioni_visual_foxpro_sono_tutte_prevalidate() {
         intestazione[8..10].copy_from_slice(&100_u16.to_le_bytes());
         std::fs::write(&percorso, intestazione).expect("scrittura del DBF");
 
-        let errore = valida_intestazione_dbf(&percorso)
+        let errore = valida_intestazione_dbf(&percorso, None)
             .expect_err("i 263 byte di backlink non stanno in 100");
         assert_eq!(
             errore.message, "header Visual FoxPro piu' corto del backlink",
@@ -1838,7 +1838,7 @@ fn accepted_rows_stops_invalid_shapefile_scan_at_active_row_limit() {
 }
 
 #[test]
-fn accepted_rows_preserves_valid_shapefile_batch_overshoot_and_skips_late_invalidity() {
+fn accepted_rows_stops_at_exact_prefix_and_skips_late_invalidity() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("late-invalid.shp");
     let id = shapefile::dbase::FieldName::try_from("ID").unwrap();
@@ -1885,7 +1885,7 @@ fn accepted_rows_preserves_valid_shapefile_batch_overshoot_and_skips_late_invali
     while let Some(batch) = reader.next_batch().unwrap() {
         rows.push(batch.num_rows());
     }
-    assert_eq!(rows, vec![8, 8]);
+    assert_eq!(rows, vec![8, 2]);
 
     let complete_dataset = ShpDriver
         .open(Source::Path(path), opzioni_lettura())
@@ -4031,7 +4031,7 @@ fn bundle_disallineato(dir: &Path, nome: &str, geometrie: usize, record: usize) 
 fn n1_spawn_parser_si_ferma_quando_le_geometrie_finiscono_prima_dei_record() {
     let dir = tempfile::tempdir().unwrap();
     let bundle = bundle_disallineato(dir.path(), "misto.shp", 1, 3);
-    let layout = read_dbf_layout(&bundle).expect("il dbf lungo e' ben formato");
+    let layout = read_dbf_layout(&bundle, None).expect("il dbf lungo e' ben formato");
     assert_eq!(layout.record_count, 3, "il dbf porta tre record");
 
     let schema: SchemaRef = Arc::new(Schema::new(vec![geometry_field(GEOMETRY, "EPSG:4326")]));
@@ -4258,7 +4258,7 @@ fn n1_next_physical_rifiuta_il_campo_che_non_sta_nel_record() {
 
     // La meta' che vale come controllo: il layout che il lettore produce ha
     // ogni campo dentro il record.
-    let letto = read_dbf_layout(&bundle).expect("il bundle e' conforme");
+    let letto = read_dbf_layout(&bundle, None).expect("il bundle e' conforme");
     for campo in &letto.fields {
         assert!(
             campo.offset + campo.width <= letto.record_length,
@@ -4433,7 +4433,7 @@ fn n1_le_due_letture_del_dbf_non_possono_divergere() {
     // Il controllo positivo: due righe dichiarate, due presenti, schema
     // inferito. Senza, «rifiuta sempre» supererebbe la prova.
     let intatto = bundle_di_righe(dir.path(), "due.shp", &["NOME"], 2, |_| {});
-    let inferenza = infer_shp_schema(&intatto).expect("un bundle conforme si legge");
+    let inferenza = infer_shp_schema(&intatto, None).expect("un bundle conforme si legge");
     assert_eq!(inferenza.active_row_count, 2, "due righe attive");
     assert_eq!(inferenza.cols.len(), 1, "un campo oltre la geometria");
 
@@ -4443,7 +4443,7 @@ fn n1_le_due_letture_del_dbf_non_possono_divergere() {
         let lunghezza_record = usize::from(u16::from_le_bytes([byte[10], byte[11]]));
         byte.truncate(lunghezza_header + lunghezza_record);
     });
-    let Err(errore) = infer_shp_schema(&troncato) else {
+    let Err(errore) = infer_shp_schema(&troncato, None) else {
         panic!("un header che promette piu' record di quanti ce ne sono non e' affidabile");
     };
     assert_eq!(
@@ -4459,7 +4459,7 @@ fn n1_le_due_letture_del_dbf_non_possono_divergere() {
         let lunghezza_record = usize::from(u16::from_le_bytes([byte[10], byte[11]]));
         byte[lunghezza_header + 2 * lunghezza_record] = 0x1A;
     });
-    let Err(errore) = infer_shp_schema(&marcato) else {
+    let Err(errore) = infer_shp_schema(&marcato, None) else {
         panic!("un marcatore di fine file in mezzo ai record non e' un record");
     };
     assert_eq!(
@@ -4509,7 +4509,7 @@ fn n1_infer_geometry_info_rifiuta_i_conteggi_che_non_coincidono() {
     // Il controllo positivo: un bundle intatto ha una geometria e un
     // record, e l'inferenza restituisce il tipo dell'header.
     let intatto = bundle_con_dbf_ritoccato(dir.path(), "intatto-geom.shp", &["NOME"], |_| {});
-    let info = infer_geometry_info(&intatto, 1).expect("un bundle conforme si legge");
+    let info = infer_geometry_info(&intatto, 1, None).expect("un bundle conforme si legge");
     assert_eq!(
         info.shape_type,
         Some("point-xy"),
@@ -4519,7 +4519,7 @@ fn n1_infer_geometry_info_rifiuta_i_conteggi_che_non_coincidono() {
 
     // Il conteggio dichiarato dal chiamante non coincide con le geometrie.
     for dichiarato in [0_u32, 2] {
-        let Err(errore) = infer_geometry_info(&intatto, dichiarato) else {
+        let Err(errore) = infer_geometry_info(&intatto, dichiarato, None) else {
             panic!("{dichiarato} record DBF contro una geometria non e' un allineamento");
         };
         assert_eq!(
@@ -4539,9 +4539,9 @@ fn n1_infer_geometry_info_rifiuta_i_conteggi_che_non_coincidono() {
             byte[4..8].copy_from_slice(&7_u32.to_le_bytes());
         },
     );
-    let layout = read_dbf_layout(&ritoccato).expect("l'header resta leggibile");
+    let layout = read_dbf_layout(&ritoccato, None).expect("l'header resta leggibile");
     assert_eq!(layout.record_count, 7, "il ritocco e' arrivato dove doveva");
-    let Err(errore) = infer_geometry_info(&ritoccato, layout.record_count) else {
+    let Err(errore) = infer_geometry_info(&ritoccato, layout.record_count, None) else {
         panic!("sette record dichiarati contro una geometria non e' un allineamento");
     };
     assert_eq!(
@@ -4553,7 +4553,7 @@ fn n1_infer_geometry_info_rifiuta_i_conteggi_che_non_coincidono() {
     // non c'e' niente da contare, e il rifiuto arriva prima dell'apertura.
     let assente = dir.path().join("non-esiste.shp");
     assert!(
-        infer_geometry_info(&assente, 0).is_err(),
+        infer_geometry_info(&assente, 0, None).is_err(),
         "un bundle senza `.shp` non ha geometrie da inferire"
     );
 }
@@ -4784,7 +4784,7 @@ fn n1_read_dbf_layout_rifiuta_le_incoerenze_fra_header_e_descrittori() {
 
     // Il controllo positivo: il bundle non ritoccato si legge.
     let intatto = bundle_con_dbf_ritoccato(dir.path(), "intatto.shp", &["NOME"], |_| {});
-    let layout = read_dbf_layout(&intatto).expect("un bundle conforme ha un layout");
+    let layout = read_dbf_layout(&intatto, None).expect("un bundle conforme ha un layout");
     assert_eq!(layout.fields.len(), 1, "un campo dichiarato, uno letto");
     assert_eq!(layout.record_count, 1, "un record scritto, uno dichiarato");
 
@@ -4809,7 +4809,7 @@ fn n1_read_dbf_layout_rifiuta_le_incoerenze_fra_header_e_descrittori() {
     ] {
         let percorso =
             bundle_con_dbf_ritoccato(dir.path(), &format!("{}.shp", caso.len()), campi, ritocco);
-        let Err(errore) = read_dbf_layout(&percorso) else {
+        let Err(errore) = read_dbf_layout(&percorso, None) else {
             panic!("{caso}: doveva essere rifiutato");
         };
         assert_eq!(errore.message, atteso, "{caso}: messaggio sbagliato");
@@ -4858,7 +4858,7 @@ fn n1_valida_intestazione_dbf_precede_le_guardie_omonime_di_read_dbf_layout() {
             &["NOME"],
             ritocco,
         );
-        let Err(errore) = read_dbf_layout(&percorso) else {
+        let Err(errore) = read_dbf_layout(&percorso, None) else {
             panic!("{caso}: doveva essere rifiutato");
         };
         assert_eq!(

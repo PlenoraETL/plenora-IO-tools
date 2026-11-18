@@ -2438,6 +2438,7 @@ fn companion_comparso_durante_il_layer_impedisce_il_successo() {
         controlla_companion(&sqlite_path).unwrap();
         let schema = Arc::new(Schema::empty());
         let mut reader = GpkgReader {
+            remaining: u64::MAX,
             conn: apri_percorso_sqlite(&sqlite_path).unwrap(),
             sqlite_path,
             sql: "SELECT rowid FROM features WHERE (?1 IS NULL OR rowid > ?1) ORDER BY rowid LIMIT ?2".to_owned(),

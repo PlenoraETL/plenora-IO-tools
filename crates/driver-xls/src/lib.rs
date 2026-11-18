@@ -327,6 +327,15 @@ impl FormatDriver for XlsDriver {
             ));
         }
         validate_archive_ratio(&path, opts.budget())?;
+        // Calamine and metadata readers receive only the selected row prefix.
+        // ZIP members are decompressed incrementally; the suffix is never parsed.
+        let prefix = opts
+            .row_limit
+            .map(|limit| prefix_workbook(&path, limit, &opts))
+            .transpose()?;
+        let path = prefix
+            .as_ref()
+            .map_or(path, |file| file.path().to_path_buf());
         // FZ-0: il panico di calamine sui riferimenti di cella e' impedito
         // qui, prima che la libreria veda il foglio. La barriera resta sotto,
         // ma un panico catturato e' pur sempre un panico avvenuto.
@@ -836,6 +845,10 @@ impl OpenDatasetHandle for XlsDataset {
         )
     }
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
+        if !self.layers.iter().any(|layer| layer.id == request.layer) {
+            return Err(plenora_io_model::error_table::Situation::MissingLayer.error());
+        }
+
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
         if let Some(error) = self.rifiuto_del_layer(request.layer) {
             return Err(error);
@@ -844,7 +857,7 @@ impl OpenDatasetHandle for XlsDataset {
             .layers
             .iter()
             .position(|layer| layer.id == request.layer)
-            .ok_or_else(|| sheet_error(plenora_io_model::CapabilityReason::ObjectMissing))?;
+            .ok_or_else(|| plenora_io_model::error_table::Situation::MissingLayer.error())?;
         let (layout, spool) = self.contents[index]
             .as_ref()
             .ok_or_else(|| sheet_error(plenora_io_model::CapabilityReason::ObjectEmpty))?;
@@ -1305,7 +1318,10 @@ fn resolve_geometry(
                 plenora_io_model::error_table::Situation::MissingOptionColumn
                     .error_with(&PublicMessage::Curated(assente)),
             ),
-            ColonnaPerNome::Ambigua => Err(err(&PublicMessage::Curated(ambigua))),
+            ColonnaPerNome::Ambigua => Err(
+                plenora_io_model::error_table::Situation::InvalidConfiguration
+                    .error_with(&PublicMessage::Curated(ambigua)),
+            ),
         }
     };
     // Due dichiarazioni di geometria per lo stesso layer: vinceva `wkt_column`
@@ -2132,3 +2148,181 @@ fn coordinate_cell(cell: Option<&Data>, axis: &'static str) -> Result<Option<f64
 
 #[cfg(test)]
 mod tests;
+
+/// Materialize a bounded XML prefix before handing a worksheet to Calamine.
+#[allow(clippy::case_sensitive_file_extension_comparisons)] // OPC part names are case sensitive.
+fn prefix_workbook(
+    path: &std::path::Path,
+    limit: u64,
+    opts: &ReadOptions,
+) -> Result<tempfile::NamedTempFile> {
+    use quick_xml::events::Event;
+    let mut source = zip::ZipArchive::new(std::fs::File::open(path)?)
+        .map_err(|_| err(&PublicMessage::Curated("contenitore XLSX non valido")))?;
+    let temporary = tempfile::Builder::new()
+        .suffix(".xlsx")
+        .tempfile_in(plenora_io_core::driver::spool::spill_directory()?)?;
+    let mut output = zip::ZipWriter::new(temporary.reopen()?);
+    for index in 0..source.len() {
+        opts.ensure_active()?;
+        let member = source
+            .by_index(index)
+            .map_err(|_| err(&PublicMessage::Curated("membro XLSX non leggibile")))?;
+        let name = member
+            .name()
+            .map_err(|_| err(&PublicMessage::Curated("nome membro XLSX non valido")))?
+            .into_owned();
+        if !name.starts_with("xl/worksheets/") || !name.ends_with(".xml") {
+            output
+                .raw_copy_file(member)
+                .map_err(|_| err(&PublicMessage::Curated("copia metadati XLSX fallita")))?;
+            continue;
+        }
+        output
+            .start_file(name, zip::write::SimpleFileOptions::default())
+            .map_err(|_| err(&PublicMessage::Curated("spool XLSX non creabile")))?;
+        let mut reader = quick_xml::Reader::from_reader(quick_xml::encoding::DecodingReader::new(
+            BufReader::new(member),
+        ));
+        let mut writer = quick_xml::Writer::new(&mut output);
+        let mut buffer = Vec::new();
+        let mut stack: Vec<String> = Vec::new();
+        let mut rows = 0_u64;
+        let mut first_row = None;
+        let mut current_row = 0_u64;
+        let mut first_column = None;
+        loop {
+            opts.ensure_active()?;
+            let event = reader
+                .read_event_into(&mut buffer)
+                .map_err(|_| err(&PublicMessage::Curated("XML XLSX non valido nel prefisso")))?;
+            if matches!(event, Event::Eof) {
+                break;
+            }
+            // The original dimension includes the unobserved suffix. Let the
+            // existing layout scanner infer dimensions from the bounded copy.
+            if matches!(&event, Event::Empty(e) if e.local_name().as_ref() == "dimension") {
+                buffer.clear();
+                continue;
+            }
+            if let Event::Start(element) | Event::Empty(element) = &event {
+                if first_column.is_none() && element.local_name().as_ref() == "c" {
+                    first_column = prefix_cell_column(element)?;
+                }
+                if element.local_name().as_ref() == "row" {
+                    current_row = prefix_row_number(element, current_row.saturating_add(1))?;
+                    let first = *first_row.get_or_insert(current_row);
+                    if current_row > first.saturating_add(limit) {
+                        // Sparse worksheets contain implicit empty rows. Materialize
+                        // the final empty cell so dimension inference retains them.
+                        complete_sparse_prefix(
+                            &mut writer,
+                            first.saturating_add(limit),
+                            first_column.as_deref().unwrap_or("A"),
+                            &stack,
+                        )?;
+                        break;
+                    }
+                    rows = current_row.saturating_sub(first);
+                }
+            }
+            let row_end = match &event {
+                Event::Start(e) => {
+                    stack.push(e.name().as_ref().to_owned());
+                    false
+                }
+                Event::End(e) => {
+                    stack.pop();
+                    e.local_name().as_ref() == "row"
+                }
+                Event::Empty(e) => e.local_name().as_ref() == "row",
+                _ => false,
+            };
+            writer
+                .write_event(event)
+                .map_err(|_| err(&PublicMessage::Curated("scrittura prefisso XLSX fallita")))?;
+            if row_end {
+                rows += 1;
+            }
+            if rows >= limit.saturating_add(1) {
+                close_xml_prefix(&mut writer, &stack)?;
+                break;
+            }
+            buffer.clear();
+        }
+    }
+    let file = output
+        .finish()
+        .map_err(|_| err(&PublicMessage::Curated("chiusura spool XLSX fallita")))?;
+    if file.metadata()?.len() > opts.max_input_bytes() {
+        return Err(plenora_io_model::quota::Quota::InputBytes.exceeded(ErrorPhase::Read));
+    }
+    Ok(temporary)
+}
+
+fn prefix_row_number(element: &quick_xml::events::BytesStart<'_>, implicit: u64) -> Result<u64> {
+    for attribute in element.attributes() {
+        let attribute =
+            attribute.map_err(|_| err(&PublicMessage::Curated("attributo XML XLSX non valido")))?;
+        if attribute.key.as_ref() == "r" {
+            return attribute
+                .value
+                .parse::<u64>()
+                .map_err(|_| err(&PublicMessage::Curated("indice riga XLSX non valido")));
+        }
+    }
+    Ok(implicit)
+}
+
+fn complete_sparse_prefix<W: std::io::Write>(
+    writer: &mut quick_xml::Writer<W>,
+    last: u64,
+    column: &str,
+    stack: &[String],
+) -> Result<()> {
+    use quick_xml::events::{BytesEnd, BytesStart, Event};
+    let last = last.to_string();
+    let mut row = BytesStart::new("row");
+    row.push_attribute(("r", last.as_str()));
+    writer.write_event(Event::Start(row))?;
+    let reference = format!("{column}{last}");
+    let mut cell = BytesStart::new("c");
+    cell.push_attribute(("r", reference.as_str()));
+    writer.write_event(Event::Empty(cell))?;
+    writer.write_event(Event::End(BytesEnd::new("row")))?;
+    for name in stack.iter().rev() {
+        writer.write_event(Event::End(BytesEnd::new(name)))?;
+    }
+    Ok(())
+}
+
+fn prefix_cell_column(element: &quick_xml::events::BytesStart<'_>) -> Result<Option<String>> {
+    for attribute in element.attributes() {
+        let attribute =
+            attribute.map_err(|_| err(&PublicMessage::Curated("attributo XML XLSX non valido")))?;
+        if attribute.key.as_ref() == "r" {
+            return Ok(Some(
+                attribute
+                    .value
+                    .chars()
+                    .take_while(char::is_ascii_alphabetic)
+                    .collect(),
+            ));
+        }
+    }
+    Ok(None)
+}
+
+fn close_xml_prefix<W: std::io::Write>(
+    writer: &mut quick_xml::Writer<W>,
+    stack: &[String],
+) -> Result<()> {
+    for name in stack.iter().rev() {
+        writer
+            .write_event(quick_xml::events::Event::End(
+                quick_xml::events::BytesEnd::new(name),
+            ))
+            .map_err(|_| err(&PublicMessage::Curated("chiusura prefisso XLSX fallita")))?;
+    }
+    Ok(())
+}

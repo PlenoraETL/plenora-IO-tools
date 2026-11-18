@@ -612,11 +612,13 @@ intero -- ogni geometria decodificata, ogni tetto applicato -- e restituisce
 quante righe ha letto, in quanti batch, con quale fedelta'. Non una riga di dati.
 Chiamarlo `read()` avrebbe promesso righe che non arrivano.
 
-Due semantiche che i nomi non suggeriscono, e che il contratto ora ratifica in
-`envelopes.read.semantica`: `limit` e' una soglia verificata **fra un batch e il
-successivo**, quindi `rows_read` puo' superarlo della parte residua del batch
-corrente; e `truncated` significa **arresto per limite con EOF non accertato**,
-non «ci sono altre righe».
+`limit=N` arresta la lettura alla riga N: `rows_read` non supera N.
+`truncated=True` significa **limite raggiunto, coda non esaminata**, anche
+quando il file contiene esattamente N righe. `complete` è il contrario di
+`truncated`: è vero quando EOF è stato osservato prima del limite o senza
+limite. I formati a blocchi possono leggere il blocco contenente N, ma la
+validazione dei valori riguarda solo il prefisso. La semantica è descritta
+in `release/cli-protocol-v2.json`, `envelopes.read.semantica`.
 
 ## La deadline non e' il timeout
 

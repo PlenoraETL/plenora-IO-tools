@@ -45,7 +45,7 @@ use plenora_io_model::geometry::{
     validate_geometry_field_identity, with_contract_version, with_field_identity,
     with_geometry_contract_metadata, PLENORA_CONTRACT_VERSION_KEY,
 };
-use plenora_io_model::{NumeroStrutturale, PlenoraIoError, PublicMessage, Result};
+use plenora_io_model::{PlenoraIoError, PublicMessage, Result};
 
 fn err(reason: &PublicMessage) -> PlenoraIoError {
     PlenoraIoError::formato_redatto("ipc", reason)
@@ -201,12 +201,18 @@ impl FormatDriver for IpcDriver {
             self.descriptor(),
             source,
             &mut opts,
-            |path, _| match serializzazione_del_file(path)? {
-                Serializzazione::File => {
-                    driver_common::prevalida_arrow::valida_file_ipc("arrow", path)
-                }
+            |path, options| match serializzazione_del_file(path)? {
+                Serializzazione::File => driver_common::prevalida_arrow::valida_file_ipc_prefix(
+                    "arrow",
+                    path,
+                    options.row_limit,
+                ),
                 Serializzazione::Flusso => {
-                    driver_common::prevalida_arrow::valida_flusso_ipc("arrow", path)
+                    driver_common::prevalida_arrow::valida_flusso_ipc_prefix(
+                        "arrow",
+                        path,
+                        options.row_limit,
+                    )
                 }
             },
         )?;
@@ -434,12 +440,13 @@ impl OpenDatasetHandle for IpcDataset {
         )
     }
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
+        if !self.layers.iter().any(|layer| layer.id == request.layer) {
+            return Err(plenora_io_model::error_table::Situation::MissingLayer.error());
+        }
+
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
         if request.layer != self.layers[0].id {
-            return Err(err(&PublicMessage::CuratedWith(
-                "layer runtime inesistente, indice",
-                NumeroStrutturale::Indice(u64::from(request.layer.0)),
-            )));
+            return Err(plenora_io_model::error_table::Situation::MissingLayer.error());
         }
 
         let source_layer = &self.layers[0];
@@ -453,10 +460,24 @@ impl OpenDatasetHandle for IpcDataset {
         let serializzazione = serializzazione_del_file(&path)?;
         match serializzazione {
             Serializzazione::File => {
-                driver_common::prevalida_arrow::valida_file_ipc("arrow", &path)?;
+                driver_common::prevalida_arrow::valida_file_ipc_prefix(
+                    "arrow",
+                    &path,
+                    match request.scope {
+                        plenora_io_core::ReadScope::Complete => None,
+                        plenora_io_core::ReadScope::AcceptedRows(n) => Some(n),
+                    },
+                )?;
             }
             Serializzazione::Flusso => {
-                driver_common::prevalida_arrow::valida_flusso_ipc("arrow", &path)?;
+                driver_common::prevalida_arrow::valida_flusso_ipc_prefix(
+                    "arrow",
+                    &path,
+                    match request.scope {
+                        plenora_io_core::ReadScope::Complete => None,
+                        plenora_io_core::ReadScope::AcceptedRows(n) => Some(n),
+                    },
+                )?;
             }
         }
         let reader = plenora_io_core::driver::leggendo_arrow("arrow", move || {
@@ -491,7 +512,16 @@ impl OpenDatasetHandle for IpcDataset {
         }
         Ok(plenora_io_core::with_batch_target(
             loss_table::with_native_report(
-                Box::new(IpcReader { reader, layer }),
+                Box::new(IpcReader {
+                    reader,
+                    layer,
+                    remaining: match request.scope {
+                        plenora_io_core::ReadScope::Complete => usize::MAX,
+                        plenora_io_core::ReadScope::AcceptedRows(limit) => {
+                            usize::try_from(limit).unwrap_or(usize::MAX)
+                        }
+                    },
+                }),
                 loss_table::metadata_changes(
                     NativeDriver::Ipc,
                     TransportDirection::Read,
@@ -524,6 +554,7 @@ enum LettoreIpc {
 }
 
 struct IpcReader {
+    remaining: usize,
     reader: LettoreIpc,
     layer: LayerContract,
 }
@@ -533,6 +564,10 @@ impl LayerReader for IpcReader {
         &self.layer
     }
     fn next_batch(&mut self) -> Result<Option<RecordBatch>> {
+        if self.remaining == 0 {
+            return Ok(None);
+        }
+        let remaining = self.remaining;
         // Anche qui serve la barriera, non solo sullo schema: arrow decodifica
         // i buffer del batch a ogni `next()`, e un offset oltre la lunghezza
         // dichiarata panica in `arrow-buffer` invece di restituire un errore.
@@ -548,7 +583,10 @@ impl LayerReader for IpcReader {
                 proiezione,
             } => match lettore.next() {
                 None => Ok(None),
-                Some(Ok(b)) => valida_e_proietta(b, proiezione.as_deref()),
+                Some(Ok(b)) => valida_e_proietta(
+                    b.slice(0, b.num_rows().min(remaining)),
+                    proiezione.as_deref(),
+                ),
                 Some(Err(_)) => Err(err(&PublicMessage::Curated("batch IPC non leggibile"))),
             },
             LettoreIpc::Flusso {
@@ -556,11 +594,15 @@ impl LayerReader for IpcReader {
                 proiezione,
             } => match lettore.next() {
                 None => Ok(None),
-                Some(Ok(b)) => valida_e_proietta(b, proiezione.as_deref()),
+                Some(Ok(b)) => valida_e_proietta(
+                    b.slice(0, b.num_rows().min(remaining)),
+                    proiezione.as_deref(),
+                ),
                 Some(Err(_)) => Err(err(&PublicMessage::Curated("batch IPC non leggibile"))),
             },
         })?
         .map(|batch| {
+            self.remaining = self.remaining.saturating_sub(batch.num_rows());
             RecordBatch::try_new_with_options(
                 schema,
                 batch.columns().to_vec(),

@@ -745,6 +745,10 @@ impl OpenDatasetHandle for GpkgDataset {
     }
 
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
+        if !self.layers.iter().any(|layer| layer.id == request.layer) {
+            return Err(plenora_io_model::error_table::Situation::MissingLayer.error());
+        }
+
         if let Some(rifiuto) = self.rifiuto_del_layer(request.layer) {
             return Err(rifiuto);
         }
@@ -753,12 +757,7 @@ impl OpenDatasetHandle for GpkgDataset {
             .layers
             .iter()
             .position(|l| l.id.0 == request.layer.0)
-            .ok_or_else(|| {
-                err(&PublicMessage::CuratedWith(
-                    "layer runtime inesistente, indice",
-                    NumeroStrutturale::Indice(u64::from(request.layer.0)),
-                ))
-            })?;
+            .ok_or_else(|| plenora_io_model::error_table::Situation::MissingLayer.error())?;
         let m = &self.metas[idx];
         let sqlite_path = percorso_sqlite(&self.path)?;
         controlla_companion(&sqlite_path)?;
@@ -827,6 +826,10 @@ impl OpenDatasetHandle for GpkgDataset {
                 schema.as_ref(),
                 request.batch_target,
             ),
+            remaining: match request.scope {
+                plenora_io_core::ReadScope::Complete => u64::MAX,
+                plenora_io_core::ReadScope::AcceptedRows(limit) => limit,
+            },
             last_rowid: None,
             layer_srs_id: m.layer_srs_id,
             layer,
@@ -880,6 +883,7 @@ fn project_gpkg_layer(
 }
 
 struct GpkgReader {
+    remaining: u64,
     sqlite_path: PathBuf,
     conn: Connection,
     sql: String,
@@ -947,16 +951,8 @@ impl GpkgReader {
     }
 }
 
-impl LayerReader for GpkgReader {
-    fn contract(&self) -> &LayerContract {
-        &self.layer
-    }
-
-    fn loss_report(&self) -> LossReport {
-        self.loss.clone()
-    }
-
-    fn next_batch(&mut self) -> Result<Option<RecordBatch>> {
+impl GpkgReader {
+    fn read_page(&mut self) -> Result<Option<RecordBatch>> {
         let mut stmt = self.conn.prepare_cached(&self.sql).map_err(sql_err)?;
         let mut geom = BinaryBuilder::new();
         let mut attr_builders: Vec<ColBuilder> = self
@@ -971,7 +967,8 @@ impl LayerReader for GpkgReader {
         let mut max_rowid: Option<i64> = self.last_rowid;
         // Clamp identico al precedente `min(i64::MAX as usize) as i64`, senza
         // cast: il LIMIT SQL satura a i64::MAX invece di avvolgersi.
-        let limit = i64::try_from(self.batch_sizer.rows()).unwrap_or(i64::MAX);
+        let limit =
+            i64::try_from((self.batch_sizer.rows() as u64).min(self.remaining)).unwrap_or(i64::MAX);
         let mut rows = match self.spatial_hint {
             Some(bbox) => stmt.query(rusqlite::params![
                 self.last_rowid,
@@ -1095,6 +1092,27 @@ impl LayerReader for GpkgReader {
         )?;
         self.batch_sizer.observe(&batch);
         Ok(Some(batch))
+    }
+}
+
+impl LayerReader for GpkgReader {
+    fn contract(&self) -> &LayerContract {
+        &self.layer
+    }
+
+    fn loss_report(&self) -> LossReport {
+        self.loss.clone()
+    }
+
+    fn next_batch(&mut self) -> Result<Option<RecordBatch>> {
+        if self.remaining == 0 {
+            return Ok(None);
+        }
+        let batch = self.read_page()?;
+        if let Some(batch) = &batch {
+            self.remaining = self.remaining.saturating_sub(batch.num_rows() as u64);
+        }
+        Ok(batch)
     }
 }
 
@@ -1259,12 +1277,10 @@ impl FormatWriter for GpkgWriter {
             .conn
             .as_ref()
             .ok_or_else(|| err(&PublicMessage::Curated("writer chiuso")))?;
-        let a = self.layers.get(layer.0 as usize).ok_or_else(|| {
-            err(&PublicMessage::CuratedWith(
-                "layer inesistente nel piano di scrittura, indice",
-                NumeroStrutturale::Indice(u64::from(layer.0)),
-            ))
-        })?;
+        let a = self
+            .layers
+            .get(layer.0 as usize)
+            .ok_or_else(|| plenora_io_model::error_table::Situation::MissingLayer.error())?;
         insert_batch(conn, a, batch, &self.limiti_wkb)
     }
 
@@ -1447,12 +1463,14 @@ fn arrow_cell_to_sql_ref(array: &ArrayRef, row: usize) -> Result<BorrowedSqlValu
     if let Some(x) = a.downcast_ref::<FixedSizeBinaryArray>() {
         return Ok(BorrowedSqlValue::Blob(x.value(row)));
     }
-    Err(PlenoraIoError::non_supportato_redatto(
-        &PublicMessage::CuratedPair(
-            "GeoPackage: tipo Arrow non rappresentabile senza conversione esplicita, classe:",
-            driver_common::classe_arrow(array.data_type()),
+    Err(
+        plenora_io_model::error_table::Situation::UnrepresentableWriteType.error_with(
+            &PublicMessage::CuratedPair(
+                "GeoPackage: tipo Arrow non rappresentabile senza conversione esplicita, classe:",
+                driver_common::classe_arrow(array.data_type()),
+            ),
         ),
-    ))
+    )
 }
 
 // --- helpers comuni --------------------------------------------------------

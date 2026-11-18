@@ -1022,7 +1022,7 @@ fn read_limit_counts_exact_rows() {
     let righe_totali = intero["rows_read"].as_u64().expect("un conteggio");
     assert!(righe_totali > 1, "serve piu' di una riga per dire qualcosa");
 
-    // Con limite uno: si ferma dopo il **primo batch**, che ne porta piu'
+    // Con limite uno: il decoder restituisce solo il prefisso richiesto, anche se il batch ne porta piu'
     // di una.
     let cli = parse(&[
         input.to_string_lossy().into_owned(),
@@ -1037,9 +1037,9 @@ fn read_limit_counts_exact_rows() {
     assert_eq!(assaggio["truncated"], true);
 }
 
-/// `truncated` e' vero solo quando esistono altre righe.
+/// `truncated` indica il limite raggiunto senza esaminare la coda.
 #[test]
-fn read_truncated_means_more_rows_exist() {
+fn read_truncated_means_limit_reached() {
     let directory = tempfile::tempdir().unwrap();
     let input = materialize_multibatch_valid_ipc(&directory);
     let intero = cmd_read(&parse(&[input.to_string_lossy().into_owned()]).unwrap())
@@ -1062,8 +1062,8 @@ fn read_truncated_means_more_rows_exist() {
     .expect("il file si legge");
     assert_eq!(esatto["rows_read"], righe);
     assert_eq!(
-        esatto["truncated"], false,
-        "il limite esatto non tronca il risultato"
+        esatto["truncated"], true,
+        "limite raggiunto: EOF non esaminato"
     );
 
     // Un limite oltre la fine: il reader arriva all'EOF e lo dice.
@@ -2417,4 +2417,19 @@ fn il_panico_usa_il_protocollo_corrente() {
     assert_eq!(busta["protocol_version"], busta::PROTOCOLLO);
     assert_eq!(busta["contract"], "plenora-error-v1");
     assert!(!busta.to_string().contains("payload riservato"));
+}
+
+#[test]
+fn limit_does_not_validate_geometry_past_n_in_same_ipc_batch() {
+    let directory = tempfile::tempdir().unwrap();
+    let input = materialize_multibatch_geometry_ipc(&directory, false);
+    let cli = parse(&[
+        input.to_string_lossy().into_owned(),
+        "--limit".to_owned(),
+        "1".to_owned(),
+    ])
+    .unwrap();
+    let summary = cmd_read(&cli).unwrap();
+    assert_eq!(summary["rows_read"], 1);
+    assert_eq!(summary["truncated"], true);
 }

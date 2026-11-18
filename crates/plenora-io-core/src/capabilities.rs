@@ -466,7 +466,10 @@ pub fn validate_write(
                     driver,
                     campo.as_ref(),
                     CapabilityReason::TypeNotRepresentable,
-                    &PublicMessage::Curated(class.nome()),
+                    &PublicMessage::CuratedPair(
+                        "tipo Arrow non rappresentabile dal writer, classe:",
+                        class.nome(),
+                    ),
                 ));
             }
             if caps.nullability == NullabilitySupport::NoNulls && field.is_nullable() {

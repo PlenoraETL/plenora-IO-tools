@@ -4009,3 +4009,33 @@ fn native_xy_columns_and_decimal_precision_are_declared() {
     assert_eq!(loss.counts.get("native_field_order_changed"), Some(&1));
     assert_eq!(loss.counts.get("native_number_precision"), Some(&2));
 }
+
+#[test]
+fn row_limit_counts_implicit_empty_xlsx_rows_before_invalid_tail() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("sparse.xlsx");
+    let mut workbook = Workbook::new();
+    let sheet = workbook.add_worksheet();
+    sheet.write_string(0, 1, "geometry").unwrap();
+    sheet.write_string(2, 1, "INVALID_WKT_TAIL").unwrap();
+    workbook.save(&path).unwrap();
+    let mut opts = opzioni_lettura_wkt();
+    opts.row_limit = Some(1);
+    let dataset = XlsDriver.open(Source::Path(path), opts).unwrap();
+    let mut reader = dataset
+        .open_layer_reader(&ReadRequest {
+            layer: LayerId(0),
+            projected_fields: None,
+            projection_mode: ProjectionMode::BestEffort,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: ReadScope::AcceptedRows(1),
+            batch_target: BatchTarget::default(),
+            cancellation: CancellationToken::default(),
+        })
+        .unwrap();
+    let batch = reader.next_batch().unwrap().unwrap();
+    assert_eq!(batch.num_rows(), 1);
+    assert_eq!(batch.column(0).null_count(), 1);
+    assert!(reader.next_batch().unwrap().is_none());
+}

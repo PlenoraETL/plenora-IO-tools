@@ -29,7 +29,10 @@ fn i_vocabolari_statici_sono_distinti_e_coprono_le_famiglie() {
         (DataType::Float16, "floating"),
         (DataType::Float64, "floating"),
         (DataType::Utf8, "utf8"),
-        (DataType::LargeUtf8, "large_utf8"),
+        (DataType::LargeUtf8, "utf8"),
+        (DataType::Utf8View, "utf8"),
+        (DataType::LargeBinary, "binary"),
+        (DataType::BinaryView, "binary"),
         (DataType::Binary, "binary"),
         (DataType::FixedSizeBinary(4), "binary"),
         (DataType::Date32, "temporal"),
@@ -351,7 +354,7 @@ fn renderer_validato_riusabile_e_indici_controllati() {
 }
 
 #[test]
-fn large_utf8_rejection_names_the_actual_representation() {
+fn large_utf8_rejection_names_the_base_class() {
     let array: arrow_array::ArrayRef =
         std::sync::Arc::new(arrow_array::LargeStringArray::from(vec![
             Some("SECRET"),
@@ -363,7 +366,36 @@ fn large_utf8_rejection_names_the_actual_representation() {
         (error.category, error.phase, error.code),
         (rule.category, rule.phase, rule.code)
     );
-    assert!(error.message.contains("large_utf8"));
+    assert!(error.message.contains("utf8"));
+    assert!(!error.message.contains("large_utf8"));
     assert!(!error.message.contains("SECRET"));
     assert_eq!(json_from_array(&array, 1).unwrap(), serde_json::Value::Null);
+}
+
+#[test]
+fn large_and_view_types_share_the_base_public_class() {
+    use arrow_schema::Field;
+    let item = Arc::new(Field::new("item", DataType::Int32, true));
+    for (base, variants) in [
+        (
+            DataType::Utf8,
+            vec![DataType::LargeUtf8, DataType::Utf8View],
+        ),
+        (
+            DataType::Binary,
+            vec![DataType::LargeBinary, DataType::BinaryView],
+        ),
+        (
+            DataType::List(item.clone()),
+            vec![
+                DataType::LargeList(item.clone()),
+                DataType::ListView(item.clone()),
+                DataType::LargeListView(item),
+            ],
+        ),
+    ] {
+        for variant in variants {
+            assert_eq!(classe_arrow(&base), classe_arrow(&variant));
+        }
+    }
 }

@@ -849,7 +849,7 @@ class Validation:
 
     # Che cosa dice, e che cosa non da'
 
-    Il comando legge il file **per intero** -- decodifica ogni geometria, applica
+    Senza limite il comando legge il file **per intero** -- decodifica ogni geometria, applica
     ogni tetto, accumula la diagnostica di perdita -- e poi butta via le righe.
     Restituisce quante ne ha lette, in quanti batch, se si e' fermato prima
     della fine, e con quale fedelta'.
@@ -860,10 +860,9 @@ class Validation:
 
     # `truncated` non e' un dettaglio
 
-    Dice che il conteggio **non e' quello del file**: si e' fermato a un limite,
-    e le righe oltre non sono state guardate. Un consumatore che leggesse
-    `rows_read` senza guardarlo concluderebbe che il file ha meno righe di
-    quante ne abbia, e la differenza non si vede da nessun'altra parte.
+    True significa limite raggiunto, coda non esaminata. Il file potrebbe
+    contenere esattamente `rows_read` righe: non si legge una riga aggiuntiva
+    per accertarlo. False significa EOF osservato prima del limite.
     """
 
     format: str
@@ -907,7 +906,9 @@ class Validation:
 
     @property
     def complete(self) -> bool:
-        """Il file e' stato letto fino in fondo.
+        """EOF osservato, prima del limite se specificato.
+
+        False anche quando il limite coincide con il numero di righe del file.
 
         E' il contrario di `truncated`, e sta qui perche' il nome positivo e'
         quello che si scrive in un `if`: `if esito.complete` invece di

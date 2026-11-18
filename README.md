@@ -168,7 +168,7 @@ scoperta; `--version` non e un flag da aggiungere a read o convert.
 |---|---|---|
 | `--assume-crs` | identificatore CRS | il CRS da assumere per i formati che non lo portano; `csv` lo esige |
 | `--layer` | intero | seleziona un indice esplicito; senza opzione read e convert usano il layer predefinito |
-| `--limit` | intero | riporta esattamente fino a N righe; `truncated` e vero solo se ne esistono altre; N deve essere positivo |
+| `--limit` | intero | legge fino a N righe; `truncated: true` significa limite raggiunto, coda non esaminata; N deve essere positivo |
 | `--durable` | — | `fsync` di file e directory prima del rename; l'esito di durabilità è riportato |
 | `--opt` | `chiave=valore` | opzione di formato per entrambe le direzioni |
 | `--in-opt` | `chiave=valore` | come `--opt`, ma sovrascrive per chiave sull'ingresso |

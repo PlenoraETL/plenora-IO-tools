@@ -366,13 +366,18 @@ impl FormatDriver for KmlDriver {
             opts.max_input_bytes(),
             opts.budget().clone(),
         );
-        while let Some(placemark) = stream.next_isolated_placemark(
-            opts.cancellation(),
-            u64::try_from(stats.rows).map_err(|_| {
-                plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Read)
-            })?,
-            &mut rifiuti,
-        )? {
+        while opts.row_limit.is_none_or(|n| (stats.rows as u64) < n) {
+            let Some(placemark) = stream.next_isolated_placemark(
+                opts.cancellation(),
+                u64::try_from(stats.rows).map_err(|_| {
+                    plenora_io_model::quota::Quota::Rows
+                        .exceeded(plenora_io_model::ErrorPhase::Read)
+                })?,
+                &mut rifiuti,
+            )?
+            else {
+                break;
+            };
             opts.ensure_active()?;
             if stats.rows >= opts.max_rows() {
                 return Err(plenora_io_model::quota::Quota::Rows
@@ -400,6 +405,9 @@ impl FormatDriver for KmlDriver {
         }
         spool_writer.finish()?;
         let rows = stats.rows;
+        for &index in &stream.object_stack {
+            stream.objects[index].2 = rows as u64;
+        }
         let contract = stats.contract();
         let name = path
             .file_stem()
@@ -413,6 +421,7 @@ impl FormatDriver for KmlDriver {
         }];
         let mut ranges = vec![(0, rows)];
         for (name, start, end) in stream.objects {
+            let end = end.max(start).min(rows as u64);
             let id = LayerId(u32::try_from(layers.len()).map_err(|_| {
                 plenora_io_model::quota::Quota::InputEntries
                     .exceeded(plenora_io_model::ErrorPhase::Read)
@@ -562,6 +571,10 @@ impl OpenDatasetHandle for KmlDataset {
         )
     }
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
+        if !self.layers.iter().any(|layer| layer.id == request.layer) {
+            return Err(plenora_io_model::error_table::Situation::MissingLayer.error());
+        }
+
         if let Some(error) = self.rifiuto_del_layer(request.layer) {
             return Err(error);
         }
@@ -570,7 +583,7 @@ impl OpenDatasetHandle for KmlDataset {
             .layers
             .iter()
             .position(|layer| layer.id == request.layer)
-            .ok_or_else(|| err(&PublicMessage::Curated("oggetto KML inesistente")))?;
+            .ok_or_else(|| plenora_io_model::error_table::Situation::MissingLayer.error())?;
         let reader = self.reader_gate.open(request.layer, || {
             let mut input = BufReader::with_capacity(KML_IO_BUFFER_BYTES, self.spool.reopen()?);
             for _ in 0..self.ranges[index].0 {

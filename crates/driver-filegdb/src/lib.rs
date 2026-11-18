@@ -616,16 +616,16 @@ mod backend {
                 DataType::Float64 => Self::Float64,
                 DataType::Utf8 => Self::Utf8,
                 other => {
-                    return Err(PlenoraIoError::capability_redatta(
-                        "filegdb",
-                        None,
-                        CapabilityReason::TypeNotRepresentable,
-                        &PublicMessage::CuratedPair(
-                            "tipo Arrow non round-trip nativo (supportati esattamente Int32, \
+                    let mut error =
+                        plenora_io_model::error_table::Situation::UnrepresentableWriteType
+                            .error_with(&PublicMessage::CuratedPair(
+                                "tipo Arrow non round-trip nativo (supportati esattamente Int32, \
                              Float64 e Utf8), classe:",
-                            driver_common::classe_arrow(other),
-                        ),
-                    ));
+                                driver_common::classe_arrow(other),
+                            ));
+                    error.driver = Some("filegdb".to_owned());
+                    error.capability_reason = Some(CapabilityReason::TypeNotRepresentable);
+                    return Err(error);
                 }
             };
             Ok(kind)
@@ -1238,10 +1238,7 @@ mod backend {
         fn write_to_layer(&mut self, layer: LayerId, batch: &RecordBatch) -> Result<()> {
             let li = layer.0 as usize;
             if li >= self.layers.len() {
-                return Err(err(&PublicMessage::CuratedWith(
-                    "layer inesistente, indice",
-                    NumeroStrutturale::Indice(u64::from(layer.0)),
-                )));
+                return Err(plenora_io_model::error_table::Situation::MissingLayer.error());
             }
             let geom_idx = self.layers[li].geom_idx;
             let geom_col = batch
@@ -1929,6 +1926,7 @@ mod backend {
     /// un layer che quel campo non ha.
     #[derive(Clone, Copy)]
     struct GeometriaDelLayer {
+        row_limit: usize,
         presente: bool,
         inclusa: bool,
     }
@@ -1975,6 +1973,10 @@ mod backend {
             )
         }
         fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
+            if !self.layers.iter().any(|layer| layer.id == request.layer) {
+                return Err(plenora_io_model::error_table::Situation::MissingLayer.error());
+            }
+
             if let Some(error) = self.rifiuto_del_layer(request.layer) {
                 return Err(error);
             }
@@ -1983,12 +1985,7 @@ mod backend {
                 .layers
                 .iter()
                 .position(|l| l.id.0 == request.layer.0)
-                .ok_or_else(|| {
-                    err(&PublicMessage::CuratedWith(
-                        "layer runtime inesistente, indice",
-                        NumeroStrutturale::Indice(u64::from(request.layer.0)),
-                    ))
-                })?;
+                .ok_or_else(|| plenora_io_model::error_table::Situation::MissingLayer.error())?;
             let m = &self.metas[idx];
             super::rifiuta_piu_geometrie(m.campi_geometrici)?;
             let (indices, layer_contract) =
@@ -2027,6 +2024,12 @@ mod backend {
                     layer_contract.contract.schema.clone(),
                     fields,
                     GeometriaDelLayer {
+                        row_limit: match request.scope {
+                            plenora_io_core::ReadScope::Complete => usize::MAX,
+                            plenora_io_core::ReadScope::AcceptedRows(limit) => {
+                                usize::try_from(limit).unwrap_or(usize::MAX)
+                            }
+                        },
                         presente: m.ha_geometria,
                         inclusa: include_geometry,
                     },
@@ -2127,7 +2130,7 @@ mod backend {
                         .map(|field| ReadCol::new(&field.data_type))
                         .collect();
                     let mut n = 0usize;
-                    for feature in layer.features() {
+                    for feature in layer.features().take(geometria.row_limit) {
                         if let Some(builder) = &mut geom {
                             match feature.geometry_by_index(0) {
                                 Ok(geometry) => {

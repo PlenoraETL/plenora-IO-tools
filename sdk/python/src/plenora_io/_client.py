@@ -317,17 +317,14 @@ class Client:
         registrata. Un file che passa di qui e' un file che `convert` puo'
         leggere, e le ragioni in `fidelity` dicono che cosa costerebbe.
 
-        `limit` e' un limite **per batch**, e questo e' il comportamento
-        misurato e non quello che il nome suggerisce: la lettura si ferma dopo
-        il primo batch che raggiunge o supera il limite, quindi `rows_read` puo'
-        essere maggiore di `limit`. Su un file di cinque righe lette in un
-        batch, `limit=1` restituisce cinque.
+        `limit=N` ferma la lettura alla riga N, anche durante l'inferenza.
+        `rows_read` non supera N. I formati a blocchi possono acquisire il
+        blocco contenente N, ma non validano i valori delle righe successive.
 
-        `truncated` dice che **la lettura si e' fermata per il limite**, non che
-        ci fossero altre righe: con `limit` pari al numero di righe del file
-        esce `True` pur avendole lette tutte. Chi vuole sapere se il file abbia
-        altro oltre quel punto non lo trova qui, e nessun campo della busta lo
-        dice.
+        `truncated=True` significa limite raggiunto, coda non esaminata:
+        vale anche quando il file contiene esattamente N righe.
+        `truncated=False` e `complete=True` attestano EOF osservato prima
+        del limite, oppure una lettura senza limite arrivata a EOF.
 
         Entrambe sono ora ratificate in `release/cli-protocol-v2.json`, sotto
         `envelopes.read.semantica`, ciascuna con la sonda che la esercita: sono

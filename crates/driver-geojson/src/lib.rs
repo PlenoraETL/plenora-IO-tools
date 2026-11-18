@@ -303,6 +303,10 @@ impl OpenDatasetHandle for GeoJsonDataset {
         )
     }
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
+        if !self.layers.iter().any(|layer| layer.id == request.layer) {
+            return Err(plenora_io_model::error_table::Situation::MissingLayer.error());
+        }
+
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
         let (indices, layer) = plenora_io_core::project_layer_contract(&self.layers[0], request)?;
         let include_geometry = indices.binary_search(&0).is_ok();
@@ -320,8 +324,12 @@ impl OpenDatasetHandle for GeoJsonDataset {
             layer.contract.schema.as_ref(),
             request.batch_target,
         );
+        let mut quote = self.quote;
+        if let plenora_io_core::ReadScope::AcceptedRows(n) = request.scope {
+            quote.row_limit = Some(quote.row_limit.map_or(n, |old| old.min(n)));
+        }
         let reader = spawn_parser(
-            (self.path.clone(), self.quote),
+            (self.path.clone(), quote),
             layer.contract.schema.clone(),
             cols,
             property_names,
@@ -346,6 +354,7 @@ impl OpenDatasetHandle for GeoJsonDataset {
 /// meta' lettura invece che all'apertura.
 #[derive(Clone, Copy)]
 struct QuoteInferenza {
+    row_limit: Option<u64>,
     /// Tetto sui byte del testo grezzo di una geometria, applicato **prima**
     /// di deserializzarla: e' li' che l'AST verrebbe allocato.
     cella: WkbLimits,
@@ -361,6 +370,7 @@ struct QuoteInferenza {
 impl QuoteInferenza {
     fn from_read_options(opts: &ReadOptions) -> Self {
         Self {
+            row_limit: opts.row_limit,
             cella: opts.wkb_limits(),
             feature: u64::try_from(opts.max_rows()).unwrap_or(u64::MAX),
         }
@@ -379,11 +389,12 @@ type SchemaInferito = (
 fn infer_schema(path: &Path, quote: QuoteInferenza) -> Result<SchemaInferito> {
     let file = File::open(path)?;
     let mut accs = SchemaAccumulators {
+        row_limit: quote.row_limit,
         max_feature: quote.feature,
         ..SchemaAccumulators::default()
     };
     let mut de = serde_json::Deserializer::from_reader(json_input(file)?);
-    if de.deserialize_map(TopVisitor { accs: &mut accs }).is_err() {
+    if de.deserialize_map(TopVisitor { accs: &mut accs }).is_err() && !accs.limit_reached {
         // L'errore vero viene dal canale laterale, non dal testo di serde: la
         // via di serde e' quella che appiattiva codice, categoria e fase.
         let error = accs
@@ -417,6 +428,8 @@ fn infer_schema(path: &Path, quote: QuoteInferenza) -> Result<SchemaInferito> {
 
 #[derive(Default)]
 struct SchemaAccumulators {
+    row_limit: Option<u64>,
+    limit_reached: bool,
     loss: LossReport,
     observations: Vec<[u64; 8]>,
     names: Vec<String>,
@@ -769,10 +782,22 @@ impl<'de> Visitor<'de> for FeaturesVisitor<'_> {
         f.write_str("un array di feature")
     }
     fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> std::result::Result<(), A::Error> {
-        while seq
-            .next_element_seed(FeatureSeed { accs: self.accs })?
-            .is_some()
-        {}
+        loop {
+            if self
+                .accs
+                .row_limit
+                .is_some_and(|n| self.accs.source_rows_seen >= n)
+            {
+                self.accs.limit_reached = true;
+                return Err(A::Error::custom("prefix complete"));
+            }
+            if seq
+                .next_element_seed(FeatureSeed { accs: self.accs })?
+                .is_none()
+            {
+                break;
+            }
+        }
         Ok(())
     }
 }
@@ -1028,6 +1053,8 @@ fn spawn_parser(
             .collect();
         let property_count = property_idx.len();
         let mut sink = RowSink {
+            row_limit: quote.row_limit,
+            limit_reached: false,
             schema: schema.clone(),
             col_idx,
             property_idx,
@@ -1056,7 +1083,7 @@ fn spawn_parser(
         if sink.aborted {
             return Ok(()); // consumatore andato via: stop pulito
         }
-        if result.is_err() {
+        if result.is_err() && !sink.limit_reached {
             let error = sink
                 .errore
                 .take()
@@ -1100,6 +1127,8 @@ impl RowOutput {
 /// (`schema`/`tx`/`col_idx` sono clonati, cheap) così i seed serde lo passano
 /// come `&mut RowSink` senza parametri di lifetime.
 struct RowSink {
+    row_limit: Option<u64>,
+    limit_reached: bool,
     schema: SchemaRef,
     col_idx: HashMap<String, usize>,
     property_idx: HashMap<String, usize>,
@@ -1203,10 +1232,22 @@ impl<'de> Visitor<'de> for FeaturesSink<'_> {
         f.write_str("un array di feature")
     }
     fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> std::result::Result<(), A::Error> {
-        while seq
-            .next_element_seed(FeatureSink { sink: self.sink })?
-            .is_some()
-        {}
+        loop {
+            if self
+                .sink
+                .row_limit
+                .is_some_and(|n| self.sink.source_rows_seen >= n)
+            {
+                self.sink.limit_reached = true;
+                return Err(A::Error::custom("prefix complete"));
+            }
+            if seq
+                .next_element_seed(FeatureSink { sink: self.sink })?
+                .is_none()
+            {
+                break;
+            }
+        }
         Ok(())
     }
 }
@@ -1754,6 +1795,7 @@ pub fn __fuzz_read_geojson(bytes: &[u8]) -> std::result::Result<usize, String> {
     // mordeva mai. A 32 morde per primo, ed e' cio' che un input ostile deve
     // incontrare.
     let quote = QuoteInferenza {
+        row_limit: None,
         cella: WkbLimits {
             max_cell_bytes: 1_048_576,
             max_components: 100_000,
@@ -1762,6 +1804,7 @@ pub fn __fuzz_read_geojson(bytes: &[u8]) -> std::result::Result<usize, String> {
         feature: 100_000,
     };
     let mut accs = SchemaAccumulators {
+        row_limit: quote.row_limit,
         max_feature: quote.feature,
         ..SchemaAccumulators::default()
     };
@@ -1782,6 +1825,8 @@ pub fn __fuzz_read_geojson(bytes: &[u8]) -> std::result::Result<usize, String> {
         .map(|(i, (k, _))| (k.clone(), i))
         .collect();
     let mut sink = RowSink {
+        row_limit: None,
+        limit_reached: false,
         schema: schema.clone(),
         property_idx: col_idx.clone(),
         col_idx,

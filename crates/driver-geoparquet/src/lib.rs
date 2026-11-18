@@ -1991,6 +1991,10 @@ impl OpenDatasetHandle for GeoParquetDataset {
     }
 
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
+        if !self.layers.iter().any(|layer| layer.id == request.layer) {
+            return Err(plenora_io_model::error_table::Situation::MissingLayer.error());
+        }
+
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
         // Prima di riaprire il file: il rifiuto viene prima di ogni effetto.
         rifiuta_le_altre_geometrie(&self.altre_geometrie, request.projected_fields.as_deref())?;
@@ -2078,6 +2082,7 @@ impl OpenDatasetHandle for GeoParquetDataset {
         // **intersezione**: un row group viene letto solo se entrambi i criteri
         // lo tengono.
         let gruppi = self.gruppi_da_leggere(&builder, request);
+        let gruppi = prefix_row_groups(builder.metadata(), gruppi, request.scope);
 
         prevalida_cio_che_il_decoder_leggera(
             &sorgente,
@@ -2092,6 +2097,12 @@ impl OpenDatasetHandle for GeoParquetDataset {
             None => builder,
         };
 
+        let builder = match request.scope {
+            plenora_io_core::ReadScope::Complete => builder,
+            plenora_io_core::ReadScope::AcceptedRows(limit) => {
+                builder.with_limit(usize::try_from(limit).unwrap_or(usize::MAX))
+            }
+        };
         let reader = builder
             .build()
             .map_err(|_| fmt_err(&PublicMessage::Curated("lettura Parquet fallita")))?;
@@ -3654,3 +3665,30 @@ mod multigeometria;
 
 #[cfg(test)]
 mod tests;
+
+fn prefix_row_groups(
+    metadata: &parquet::file::metadata::ParquetMetaData,
+    gruppi: Option<Vec<usize>>,
+    scope: plenora_io_core::ReadScope,
+) -> Option<Vec<usize>> {
+    if let plenora_io_core::ReadScope::AcceptedRows(limit) = scope {
+        let mut remaining = limit;
+        Some(
+            gruppi
+                .unwrap_or_else(|| (0..metadata.num_row_groups()).collect())
+                .into_iter()
+                .take_while(|&index| {
+                    if remaining == 0 {
+                        return false;
+                    }
+                    remaining = remaining.saturating_sub(
+                        u64::try_from(metadata.row_group(index).num_rows()).unwrap_or(u64::MAX),
+                    );
+                    true
+                })
+                .collect::<Vec<_>>(),
+        )
+    } else {
+        gruppi
+    }
+}

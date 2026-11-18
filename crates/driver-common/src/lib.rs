@@ -952,9 +952,11 @@ pub const fn classe_arrow(tipo: &DataType) -> &'static str {
             "unsigned_integer"
         }
         DataType::Float16 | DataType::Float32 | DataType::Float64 => "floating",
-        DataType::Utf8 => "utf8",
-        DataType::LargeUtf8 => "large_utf8",
-        DataType::Binary | DataType::LargeBinary | DataType::FixedSizeBinary(_) => "binary",
+        DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => "utf8",
+        DataType::Binary
+        | DataType::LargeBinary
+        | DataType::BinaryView
+        | DataType::FixedSizeBinary(_) => "binary",
         DataType::Date32
         | DataType::Date64
         | DataType::Time32(_)
@@ -965,6 +967,8 @@ pub const fn classe_arrow(tipo: &DataType) -> &'static str {
         DataType::Decimal128(_, _) | DataType::Decimal256(_, _) => "decimal",
         DataType::List(_)
         | DataType::LargeList(_)
+        | DataType::ListView(_)
+        | DataType::LargeListView(_)
         | DataType::FixedSizeList(_, _)
         | DataType::Struct(_)
         | DataType::Union(_, _)

@@ -312,7 +312,7 @@ class ContrIlBinarioVero(unittest.TestCase):
             [c.name for c in guardato.layers[0].fields],
         )
 
-    def test_il_limite_e_esatto_e_truncated_indica_altre_righe(self) -> None:
+    def test_il_limite_e_esatto_e_truncated_indica_limite_raggiunto(self) -> None:
         """Limite esatto, sotto EOF e oltre EOF sul binario reale."""
         cliente = self.nuovo_client()
         fixture = RADICE / "crates/plenora-io-tools/tests/fixtures/canoniche/canonico.geojson"
@@ -326,8 +326,8 @@ class ContrIlBinarioVero(unittest.TestCase):
         self.assertTrue(assaggio.truncated)
 
         esatto = cliente.validate(fixture, limit=righe)
-        self.assertFalse(esatto.truncated)
-        self.assertTrue(esatto.complete)
+        self.assertTrue(esatto.truncated)
+        self.assertFalse(esatto.complete)
 
         oltre = cliente.validate(fixture, limit=righe + 1)
         self.assertFalse(oltre.truncated)
