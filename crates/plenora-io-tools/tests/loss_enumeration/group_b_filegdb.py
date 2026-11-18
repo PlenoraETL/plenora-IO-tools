@@ -19,6 +19,8 @@ bind('GDALAllRegister', None)()
 source = bind('GDALOpenEx', ptr, C.c_char_p, C.c_uint, chars, chars, chars)(os.fsencode(sys.argv[1]), 4, None, None, None)
 assert source, 'native GPKG fixture failed GDAL validation'
 arguments = [b'-f', b'OpenFileGDB', b'-nln', b'features', b'-lco', b'GEOMETRY_NAME=geometry']
+if len(sys.argv) > 4 and sys.argv[4] == 'Aliases':
+    arguments.extend([b'-lco', b'LAYER_ALIAS=independent native alias'])
 argv = (C.c_char_p * (len(arguments) + 1))(*arguments, None)
 options = bind('GDALVectorTranslateOptionsNew', ptr, chars, ptr)(argv, None)
 usage = C.c_int()
@@ -34,6 +36,25 @@ layer = bind('GDALDatasetExecuteSQL', ptr, ptr, C.c_char_p, ptr, C.c_char_p)(sou
 feature = bind('OGR_L_GetNextFeature', ptr, ptr)(layer)
 xml = bind('OGR_F_GetFieldAsString', C.c_char_p, ptr, C.c_int)(feature, 0)
 Path(sys.argv[2]).with_suffix('.xml').write_bytes(xml)
+if len(sys.argv) > 4 and sys.argv[4] == 'Aliases':
+    assert b'independent native alias' in xml, 'GDAL did not store the requested native alias'
 bind('OGR_F_Destroy', None, ptr)(feature)
 bind('GDALDatasetReleaseResultSet', None, ptr, ptr)(source, layer)
+if len(sys.argv) > 3:
+    # Independent native oracle after GDAL's storage normalization and before
+    # IO reads the file. In particular polygons become native multipolygons.
+    layer = bind('GDALDatasetGetLayer', ptr, ptr, C.c_int)(source, 0)
+    srs = bind('OGR_L_GetSpatialRef', ptr, ptr)(layer)
+    if srs:
+        definition = C.c_char_p()
+        assert bind('OSRExportToWkt', C.c_int, ptr, C.POINTER(C.c_char_p))(srs, C.byref(definition)) == 0
+        Path(sys.argv[3] + '.wkt').write_bytes(definition.value)
+    feature = bind('OGR_L_GetNextFeature', ptr, ptr)(layer)
+    geometry = bind('OGR_F_GetGeometryRef', ptr, ptr)(feature)
+    if geometry:
+        size = bind('OGR_G_WkbSize', C.c_int, ptr)(geometry)
+        buffer = C.create_string_buffer(size)
+        assert bind('OGR_G_ExportToIsoWkb', C.c_int, ptr, C.c_int, ptr)(geometry, 1, buffer) == 0
+        Path(sys.argv[3]).write_bytes(buffer.raw)
+    bind('OGR_F_Destroy', None, ptr)(feature)
 close(source)

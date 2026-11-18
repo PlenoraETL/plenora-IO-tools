@@ -2394,13 +2394,15 @@ impl Walker {
         value: &str,
         kind: &'static str,
     ) -> Result<()> {
-        let cleaned = value.trim();
-        let text = if cleaned.is_empty() {
-            None
-        } else {
-            Some(cleaned.to_owned())
-        };
-        self.push(WkbValue::Point(coordinate(at)), layer, kind, text)
+        // TEXT/MTEXT carry a present string, including empty strings and
+        // significant leading/trailing whitespace. NULL belongs to entities
+        // that have no text property.
+        self.push(
+            WkbValue::Point(coordinate(at)),
+            layer,
+            kind,
+            Some(value.to_owned()),
+        )
     }
 
     fn walk_insert(

@@ -5,6 +5,8 @@ use super::*;
 mod dxf;
 #[path = "group_b_gpkg.rs"]
 mod gpkg;
+#[path = "group_b_read.rs"]
+mod read;
 #[path = "group_b_shp.rs"]
 mod shp;
 
@@ -78,6 +80,9 @@ pub(super) fn exercise(
     root: &Path,
     row: &mut Value,
 ) -> bool {
+    if read::exercise(driver, native, element, root, row) {
+        return true;
+    }
     let supported = match driver {
         "geoparquet" => true,
         "gpkg" => gpkg::supports(element),
