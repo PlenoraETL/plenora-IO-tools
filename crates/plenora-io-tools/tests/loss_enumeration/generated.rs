@@ -8,6 +8,8 @@ mod geometry;
 mod group_a;
 #[path = "native.rs"]
 mod native;
+#[path = "transport.rs"]
+mod transport;
 #[path = "values.rs"]
 mod values;
 use super::{coordinate, native_batch, save};
@@ -17,8 +19,8 @@ use arrow_array::{
 };
 use arrow_schema::{DataType, Field, Schema};
 use plenora_io_core::loss_table::{
-    native_rule, NativeDriver, NativeElement as E, NativeRule, TransportDirection as D, DRIVERS,
-    NATIVE_ELEMENTS,
+    native_rule, native_write_transport_rule, read_applicability, NativeDriver, NativeElement as E,
+    NativeRule, ReadApplicability, TransportDirection as D, DRIVERS, NATIVE_ELEMENTS,
 };
 use plenora_io_model::{
     contract::GeometryType,
@@ -80,8 +82,8 @@ fn metadata(batch: &RecordBatch, key: &str, value: &str, schema: bool) -> Record
 }
 
 /// Factories are indexed by element, never by driver/direction/cell.
-/// Native-only objects must get a native adapter; a made-up Arrow key would
-/// exercise metadata removal rather than (for example) XREF resolution.
+/// Read needs native grammar witnesses; Write exercises the Arrow transport
+/// envelope, never native object resolution in the destination format.
 #[allow(clippy::too_many_lines)] // One factory dispatch for table elements, not cells.
 fn generate(element: E) -> Result<Vec<RecordBatch>, &'static str> {
     let base = || geometry_batch(WkbValue::Point(coordinate(1.0, 2.0)), GeometryType::Point);
@@ -278,9 +280,11 @@ fn generate(element: E) -> Result<Vec<RecordBatch>, &'static str> {
             "unknown",
             false,
         )],
-        // These require semantic fixtures/adapters; never silently substitute a
-        // point or an opaque string and label the corresponding cell covered.
-        _ => return Err("no independent semantic fixture/native adapter"),
+        // Foreign native objects use the common Arrow transport factory.
+        _ => {
+            return transport::generate(element)
+                .ok_or("no independent semantic fixture/native adapter")
+        }
     })
 }
 
@@ -716,9 +720,9 @@ fn without_external_crs(batch: RecordBatch, driver: &str) -> RecordBatch {
 #[test]
 #[allow(clippy::too_many_lines)] // Collect all failures before enforcing the product.
 fn generated_product_requires_operational_evidence() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/s1f-generated");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/s1h-generated");
     let root = if std::env::var_os("PLENORA_LOSS_GROUP_A").is_some() {
-        root.with_file_name("s1g-a-generated")
+        root.with_file_name("s1h-a-generated")
     } else {
         root
     };
@@ -731,8 +735,24 @@ fn generated_product_requires_operational_evidence() {
         let native = driver.qualified_native.unwrap();
         for element in NATIVE_ELEMENTS {
             for direction in [D::Read, D::Write] {
-                let expected = native_rule(native, direction, *element);
+                let expected = if direction == D::Write {
+                    native_write_transport_rule(native, *element)
+                } else {
+                    native_rule(native, direction, *element)
+                };
                 let mut row = json!({"driver":driver.driver,"direction":format!("{direction:?}"),"element":format!("{element:?}"),"expected":format!("{expected:?}")});
+                if direction == D::Read {
+                    if let ReadApplicability::NotApplicable { reason, reference } =
+                        read_applicability(native, *element)
+                    {
+                        assert!(!reason.is_empty() && !reference.is_empty());
+                        row["status"] = json!("not-applicable");
+                        row["reason"] = json!(reason);
+                        row["reference"] = json!(reference);
+                        rows.push(row);
+                        continue;
+                    }
+                }
                 if group_a::exercise(driver.driver, native, *element, direction, &root, &mut row) {
                     rows.push(row);
                     continue;
@@ -842,6 +862,22 @@ fn generated_product_requires_operational_evidence() {
                                         *count += 1;
                                     }
                                 }
+                                if direction == D::Write {
+                                    for difference in &differences {
+                                        let extra = match difference.detail.as_str() {
+                                            "metadata plenora.geometry.srid" => {
+                                                Some("srid_not_preserved_absent")
+                                            }
+                                            "metadata plenora.geometry.native.geoparquet.bbox" => {
+                                                Some("geometry_bbox_not_preserved")
+                                            }
+                                            _ => None,
+                                        };
+                                        if let Some(extra) = extra {
+                                            *observed.entry(extra.to_owned()).or_default() += 1;
+                                        }
+                                    }
+                                }
                                 let declared = report_categories(
                                     if direction == D::Read {
                                         &read
@@ -871,6 +907,34 @@ fn generated_product_requires_operational_evidence() {
             }
         }
     }
+    let mut summary = BTreeMap::<String, BTreeMap<String, usize>>::new();
+    let mut required_missing = 0;
+    for row in &mut rows {
+        let outcome = match row["status"].as_str().unwrap() {
+            "passed" => "passed",
+            "not-applicable" => "not-applicable",
+            _ => "missing",
+        };
+        row["outcome"] = json!(outcome);
+        let key = format!(
+            "{} {}",
+            row["driver"].as_str().unwrap(),
+            row["direction"].as_str().unwrap()
+        );
+        let counts = summary.entry(key).or_insert_with(|| {
+            ["passed", "not-applicable", "missing"]
+                .into_iter()
+                .map(|key| (key.to_owned(), 0))
+                .collect()
+        });
+        *counts.get_mut(outcome).unwrap() += 1;
+        if outcome == "missing"
+            && (row["direction"] == "Write" || group_a::owns(row["driver"].as_str().unwrap()))
+        {
+            required_missing += 1;
+        }
+    }
+    std::fs::write(root.join("summary.json"),serde_json::to_vec_pretty(&json!({"counts":summary,"required_scope_missing":required_missing,"scope":"all Write and group A native Read; group B native Read remains independently visible"})).unwrap()).unwrap();
     std::fs::write(
         root.join("coverage.json"),
         serde_json::to_vec_pretty(&rows).unwrap(),
@@ -878,7 +942,7 @@ fn generated_product_requires_operational_evidence() {
     .unwrap();
     let remaining = rows
         .iter()
-        .filter(|r| r["status"] != "passed")
+        .filter(|r| r["status"] != "passed" && r["status"] != "not-applicable")
         .map(|r| {
             format!(
                 "{}\t{}\t{}\t{}\t{}",
@@ -894,11 +958,15 @@ fn generated_product_requires_operational_evidence() {
     if std::env::var_os("PLENORA_LOSS_GROUP_A").is_some() {
         group_a::write_audit(&root, &rows);
     }
+    assert_eq!(
+        required_missing, 0,
+        "missing evidence in all-writer/group-A-Read scope"
+    );
     let failed = remaining.len();
     assert_eq!(
         failed,
         0,
-        "{failed}/{} cells without successful evidence; target/s1f-generated/coverage.json",
+        "{failed}/{} cells without successful evidence; target/s1h-generated/coverage.json",
         rows.len()
     );
 }

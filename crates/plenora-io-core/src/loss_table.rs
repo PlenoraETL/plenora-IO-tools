@@ -1,5 +1,8 @@
 //! Regole di trasporto dello schema, condivise dal catalogo e dal piano di perdita.
 
+mod applicability;
+pub use applicability::{read_applicability, ReadApplicability};
+
 use crate::property_plan::Rule;
 use arrow_schema::DataType;
 
@@ -582,6 +585,64 @@ pub const fn native_rule(
         (NativeDriver::Ipc, TransportDirection::Write) => 19,
     };
     element.rules()[index]
+}
+
+/// Rule for an Arrow fixture carrying a foreign native element into a writer.
+///
+/// Native observations retain `native_rule`: e.g. omitted `ExtendedData` remains
+/// an `ExtendedData` loss, independently of an opaque foreign metadata envelope.
+#[must_use]
+pub const fn native_write_transport_rule(
+    driver: NativeDriver,
+    element: NativeElement,
+) -> NativeRule {
+    let direction = TransportDirection::Write;
+    // Foreign native objects reach a writer through Arrow, not through the
+    // destination grammar. Their transport follows metadata/scalar rules.
+    if matches!(direction, TransportDirection::Write) {
+        use NativeElement as E;
+        let transport = match element {
+            E::Subtypes
+            | E::Aliases
+            | E::Domains
+            | E::TextStyle
+            | E::PaperSpace
+            | E::Xdata
+            | E::Width
+            | E::Thickness
+            | E::Lineweight
+            | E::Linetype
+            | E::Color
+            | E::Handle
+            | E::FeatureId
+            | E::Bbox
+            | E::ForeignMembers
+            | E::LayerMetadata
+            | E::Styles
+            | E::Hierarchy
+            | E::Extensions
+            | E::ExternalReference
+            | E::ExtendedData
+            | E::FeatureMetadata
+            | E::AltitudeMode
+            | E::CoordinateColumns
+            | E::NumericFormat
+            | E::Formula
+            | E::DataColumns
+            | E::SqlConstraints
+            | E::Covering => Some(E::NativeMetadata),
+            E::Identifier | E::Description => Some(E::SchemaMetadata),
+            E::DbfDate | E::StructuredValue => Some(E::Utf8),
+            E::FormulaCache => Some(E::Floating),
+            E::Inference => Some(E::SignedInteger),
+            E::MissingValue => Some(E::Null),
+            _ => None,
+        };
+        if let Some(transport) = transport {
+            return native_rule(driver, direction, transport);
+        }
+    }
+    native_rule(driver, direction, element)
 }
 
 const fn native_arrow_element(class: ArrowTypeClass) -> NativeElement {

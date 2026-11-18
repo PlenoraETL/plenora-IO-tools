@@ -590,7 +590,7 @@ def product_blocks(binary):
         from doc_runtime import cases
     blocks["errori"] = _table(["Situazione", "Driver", "Caso eseguito", "Categoria", "Fase", "Codice", "Exit", "Messaggio"], [
         [e[k] for k in ("situation", "driver", "scenario", "category", "phase", "code", "exit", "message")] for e in cases(tables)])
-    blocks["perdite"] = "Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara la trasformazione indicata.\n\n" + _table(
+    blocks["perdite"] = "Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara la trasformazione indicata. NotApplicable indica un elemento non esprimibile nella grammatica sorgente, con motivo e riferimento: non e' una prova passata. La scrittura riguarda la rappresentazione Arrow dell'elemento, inclusi i metadati nativi di formati diversi; non richiede un oggetto nativo del formato destinazione.\n\n" + _table(
         ["Driver", "Elemento", "Lettura", "Scrittura"], [[d["driver"], e["element"], e["read"], e["write"]] for d in tables["losses"] for e in d["elements"]])
     source = (ROOT / "crates/plenora-io-tools/src/lib.rs").read_text(encoding="utf-8")
     projection = source.split("pub const fn uscita_della_categoria", 1)[1].split("\n}", 1)[0]

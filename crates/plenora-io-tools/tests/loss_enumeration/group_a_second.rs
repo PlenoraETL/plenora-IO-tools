@@ -165,6 +165,7 @@ fn tabular(driver: &str, element: E) -> Option<Document> {
 pub(super) fn rejection(driver: &str, element: E, root: &Path, row: &mut Value) -> bool {
     let bytes = match (driver, element) {
         ("geojson", E::EmptyGeometry) => br#"{"type":"FeatureCollection","features":[{"type":"Feature","properties":{},"geometry":{"type":"GeometryCollection","geometries":[]}}]}"#.to_vec(),
+        ("kml", E::EmptyGeometry) => b"<kml><Document><Placemark><MultiGeometry></MultiGeometry></Placemark></Document></kml>".to_vec(),
         ("csv", E::EmptyPoint) => b"geometry\n\"POINT EMPTY\"\n".to_vec(),
         ("xls", E::EmptyPoint) => group_a_xlsx_document("<row r=\"1\"><c r=\"A1\" t=\"inlineStr\"><is><t>geometry</t></is></c></row><row r=\"2\"><c r=\"A2\" t=\"inlineStr\"><is><t>POINT EMPTY</t></is></c></row>"),
         _ => return false,
@@ -173,7 +174,21 @@ pub(super) fn rejection(driver: &str, element: E, root: &Path, row: &mut Value) 
     let input = dir.path().join(format!("source.{}", extension(driver)));
     let output = dir.path().join("result.arrow");
     std::fs::write(&input, &bytes).unwrap();
-    let (ok, report) = run(&input, &output, driver, "ipc");
+    let (ok, report) = if driver == "kml" {
+        let result = Command::new(env!("CARGO_BIN_EXE_plenora-io"))
+            .arg("convert")
+            .arg(&input)
+            .arg(&output)
+            .args(["--from", "kml", "--to", "ipc", "--layer", "2"])
+            .output()
+            .unwrap();
+        (
+            result.status.success(),
+            serde_json::from_slice(&result.stdout).unwrap(),
+        )
+    } else {
+        run(&input, &output, driver, "ipc")
+    };
     let expected = plenora_io_model::error_table::Situation::InvalidContent.rule();
     let mut failures = Vec::new();
     if ok

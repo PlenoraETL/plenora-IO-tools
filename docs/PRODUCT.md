@@ -1618,26 +1618,26 @@ classe, senza riportare valori della cella.
 
 <!-- generato da codice/perdite: inizio -->
 
-Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara la trasformazione indicata.
+Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara la trasformazione indicata. NotApplicable indica un elemento non esprimibile nella grammatica sorgente, con motivo e riferimento: non e' una prova passata. La scrittura riguarda la rappresentazione Arrow dell'elemento, inclusi i metadati nativi di formati diversi; non richiede un oggetto nativo del formato destinazione.
 
 | Driver | Elemento | Lettura | Scrittura |
 | --- | --- | --- | --- |
 | csv | NullGeometry | Preserved | Preserved |
 | csv | EmptyPoint | Rejected | Rejected |
 | csv | SignedZero | Preserved | Preserved |
-| csv | Subtypes | Rejected | Rejected |
-| csv | Aliases | Rejected | Rejected |
-| csv | Domains | Rejected | Rejected |
-| csv | TextStyle | Rejected | Rejected |
-| csv | PaperSpace | Rejected | Rejected |
-| csv | Xdata | Rejected | Rejected |
-| csv | Width | Rejected | Rejected |
-| csv | Thickness | Rejected | Rejected |
-| csv | Lineweight | Rejected | Rejected |
-| csv | Linetype | Rejected | Rejected |
-| csv | Color | Rejected | Rejected |
-| csv | Handle | Rejected | Rejected |
-| csv | DbfDate | Rejected | Rejected |
+| csv | Subtypes | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | Aliases | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | Domains | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | TextStyle | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | PaperSpace | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | Xdata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | Width | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | Thickness | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | Lineweight | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | Linetype | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | Color | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | Handle | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | DbfDate | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Preserved |
 | csv | Utf8 | Preserved | Preserved |
 | csv | Null | Preserved | Preserved |
 | csv | EmptyString | Preserved | Preserved |
@@ -1645,15 +1645,15 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | csv | UnsignedInteger | Transformed(Inference) | Transformed(ArrowCoercion) |
 | csv | Floating | Transformed(Inference) | Transformed(ArrowCoercion) |
 | csv | Boolean | Preserved | Transformed(ArrowCoercion) |
-| csv | Binary | Rejected | Rejected |
-| csv | Decimal | Rejected | Rejected |
-| csv | Temporal | Transformed(Inference) | Transformed(ArrowCoercion) |
-| csv | NestedDictionary | Rejected | Rejected |
+| csv | Binary | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Rejected |
+| csv | Decimal | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Rejected |
+| csv | Temporal | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowCoercion) |
+| csv | NestedDictionary | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Rejected |
 | csv | FieldNames | Transformed(FieldNames) | Transformed(FieldNames) |
-| csv | NotNull | Preserved | Transformed(NotNull) |
+| csv | NotNull | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(NotNull) |
 | csv | FieldOrder | Transformed(FieldOrder) | Transformed(FieldOrder) |
-| csv | SchemaMetadata | Preserved | Transformed(ArrowMetadata) |
-| csv | FieldMetadata | Preserved | Transformed(ArrowMetadata) |
+| csv | SchemaMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | FieldMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
 | csv | NativeMetadata | Preserved | Transformed(ArrowMetadata) |
 | csv | Z | Preserved | Preserved |
 | csv | M | Preserved | Preserved |
@@ -1662,62 +1662,62 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | csv | RingOrientation | Preserved | Preserved |
 | csv | EmptyGeometry | Preserved | Preserved |
 | csv | CoordinatePrecision | Transformed(NumberPrecision) | Preserved |
-| csv | CrsId | Preserved | Transformed(CrsIdAbsent) |
-| csv | CrsDefinition | Preserved | Transformed(CrsDefinition) |
-| csv | FeatureId | Preserved | Preserved |
-| csv | Bbox | Rejected | Rejected |
-| csv | ForeignMembers | Rejected | Rejected |
-| csv | LayerMetadata | Rejected | Rejected |
-| csv | Styles | Rejected | Rejected |
-| csv | Hierarchy | Rejected | Rejected |
-| csv | Extensions | Rejected | Rejected |
-| csv | ExternalReference | Rejected | Rejected |
-| csv | ExtendedData | Rejected | Rejected |
-| csv | FeatureMetadata | Rejected | Rejected |
-| csv | AltitudeMode | Rejected | Rejected |
-| csv | Inference | Transformed(Inference) | Transformed(Inference) |
+| csv | CrsId | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(CrsIdAbsent) |
+| csv | CrsDefinition | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(CrsDefinition) |
+| csv | FeatureId | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | Bbox | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | ForeignMembers | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | LayerMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | Styles | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | Hierarchy | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | Extensions | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | ExternalReference | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | ExtendedData | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | FeatureMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | AltitudeMode | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | Inference | Transformed(Inference) | Transformed(ArrowCoercion) |
 | csv | NumberPrecision | Transformed(NumberPrecision) | Preserved |
-| csv | StructuredValue | Rejected | Rejected |
-| csv | MissingValue | Rejected | Rejected |
-| csv | CoordinateColumns | Transformed(FieldNames) | Transformed(FieldNames) |
-| csv | NumericFormat | Rejected | Rejected |
-| csv | Formula | Rejected | Rejected |
-| csv | FormulaCache | Rejected | Rejected |
-| csv | Identifier | Rejected | Rejected |
-| csv | Description | Rejected | Rejected |
-| csv | DataColumns | Rejected | Rejected |
-| csv | SqlConstraints | Rejected | Rejected |
-| csv | ContractVersion | Preserved | Transformed(ArrowMetadata) |
-| csv | FieldIdentity | Preserved | Transformed(ArrowMetadata) |
+| csv | StructuredValue | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Preserved |
+| csv | MissingValue | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Preserved |
+| csv | CoordinateColumns | Transformed(FieldNames) | Transformed(ArrowMetadata) |
+| csv | NumericFormat | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | Formula | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | FormulaCache | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowCoercion) |
+| csv | Identifier | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | Description | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | DataColumns | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | SqlConstraints | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | ContractVersion | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | FieldIdentity | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
 | csv | TypesDeclaration | Preserved | Transformed(ArrowMetadata) |
 | csv | GeometryEncoding | Preserved | Transformed(ArrowMetadata) |
 | csv | SpatialSemantics | Preserved | Transformed(ArrowMetadata) |
 | csv | Precision | Preserved | Transformed(ArrowMetadata) |
-| csv | Srid | Preserved | Transformed(ArrowMetadata) |
-| csv | CrsResolution | Preserved | Transformed(ArrowMetadata) |
-| csv | DefinitionFormat | Preserved | Transformed(ArrowMetadata) |
+| csv | Srid | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | CrsResolution | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | DefinitionFormat | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
 | csv | AxisOrder | Preserved | Transformed(ArrowMetadata) |
 | csv | PrimaryGeometry | Preserved | Transformed(ArrowMetadata) |
-| csv | ExtensionName | Preserved | Transformed(ArrowMetadata) |
-| csv | ExtensionMetadata | Preserved | Transformed(ArrowMetadata) |
+| csv | ExtensionName | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | ExtensionMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
 | csv | UnknownDimensions | Preserved | Preserved |
-| csv | Covering | Rejected | Rejected |
+| csv | Covering | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
 | shp | NullGeometry | Preserved | Preserved |
 | shp | EmptyPoint | Preserved | Preserved |
 | shp | SignedZero | Preserved | Preserved |
-| shp | Subtypes | Rejected | Rejected |
-| shp | Aliases | Rejected | Rejected |
-| shp | Domains | Rejected | Rejected |
-| shp | TextStyle | Rejected | Rejected |
-| shp | PaperSpace | Rejected | Rejected |
-| shp | Xdata | Rejected | Rejected |
-| shp | Width | Rejected | Rejected |
-| shp | Thickness | Rejected | Rejected |
-| shp | Lineweight | Rejected | Rejected |
-| shp | Linetype | Rejected | Rejected |
-| shp | Color | Rejected | Rejected |
-| shp | Handle | Rejected | Rejected |
-| shp | DbfDate | Transformed(ArrowCoercion) | Transformed(ArrowCoercion) |
+| shp | Subtypes | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | Aliases | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | Domains | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | TextStyle | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | PaperSpace | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | Xdata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | Width | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | Thickness | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | Lineweight | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | Linetype | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | Color | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | Handle | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | DbfDate | Transformed(ArrowCoercion) | Preserved |
 | shp | Utf8 | Preserved | Preserved |
 | shp | Null | Preserved | Preserved |
 | shp | EmptyString | Rejected | Rejected |
@@ -1725,15 +1725,15 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | shp | UnsignedInteger | Rejected | Transformed(ArrowCoercion) |
 | shp | Floating | Preserved | Transformed(ArrowCoercion) |
 | shp | Boolean | Preserved | Preserved |
-| shp | Binary | Rejected | Rejected |
-| shp | Decimal | Rejected | Rejected |
+| shp | Binary | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Rejected |
+| shp | Decimal | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Rejected |
 | shp | Temporal | Transformed(ArrowCoercion) | Transformed(ArrowCoercion) |
-| shp | NestedDictionary | Rejected | Rejected |
+| shp | NestedDictionary | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Rejected |
 | shp | FieldNames | Preserved | Transformed(FieldNames) |
-| shp | NotNull | Preserved | Transformed(NotNull) |
+| shp | NotNull | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(NotNull) |
 | shp | FieldOrder | Transformed(FieldOrder) | Transformed(FieldOrder) |
-| shp | SchemaMetadata | Preserved | Transformed(ArrowMetadata) |
-| shp | FieldMetadata | Preserved | Transformed(ArrowMetadata) |
+| shp | SchemaMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | FieldMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
 | shp | NativeMetadata | Preserved | Transformed(ArrowMetadata) |
 | shp | Z | Preserved | Preserved |
 | shp | M | Preserved | Preserved |
@@ -1746,58 +1746,58 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | shp | CrsDefinition | Preserved | Transformed(CrsDefinition) |
 | shp | FeatureId | Transformed(FeatureId) | Transformed(ArrowMetadata) |
 | shp | Bbox | Transformed(Bbox) | Transformed(ArrowMetadata) |
-| shp | ForeignMembers | Rejected | Transformed(ArrowMetadata) |
+| shp | ForeignMembers | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
 | shp | LayerMetadata | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
-| shp | Styles | Rejected | Transformed(ArrowMetadata) |
-| shp | Hierarchy | Rejected | Rejected |
+| shp | Styles | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | Hierarchy | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
 | shp | Extensions | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
-| shp | ExternalReference | Rejected | Rejected |
-| shp | ExtendedData | Rejected | Rejected |
-| shp | FeatureMetadata | Rejected | Rejected |
-| shp | AltitudeMode | Rejected | Rejected |
-| shp | Inference | Transformed(Inference) | Preserved |
+| shp | ExternalReference | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | ExtendedData | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | FeatureMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | AltitudeMode | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | Inference | Transformed(Inference) | Transformed(ArrowCoercion) |
 | shp | NumberPrecision | Preserved | Preserved |
-| shp | StructuredValue | Rejected | Rejected |
+| shp | StructuredValue | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Preserved |
 | shp | MissingValue | Preserved | Preserved |
-| shp | CoordinateColumns | Rejected | Rejected |
-| shp | NumericFormat | Rejected | Rejected |
-| shp | Formula | Rejected | Rejected |
-| shp | FormulaCache | Rejected | Rejected |
-| shp | Identifier | Rejected | Rejected |
-| shp | Description | Rejected | Rejected |
-| shp | DataColumns | Rejected | Rejected |
-| shp | SqlConstraints | Rejected | Rejected |
-| shp | ContractVersion | Preserved | Transformed(ArrowMetadata) |
-| shp | FieldIdentity | Preserved | Transformed(ArrowMetadata) |
+| shp | CoordinateColumns | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | NumericFormat | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | Formula | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | FormulaCache | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowCoercion) |
+| shp | Identifier | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | Description | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | DataColumns | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | SqlConstraints | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | ContractVersion | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | FieldIdentity | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
 | shp | TypesDeclaration | Preserved | Transformed(ArrowMetadata) |
 | shp | GeometryEncoding | Preserved | Transformed(ArrowMetadata) |
 | shp | SpatialSemantics | Preserved | Transformed(ArrowMetadata) |
 | shp | Precision | Preserved | Transformed(ArrowMetadata) |
 | shp | Srid | Preserved | Transformed(ArrowMetadata) |
-| shp | CrsResolution | Preserved | Transformed(ArrowMetadata) |
+| shp | CrsResolution | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
 | shp | DefinitionFormat | Preserved | Transformed(ArrowMetadata) |
 | shp | AxisOrder | Preserved | Transformed(ArrowMetadata) |
 | shp | PrimaryGeometry | Preserved | Transformed(ArrowMetadata) |
-| shp | ExtensionName | Preserved | Transformed(ArrowMetadata) |
-| shp | ExtensionMetadata | Preserved | Transformed(ArrowMetadata) |
+| shp | ExtensionName | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | ExtensionMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
 | shp | UnknownDimensions | Preserved | Preserved |
-| shp | Covering | Rejected | Rejected |
+| shp | Covering | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
 | gpkg | NullGeometry | Preserved | Preserved |
 | gpkg | EmptyPoint | Preserved | Preserved |
 | gpkg | SignedZero | Preserved | Preserved |
-| gpkg | Subtypes | Rejected | Rejected |
-| gpkg | Aliases | Rejected | Rejected |
-| gpkg | Domains | Rejected | Rejected |
-| gpkg | TextStyle | Rejected | Rejected |
-| gpkg | PaperSpace | Rejected | Rejected |
-| gpkg | Xdata | Rejected | Rejected |
-| gpkg | Width | Rejected | Rejected |
-| gpkg | Thickness | Rejected | Rejected |
-| gpkg | Lineweight | Rejected | Rejected |
-| gpkg | Linetype | Rejected | Rejected |
-| gpkg | Color | Rejected | Rejected |
-| gpkg | Handle | Rejected | Rejected |
-| gpkg | DbfDate | Rejected | Rejected |
+| gpkg | Subtypes | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | Aliases | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | Domains | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | TextStyle | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | PaperSpace | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | Xdata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | Width | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | Thickness | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | Lineweight | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | Linetype | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | Color | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | Handle | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | DbfDate | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Preserved |
 | gpkg | Utf8 | Preserved | Preserved |
 | gpkg | Null | Preserved | Preserved |
 | gpkg | EmptyString | Preserved | Preserved |
@@ -1806,9 +1806,9 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | gpkg | Floating | Preserved | Transformed(ArrowCoercion) |
 | gpkg | Boolean | Preserved | Transformed(ArrowCoercion) |
 | gpkg | Binary | Preserved | Preserved |
-| gpkg | Decimal | Rejected | Rejected |
+| gpkg | Decimal | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Rejected |
 | gpkg | Temporal | Transformed(ArrowCoercion) | Rejected |
-| gpkg | NestedDictionary | Rejected | Rejected |
+| gpkg | NestedDictionary | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Rejected |
 | gpkg | FieldNames | Preserved | Preserved |
 | gpkg | NotNull | Preserved | Preserved |
 | gpkg | FieldOrder | Transformed(SqlSchema) | Transformed(SqlSchema) |
@@ -1824,29 +1824,29 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | gpkg | CoordinatePrecision | Preserved | Preserved |
 | gpkg | CrsId | Preserved | Preserved |
 | gpkg | CrsDefinition | Preserved | Preserved |
-| gpkg | FeatureId | Preserved | Preserved |
-| gpkg | Bbox | Rejected | Rejected |
-| gpkg | ForeignMembers | Rejected | Rejected |
-| gpkg | LayerMetadata | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
-| gpkg | Styles | Transformed(NativeStyles) | Transformed(ArrowMetadata) |
-| gpkg | Hierarchy | Rejected | Rejected |
-| gpkg | Extensions | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
-| gpkg | ExternalReference | Rejected | Rejected |
-| gpkg | ExtendedData | Rejected | Rejected |
-| gpkg | FeatureMetadata | Rejected | Rejected |
-| gpkg | AltitudeMode | Rejected | Rejected |
-| gpkg | Inference | Rejected | Rejected |
+| gpkg | FeatureId | Preserved | Transformed(GpkgMetadata) |
+| gpkg | Bbox | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | ForeignMembers | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | LayerMetadata | Transformed(LayerMetadata) | Transformed(GpkgMetadata) |
+| gpkg | Styles | Transformed(NativeStyles) | Transformed(GpkgMetadata) |
+| gpkg | Hierarchy | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | Extensions | Transformed(LayerMetadata) | Transformed(GpkgMetadata) |
+| gpkg | ExternalReference | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | ExtendedData | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | FeatureMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | AltitudeMode | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | Inference | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(ArrowCoercion) |
 | gpkg | NumberPrecision | Preserved | Preserved |
-| gpkg | StructuredValue | Rejected | Rejected |
-| gpkg | MissingValue | Rejected | Rejected |
-| gpkg | CoordinateColumns | Rejected | Rejected |
-| gpkg | NumericFormat | Rejected | Rejected |
-| gpkg | Formula | Rejected | Rejected |
-| gpkg | FormulaCache | Rejected | Rejected |
-| gpkg | Identifier | Preserved | Preserved |
-| gpkg | Description | Preserved | Preserved |
-| gpkg | DataColumns | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
-| gpkg | SqlConstraints | Transformed(SqlSchema) | Transformed(SqlSchema) |
+| gpkg | StructuredValue | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Preserved |
+| gpkg | MissingValue | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Preserved |
+| gpkg | CoordinateColumns | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | NumericFormat | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | Formula | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | FormulaCache | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(ArrowCoercion) |
+| gpkg | Identifier | Preserved | Transformed(GpkgMetadata) |
+| gpkg | Description | Preserved | Transformed(GpkgMetadata) |
+| gpkg | DataColumns | Transformed(LayerMetadata) | Transformed(GpkgMetadata) |
+| gpkg | SqlConstraints | Transformed(SqlSchema) | Transformed(GpkgMetadata) |
 | gpkg | ContractVersion | Preserved | Preserved |
 | gpkg | FieldIdentity | Preserved | Preserved |
 | gpkg | TypesDeclaration | Preserved | Transformed(GpkgMetadata) |
@@ -1854,30 +1854,30 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | gpkg | SpatialSemantics | Preserved | Transformed(GpkgMetadata) |
 | gpkg | Precision | Preserved | Transformed(GpkgMetadata) |
 | gpkg | Srid | Preserved | Transformed(GpkgMetadata) |
-| gpkg | CrsResolution | Preserved | Transformed(GpkgMetadata) |
+| gpkg | CrsResolution | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
 | gpkg | DefinitionFormat | Preserved | Transformed(GpkgMetadata) |
 | gpkg | AxisOrder | Preserved | Transformed(GpkgMetadata) |
 | gpkg | PrimaryGeometry | Preserved | Transformed(GpkgMetadata) |
 | gpkg | ExtensionName | Preserved | Transformed(GpkgMetadata) |
 | gpkg | ExtensionMetadata | Preserved | Transformed(GpkgMetadata) |
 | gpkg | UnknownDimensions | Preserved | Preserved |
-| gpkg | Covering | Rejected | Rejected |
+| gpkg | Covering | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
 | filegdb | NullGeometry | Preserved | Preserved |
 | filegdb | EmptyPoint | Transformed(MissingValue) | Transformed(MissingValue) |
 | filegdb | SignedZero | Preserved | Transformed(CoordinatePrecision) |
 | filegdb | Subtypes | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
 | filegdb | Aliases | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
 | filegdb | Domains | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
-| filegdb | TextStyle | Rejected | Rejected |
-| filegdb | PaperSpace | Rejected | Rejected |
-| filegdb | Xdata | Rejected | Rejected |
-| filegdb | Width | Rejected | Rejected |
-| filegdb | Thickness | Rejected | Rejected |
-| filegdb | Lineweight | Rejected | Rejected |
-| filegdb | Linetype | Rejected | Rejected |
-| filegdb | Color | Rejected | Rejected |
-| filegdb | Handle | Rejected | Rejected |
-| filegdb | DbfDate | Rejected | Rejected |
+| filegdb | TextStyle | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | PaperSpace | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | Xdata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | Width | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | Thickness | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | Lineweight | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | Linetype | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | Color | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | Handle | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | DbfDate | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Preserved |
 | filegdb | Utf8 | Preserved | Preserved |
 | filegdb | Null | Preserved | Preserved |
 | filegdb | EmptyString | Preserved | Preserved |
@@ -1886,14 +1886,14 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | filegdb | Floating | Preserved | Transformed(ArrowCoercion) |
 | filegdb | Boolean | Rejected | Rejected |
 | filegdb | Binary | Preserved | Rejected |
-| filegdb | Decimal | Rejected | Rejected |
+| filegdb | Decimal | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Rejected |
 | filegdb | Temporal | Transformed(NumberPrecision) | Rejected |
-| filegdb | NestedDictionary | Rejected | Rejected |
+| filegdb | NestedDictionary | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Rejected |
 | filegdb | FieldNames | Preserved | Transformed(FieldNames) |
 | filegdb | NotNull | Transformed(NotNull) | Transformed(NotNull) |
 | filegdb | FieldOrder | Transformed(FieldOrder) | Transformed(FieldOrder) |
-| filegdb | SchemaMetadata | Preserved | Transformed(ArrowMetadata) |
-| filegdb | FieldMetadata | Preserved | Transformed(ArrowMetadata) |
+| filegdb | SchemaMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | FieldMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
 | filegdb | NativeMetadata | Preserved | Transformed(ArrowMetadata) |
 | filegdb | Z | Preserved | Preserved |
 | filegdb | M | Preserved | Preserved |
@@ -1906,58 +1906,58 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | filegdb | CrsDefinition | Preserved | Transformed(CrsDefinition) |
 | filegdb | FeatureId | Transformed(FeatureId) | Transformed(ArrowMetadata) |
 | filegdb | Bbox | Transformed(Bbox) | Transformed(ArrowMetadata) |
-| filegdb | ForeignMembers | Rejected | Transformed(ArrowMetadata) |
+| filegdb | ForeignMembers | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
 | filegdb | LayerMetadata | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
-| filegdb | Styles | Rejected | Transformed(ArrowMetadata) |
+| filegdb | Styles | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
 | filegdb | Hierarchy | Transformed(NativeHierarchy) | Transformed(ArrowMetadata) |
 | filegdb | Extensions | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
-| filegdb | ExternalReference | Transformed(ExternalReference) | Transformed(ArrowMetadata) |
-| filegdb | ExtendedData | Rejected | Rejected |
-| filegdb | FeatureMetadata | Rejected | Rejected |
-| filegdb | AltitudeMode | Rejected | Rejected |
-| filegdb | Inference | Rejected | Rejected |
+| filegdb | ExternalReference | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | ExtendedData | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | FeatureMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | AltitudeMode | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | Inference | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowCoercion) |
 | filegdb | NumberPrecision | Preserved | Transformed(CoordinatePrecision) |
-| filegdb | StructuredValue | Rejected | Rejected |
+| filegdb | StructuredValue | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Preserved |
 | filegdb | MissingValue | Preserved | Preserved |
-| filegdb | CoordinateColumns | Rejected | Rejected |
-| filegdb | NumericFormat | Rejected | Rejected |
-| filegdb | Formula | Rejected | Rejected |
-| filegdb | FormulaCache | Rejected | Rejected |
-| filegdb | Identifier | Rejected | Rejected |
-| filegdb | Description | Rejected | Rejected |
-| filegdb | DataColumns | Rejected | Rejected |
-| filegdb | SqlConstraints | Rejected | Rejected |
-| filegdb | ContractVersion | Preserved | Transformed(ArrowMetadata) |
-| filegdb | FieldIdentity | Preserved | Transformed(ArrowMetadata) |
+| filegdb | CoordinateColumns | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | NumericFormat | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | Formula | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | FormulaCache | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowCoercion) |
+| filegdb | Identifier | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | Description | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | DataColumns | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | SqlConstraints | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | ContractVersion | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | FieldIdentity | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
 | filegdb | TypesDeclaration | Preserved | Transformed(ArrowMetadata) |
 | filegdb | GeometryEncoding | Preserved | Transformed(ArrowMetadata) |
 | filegdb | SpatialSemantics | Preserved | Transformed(ArrowMetadata) |
 | filegdb | Precision | Preserved | Transformed(ArrowMetadata) |
 | filegdb | Srid | Preserved | Transformed(ArrowMetadata) |
-| filegdb | CrsResolution | Preserved | Transformed(ArrowMetadata) |
+| filegdb | CrsResolution | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
 | filegdb | DefinitionFormat | Preserved | Transformed(ArrowMetadata) |
 | filegdb | AxisOrder | Preserved | Transformed(ArrowMetadata) |
 | filegdb | PrimaryGeometry | Preserved | Transformed(ArrowMetadata) |
-| filegdb | ExtensionName | Preserved | Transformed(ArrowMetadata) |
-| filegdb | ExtensionMetadata | Preserved | Transformed(ArrowMetadata) |
+| filegdb | ExtensionName | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | ExtensionMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
 | filegdb | UnknownDimensions | Rejected | Rejected |
-| filegdb | Covering | Rejected | Rejected |
+| filegdb | Covering | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
 | geojson | NullGeometry | Preserved | Preserved |
 | geojson | EmptyPoint | Rejected | Rejected |
 | geojson | SignedZero | Preserved | Preserved |
-| geojson | Subtypes | Rejected | Rejected |
-| geojson | Aliases | Rejected | Rejected |
-| geojson | Domains | Rejected | Rejected |
-| geojson | TextStyle | Rejected | Rejected |
-| geojson | PaperSpace | Rejected | Rejected |
-| geojson | Xdata | Rejected | Rejected |
-| geojson | Width | Rejected | Rejected |
-| geojson | Thickness | Rejected | Rejected |
-| geojson | Lineweight | Rejected | Rejected |
-| geojson | Linetype | Rejected | Rejected |
-| geojson | Color | Rejected | Rejected |
-| geojson | Handle | Rejected | Rejected |
-| geojson | DbfDate | Rejected | Rejected |
+| geojson | Subtypes | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | Aliases | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | Domains | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | TextStyle | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | PaperSpace | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | Xdata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | Width | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | Thickness | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | Lineweight | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | Linetype | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | Color | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | Handle | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | DbfDate | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Preserved |
 | geojson | Utf8 | Preserved | Preserved |
 | geojson | Null | Preserved | Preserved |
 | geojson | EmptyString | Preserved | Preserved |
@@ -1965,79 +1965,79 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | geojson | UnsignedInteger | Transformed(Inference) | Transformed(ArrowCoercion) |
 | geojson | Floating | Transformed(NumberPrecision) | Transformed(ArrowCoercion) |
 | geojson | Boolean | Preserved | Preserved |
-| geojson | Binary | Rejected | Rejected |
-| geojson | Decimal | Rejected | Rejected |
-| geojson | Temporal | Rejected | Transformed(ArrowCoercion) |
+| geojson | Binary | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Rejected |
+| geojson | Decimal | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Rejected |
+| geojson | Temporal | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowCoercion) |
 | geojson | NestedDictionary | Transformed(StructuredValue) | Rejected |
 | geojson | FieldNames | Preserved | Transformed(FieldNames) |
-| geojson | NotNull | Preserved | Transformed(NotNull) |
+| geojson | NotNull | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(NotNull) |
 | geojson | FieldOrder | Transformed(FieldOrder) | Transformed(FieldOrder) |
-| geojson | SchemaMetadata | Preserved | Transformed(ArrowMetadata) |
-| geojson | FieldMetadata | Preserved | Transformed(ArrowMetadata) |
+| geojson | SchemaMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | FieldMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
 | geojson | NativeMetadata | Transformed(ForeignMembers) | Transformed(ArrowMetadata) |
 | geojson | Z | Preserved | Preserved |
-| geojson | M | Rejected | Rejected |
+| geojson | M | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Rejected |
 | geojson | Dimensions | Transformed(Dimensions) | Transformed(Dimensions) |
 | geojson | GeometryType | Preserved | Preserved |
 | geojson | RingOrientation | Preserved | Preserved |
 | geojson | EmptyGeometry | Rejected | Rejected |
 | geojson | CoordinatePrecision | Transformed(NumberPrecision) | Preserved |
 | geojson | CrsId | Preserved | Transformed(CrsId) |
-| geojson | CrsDefinition | Preserved | Transformed(CrsDefinition) |
+| geojson | CrsDefinition | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(CrsDefinition) |
 | geojson | FeatureId | Transformed(FeatureId) | Transformed(ArrowMetadata) |
 | geojson | Bbox | Transformed(Bbox) | Transformed(ArrowMetadata) |
 | geojson | ForeignMembers | Transformed(ForeignMembers) | Transformed(ArrowMetadata) |
 | geojson | LayerMetadata | Transformed(ForeignMembers) | Transformed(ArrowMetadata) |
 | geojson | Styles | Transformed(ForeignMembers) | Transformed(ArrowMetadata) |
-| geojson | Hierarchy | Rejected | Rejected |
+| geojson | Hierarchy | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
 | geojson | Extensions | Transformed(ForeignMembers) | Transformed(ArrowMetadata) |
 | geojson | ExternalReference | Transformed(ForeignMembers) | Transformed(ArrowMetadata) |
-| geojson | ExtendedData | Rejected | Rejected |
+| geojson | ExtendedData | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
 | geojson | FeatureMetadata | Transformed(ForeignMembers) | Transformed(ArrowMetadata) |
-| geojson | AltitudeMode | Rejected | Rejected |
-| geojson | Inference | Transformed(Inference) | Transformed(Inference) |
+| geojson | AltitudeMode | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | Inference | Transformed(Inference) | Transformed(ArrowCoercion) |
 | geojson | NumberPrecision | Transformed(NumberPrecision) | Preserved |
-| geojson | StructuredValue | Transformed(StructuredValue) | Rejected |
+| geojson | StructuredValue | Transformed(StructuredValue) | Preserved |
 | geojson | MissingValue | Transformed(MissingValue) | Preserved |
-| geojson | CoordinateColumns | Rejected | Rejected |
-| geojson | NumericFormat | Rejected | Rejected |
-| geojson | Formula | Rejected | Rejected |
-| geojson | FormulaCache | Rejected | Rejected |
-| geojson | Identifier | Rejected | Rejected |
-| geojson | Description | Rejected | Rejected |
-| geojson | DataColumns | Rejected | Rejected |
-| geojson | SqlConstraints | Rejected | Rejected |
-| geojson | ContractVersion | Preserved | Transformed(ArrowMetadata) |
-| geojson | FieldIdentity | Preserved | Transformed(ArrowMetadata) |
+| geojson | CoordinateColumns | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | NumericFormat | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | Formula | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | FormulaCache | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowCoercion) |
+| geojson | Identifier | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | Description | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | DataColumns | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | SqlConstraints | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | ContractVersion | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | FieldIdentity | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
 | geojson | TypesDeclaration | Preserved | Transformed(ArrowMetadata) |
 | geojson | GeometryEncoding | Preserved | Transformed(ArrowMetadata) |
 | geojson | SpatialSemantics | Preserved | Transformed(ArrowMetadata) |
 | geojson | Precision | Preserved | Transformed(ArrowMetadata) |
-| geojson | Srid | Preserved | Transformed(ArrowMetadata) |
-| geojson | CrsResolution | Preserved | Transformed(ArrowMetadata) |
-| geojson | DefinitionFormat | Preserved | Transformed(ArrowMetadata) |
+| geojson | Srid | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | CrsResolution | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | DefinitionFormat | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
 | geojson | AxisOrder | Preserved | Transformed(ArrowMetadata) |
 | geojson | PrimaryGeometry | Preserved | Transformed(ArrowMetadata) |
-| geojson | ExtensionName | Preserved | Transformed(ArrowMetadata) |
-| geojson | ExtensionMetadata | Preserved | Transformed(ArrowMetadata) |
+| geojson | ExtensionName | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | ExtensionMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
 | geojson | UnknownDimensions | Preserved | Preserved |
-| geojson | Covering | Rejected | Rejected |
+| geojson | Covering | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
 | kml | NullGeometry | Preserved | Preserved |
 | kml | EmptyPoint | Rejected | Rejected |
 | kml | SignedZero | Preserved | Preserved |
-| kml | Subtypes | Rejected | Rejected |
-| kml | Aliases | Rejected | Rejected |
-| kml | Domains | Rejected | Rejected |
-| kml | TextStyle | Rejected | Rejected |
-| kml | PaperSpace | Rejected | Rejected |
-| kml | Xdata | Rejected | Rejected |
-| kml | Width | Rejected | Rejected |
-| kml | Thickness | Rejected | Rejected |
-| kml | Lineweight | Rejected | Rejected |
-| kml | Linetype | Rejected | Rejected |
-| kml | Color | Rejected | Rejected |
-| kml | Handle | Rejected | Rejected |
-| kml | DbfDate | Rejected | Rejected |
+| kml | Subtypes | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | Aliases | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | Domains | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | TextStyle | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | PaperSpace | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | Xdata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | Width | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | Thickness | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | Lineweight | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | Linetype | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | Color | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | Handle | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | DbfDate | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Preserved |
 | kml | Utf8 | Preserved | Preserved |
 | kml | Null | Preserved | Preserved |
 | kml | EmptyString | Preserved | Preserved |
@@ -2045,69 +2045,69 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | kml | UnsignedInteger | Rejected | Transformed(ArrowCoercion) |
 | kml | Floating | Rejected | Transformed(ArrowCoercion) |
 | kml | Boolean | Rejected | Transformed(ArrowCoercion) |
-| kml | Binary | Rejected | Rejected |
-| kml | Decimal | Rejected | Rejected |
+| kml | Binary | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Rejected |
+| kml | Decimal | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Rejected |
 | kml | Temporal | Rejected | Transformed(ArrowCoercion) |
 | kml | NestedDictionary | Rejected | Rejected |
 | kml | FieldNames | Transformed(ExtendedData) | Transformed(FieldNames) |
-| kml | NotNull | Preserved | Transformed(NotNull) |
+| kml | NotNull | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(NotNull) |
 | kml | FieldOrder | Transformed(FieldOrder) | Transformed(FieldOrder) |
-| kml | SchemaMetadata | Preserved | Transformed(ArrowMetadata) |
-| kml | FieldMetadata | Preserved | Transformed(ArrowMetadata) |
+| kml | SchemaMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | FieldMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
 | kml | NativeMetadata | Transformed(ForeignMembers) | Transformed(ArrowMetadata) |
 | kml | Z | Transformed(AltitudeMode) | Preserved |
-| kml | M | Rejected | Rejected |
+| kml | M | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Rejected |
 | kml | Dimensions | Transformed(Dimensions) | Transformed(Dimensions) |
 | kml | GeometryType | Transformed(GeometryType) | Transformed(GeometryType) |
 | kml | RingOrientation | Preserved | Preserved |
 | kml | EmptyGeometry | Rejected | Rejected |
 | kml | CoordinatePrecision | Transformed(NumberPrecision) | Preserved |
 | kml | CrsId | Preserved | Transformed(CrsId) |
-| kml | CrsDefinition | Preserved | Transformed(CrsDefinition) |
+| kml | CrsDefinition | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(CrsDefinition) |
 | kml | FeatureId | Transformed(FeatureId) | Transformed(ArrowMetadata) |
-| kml | Bbox | Rejected | Transformed(ArrowMetadata) |
+| kml | Bbox | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
 | kml | ForeignMembers | Transformed(ForeignMembers) | Transformed(ArrowMetadata) |
 | kml | LayerMetadata | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
 | kml | Styles | Transformed(Styles) | Transformed(ArrowMetadata) |
 | kml | Hierarchy | Transformed(Hierarchy) | Transformed(ArrowMetadata) |
 | kml | Extensions | Transformed(ForeignMembers) | Transformed(ArrowMetadata) |
 | kml | ExternalReference | Transformed(ExternalReference) | Transformed(ArrowMetadata) |
-| kml | ExtendedData | Transformed(ExtendedData) | Transformed(ExtendedData) |
+| kml | ExtendedData | Transformed(ExtendedData) | Transformed(ArrowMetadata) |
 | kml | FeatureMetadata | Transformed(FeatureMetadata) | Transformed(ArrowMetadata) |
-| kml | AltitudeMode | Transformed(AltitudeMode) | Preserved |
-| kml | Inference | Rejected | Transformed(Inference) |
+| kml | AltitudeMode | Transformed(AltitudeMode) | Transformed(ArrowMetadata) |
+| kml | Inference | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowCoercion) |
 | kml | NumberPrecision | Transformed(NumberPrecision) | Preserved |
-| kml | StructuredValue | Transformed(ExtendedData) | Rejected |
+| kml | StructuredValue | Transformed(ExtendedData) | Preserved |
 | kml | MissingValue | Transformed(MissingValue) | Preserved |
-| kml | CoordinateColumns | Rejected | Rejected |
-| kml | NumericFormat | Rejected | Rejected |
-| kml | Formula | Rejected | Rejected |
-| kml | FormulaCache | Rejected | Rejected |
-| kml | Identifier | Rejected | Rejected |
-| kml | Description | Rejected | Rejected |
-| kml | DataColumns | Rejected | Rejected |
-| kml | SqlConstraints | Rejected | Rejected |
-| kml | ContractVersion | Preserved | Transformed(ArrowMetadata) |
-| kml | FieldIdentity | Preserved | Transformed(ArrowMetadata) |
+| kml | CoordinateColumns | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | NumericFormat | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | Formula | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | FormulaCache | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowCoercion) |
+| kml | Identifier | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | Description | Rejected | Transformed(ArrowMetadata) |
+| kml | DataColumns | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | SqlConstraints | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | ContractVersion | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | FieldIdentity | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
 | kml | TypesDeclaration | Preserved | Transformed(ArrowMetadata) |
 | kml | GeometryEncoding | Preserved | Transformed(ArrowMetadata) |
 | kml | SpatialSemantics | Preserved | Transformed(ArrowMetadata) |
 | kml | Precision | Preserved | Transformed(ArrowMetadata) |
-| kml | Srid | Preserved | Transformed(ArrowMetadata) |
-| kml | CrsResolution | Preserved | Transformed(ArrowMetadata) |
-| kml | DefinitionFormat | Preserved | Transformed(ArrowMetadata) |
+| kml | Srid | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | CrsResolution | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | DefinitionFormat | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
 | kml | AxisOrder | Preserved | Transformed(ArrowMetadata) |
 | kml | PrimaryGeometry | Preserved | Transformed(ArrowMetadata) |
-| kml | ExtensionName | Preserved | Transformed(ArrowMetadata) |
-| kml | ExtensionMetadata | Preserved | Transformed(ArrowMetadata) |
+| kml | ExtensionName | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | ExtensionMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
 | kml | UnknownDimensions | Preserved | Preserved |
-| kml | Covering | Rejected | Rejected |
+| kml | Covering | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
 | dxf | NullGeometry | Rejected | Rejected |
 | dxf | EmptyPoint | Rejected | Rejected |
 | dxf | SignedZero | Preserved | Transformed(CoordinatePrecision) |
-| dxf | Subtypes | Rejected | Rejected |
-| dxf | Aliases | Rejected | Rejected |
-| dxf | Domains | Rejected | Rejected |
+| dxf | Subtypes | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
+| dxf | Aliases | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
+| dxf | Domains | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
 | dxf | TextStyle | Transformed(NativeStyles) | Transformed(ArrowMetadata) |
 | dxf | PaperSpace | Transformed(NativeHierarchy) | Transformed(ArrowMetadata) |
 | dxf | Xdata | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
@@ -2117,7 +2117,7 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | dxf | Linetype | Transformed(NativeStyles) | Transformed(ArrowMetadata) |
 | dxf | Color | Transformed(NativeStyles) | Transformed(ArrowMetadata) |
 | dxf | Handle | Transformed(FeatureId) | Transformed(ArrowMetadata) |
-| dxf | DbfDate | Rejected | Rejected |
+| dxf | DbfDate | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(DxfAttribute) |
 | dxf | Utf8 | Preserved | Transformed(DxfAttribute) |
 | dxf | Null | Preserved | Transformed(DxfAttribute) |
 | dxf | EmptyString | Preserved | Transformed(DxfAttribute) |
@@ -2125,18 +2125,18 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | dxf | UnsignedInteger | Rejected | Transformed(DxfAttribute) |
 | dxf | Floating | Rejected | Transformed(DxfAttribute) |
 | dxf | Boolean | Rejected | Transformed(DxfAttribute) |
-| dxf | Binary | Rejected | Transformed(DxfAttribute) |
-| dxf | Decimal | Rejected | Transformed(DxfAttribute) |
-| dxf | Temporal | Rejected | Transformed(DxfAttribute) |
-| dxf | NestedDictionary | Rejected | Transformed(DxfAttribute) |
+| dxf | Binary | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(DxfAttribute) |
+| dxf | Decimal | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(DxfAttribute) |
+| dxf | Temporal | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(DxfAttribute) |
+| dxf | NestedDictionary | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(DxfAttribute) |
 | dxf | FieldNames | Transformed(FieldNames) | Transformed(FieldNames) |
-| dxf | NotNull | Preserved | Transformed(NotNull) |
+| dxf | NotNull | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(NotNull) |
 | dxf | FieldOrder | Transformed(FieldOrder) | Transformed(FieldOrder) |
-| dxf | SchemaMetadata | Preserved | Transformed(ArrowMetadata) |
-| dxf | FieldMetadata | Preserved | Transformed(ArrowMetadata) |
+| dxf | SchemaMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
+| dxf | FieldMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
 | dxf | NativeMetadata | Preserved | Transformed(ArrowMetadata) |
 | dxf | Z | Preserved | Preserved |
-| dxf | M | Rejected | Rejected |
+| dxf | M | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Rejected |
 | dxf | Dimensions | Transformed(Dimensions) | Transformed(Dimensions) |
 | dxf | GeometryType | Transformed(GeometryType) | Transformed(GeometryType) |
 | dxf | RingOrientation | Preserved | Preserved |
@@ -2145,59 +2145,59 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | dxf | CrsId | Preserved | Transformed(CrsId) |
 | dxf | CrsDefinition | Preserved | Transformed(CrsDefinition) |
 | dxf | FeatureId | Transformed(FeatureId) | Transformed(ArrowMetadata) |
-| dxf | Bbox | Rejected | Transformed(ArrowMetadata) |
-| dxf | ForeignMembers | Rejected | Transformed(ArrowMetadata) |
+| dxf | Bbox | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
+| dxf | ForeignMembers | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
 | dxf | LayerMetadata | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
 | dxf | Styles | Transformed(NativeStyles) | Transformed(ArrowMetadata) |
 | dxf | Hierarchy | Transformed(NativeHierarchy) | Transformed(ArrowMetadata) |
 | dxf | Extensions | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
 | dxf | ExternalReference | Transformed(ExternalReference) | Transformed(ArrowMetadata) |
-| dxf | ExtendedData | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
+| dxf | ExtendedData | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
 | dxf | FeatureMetadata | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
-| dxf | AltitudeMode | Rejected | Rejected |
-| dxf | Inference | Rejected | Rejected |
+| dxf | AltitudeMode | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
+| dxf | Inference | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(DxfAttribute) |
 | dxf | NumberPrecision | Preserved | Transformed(CoordinatePrecision) |
-| dxf | StructuredValue | Rejected | Rejected |
-| dxf | MissingValue | Preserved | Preserved |
-| dxf | CoordinateColumns | Rejected | Rejected |
-| dxf | NumericFormat | Rejected | Rejected |
-| dxf | Formula | Rejected | Rejected |
-| dxf | FormulaCache | Rejected | Rejected |
-| dxf | Identifier | Rejected | Rejected |
-| dxf | Description | Rejected | Rejected |
-| dxf | DataColumns | Rejected | Rejected |
-| dxf | SqlConstraints | Rejected | Rejected |
-| dxf | ContractVersion | Preserved | Transformed(ArrowMetadata) |
-| dxf | FieldIdentity | Preserved | Transformed(ArrowMetadata) |
+| dxf | StructuredValue | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(DxfAttribute) |
+| dxf | MissingValue | Preserved | Transformed(DxfAttribute) |
+| dxf | CoordinateColumns | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
+| dxf | NumericFormat | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
+| dxf | Formula | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
+| dxf | FormulaCache | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(DxfAttribute) |
+| dxf | Identifier | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
+| dxf | Description | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
+| dxf | DataColumns | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
+| dxf | SqlConstraints | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
+| dxf | ContractVersion | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
+| dxf | FieldIdentity | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
 | dxf | TypesDeclaration | Preserved | Transformed(ArrowMetadata) |
 | dxf | GeometryEncoding | Preserved | Transformed(ArrowMetadata) |
 | dxf | SpatialSemantics | Preserved | Transformed(ArrowMetadata) |
 | dxf | Precision | Preserved | Transformed(ArrowMetadata) |
 | dxf | Srid | Preserved | Transformed(ArrowMetadata) |
-| dxf | CrsResolution | Preserved | Transformed(ArrowMetadata) |
+| dxf | CrsResolution | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
 | dxf | DefinitionFormat | Preserved | Transformed(ArrowMetadata) |
 | dxf | AxisOrder | Preserved | Transformed(ArrowMetadata) |
 | dxf | PrimaryGeometry | Preserved | Transformed(ArrowMetadata) |
-| dxf | ExtensionName | Preserved | Transformed(ArrowMetadata) |
-| dxf | ExtensionMetadata | Preserved | Transformed(ArrowMetadata) |
+| dxf | ExtensionName | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
+| dxf | ExtensionMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
 | dxf | UnknownDimensions | Preserved | Preserved |
-| dxf | Covering | Rejected | Rejected |
+| dxf | Covering | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
 | xls | NullGeometry | Preserved | Preserved |
 | xls | EmptyPoint | Rejected | Rejected |
 | xls | SignedZero | Preserved | Preserved |
-| xls | Subtypes | Rejected | Rejected |
-| xls | Aliases | Rejected | Rejected |
-| xls | Domains | Rejected | Rejected |
-| xls | TextStyle | Rejected | Rejected |
-| xls | PaperSpace | Rejected | Rejected |
-| xls | Xdata | Rejected | Rejected |
-| xls | Width | Rejected | Rejected |
-| xls | Thickness | Rejected | Rejected |
-| xls | Lineweight | Rejected | Rejected |
-| xls | Linetype | Rejected | Rejected |
-| xls | Color | Rejected | Rejected |
-| xls | Handle | Rejected | Rejected |
-| xls | DbfDate | Rejected | Rejected |
+| xls | Subtypes | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | Aliases | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | Domains | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | TextStyle | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | PaperSpace | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | Xdata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | Width | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | Thickness | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | Lineweight | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | Linetype | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | Color | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | Handle | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | DbfDate | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Preserved |
 | xls | Utf8 | Preserved | Preserved |
 | xls | Null | Preserved | Preserved |
 | xls | EmptyString | Preserved | Preserved |
@@ -2205,15 +2205,15 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | xls | UnsignedInteger | Transformed(Inference) | Transformed(ArrowCoercion) |
 | xls | Floating | Transformed(Inference) | Transformed(ArrowCoercion) |
 | xls | Boolean | Preserved | Preserved |
-| xls | Binary | Rejected | Rejected |
-| xls | Decimal | Rejected | Rejected |
+| xls | Binary | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Rejected |
+| xls | Decimal | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Rejected |
 | xls | Temporal | Transformed(Inference) | Transformed(ArrowCoercion) |
-| xls | NestedDictionary | Rejected | Rejected |
+| xls | NestedDictionary | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Rejected |
 | xls | FieldNames | Transformed(FieldNames) | Transformed(FieldNames) |
-| xls | NotNull | Preserved | Transformed(NotNull) |
+| xls | NotNull | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(NotNull) |
 | xls | FieldOrder | Transformed(FieldOrder) | Transformed(FieldOrder) |
 | xls | SchemaMetadata | Preserved | Transformed(ArrowMetadata) |
-| xls | FieldMetadata | Preserved | Transformed(ArrowMetadata) |
+| xls | FieldMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
 | xls | NativeMetadata | Preserved | Transformed(ArrowMetadata) |
 | xls | Z | Preserved | Preserved |
 | xls | M | Preserved | Preserved |
@@ -2222,62 +2222,62 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | xls | RingOrientation | Preserved | Preserved |
 | xls | EmptyGeometry | Preserved | Preserved |
 | xls | CoordinatePrecision | Transformed(NumberPrecision) | Preserved |
-| xls | CrsId | Preserved | Transformed(CrsIdAbsent) |
-| xls | CrsDefinition | Preserved | Transformed(CrsDefinition) |
-| xls | FeatureId | Preserved | Preserved |
-| xls | Bbox | Rejected | Rejected |
-| xls | ForeignMembers | Rejected | Rejected |
-| xls | LayerMetadata | Rejected | Rejected |
-| xls | Styles | Rejected | Rejected |
-| xls | Hierarchy | Rejected | Rejected |
-| xls | Extensions | Rejected | Rejected |
-| xls | ExternalReference | Rejected | Rejected |
-| xls | ExtendedData | Rejected | Rejected |
-| xls | FeatureMetadata | Rejected | Rejected |
-| xls | AltitudeMode | Rejected | Rejected |
-| xls | Inference | Transformed(Inference) | Transformed(Inference) |
+| xls | CrsId | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(CrsIdAbsent) |
+| xls | CrsDefinition | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(CrsDefinition) |
+| xls | FeatureId | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | Bbox | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | ForeignMembers | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | LayerMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | Styles | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | Hierarchy | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | Extensions | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | ExternalReference | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | ExtendedData | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | FeatureMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | AltitudeMode | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | Inference | Transformed(Inference) | Transformed(ArrowCoercion) |
 | xls | NumberPrecision | Transformed(NumberPrecision) | Preserved |
-| xls | StructuredValue | Rejected | Rejected |
-| xls | MissingValue | Rejected | Rejected |
-| xls | CoordinateColumns | Transformed(FieldNames) | Transformed(FieldNames) |
+| xls | StructuredValue | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Preserved |
+| xls | MissingValue | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Preserved |
+| xls | CoordinateColumns | Transformed(FieldNames) | Transformed(ArrowMetadata) |
 | xls | NumericFormat | Transformed(NativeStyles) | Transformed(ArrowMetadata) |
 | xls | Formula | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
-| xls | FormulaCache | Preserved | Preserved |
-| xls | Identifier | Rejected | Rejected |
-| xls | Description | Rejected | Rejected |
-| xls | DataColumns | Rejected | Rejected |
-| xls | SqlConstraints | Rejected | Rejected |
-| xls | ContractVersion | Preserved | Transformed(ArrowMetadata) |
-| xls | FieldIdentity | Preserved | Transformed(ArrowMetadata) |
+| xls | FormulaCache | Preserved | Transformed(ArrowCoercion) |
+| xls | Identifier | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | Description | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | DataColumns | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | SqlConstraints | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | ContractVersion | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | FieldIdentity | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
 | xls | TypesDeclaration | Preserved | Transformed(ArrowMetadata) |
 | xls | GeometryEncoding | Preserved | Transformed(ArrowMetadata) |
 | xls | SpatialSemantics | Preserved | Transformed(ArrowMetadata) |
 | xls | Precision | Preserved | Transformed(ArrowMetadata) |
-| xls | Srid | Preserved | Transformed(ArrowMetadata) |
-| xls | CrsResolution | Preserved | Transformed(ArrowMetadata) |
-| xls | DefinitionFormat | Preserved | Transformed(ArrowMetadata) |
+| xls | Srid | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | CrsResolution | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | DefinitionFormat | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
 | xls | AxisOrder | Preserved | Transformed(ArrowMetadata) |
 | xls | PrimaryGeometry | Preserved | Transformed(ArrowMetadata) |
-| xls | ExtensionName | Preserved | Transformed(ArrowMetadata) |
-| xls | ExtensionMetadata | Preserved | Transformed(ArrowMetadata) |
+| xls | ExtensionName | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | ExtensionMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
 | xls | UnknownDimensions | Preserved | Preserved |
-| xls | Covering | Rejected | Rejected |
+| xls | Covering | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
 | geoparquet | NullGeometry | Preserved | Preserved |
 | geoparquet | EmptyPoint | Preserved | Preserved |
 | geoparquet | SignedZero | Preserved | Preserved |
-| geoparquet | Subtypes | Rejected | Rejected |
-| geoparquet | Aliases | Rejected | Rejected |
-| geoparquet | Domains | Rejected | Rejected |
-| geoparquet | TextStyle | Rejected | Rejected |
-| geoparquet | PaperSpace | Rejected | Rejected |
-| geoparquet | Xdata | Rejected | Rejected |
-| geoparquet | Width | Rejected | Rejected |
-| geoparquet | Thickness | Rejected | Rejected |
-| geoparquet | Lineweight | Rejected | Rejected |
-| geoparquet | Linetype | Rejected | Rejected |
-| geoparquet | Color | Rejected | Rejected |
-| geoparquet | Handle | Rejected | Rejected |
-| geoparquet | DbfDate | Rejected | Rejected |
+| geoparquet | Subtypes | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | Aliases | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | Domains | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | TextStyle | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | PaperSpace | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | Xdata | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | Width | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | Thickness | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | Lineweight | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | Linetype | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | Color | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | Handle | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | DbfDate | Rejected | Preserved |
 | geoparquet | Utf8 | Preserved | Preserved |
 | geoparquet | Null | Preserved | Preserved |
 | geoparquet | EmptyString | Preserved | Preserved |
@@ -2304,29 +2304,29 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | geoparquet | CoordinatePrecision | Preserved | Preserved |
 | geoparquet | CrsId | Preserved | Preserved |
 | geoparquet | CrsDefinition | Preserved | Preserved |
-| geoparquet | FeatureId | Preserved | Preserved |
+| geoparquet | FeatureId | Preserved | Transformed(ArrowMetadata) |
 | geoparquet | Bbox | Transformed(Bbox) | Transformed(ArrowMetadata) |
-| geoparquet | ForeignMembers | Rejected | Rejected |
-| geoparquet | LayerMetadata | Rejected | Rejected |
-| geoparquet | Styles | Rejected | Rejected |
-| geoparquet | Hierarchy | Rejected | Rejected |
-| geoparquet | Extensions | Rejected | Rejected |
-| geoparquet | ExternalReference | Rejected | Rejected |
-| geoparquet | ExtendedData | Rejected | Rejected |
-| geoparquet | FeatureMetadata | Rejected | Rejected |
-| geoparquet | AltitudeMode | Rejected | Rejected |
-| geoparquet | Inference | Rejected | Rejected |
+| geoparquet | ForeignMembers | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | LayerMetadata | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | Styles | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | Hierarchy | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | Extensions | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | ExternalReference | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | ExtendedData | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | FeatureMetadata | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | AltitudeMode | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | Inference | Rejected | Preserved |
 | geoparquet | NumberPrecision | Preserved | Preserved |
-| geoparquet | StructuredValue | Rejected | Rejected |
-| geoparquet | MissingValue | Rejected | Rejected |
-| geoparquet | CoordinateColumns | Rejected | Rejected |
-| geoparquet | NumericFormat | Rejected | Rejected |
-| geoparquet | Formula | Rejected | Rejected |
-| geoparquet | FormulaCache | Rejected | Rejected |
-| geoparquet | Identifier | Rejected | Rejected |
-| geoparquet | Description | Rejected | Rejected |
-| geoparquet | DataColumns | Rejected | Rejected |
-| geoparquet | SqlConstraints | Rejected | Rejected |
+| geoparquet | StructuredValue | Rejected | Preserved |
+| geoparquet | MissingValue | Rejected | Preserved |
+| geoparquet | CoordinateColumns | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | NumericFormat | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | Formula | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | FormulaCache | Rejected | Preserved |
+| geoparquet | Identifier | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | Description | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | DataColumns | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | SqlConstraints | Rejected | Transformed(ArrowMetadata) |
 | geoparquet | ContractVersion | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
 | geoparquet | FieldIdentity | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
 | geoparquet | TypesDeclaration | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
@@ -2341,23 +2341,23 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | geoparquet | ExtensionName | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
 | geoparquet | ExtensionMetadata | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
 | geoparquet | UnknownDimensions | Preserved | Preserved |
-| geoparquet | Covering | Transformed(Bbox) | Preserved |
+| geoparquet | Covering | Transformed(Bbox) | Transformed(ArrowMetadata) |
 | ipc | NullGeometry | Preserved | Preserved |
 | ipc | EmptyPoint | Preserved | Preserved |
 | ipc | SignedZero | Preserved | Preserved |
-| ipc | Subtypes | Rejected | Rejected |
-| ipc | Aliases | Rejected | Rejected |
-| ipc | Domains | Rejected | Rejected |
-| ipc | TextStyle | Rejected | Rejected |
-| ipc | PaperSpace | Rejected | Rejected |
-| ipc | Xdata | Rejected | Rejected |
-| ipc | Width | Rejected | Rejected |
-| ipc | Thickness | Rejected | Rejected |
-| ipc | Lineweight | Rejected | Rejected |
-| ipc | Linetype | Rejected | Rejected |
-| ipc | Color | Rejected | Rejected |
-| ipc | Handle | Rejected | Rejected |
-| ipc | DbfDate | Rejected | Rejected |
+| ipc | Subtypes | Rejected | Transformed(ArrowMetadata) |
+| ipc | Aliases | Rejected | Transformed(ArrowMetadata) |
+| ipc | Domains | Rejected | Transformed(ArrowMetadata) |
+| ipc | TextStyle | Rejected | Transformed(ArrowMetadata) |
+| ipc | PaperSpace | Rejected | Transformed(ArrowMetadata) |
+| ipc | Xdata | Rejected | Transformed(ArrowMetadata) |
+| ipc | Width | Rejected | Transformed(ArrowMetadata) |
+| ipc | Thickness | Rejected | Transformed(ArrowMetadata) |
+| ipc | Lineweight | Rejected | Transformed(ArrowMetadata) |
+| ipc | Linetype | Rejected | Transformed(ArrowMetadata) |
+| ipc | Color | Rejected | Transformed(ArrowMetadata) |
+| ipc | Handle | Rejected | Transformed(ArrowMetadata) |
+| ipc | DbfDate | Rejected | Preserved |
 | ipc | Utf8 | Preserved | Preserved |
 | ipc | Null | Preserved | Preserved |
 | ipc | EmptyString | Preserved | Preserved |
@@ -2384,29 +2384,29 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | ipc | CoordinatePrecision | Preserved | Preserved |
 | ipc | CrsId | Preserved | Preserved |
 | ipc | CrsDefinition | Preserved | Preserved |
-| ipc | FeatureId | Preserved | Preserved |
-| ipc | Bbox | Rejected | Rejected |
-| ipc | ForeignMembers | Rejected | Rejected |
-| ipc | LayerMetadata | Rejected | Rejected |
-| ipc | Styles | Rejected | Rejected |
-| ipc | Hierarchy | Rejected | Rejected |
-| ipc | Extensions | Rejected | Rejected |
-| ipc | ExternalReference | Rejected | Rejected |
-| ipc | ExtendedData | Rejected | Rejected |
-| ipc | FeatureMetadata | Rejected | Rejected |
-| ipc | AltitudeMode | Rejected | Rejected |
-| ipc | Inference | Rejected | Rejected |
+| ipc | FeatureId | Preserved | Transformed(ArrowMetadata) |
+| ipc | Bbox | Rejected | Transformed(ArrowMetadata) |
+| ipc | ForeignMembers | Rejected | Transformed(ArrowMetadata) |
+| ipc | LayerMetadata | Rejected | Transformed(ArrowMetadata) |
+| ipc | Styles | Rejected | Transformed(ArrowMetadata) |
+| ipc | Hierarchy | Rejected | Transformed(ArrowMetadata) |
+| ipc | Extensions | Rejected | Transformed(ArrowMetadata) |
+| ipc | ExternalReference | Rejected | Transformed(ArrowMetadata) |
+| ipc | ExtendedData | Rejected | Transformed(ArrowMetadata) |
+| ipc | FeatureMetadata | Rejected | Transformed(ArrowMetadata) |
+| ipc | AltitudeMode | Rejected | Transformed(ArrowMetadata) |
+| ipc | Inference | Rejected | Preserved |
 | ipc | NumberPrecision | Preserved | Preserved |
-| ipc | StructuredValue | Rejected | Rejected |
-| ipc | MissingValue | Rejected | Rejected |
-| ipc | CoordinateColumns | Rejected | Rejected |
-| ipc | NumericFormat | Rejected | Rejected |
-| ipc | Formula | Rejected | Rejected |
-| ipc | FormulaCache | Rejected | Rejected |
-| ipc | Identifier | Rejected | Rejected |
-| ipc | Description | Rejected | Rejected |
-| ipc | DataColumns | Rejected | Rejected |
-| ipc | SqlConstraints | Rejected | Rejected |
+| ipc | StructuredValue | Rejected | Preserved |
+| ipc | MissingValue | Rejected | Preserved |
+| ipc | CoordinateColumns | Rejected | Transformed(ArrowMetadata) |
+| ipc | NumericFormat | Rejected | Transformed(ArrowMetadata) |
+| ipc | Formula | Rejected | Transformed(ArrowMetadata) |
+| ipc | FormulaCache | Rejected | Preserved |
+| ipc | Identifier | Rejected | Transformed(ArrowMetadata) |
+| ipc | Description | Rejected | Transformed(ArrowMetadata) |
+| ipc | DataColumns | Rejected | Transformed(ArrowMetadata) |
+| ipc | SqlConstraints | Rejected | Transformed(ArrowMetadata) |
 | ipc | ContractVersion | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
 | ipc | FieldIdentity | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
 | ipc | TypesDeclaration | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
@@ -2421,6 +2421,6 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | ipc | ExtensionName | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
 | ipc | ExtensionMetadata | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
 | ipc | UnknownDimensions | Preserved | Preserved |
-| ipc | Covering | Rejected | Rejected |
+| ipc | Covering | Rejected | Transformed(ArrowMetadata) |
 
 <!-- generato da codice/perdite: fine -->

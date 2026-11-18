@@ -30,8 +30,23 @@ fn main() {
                 .iter()
                 .map(|element| {
                     let rule = |direction| {
-                        driver.qualified_native.map(|native| {
-                            format!("{:?}", loss_table::native_rule(native, direction, *element))
+                        driver.qualified_native.map(|native| match direction {
+                            TransportDirection::Read => {
+                                match loss_table::read_applicability(native, *element) {
+                                    loss_table::ReadApplicability::Expressible => format!(
+                                        "{:?}",
+                                        loss_table::native_rule(native, direction, *element)
+                                    ),
+                                    loss_table::ReadApplicability::NotApplicable {
+                                        reason,
+                                        reference,
+                                    } => format!("NotApplicable: {reason} ({reference})"),
+                                }
+                            }
+                            TransportDirection::Write => format!(
+                                "{:?}",
+                                loss_table::native_write_transport_rule(native, *element)
+                            ),
                         })
                     };
                     json!({"element": format!("{element:?}"),

@@ -825,7 +825,12 @@ impl PlacemarkStream {
         if self.element_stack.iter().any(|ancestor| {
             matches!(
                 local_xml_name(ancestor),
-                b"ExtendedData" | b"NetworkLink" | b"GroundOverlay"
+                b"ExtendedData"
+                    | b"Schema"
+                    | b"NetworkLink"
+                    | b"GroundOverlay"
+                    | b"TimeStamp"
+                    | b"TimeSpan"
             )
         }) {
             return;
@@ -837,7 +842,7 @@ impl PlacemarkStream {
         let change = match name {
             "Folder" => Some(NativeElement::Hierarchy),
             "NetworkLink" | "GroundOverlay" => Some(NativeElement::ExternalReference),
-            "ExtendedData" => Some(NativeElement::ExtendedData),
+            "ExtendedData" | "Schema" => Some(NativeElement::ExtendedData),
             "Style" | "StyleMap" | "styleUrl" => Some(NativeElement::Styles),
             "TimeStamp" | "TimeSpan" | "visibility" | "open" => {
                 Some(NativeElement::FeatureMetadata)
@@ -867,6 +872,10 @@ impl PlacemarkStream {
             let loss = self.native_losses.entry(layer).or_default();
             if let Some(change) = change {
                 observe_native(loss, NATIVE_READ, change, 1, layer as u64, None);
+            }
+            // Schema attributes belong to the omitted typed-data definition.
+            if name == "Schema" {
+                continue;
             }
             for attribute in element.attributes().flatten() {
                 if attribute.key.as_ref() == "id" {

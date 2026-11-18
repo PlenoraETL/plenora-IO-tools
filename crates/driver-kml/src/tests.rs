@@ -1009,7 +1009,7 @@ fn native_inventory_kml_reproduction() {
     let loss = reader.loss_report();
     for (category, count) in [
         ("native_external_reference_not_followed", 2),
-        ("kml_extended_data_not_preserved", 1),
+        ("kml_extended_data_not_preserved", 2), // Schema definition and ExtendedData instance.
         ("kml_hierarchy_flattened", 1),
         ("kml_altitude_mode_not_preserved", 1),
         ("native_geometry_type_changed", 1),
@@ -1022,6 +1022,14 @@ fn native_inventory_kml_reproduction() {
 #[test]
 fn native_object_children_are_not_additional_foreign_omissions() {
     for (extra, category) in [
+        (
+            "<TimeStamp><when>1970-01-02T00:00:00Z</when></TimeStamp>",
+            "kml_feature_metadata_not_preserved",
+        ),
+        (
+            "<TimeSpan><begin>1970-01-02</begin><end>1970-01-03</end></TimeSpan>",
+            "kml_feature_metadata_not_preserved",
+        ),
         (
             "<ExtendedData><Data name=\"value\"><value>payload</value></Data></ExtendedData>",
             "kml_extended_data_not_preserved",

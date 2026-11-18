@@ -3,12 +3,14 @@ use super::native::group_a_xlsx_document;
 use super::*;
 #[path = "group_a_second.rs"]
 mod second;
+#[path = "group_a_third.rs"]
+mod third;
 
 pub(super) fn owns(driver: &str) -> bool {
     matches!(driver, "geojson" | "kml" | "csv" | "xls" | "ipc")
 }
 
-fn factory(element: E) -> Option<Vec<RecordBatch>> {
+pub(super) fn factory(element: E) -> Option<Vec<RecordBatch>> {
     let base = geometry_batch(WkbValue::Point(coordinate(1.0, 2.0)), GeometryType::Point);
     let batch = match element {
         E::Srid => metadata(&base, "plenora.geometry.srid", "4326", false),
@@ -39,6 +41,9 @@ pub(super) fn exercise(
     }
     if direction == D::Read && driver == "ipc" {
         return ipc_read(element, root, row);
+    }
+    if direction == D::Read && element == E::CoordinateColumns {
+        return third::coordinates(driver, root, row);
     }
     if direction == D::Read && driver != "ipc" {
         if second::rejection(driver, element, root, row) {
@@ -139,7 +144,7 @@ fn scalar(element: E) -> Option<Vec<(Value, ArrayRef)>> {
             .into_iter()
             .map(|v| (json!(v), Arc::new(BooleanArray::from(vec![v])) as ArrayRef))
             .collect(),
-        E::SignedInteger => [-2_147_483_648_i64, 2_147_483_647]
+        E::SignedInteger | E::Inference => [-2_147_483_648_i64, 2_147_483_647]
             .into_iter()
             .map(|v| (json!(v), Arc::new(Int64Array::from(vec![v])) as ArrayRef))
             .collect(),
@@ -202,6 +207,10 @@ fn with_value(base: &RecordBatch, name: &str, array: ArrayRef) -> RecordBatch {
 }
 
 fn read(driver: &str, native: NativeDriver, element: E, root: &Path, row: &mut Value) -> bool {
+    if driver == "kml" && element == E::NumberPrecision {
+        super::native::exercise(driver, native, E::CoordinatePrecision, root, row);
+        return true;
+    }
     if element == E::Dimensions {
         return dimensions_read(driver, native, root, row);
     }
@@ -214,9 +223,14 @@ fn read(driver: &str, native: NativeDriver, element: E, root: &Path, row: &mut V
     if driver == "kml" {
         return document_read(driver, native, element, root, row);
     }
-    if driver == "xls" && element == E::UnsignedInteger {
-        return false;
-    }
+    let fixtures = if driver == "xls" && element == E::UnsignedInteger {
+        vec![(
+            json!(u32::MAX),
+            Arc::new(UInt64Array::from(vec![u64::from(u32::MAX)])) as ArrayRef,
+        )]
+    } else {
+        fixtures
+    };
     let mut failures = Vec::new();
     for (variant, (value, array)) in fixtures.into_iter().enumerate() {
         let name = if element == E::FieldNames {
@@ -234,7 +248,12 @@ fn read(driver: &str, native: NativeDriver, element: E, root: &Path, row: &mut V
             // CSV has no unsigned type marker; out-of-i64 decimal tokens remain
             // exact text under the public inference contract.
             Arc::new(StringArray::from(vec![value.to_string()])) as ArrayRef
-        } else if driver == "xls" && element == E::SignedInteger {
+        } else if driver == "xls"
+            && matches!(
+                element,
+                E::SignedInteger | E::UnsignedInteger | E::Inference
+            )
+        {
             // OOXML numeric cells are binary64; they have no integer width tag.
             Arc::new(Float64Array::from(vec![value.as_f64().unwrap()])) as ArrayRef
         } else {
@@ -332,7 +351,8 @@ fn document(driver: &str, element: E) -> Option<Document> {
             | E::CrsId
             | E::Dimensions
             | E::PrimaryGeometry
-    );
+    ) || (matches!(driver, "csv" | "xls") && element == E::NativeMetadata)
+        || (driver == "xls" && element == E::SchemaMetadata);
     let mut faithful = if driver == "kml" {
         kml_base()
     } else {
@@ -405,7 +425,9 @@ fn document_read(
     root: &Path,
     row: &mut Value,
 ) -> bool {
-    let Some(document) = document(driver, element).or_else(|| second::document(driver, element))
+    let Some(document) = document(driver, element)
+        .or_else(|| second::document(driver, element))
+        .or_else(|| third::document(driver, element))
     else {
         return false;
     };
@@ -585,7 +607,7 @@ pub(super) fn write_audit(root: &Path, rows: &[Value]) {
     let mut per_driver = BTreeMap::<String, BTreeMap<String, u64>>::new();
     let remaining = rows
         .iter()
-        .filter(|r| r["status"] != "passed")
+        .filter(|r| r["status"] != "passed" && r["status"] != "not-applicable")
         .collect::<Vec<_>>();
     for row in rows {
         let driver = row["driver"].as_str().unwrap();

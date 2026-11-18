@@ -303,3 +303,44 @@ fn arrow_contractual_metadata_changes_are_counted_without_payload() {
         }
     }
 }
+
+#[test]
+fn native_grammar_applicability_is_separate_from_arrow_transport() {
+    use ReadApplicability::{Expressible, NotApplicable};
+    for driver in DRIVERS {
+        let native = driver.qualified_native.unwrap();
+        for &element in NATIVE_ELEMENTS {
+            if let NotApplicable { reason, reference } = read_applicability(native, element) {
+                assert!(!reason.is_empty() && !reference.is_empty());
+            }
+        }
+    }
+    assert_eq!(
+        read_applicability(NativeDriver::Xls, NativeElement::Formula),
+        Expressible
+    );
+    assert_eq!(
+        read_applicability(NativeDriver::Ipc, NativeElement::Formula),
+        Expressible
+    );
+    assert!(matches!(
+        read_applicability(NativeDriver::Csv, NativeElement::Formula),
+        NotApplicable { .. }
+    ));
+    assert!(matches!(
+        read_applicability(NativeDriver::Kml, NativeElement::PaperSpace),
+        NotApplicable { .. }
+    ));
+    assert_ne!(
+        native_write_transport_rule(NativeDriver::Csv, NativeElement::Formula),
+        NativeRule::Rejected
+    );
+    assert_eq!(
+        native_rule(
+            NativeDriver::Kml,
+            TransportDirection::Write,
+            NativeElement::ExtendedData
+        ),
+        NativeRule::Transformed(NativeChange::ExtendedData)
+    );
+}
