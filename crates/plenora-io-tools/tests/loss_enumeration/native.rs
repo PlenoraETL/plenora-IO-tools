@@ -29,6 +29,9 @@ pub(super) fn exercise(
     row: &mut Value,
 ) {
     use arrow_array::Array;
+    if super::group_b::exercise(driver, native, element, root, row) {
+        return;
+    }
     if !matches!(driver, "geojson" | "csv" | "xls" | "kml")
         || !matches!(
             element,

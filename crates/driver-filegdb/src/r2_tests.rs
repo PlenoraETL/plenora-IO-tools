@@ -1,5 +1,13 @@
 use super::*;
 
+#[test]
+fn native_field_order_reads_both_definition_vocabularies() {
+    for tag in ["Field", "GPFieldInfoEx"] {
+        let xml = format!("<Definition><Name>layer</Name><Fields><{tag}><Name>geometry</Name></{tag}><{tag}><Name>a&amp;b</Name></{tag}></Fields></Definition>");
+        assert_eq!(definition_field_order(&xml).unwrap(), ["geometry", "a&b"]);
+    }
+}
+
 fn assert_native_alias(reader: &dyn LayerReader, index: usize) {
     let loss = reader.loss_report();
     assert!(loss.counts["native_layer_metadata_not_preserved"] > 0);
@@ -28,6 +36,21 @@ fn native_domains_aliases_and_subtypes_are_declared() {
     let mut escaped = LossReport::default();
     observe_definition_xml(&mut escaped, "<Definition><AliasName>A&amp;B<![CDATA[C]]></AliasName><DomainName><![CDATA[D]]></DomainName></Definition>", 0).unwrap();
     assert_eq!(escaped.counts["native_layer_metadata_not_preserved"], 2);
+}
+
+#[test]
+fn native_hierarchy_and_extension_payloads_are_counted_without_names() {
+    let mut report = LossReport::default();
+    observe_definition_xml(&mut report, r"<Definition><CatalogPath>\private_group\features</CatalogPath><ExtensionProperties><PropertySetProperty><Key>private_key</Key><Value>private_payload</Value></PropertySetProperty></ExtensionProperties></Definition>", 4).unwrap();
+    assert_eq!(report.counts["native_hierarchy_flattened"], 1);
+    assert_eq!(report.counts["native_layer_metadata_not_preserved"], 1);
+    for example in report.esempi_canonici() {
+        assert_eq!(example.posizione.layer_index, Some(4));
+        assert!(!example.context.contains("private"));
+    }
+    let mut empty = LossReport::default();
+    observe_definition_xml(&mut empty, r"<Definition><CatalogPath>\features</CatalogPath><ExtensionProperties>  </ExtensionProperties></Definition>", 0).unwrap();
+    assert!(empty.is_empty());
 }
 
 #[test]

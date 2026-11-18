@@ -18,6 +18,32 @@ pub fn read_applicability(driver: F, element: E) -> ReadApplicability {
     if matches!(driver, F::Ipc | F::GeoParquet) {
         return ReadApplicability::Expressible;
     }
+    // Distinguish a native scalar/schema domain from values derivable from
+    // another construct (e.g. positive signed integers or a CRS authority).
+    let absent = match (driver, element) {
+        (F::Shp | F::Dxf | F::FileGdb | F::Gpkg, E::UnsignedInteger) => Some("Native integer domains are signed; positive values do not declare an unsigned type"),
+        (F::FileGdb, E::SignedZero) => Some("Coordinates are stored on an integer precision grid, which has no negative-zero encoding"),
+        (F::FileGdb, E::EmptyPoint | E::EmptyGeometry) => Some("Empty shapes use the native null-shape representation; no distinct typed EMPTY value survives native storage (NullGeometry is exercised)"),
+        (F::FileGdb, E::Boolean) => Some("FileGDB field types have no Boolean domain; Short integers are not Boolean declarations"),
+        (F::Shp | F::FileGdb, E::MissingValue) => Some("Fixed record schemas have null slots, not absent members distinct from NULL"),
+        (F::Shp | F::Dxf | F::FileGdb, E::Srid) => Some("No independent per-geometry SRID slot; spatial-reference authorities are covered by CrsId/CrsDefinition"),
+        (F::Dxf | F::FileGdb, E::UnknownDimensions) => Some("Native shape/entity coordinates determine dimensions; no explicit unknown-dimensions declaration"),
+        (F::Dxf, E::NullGeometry | E::EmptyPoint | E::EmptyGeometry) => Some("DXF has no NULL or EMPTY geometry value; omitted entities and malformed coordinates are not empty geometries"),
+        (F::Shp, E::LayerMetadata | E::Extensions) => Some("SHP/SHX/DBF grammar has no layer metadata or extension registry; vendor sidecars are separate formats"),
+        _ => None,
+    };
+    if let Some(reason) = absent {
+        return ReadApplicability::NotApplicable {
+            reason,
+            reference: match driver {
+                F::Shp => "ESRI Shapefile Technical Description, record and field layouts",
+                F::Dxf => "Autodesk DXF Reference, group-code value types and entity definitions",
+                F::FileGdb => "ESRI File Geodatabase API, field and geometry types",
+                F::Gpkg => "OGC GeoPackage 1.3.1 Table 1, integer data types",
+                _ => unreachable!(),
+            },
+        };
+    }
     let expressible = match element {
         E::Subtypes | E::Aliases | E::Domains => driver == F::FileGdb,
         E::TextStyle

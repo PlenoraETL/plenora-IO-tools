@@ -185,8 +185,8 @@
       "opzioni": [],
       "profilo": "base",
       "esito_atteso": "successo",
-      "test": "conversioni::kml_a_xls_dichiara_geometria_e_crs_perduti",
-      "prova": "da un formato spaziale a uno che spaziale non e'. La geometria non si perde in silenzio: la fedelta' scende ad approssimante con la propria ragione, e il CRS e' dichiarato assente. E' il caso in cui il `LossReport` e le ragioni di fedelta' dicono due meta' della stessa cosa."
+      "test": "conversioni::kml_a_xls_dichiara_il_crs_perso_e_ricostruisce_la_geometria",
+      "prova": "la geometria KML resta ricostruibile dal WKT della cella XLSX; il CRS non trasportato e' dichiarato come perdita. La prova confronta la geometria riletta e il report, senza inventare una perdita geometrica."
     },
     {
       "id": "geoparquet-a-csv",

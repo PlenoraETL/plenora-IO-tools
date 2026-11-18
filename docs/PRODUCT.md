@@ -1722,7 +1722,7 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | shp | Null | Preserved | Preserved |
 | shp | EmptyString | Rejected | Rejected |
 | shp | SignedInteger | Transformed(Inference) | Transformed(ArrowCoercion) |
-| shp | UnsignedInteger | Rejected | Transformed(ArrowCoercion) |
+| shp | UnsignedInteger | NotApplicable: Native integer domains are signed; positive values do not declare an unsigned type (ESRI Shapefile Technical Description, record and field layouts) | Transformed(ArrowCoercion) |
 | shp | Floating | Preserved | Transformed(ArrowCoercion) |
 | shp | Boolean | Preserved | Preserved |
 | shp | Binary | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Rejected |
@@ -1747,10 +1747,10 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | shp | FeatureId | Transformed(FeatureId) | Transformed(ArrowMetadata) |
 | shp | Bbox | Transformed(Bbox) | Transformed(ArrowMetadata) |
 | shp | ForeignMembers | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
-| shp | LayerMetadata | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
+| shp | LayerMetadata | NotApplicable: SHP/SHX/DBF grammar has no layer metadata or extension registry; vendor sidecars are separate formats (ESRI Shapefile Technical Description, record and field layouts) | Transformed(ArrowMetadata) |
 | shp | Styles | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
 | shp | Hierarchy | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
-| shp | Extensions | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
+| shp | Extensions | NotApplicable: SHP/SHX/DBF grammar has no layer metadata or extension registry; vendor sidecars are separate formats (ESRI Shapefile Technical Description, record and field layouts) | Transformed(ArrowMetadata) |
 | shp | ExternalReference | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
 | shp | ExtendedData | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
 | shp | FeatureMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
@@ -1758,7 +1758,7 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | shp | Inference | Transformed(Inference) | Transformed(ArrowCoercion) |
 | shp | NumberPrecision | Preserved | Preserved |
 | shp | StructuredValue | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Preserved |
-| shp | MissingValue | Preserved | Preserved |
+| shp | MissingValue | NotApplicable: Fixed record schemas have null slots, not absent members distinct from NULL (ESRI Shapefile Technical Description, record and field layouts) | Preserved |
 | shp | CoordinateColumns | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
 | shp | NumericFormat | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
 | shp | Formula | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
@@ -1773,7 +1773,7 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | shp | GeometryEncoding | Preserved | Transformed(ArrowMetadata) |
 | shp | SpatialSemantics | Preserved | Transformed(ArrowMetadata) |
 | shp | Precision | Preserved | Transformed(ArrowMetadata) |
-| shp | Srid | Preserved | Transformed(ArrowMetadata) |
+| shp | Srid | NotApplicable: No independent per-geometry SRID slot; spatial-reference authorities are covered by CrsId/CrsDefinition (ESRI Shapefile Technical Description, record and field layouts) | Transformed(ArrowMetadata) |
 | shp | CrsResolution | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
 | shp | DefinitionFormat | Preserved | Transformed(ArrowMetadata) |
 | shp | AxisOrder | Preserved | Transformed(ArrowMetadata) |
@@ -1802,7 +1802,7 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | gpkg | Null | Preserved | Preserved |
 | gpkg | EmptyString | Preserved | Preserved |
 | gpkg | SignedInteger | Preserved | Transformed(ArrowCoercion) |
-| gpkg | UnsignedInteger | Preserved | Transformed(ArrowCoercion) |
+| gpkg | UnsignedInteger | NotApplicable: Native integer domains are signed; positive values do not declare an unsigned type (OGC GeoPackage 1.3.1 Table 1, integer data types) | Transformed(ArrowCoercion) |
 | gpkg | Floating | Preserved | Transformed(ArrowCoercion) |
 | gpkg | Boolean | Preserved | Transformed(ArrowCoercion) |
 | gpkg | Binary | Preserved | Preserved |
@@ -1863,8 +1863,8 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | gpkg | UnknownDimensions | Preserved | Preserved |
 | gpkg | Covering | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
 | filegdb | NullGeometry | Preserved | Preserved |
-| filegdb | EmptyPoint | Transformed(MissingValue) | Transformed(MissingValue) |
-| filegdb | SignedZero | Preserved | Transformed(CoordinatePrecision) |
+| filegdb | EmptyPoint | NotApplicable: Empty shapes use the native null-shape representation; no distinct typed EMPTY value survives native storage (NullGeometry is exercised) (ESRI File Geodatabase API, field and geometry types) | Transformed(MissingValue) |
+| filegdb | SignedZero | NotApplicable: Coordinates are stored on an integer precision grid, which has no negative-zero encoding (ESRI File Geodatabase API, field and geometry types) | Transformed(CoordinatePrecision) |
 | filegdb | Subtypes | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
 | filegdb | Aliases | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
 | filegdb | Domains | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
@@ -1882,9 +1882,9 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | filegdb | Null | Preserved | Preserved |
 | filegdb | EmptyString | Preserved | Preserved |
 | filegdb | SignedInteger | Preserved | Transformed(ArrowCoercion) |
-| filegdb | UnsignedInteger | Rejected | Rejected |
+| filegdb | UnsignedInteger | NotApplicable: Native integer domains are signed; positive values do not declare an unsigned type (ESRI File Geodatabase API, field and geometry types) | Rejected |
 | filegdb | Floating | Preserved | Transformed(ArrowCoercion) |
-| filegdb | Boolean | Rejected | Rejected |
+| filegdb | Boolean | NotApplicable: FileGDB field types have no Boolean domain; Short integers are not Boolean declarations (ESRI File Geodatabase API, field and geometry types) | Rejected |
 | filegdb | Binary | Preserved | Rejected |
 | filegdb | Decimal | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Rejected |
 | filegdb | Temporal | Transformed(NumberPrecision) | Rejected |
@@ -1900,7 +1900,7 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | filegdb | Dimensions | Preserved | Preserved |
 | filegdb | GeometryType | Preserved | Preserved |
 | filegdb | RingOrientation | Preserved | Transformed(RingOrientation) |
-| filegdb | EmptyGeometry | Transformed(MissingValue) | Transformed(MissingValue) |
+| filegdb | EmptyGeometry | NotApplicable: Empty shapes use the native null-shape representation; no distinct typed EMPTY value survives native storage (NullGeometry is exercised) (ESRI File Geodatabase API, field and geometry types) | Transformed(MissingValue) |
 | filegdb | CoordinatePrecision | Preserved | Transformed(CoordinatePrecision) |
 | filegdb | CrsId | Preserved | Transformed(CrsId) |
 | filegdb | CrsDefinition | Preserved | Transformed(CrsDefinition) |
@@ -1918,7 +1918,7 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | filegdb | Inference | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowCoercion) |
 | filegdb | NumberPrecision | Preserved | Transformed(CoordinatePrecision) |
 | filegdb | StructuredValue | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Preserved |
-| filegdb | MissingValue | Preserved | Preserved |
+| filegdb | MissingValue | NotApplicable: Fixed record schemas have null slots, not absent members distinct from NULL (ESRI File Geodatabase API, field and geometry types) | Preserved |
 | filegdb | CoordinateColumns | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
 | filegdb | NumericFormat | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
 | filegdb | Formula | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
@@ -1933,14 +1933,14 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | filegdb | GeometryEncoding | Preserved | Transformed(ArrowMetadata) |
 | filegdb | SpatialSemantics | Preserved | Transformed(ArrowMetadata) |
 | filegdb | Precision | Preserved | Transformed(ArrowMetadata) |
-| filegdb | Srid | Preserved | Transformed(ArrowMetadata) |
+| filegdb | Srid | NotApplicable: No independent per-geometry SRID slot; spatial-reference authorities are covered by CrsId/CrsDefinition (ESRI File Geodatabase API, field and geometry types) | Transformed(ArrowMetadata) |
 | filegdb | CrsResolution | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
 | filegdb | DefinitionFormat | Preserved | Transformed(ArrowMetadata) |
 | filegdb | AxisOrder | Preserved | Transformed(ArrowMetadata) |
 | filegdb | PrimaryGeometry | Preserved | Transformed(ArrowMetadata) |
 | filegdb | ExtensionName | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
 | filegdb | ExtensionMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
-| filegdb | UnknownDimensions | Rejected | Rejected |
+| filegdb | UnknownDimensions | NotApplicable: Native shape/entity coordinates determine dimensions; no explicit unknown-dimensions declaration (ESRI File Geodatabase API, field and geometry types) | Rejected |
 | filegdb | Covering | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
 | geojson | NullGeometry | Preserved | Preserved |
 | geojson | EmptyPoint | Rejected | Rejected |
@@ -2102,8 +2102,8 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | kml | ExtensionMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
 | kml | UnknownDimensions | Preserved | Preserved |
 | kml | Covering | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
-| dxf | NullGeometry | Rejected | Rejected |
-| dxf | EmptyPoint | Rejected | Rejected |
+| dxf | NullGeometry | NotApplicable: DXF has no NULL or EMPTY geometry value; omitted entities and malformed coordinates are not empty geometries (Autodesk DXF Reference, group-code value types and entity definitions) | Rejected |
+| dxf | EmptyPoint | NotApplicable: DXF has no NULL or EMPTY geometry value; omitted entities and malformed coordinates are not empty geometries (Autodesk DXF Reference, group-code value types and entity definitions) | Rejected |
 | dxf | SignedZero | Preserved | Transformed(CoordinatePrecision) |
 | dxf | Subtypes | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
 | dxf | Aliases | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
@@ -2122,7 +2122,7 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | dxf | Null | Preserved | Transformed(DxfAttribute) |
 | dxf | EmptyString | Preserved | Transformed(DxfAttribute) |
 | dxf | SignedInteger | Rejected | Transformed(DxfAttribute) |
-| dxf | UnsignedInteger | Rejected | Transformed(DxfAttribute) |
+| dxf | UnsignedInteger | NotApplicable: Native integer domains are signed; positive values do not declare an unsigned type (Autodesk DXF Reference, group-code value types and entity definitions) | Transformed(DxfAttribute) |
 | dxf | Floating | Rejected | Transformed(DxfAttribute) |
 | dxf | Boolean | Rejected | Transformed(DxfAttribute) |
 | dxf | Binary | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(DxfAttribute) |
@@ -2140,7 +2140,7 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | dxf | Dimensions | Transformed(Dimensions) | Transformed(Dimensions) |
 | dxf | GeometryType | Transformed(GeometryType) | Transformed(GeometryType) |
 | dxf | RingOrientation | Preserved | Preserved |
-| dxf | EmptyGeometry | Rejected | Rejected |
+| dxf | EmptyGeometry | NotApplicable: DXF has no NULL or EMPTY geometry value; omitted entities and malformed coordinates are not empty geometries (Autodesk DXF Reference, group-code value types and entity definitions) | Rejected |
 | dxf | CoordinatePrecision | Preserved | Transformed(CoordinatePrecision) |
 | dxf | CrsId | Preserved | Transformed(CrsId) |
 | dxf | CrsDefinition | Preserved | Transformed(CrsDefinition) |
@@ -2173,14 +2173,14 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | dxf | GeometryEncoding | Preserved | Transformed(ArrowMetadata) |
 | dxf | SpatialSemantics | Preserved | Transformed(ArrowMetadata) |
 | dxf | Precision | Preserved | Transformed(ArrowMetadata) |
-| dxf | Srid | Preserved | Transformed(ArrowMetadata) |
+| dxf | Srid | NotApplicable: No independent per-geometry SRID slot; spatial-reference authorities are covered by CrsId/CrsDefinition (Autodesk DXF Reference, group-code value types and entity definitions) | Transformed(ArrowMetadata) |
 | dxf | CrsResolution | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
 | dxf | DefinitionFormat | Preserved | Transformed(ArrowMetadata) |
 | dxf | AxisOrder | Preserved | Transformed(ArrowMetadata) |
 | dxf | PrimaryGeometry | Preserved | Transformed(ArrowMetadata) |
 | dxf | ExtensionName | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
 | dxf | ExtensionMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
-| dxf | UnknownDimensions | Preserved | Preserved |
+| dxf | UnknownDimensions | NotApplicable: Native shape/entity coordinates determine dimensions; no explicit unknown-dimensions declaration (Autodesk DXF Reference, group-code value types and entity definitions) | Preserved |
 | dxf | Covering | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
 | xls | NullGeometry | Preserved | Preserved |
 | xls | EmptyPoint | Rejected | Rejected |

@@ -7,6 +7,46 @@
 use super::*;
 
 #[test]
+fn native_text_preserves_empty_strings_and_surrounding_whitespace() {
+    for value in ["", "  ", "  caf\u{e9}  "] {
+        for multiline in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("text.dxf");
+            let mut drawing = Drawing::new();
+            drawing.header.version = dxf::enums::AcadVersion::R2013;
+            let entity = if multiline {
+                EntityType::MText(dxf::entities::MText {
+                    text: value.to_owned(),
+                    ..Default::default()
+                })
+            } else {
+                EntityType::Text(dxf::entities::Text {
+                    value: value.to_owned(),
+                    ..Default::default()
+                })
+            };
+            drawing.add_entity(Entity::new(entity));
+            drawing.save(&mut File::create(&path).unwrap()).unwrap();
+            let dataset = DxfDriver
+                .open(
+                    Source::Path(path),
+                    opzioni_lettura().with_assume_crs("EPSG:4326"),
+                )
+                .unwrap();
+            let mut reader = dataset.open_layer_reader(&request()).unwrap();
+            let batch = reader.next_batch().unwrap().unwrap();
+            let text = batch
+                .column(3)
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap();
+            assert!(!text.is_null(0));
+            assert_eq!(text.value(0), value, "multiline={multiline}");
+        }
+    }
+}
+
+#[test]
 fn native_xref_insert_is_reported_without_rejecting_valid_entities() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("xref.dxf");

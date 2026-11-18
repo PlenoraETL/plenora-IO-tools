@@ -6,6 +6,8 @@ mod constraints;
 mod geometry;
 #[path = "group_a.rs"]
 mod group_a;
+#[path = "group_b.rs"]
+mod group_b;
 #[path = "native.rs"]
 mod native;
 #[path = "transport.rs"]
@@ -720,21 +722,35 @@ fn without_external_crs(batch: RecordBatch, driver: &str) -> RecordBatch {
 #[test]
 #[allow(clippy::too_many_lines)] // Collect all failures before enforcing the product.
 fn generated_product_requires_operational_evidence() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/s1h-generated");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/s1i-generated");
     let root = if std::env::var_os("PLENORA_LOSS_GROUP_A").is_some() {
-        root.with_file_name("s1h-a-generated")
+        root.with_file_name("s1i-a-generated")
     } else {
         root
     };
+    let root = std::env::var_os("PLENORA_ENUM_OUTPUT").map_or(root, std::path::PathBuf::from);
     std::fs::create_dir_all(&root).unwrap();
     let mut rows = Vec::new();
     for driver in DRIVERS {
-        if std::env::var_os("PLENORA_LOSS_GROUP_A").is_some() && !group_a::owns(driver.driver) {
+        if (std::env::var_os("PLENORA_LOSS_GROUP_A").is_some() && !group_a::owns(driver.driver))
+            || std::env::var("PLENORA_ENUM_DRIVERS")
+                .is_ok_and(|filter| !filter.split(',').any(|name| name == driver.driver))
+        {
             continue;
         }
         let native = driver.qualified_native.unwrap();
         for element in NATIVE_ELEMENTS {
+            if std::env::var("PLENORA_ENUM_ELEMENTS")
+                .is_ok_and(|filter| !filter.split(',').any(|name| name == format!("{element:?}")))
+            {
+                continue;
+            }
             for direction in [D::Read, D::Write] {
+                if std::env::var("PLENORA_ENUM_DIRECTION")
+                    .is_ok_and(|filter| filter != format!("{direction:?}"))
+                {
+                    continue;
+                }
                 let expected = if direction == D::Write {
                     native_write_transport_rule(native, *element)
                 } else {
@@ -907,6 +923,23 @@ fn generated_product_requires_operational_evidence() {
             }
         }
     }
+    let keys: BTreeSet<_> = rows
+        .iter()
+        .map(|row| format!("{}:{}:{}", row["driver"], row["direction"], row["element"]))
+        .collect();
+    assert_eq!(keys.len(), rows.len(), "duplicate matrix cells");
+    if [
+        "PLENORA_LOSS_GROUP_A",
+        "PLENORA_ENUM_DRIVERS",
+        "PLENORA_ENUM_ELEMENTS",
+        "PLENORA_ENUM_DIRECTION",
+    ]
+    .iter()
+    .all(|key| std::env::var_os(key).is_none())
+    {
+        assert_eq!(rows.len(), DRIVERS.len() * NATIVE_ELEMENTS.len() * 2);
+    }
+    let discrepancies = rows.iter().filter(|row| row["status"] == "failed").count();
     let mut summary = BTreeMap::<String, BTreeMap<String, usize>>::new();
     let mut required_missing = 0;
     for row in &mut rows {
@@ -928,18 +961,17 @@ fn generated_product_requires_operational_evidence() {
                 .collect()
         });
         *counts.get_mut(outcome).unwrap() += 1;
-        if outcome == "missing"
-            && (row["direction"] == "Write" || group_a::owns(row["driver"].as_str().unwrap()))
-        {
+        if outcome == "missing" {
             required_missing += 1;
         }
     }
-    std::fs::write(root.join("summary.json"),serde_json::to_vec_pretty(&json!({"counts":summary,"required_scope_missing":required_missing,"scope":"all Write and group A native Read; group B native Read remains independently visible"})).unwrap()).unwrap();
+    std::fs::write(root.join("summary.json"),serde_json::to_vec_pretty(&json!({"counts":summary,"cells":rows.len(),"discrepancies":discrepancies,"required_scope_missing":required_missing,"scope":"all drivers, native Read and Arrow transport Write"})).unwrap()).unwrap();
     std::fs::write(
         root.join("coverage.json"),
         serde_json::to_vec_pretty(&rows).unwrap(),
     )
     .unwrap();
+    assert!(!rows.is_empty(), "driver filter selected no matrix cells");
     let remaining = rows
         .iter()
         .filter(|r| r["status"] != "passed" && r["status"] != "not-applicable")
@@ -960,13 +992,14 @@ fn generated_product_requires_operational_evidence() {
     }
     assert_eq!(
         required_missing, 0,
-        "missing evidence in all-writer/group-A-Read scope"
+        "missing evidence in full Read/Write scope"
     );
     let failed = remaining.len();
+    eprintln!("Enumeration artifacts: {}", root.display());
     assert_eq!(
         failed,
         0,
-        "{failed}/{} cells without successful evidence; target/s1h-generated/coverage.json",
+        "{failed}/{} cells without successful evidence; target/s1i-generated/coverage.json",
         rows.len()
     );
 }

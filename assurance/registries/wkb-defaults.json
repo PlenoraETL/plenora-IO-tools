@@ -84,5 +84,15 @@
   "test|crates/plenora-io-model/src/wkb/tests.rs::lossless_codec_roundtrips_every_concrete_canonical_type": 2,
   "test|crates/plenora-io-model/src/wkb/tests.rs::un_poligono_vuoto_fa_andata_e_ritorno": 1,
   "test|crates/plenora-io-model/src/wkb/tests.rs::xy_adapter_uses_lossless_ewkb_parser": 2,
-  "test|crates/plenora-io-model/src/wkb_lossless/tests.rs::un_membro_di_altre_dimensioni_e_malformato_nel_codec": 1
+  "test|crates/plenora-io-model/src/wkb_lossless/tests.rs::un_membro_di_altre_dimensioni_e_malformato_nel_codec": 1,
+  "test|crates/plenora-io-tools/tests/loss_enumeration/constraints.rs::rejection": 1,
+  "test|crates/plenora-io-tools/tests/loss_enumeration/generated.rs::compare": 1,
+  "test|crates/plenora-io-tools/tests/loss_enumeration/generated.rs::compare_geometry": 2,
+  "test|crates/plenora-io-tools/tests/loss_enumeration/group_b_dxf.rs::write": 1,
+  "test|crates/plenora-io-tools/tests/loss_enumeration/group_b_gpkg.rs::write": 1,
+  "test|crates/plenora-io-tools/tests/loss_enumeration/group_b_read.rs::exercise": 1,
+  "test|crates/plenora-io-tools/tests/loss_enumeration/group_b_read_parquet.rs::exercise": 1,
+  "test|crates/plenora-io-tools/tests/loss_enumeration/group_b_shp.rs::write": 1,
+  "test|crates/plenora-io-tools/tests/loss_enumeration/native.rs::exercise": 1,
+  "test|crates/plenora-io-tools/tests/loss_enumeration/native.rs::native_fixtures": 1
 }

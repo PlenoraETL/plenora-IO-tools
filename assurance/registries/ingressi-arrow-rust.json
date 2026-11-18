@@ -2040,15 +2040,7 @@
       "classificazione": "non riceve dati esterni",
       "motivazione": "Espansione riesaminata: enum e tabelle costanti di regole/quote; nessun parametro Arrow, alias o ingresso dati. Le funzioni rule/rules restituiscono soltanto costanti."
     },
-    "plenora-io-core/src/loss_table.rs::plenora_io_core::loss_table::bf041b5c63274b178fa6093d334280f5c3fe360428878f1dec82e858c33c50d4": {
-      "classificazione": "non riceve dati esterni",
-      "motivazione": "Espansione riesaminata: enum e tabelle costanti di regole/quote; nessun parametro Arrow, alias o ingresso dati. Le funzioni rule/rules restituiscono soltanto costanti."
-    },
     "plenora-io-model/src/error_table.rs::plenora_io_model::error_table::49d51213a03dcee27bdeb660588f46c40528a503ca2021ac8680c818c014e5fb": {
-      "classificazione": "non riceve dati esterni",
-      "motivazione": "Espansione riesaminata: enum e tabelle costanti di regole/quote; nessun parametro Arrow, alias o ingresso dati. Le funzioni rule/rules restituiscono soltanto costanti."
-    },
-    "plenora-io-model/src/error_table.rs::plenora_io_model::error_table::0ac893a3f218ff5526a3db7ee7279ff056b859996ba3f9fc5bb726ba22b71e39": {
       "classificazione": "non riceve dati esterni",
       "motivazione": "Espansione riesaminata: enum e tabelle costanti di regole/quote; nessun parametro Arrow, alias o ingresso dati. Le funzioni rule/rules restituiscono soltanto costanti."
     },
@@ -2059,6 +2051,14 @@
     "plenora-io-model/src/quota.rs::plenora_io_model::quota::68b45b2a33cd7ae3e10efafe4123d9172848c42a81e3eec1f0035b0e6f4c50d1": {
       "classificazione": "non riceve dati esterni",
       "motivazione": "Espansione riesaminata: enum e tabelle costanti di regole/quote; nessun parametro Arrow, alias o ingresso dati. Le funzioni rule/rules restituiscono soltanto costanti."
+    },
+    "plenora-io-core/src/loss_table.rs::plenora_io_core::loss_table::9354374855832fceec78a2000fcd2158693caab99043918893a5b8274d7dc816": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Espansione riesaminata: native_elements! genera NativeElement, NATIVE_ELEMENTS e rules(self)->[NativeRule;20]; rules! genera Situation, ERROR_RULES e rule(self)->ErrorRule. I token delle invocazioni sono soltanto regole costanti; nessun parametro Arrow, alias o ingresso dati esterni."
+    },
+    "plenora-io-model/src/error_table.rs::plenora_io_model::error_table::348e229050e8a81f3c7ef7c9267355474c3adc7fbc253a72a36d613154debd28": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Espansione riesaminata: native_elements! genera NativeElement, NATIVE_ELEMENTS e rules(self)->[NativeRule;20]; rules! genera Situation, ERROR_RULES e rule(self)->ErrorRule. I token delle invocazioni sono soltanto regole costanti; nessun parametro Arrow, alias o ingresso dati esterni."
     }
   },
   "reexports": {
@@ -2070,6 +2070,9 @@
     },
     "plenora-io-core/src/driver.rs::plenora_io_core::driver::pub use batch_worker :: { spawn_batch_reader , BatchEmitter } ;": {
       "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
+    },
+    "plenora-io-core/src/driver.rs::plenora_io_core::driver::pub use perdita_pianificata :: planned_write_loss ;": {
+      "motivazione": "Riesporta il planner condiviso gia classificato; accetta il piano con schemi, non buffer di celle."
     },
     "plenora-io-core/src/driver.rs::plenora_io_core::driver::pub use reader_adapters :: { with_batch_target , with_cancellation , with_read_budget , SingleReaderGate , } ;": {
       "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
@@ -2094,6 +2097,12 @@
     },
     "plenora-io-core/src/lib.rs::plenora_io_core::pub use request :: { effective_batch_rows , incremental_batch_memory_size , project_layer_contract , validate_read_projection , AdaptiveBatchSizer , BatchTarget , Bbox , ProjectionMode , PruningComparison , PruningPredicate , PruningScalar , ReadRequest , ReadScope , WriteLayer , WritePlan , } ;": {
       "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
+    },
+    "plenora-io-core/src/loss_table.rs::plenora_io_core::loss_table::pub use applicability :: { read_applicability , ReadApplicability } ;": {
+      "motivazione": "Riesportazione della classificazione di applicabilita Read e della relativa funzione; tipi scalari della matrice delle perdite, nessun ingresso Arrow."
+    },
+    "plenora-io-core/src/property_plan.rs::plenora_io_core::property_plan::pub use crate :: loss_table :: PROPERTIES ;": {
+      "motivazione": "Riesporta la tabella costante delle proprieta di trasporto dalla fonte comune; non introduce funzioni, alias Arrow o ingressi esterni."
     },
     "plenora-io-model/src/geometry.rs::plenora_io_model::geometry::pub use crs_metadata :: reconcile_crs_declarations ;": {
       "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
@@ -2122,20 +2131,14 @@
     "plenora-io-tools/src/busta.rs::plenora_io_tools::busta::pub use plenora_io_core :: loss :: MAX_BYTE_ID_CATEGORIA ;": {
       "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
     },
-    "plenora-io-tools/src/lib.rs::plenora_io_tools::pub use cli :: { parse , Cli } ;": {
+    "plenora-io-tools/src/lib.rs::plenora_io_tools::pub use capability :: capabilities_document ;": {
       "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
     },
-    "plenora-io-tools/src/lib.rs::plenora_io_tools::pub use capability :: capabilities_document ;": {
+    "plenora-io-tools/src/lib.rs::plenora_io_tools::pub use cli :: { parse , Cli } ;": {
       "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
     },
     "plenora-io-tools/src/runtime.rs::plenora_io_tools::runtime::# [doc = \" Il canale di cancellazione che l'applicazione passa a [`BindingRuntime::invoca`].\"] # [doc = \"\"] # [doc = \" Riesportato qui perche' un'applicazione che ospita il binding non debba\"] # [doc = \" dipendere da `plenora-io-model`, che e' un crate interno e instabile.\"] pub use plenora_io_model :: CancellationToken ;": {
       "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
-    },
-    "plenora-io-core/src/driver.rs::plenora_io_core::driver::pub use perdita_pianificata :: planned_write_loss ;": {
-      "motivazione": "Riesporta il planner condiviso gia classificato; accetta il piano con schemi, non buffer di celle."
-    },
-    "plenora-io-core/src/property_plan.rs::plenora_io_core::property_plan::pub use crate :: loss_table :: PROPERTIES ;": {
-      "motivazione": "Riesporta la tabella costante delle proprieta di trasporto dalla fonte comune; non introduce funzioni, alias Arrow o ingressi esterni."
     }
   },
   "correzione_2": {
