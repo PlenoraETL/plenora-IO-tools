@@ -26,7 +26,7 @@ from plenora_io._process import _nome_del_comando as comando
 from plenora_io._errors import _failure_from_envelope as failure_from_envelope
 
 BUSTA_ERRORE = (
-    '{"status": "error", "protocol_version": 1, '
+    '{"status": "error", "protocol_version": 2, '
     '"contract": "plenora-error-v1", "error": {"code": "FORMAT_ERROR", '
     '"category": "not_found", "phase": "read", "remote_effect": "none", '
     '"retry": {"kind": "never"}, "message": "niente da leggere"}}'
@@ -53,7 +53,7 @@ class LEsecutore(unittest.TestCase):
     # --- la strada che funziona -------------------------------------------
 
     def test_il_successo_si_legge_da_stdout(self) -> None:
-        runner = self.runner('print(json.dumps({"status": "ok", "result": {"a": 1}}))\n')
+        runner = self.runner('print(json.dumps({"status": "ok", "protocol_version": 2, "contract": "plenora-io-catalog-v2", "result": {"a": 1}}))\n')
         self.assertEqual(runner.run(["catalog"]), {"a": 1})
 
     def test_qualunque_cosa_su_stderr_con_successo_e_una_violazione(self) -> None:
@@ -78,7 +78,7 @@ class LEsecutore(unittest.TestCase):
             with self.subTest(rumore=rumore):
                 runner = self.runner(
                     f"print({rumore!r}, file=sys.stderr)\n"
-                    'print(json.dumps({"status": "ok", "result": {}}))\n'
+                    'print(json.dumps({"status": "ok", "protocol_version": 2, "contract": "plenora-io-catalog-v2", "result": {}}))\n'
                 )
                 with self.assertRaises(ProtocolError) as preso:
                     runner.run(["convert"])
@@ -92,19 +92,19 @@ class LEsecutore(unittest.TestCase):
         protocollo ammette, e deve restare verde -- se no la regola sarebbe
         «nessun successo passa», che e' un'altra cosa.
         """
-        muto = self.runner('print(json.dumps({"status": "ok", "result": {}}))\n')
+        muto = self.runner('print(json.dumps({"status": "ok", "protocol_version": 2, "contract": "plenora-io-catalog-v2", "result": {}}))\n')
         self.assertEqual(muto.run(["catalog"]), {})
 
         un_a_capo = self.runner(
             'sys.stderr.write("\\n")\n'
-            'print(json.dumps({"status": "ok", "result": {}}))\n'
+            'print(json.dumps({"status": "ok", "protocol_version": 2, "contract": "plenora-io-catalog-v2", "result": {}}))\n'
         )
         with self.assertRaises(ProtocolError):
             un_a_capo.run(["catalog"])
 
         uno_spazio = self.runner(
             'sys.stderr.write(" ")\n'
-            'print(json.dumps({"status": "ok", "result": {}}))\n'
+            'print(json.dumps({"status": "ok", "protocol_version": 2, "contract": "plenora-io-catalog-v2", "result": {}}))\n'
         )
         with self.assertRaises(ProtocolError):
             uno_spazio.run(["catalog"])
@@ -112,7 +112,7 @@ class LEsecutore(unittest.TestCase):
     def test_il_successo_pulito_resta_un_successo(self) -> None:
         """La controprova: senza, «stderr sporco e' un errore» sarebbe vero
         anche di un esecutore che rifiuta ogni successo."""
-        runner = self.runner('print(json.dumps({"status": "ok", "result": {"a": 1}}))\n')
+        runner = self.runner('print(json.dumps({"status": "ok", "protocol_version": 2, "contract": "plenora-io-catalog-v2", "result": {"a": 1}}))\n')
         self.assertEqual(runner.run(["catalog"]), {"a": 1})
 
     def test_stderr_sporco_e_rifiutato_anche_quando_il_comando_fallisce(self) -> None:
@@ -158,7 +158,7 @@ class LEsecutore(unittest.TestCase):
         self.assertIn("stato «error»", str(preso.exception))
 
     def test_un_successo_con_uscita_diversa_da_zero(self) -> None:
-        runner = self.runner('print(json.dumps({"status": "ok", "result": {}}))\nsys.exit(1)\n')
+        runner = self.runner('print(json.dumps({"status": "ok", "protocol_version": 2, "contract": "plenora-io-catalog-v2", "result": {}}))\nsys.exit(1)\n')
         with self.assertRaises(ProtocolError) as preso:
             runner.run(["catalog"])
         self.assertIn("porta una busta d'errore", str(preso.exception))
@@ -208,7 +208,7 @@ class LEsecutore(unittest.TestCase):
     def test_lo_stderr_non_entra_nel_messaggio(self) -> None:
         runner = self.runner(
             'print("valore-della-riga", file=sys.stderr)\n'
-            'print(json.dumps({"status": "ok", "result": {}}))\n'
+            'print(json.dumps({"status": "ok", "protocol_version": 2, "contract": "plenora-io-catalog-v2", "result": {}}))\n'
         )
         with self.assertRaises(ProtocolError) as preso:
             runner.run(["catalog"])
@@ -253,7 +253,7 @@ class LEsecutore(unittest.TestCase):
         _process._adesso = lambda: next(orologio, 2.0)
         try:
             runner = self.runner(
-                'print(json.dumps({"status": "ok", "result": {}}))\n', timeout=1.0
+                'print(json.dumps({"status": "ok", "protocol_version": 2, "contract": "plenora-io-catalog-v2", "result": {}}))\n', timeout=1.0
             )
             with self.assertRaises(ProtocolError) as preso:
                 runner.run(["catalog"])

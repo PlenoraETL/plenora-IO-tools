@@ -8,9 +8,9 @@ oggetti PyArrow o Arrow IPC al confine pubblico; l'IPC c'e' gia', e questo
 modulo aggiunge gli oggetti PyArrow sopra lo stesso confine, senza cambiarlo:
 
 * `Client.read_table()` legge in un file IPC temporaneo e lo restituisce come
-  `pa.Table`;
+  `TableRead`: `.table` è la `pa.Table`, `.result` conserva la busta;
 * `Client.write()` accetta, al posto del percorso, un oggetto che espone
-  `__arrow_c_stream__` -- `pa.Table`, `pa.RecordBatch`, `pa.RecordBatchReader`,
+  `__arrow_c_stream__` o `__arrow_c_array__` (RecordBatch Struct) -- `pa.Table`, `pa.RecordBatch`, `pa.RecordBatchReader`,
   o qualunque produttore della Arrow PyCapsule Interface -- e lo scrive in un
   file IPC temporaneo prima di passarlo alla CLI.
 

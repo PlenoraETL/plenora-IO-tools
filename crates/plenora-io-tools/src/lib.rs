@@ -741,9 +741,8 @@ const fn esito_di_pubblicazione(esito: PublishOutcome) -> &'static str {
 
 /// La forma di `io.read` che legge e **non** consegna.
 ///
-/// Non e' una lettura a meta': e' una lettura completa di cui si conserva il
-/// giudizio invece dei dati, ed e' il modo in cui si risponde a «questa
-/// sorgente si legge?» senza pagare il disco.
+/// Conserva il giudizio invece dei dati. Senza limite arriva a EOF; con
+/// limite valida il prefisso richiesto senza esaminare la coda.
 fn legge_senza_consegnare(
     cli: &Cli,
     ds: &dyn plenora_io_core::driver::OpenDatasetHandle,
@@ -1776,12 +1775,12 @@ fn messaggio_del_panico(payload: &(dyn std::any::Any + Send)) -> String {
 //    CLI promette redazione dei valori derivati dall'input.
 // 2. Il primo fix installava un hook che scriveva su stderr
 //    `[panic] impronta=... location=...`. La redazione era rispettata, ma
-//    la CLI promette anche "un solo documento JSON su stderr per errore".
+//    la CLI promette anche "un solo documento JSON su stdout per errore".
 //    Nel caso di panico caught dalla barriera `leggendo_arrow`, l'hook
 //    stampava una riga E la CLI stampava l'envelope JSON: due uscite.
 // 3. Questo fix silenzia il hook. Il wrapping `catch_unwind` in `main`
 //    intercetta i panici che sfuggono al `run()` e li converte in un
-//    unico envelope `plenora-io-error-v1` su stderr. La correlabilita' e'
+//    unico envelope `plenora-error-v1` su stdout. La correlabilita' e'
 //    preservata via l'impronta calcolata dentro l'envelope; il caso
 //    "panico caught dentro la libreria" resta invisibile perche' la
 //    libreria stessa produce gia' l'envelope corretto tramite

@@ -1,5 +1,16 @@
 # Prodotto — che cosa offre e che cosa promette
 
+<!-- generato da codice/versione: inizio -->
+
+Versione del prodotto: **10.0.0**.
+
+| Artefatto Python | Nome |
+| --- | --- |
+| wheel | plenora_io-10.0.0-py3-none-any.whl |
+| sdist | plenora_io-10.0.0.tar.gz |
+
+<!-- generato da codice/versione: fine -->
+
 Questo documento descrive la superficie che un consumatore vede: driver,
 opzioni, contratti pubblici e limiti. Come è costruita e come è verificata sta
 in [ENGINEERING.md](ENGINEERING.md); dove siamo nel percorso di rilascio sta in
@@ -9,18 +20,22 @@ in [ENGINEERING.md](ENGINEERING.md); dove siamo nel percorso di rilascio sta in
 
 ## I dieci driver
 
-| Driver | Direzione | Lettura nativa | Projection | Pruning | Reader concorrenti | Fedeltà | CRS | Feature |
-|---|---|---|---|---|---|---|---|---|
-| `csv` | R/W | sequenziale | esatta | — | multipli | condizionale | nessuno | — |
-| `geojson` | R/W | sequenziale | esatta | — | multipli | condizionale | WGS84 fisso | — |
-| `kml` | R/W | materializzata | — | — | uno attivo | condizionale | WGS84 fisso | — |
-| `shp` | R/W | sequenziale | esatta | — | multipli | condizionale | incorporato | — |
-| `gpkg` | R/W | ad accesso casuale | esatta | — | multipli | condizionale | incorporato | — |
-| `geoparquet` | R/W | ad accesso casuale | esatta | statistiche min/max numeriche | multipli | **lossless** | incorporato | — |
-| `ipc` | R/W | ad accesso casuale | esatta | — | multipli | **lossless** | incorporato | — |
-| `xls` | R/W | materializzata | — | — | uno attivo | condizionale | nessuno | — |
-| `dxf` | R/W | materializzata | — | — | uno attivo | **approssimante** | incorporato | — |
-| `filegdb` | R/W | sequenziale | esatta | — | uno attivo | condizionale | incorporato | `gdal-backend` |
+<!-- generato da codice/formati: inizio -->
+
+| Id | Estensioni | Direzione | Feature | Lettura nativa | Lettura effettiva | Pruning spaziale / predicati | Fedeltà | Tipi scrivibili |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| csv | ["csv"] | bidirectional | assente | streaming_sequential | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
+| dxf | ["dxf"] | bidirectional | assente | materialized | streaming_sequential | none / none | approximating | ["boolean","signed_integer","unsigned_integer","floating","utf8","binary","temporal","decimal"] |
+| filegdb | ["gdb"] | bidirectional | gdal-backend | streaming_sequential | materializing | none / none | conditional | ["signed_integer","floating","utf8"] |
+| geojson | ["geojson","json"] | bidirectional | assente | streaming_sequential | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
+| geoparquet | ["parquet"] | bidirectional | assente | streaming_random | streaming_columnar | bounding_box_statistics / numeric_min_max_statistics | lossless | ["boolean","signed_integer","unsigned_integer","floating","utf8","binary","temporal","decimal","nested","other"] |
+| gpkg | ["gpkg"] | bidirectional | assente | streaming_random | streaming_sequential | optional_rtree_index / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","binary"] |
+| ipc | ["arrow","arrows"] | bidirectional | assente | streaming_random | streaming_sequential | none / none | lossless | ["boolean","signed_integer","unsigned_integer","floating","utf8","binary","temporal","decimal","nested","other"] |
+| kml | ["kml"] | bidirectional | assente | materialized | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
+| shp | ["shp","shp.d"] | bidirectional | assente | streaming_sequential | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","binary","temporal","decimal"] |
+| xls | ["xlsx"] | bidirectional | assente | materialized | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
+
+<!-- generato da codice/formati: fine -->
 
 **Consegna e buffering sono uguali per tutti**: `operation_atomic` con buffering
 adattivo — memoria finché il budget lo consente, poi spool su disco. Un errore a
@@ -124,7 +139,7 @@ sul disco se il nostro muore a metà.
 
 | forma | chi la usa | garanzia |
 |---|---|---|
-| file singolo | `csv`, `geojson`, `kml`, `xlsx`, `dxf`, `gpkg`, `geoparquet`, `arrow` | un rename: il file c'è per intero o non c'è |
+| file singolo | `csv`, `geojson`, `kml`, `xls`, `dxf`, `gpkg`, `geoparquet`, `ipc` | un rename: il file c'è per intero o non c'è |
 | directory-dataset | `filegdb`, e `shp` con destinazione `*.shp.d` | un rename della directory: tutti i file insieme, o nessuno |
 | set di file sciolti | `shp` con destinazione `*.shp` | **non atomica**: fino a cinque rename in sequenza, con rollback best-effort |
 
@@ -213,7 +228,7 @@ attivi. Le directory continuano a essere pubblicate con un solo rename.
 |---|---|
 | **lossless** | il formato rappresenta il contratto senza perdita |
 | **condizionale** | la perdita dipende dal contratto, non dal formato: il CSV conserva i valori testuali; la perdita dello schema Arrow degli altri scalari è dichiarata |
-| **approssimante** | il formato approssima per costruzione. DXF tassella archi ed ellissi, esplode le geometrie multipart, rappresenta il testo come punto |
+| **approssimante** | l’esito osservato può approssimare anche un formato condizionale quando avviene una coercizione. DXF tassella archi ed ellissi, esplode le geometrie multipart, rappresenta il testo come punto |
 
 Ciò che si perde è dichiarato nel report di perdita, non taciuto, e il
 **contratto** di quel report è ratificato: vedi
@@ -222,8 +237,7 @@ Ciò che si perde è dichiarato nel report di perdita, non taciuto, e il
 ### Modalità di lettura nativa
 
 La modalità nativa è ciò che il formato consente; la modalità effettiva è
-sempre `streaming_sequential`, perché l'adapter comune impone l'atomicità
-operativa.
+indicata da `read_mode` nel catalogo. L’atomicità operativa è un asse distinto.
 
 * **sequenziale** — il file si legge in avanti una volta sola;
 * **ad accesso casuale** — il formato indicizza e consente di saltare;
@@ -246,17 +260,28 @@ raggiungere il driver, con categoria `invalid_configuration`, codice
 `plenora-io catalog` emette lo schema completo. Le opzioni con un default
 diverso da «assente»:
 
-| Driver | Chiave | Fase | Valore | Default |
-|---|---|---|---|---|
-| `csv` | `delimiter` | entrambe | un carattere ASCII | `,` |
-| `csv` | `geometry_encoding` | scrittura | `wkt` \| `xy` | `wkt` |
-| `csv` | `wkt_column` | lettura | testo | assente |
-| `xls` | `geometry_encoding` | scrittura | `wkt` \| `xy` | `wkt` |
-| `xls` | `wkt_column` | lettura | testo | assente |
-| `xls` | `sheet` | lettura | testo | primo worksheet visibile del workbook |
-| `shp` | `publish_mode` | scrittura | `shapefile_directory_dataset` \| `loose_shapefile_set` | nessuno: `*.shp.d` si deduce, `*.shp` va accettata |
-| `shp` | diagnostica di riga e nomi DBF | | | vedi catalogo |
-| `geoparquet` | opzioni di scrittura | | | vedi catalogo |
+<!-- generato da codice/opzioni: inizio -->
+
+| Driver | Chiave | Fase | Dominio | Default | Significato |
+| --- | --- | --- | --- | --- | --- |
+| csv | delimiter | both | char | , | separatore di campo ASCII, esclusi virgolette, CR e LF |
+| csv | geometry_encoding | write | {"enum":["wkt","xy"]} | wkt | come scrivere la geometria: colonna WKT o colonne x/y |
+| csv | wkt_column | read | text | assente | colonna che contiene la geometria in WKT |
+| csv | x_column | read | text | assente | colonna dell'ascissa, da usare insieme a y_column |
+| csv | y_column | read | text | assente | colonna dell'ordinata, da usare insieme a x_column |
+| geoparquet | compression | write | {"enum":["brotli","gzip","lz4","none","snappy","uncompressed","zstd"]} | snappy | codec di compressione delle pagine |
+| ipc | serialization | write | {"enum":["file","stream"]} | file | serializzazione IPC: contenitore `file` con footer, o flusso `stream` |
+| shp | publish_mode | write | {"enum":["shapefile_directory_dataset","loose_shapefile_set"]} | assente | forma di pubblicazione; .shp.d si deduce, .shp va accettata |
+| shp | row_diagnostics.examples_limit | read | {"integer":{"max":64,"min":1}} | 64 | numero massimo di righe di esempio per diagnostica |
+| shp | row_diagnostics.key_field | read | text | assente | campo DBF usato come chiave nelle diagnostiche di riga |
+| shp | row_diagnostics.key_policy | read | {"enum":["emit","redact"]} | assente | se emettere o redigere la chiave; richiede row_diagnostics.key_field |
+| xls | geometry_encoding | write | {"enum":["wkt","xy"]} | wkt | come scrivere la geometria: colonna WKT o colonne x/y |
+| xls | sheet | read | text | assente | nome del foglio da leggere; in assenza, il primo |
+| xls | wkt_column | read | text | assente | colonna che contiene la geometria in WKT |
+| xls | x_column | read | text | assente | colonna dell'ascissa, da usare insieme a y_column |
+| xls | y_column | read | text | assente | colonna dell'ordinata, da usare insieme a x_column |
+
+<!-- generato da codice/opzioni: fine -->
 
 I driver senza opzioni dichiarate non ne accettano: passarne una è un errore di
 configurazione, non un valore ignorato.
@@ -769,56 +794,52 @@ La superficie con garanzia di compatibilità è **il JSON della CLI**. L'API Rus
 
 ### Le buste
 
-| Comando | Contratto | Fonte del nome |
-|---|---|---|
-| errori | `plenora-error-v1` | ERRORS-1.0 |
-| `catalog` | `plenora-io-catalog-v1` | catalogo comune |
-| `inspect` | `plenora-io-inspect-v1` | catalogo comune |
-| `layers` | `plenora-io-layers-v1` | catalogo comune |
-| `read` | `plenora-io-read-result-v1` | catalogo comune |
-| `write` | `plenora-io-write-result-v1` | catalogo comune |
-| `convert` | `plenora-io-convert-v1` | catalogo comune |
-| `capabilities` | `plenora-capabilities-v2` | CAPABILITY-DISCOVERY-2.0 |
-| `--version` | `plenora-io-version-v2` | nessuna |
+<!-- generato da codice/buste: inizio -->
 
-La colonna della fonte non è decorativa: dove un contratto fissato assegna già
-un identificatore, quello **è** il nome, e non c'è niente da scegliere. Due
-righe smentiscono la somiglianza — `read` rende `-read-result-v1` perché il
-catalogo distingue l'ingresso dall'uscita, e l'errore è `plenora-error-v1`
-**senza** `io` perché i fallimenti pubblici mappano sul contratto d'errore
-comune — ed è la ragione per cui il registro sta in
-`contracts/nomi-dei-contratti.json` e un gate lo confronta con il checkout
-fissato invece di fidarsi della forma dei nomi.
+| Comando | Contratto | Protocollo |
+| --- | --- | --- |
+| catalog | plenora-io-catalog-v2 | 2 |
+| inspect | plenora-io-inspect-v1 | 2 |
+| layers | plenora-io-layers-v1 | 2 |
+| read | plenora-io-read-result-v2 | 2 |
+| write | plenora-io-write-result-v2 | 2 |
+| convert | plenora-io-convert-v1 | 2 |
+| capabilities | plenora-capabilities-v2 | 2 |
+| --version | plenora-io-version-v2 | 2 |
+| errori | plenora-error-v1 | 2 |
 
-`--version` è l'unica riga senza una fonte: non è un'operazione del catalogo ma
-una superficie di scoperta della CLI, quindi il nome resta nostro ed è l'unico
-caso in cui il suffisso `v2` significa ancora il protocollo.
+<!-- generato da codice/buste: fine -->
 
-### `plenora-io-error-v1`
+Il contratto identifica la struttura dell’operazione, mentre `protocol_version`
+identifica la busta comune. I due numeri di versione sono indipendenti.
+Il blocco è ricavato dai nomi emessi dal codice, inclusi versione ed errori.
 
-L'oggetto `error` porta **esattamente sei chiavi**:
+### `plenora-error-v1`
+
+L'oggetto `error` porta **sei chiavi obbligatorie**; `details` è la settima quando sono
+presenti dettagli strutturati (per esempio la diagnostica di riga):
 
 ```json
 {
   "status": "error",
-  "protocol_version": 1,
-  "contract": "plenora-io-error-v1",
+  "protocol_version": 2,
+  "contract": "plenora-error-v1",
   "error": {
     "category": "...",
     "phase": "...",
     "remote_effect": "...",
     "retry": { "kind": "..." },
     "code": "...",
-    "message": "..."
+    "message": "...",
+    "details": {}
   }
 }
 ```
 
-`row_diagnostics` è l'unico campo opzionale, presente quando si osservano
-rifiuti per riga.
+`error.details.row_diagnostics` è presente quando si osservano rifiuti per riga.
+`details` può contenere anche `driver`, `field` e `capability_reason`.
 
-I campi `driver`, `field` e `capability_reason` esistono nel tipo Rust e **non
-sul wire**.
+I dettagli strutturati conservano il contesto senza inserirlo nel messaggio.
 
 ### Il quartetto è la chiave di compatibilità
 
@@ -874,7 +895,7 @@ non esiste una conversione da `String` — e i nomi non attestabili sono
 **rifiutati**, non troncati.
 
 `ErrorContext` porta driver, campo e ragione di capability accanto all'errore,
-per il chiamante Rust. Nessuno dei tre raggiunge il wire v1.
+per il chiamante Rust; sul wire corrente il contesto strutturato entra in `error.details`.
 
 ### Budget e limiti
 
@@ -882,17 +903,28 @@ Un'operazione riceve un `PipelineBudget` che porta i limiti e un **permit di
 input**, consumato per `move`: la stessa sorgente non può essere osservata due
 volte.
 
-| Limite | Governa |
-|---|---|
-| `max_rows`, `max_columns` | cardinalità del contratto e dello stream |
-| `max_input_bytes`, `max_input_entries` | il footprint della sorgente, prima di aprirla |
-| `max_output_bytes`, `output_expansion_ratio` | byte della destinazione e rapporto con la sorgente osservata; con i default il rapporto non restringe il tetto assoluto, per ammettere anche l'overhead fisso dei contenitori piccoli |
-| `memory_bytes` | la memoria della pipeline. **Non** è la soglia dello spool: quella è la metà della capacità effettiva, e l'altra metà resta al batch in materializzazione |
-| `spill_bytes` | i byte che lo spool può scrivere sul file temporaneo |
-| `duration_ms` | la deadline dell'operazione, dalla costruzione del budget |
-| `max_wkb_cell_bytes`, `max_wkb_components`, `max_wkb_depth`, `max_vertices` | ogni geometria, in lettura e in scrittura; `max_vertices` stringe il conteggio di coordinate e membri |
-| `max_geometry_components` | totale dei componenti geometrici dell'operazione |
-| `decompression_ratio` | il rapporto fra byte dichiarati e byte compressi negli archivi |
+<!-- generato da codice/quote: inizio -->
+
+| Flag / campo | Default | Unità | Ambito | Fasi |
+| --- | --- | --- | --- | --- |
+| --max-input-bytes | 268435456 | byte | totale sorgente e spool dei decoder | ["read"] |
+| --max-input-entries | 10000 | entry | totale sorgente | ["read"] |
+| --max-rows | 10000000 | righe | totale operazione | ["read","write"] |
+| --max-columns | 4096 | colonne | schema layer e totale del piano di scrittura | ["validate","prepare","read","write"] |
+| --max-geometry-components | 16777216 | componenti | totale operazione | ["read","write"] |
+| --max-output-bytes | 1073741824 | byte | totale operazione | ["read","write","finalize","commit"] |
+| --output-expansion-ratio | 1073741824 | moltiplicatore | uscita / ingresso osservato non vuoto | ["read","write","finalize","commit"] |
+| --max-wkb-cell-bytes | 67108864 | byte | per geometria | ["read","write"] |
+| --max-wkb-components | 100000 | componenti | per geometria | ["read","write"] |
+| --max-wkb-depth | 32 | livelli | per geometria | ["read","write"] |
+| --max-vertices | 50000000 | componenti (coordinate e membri) | per geometria; alias storico che stringe max_wkb_components | ["read","write"] |
+| --memory-bytes | 536870912 | byte | memoria viva pipeline e pool | ["prepare","read","write","finalize"] |
+| --spill-bytes | 4294967296 | byte | spill vivo pipeline e pool | ["read","write","finalize"] |
+| --decompression-ratio | 1000 | moltiplicatore | totale archivio compresso | ["read"] |
+| concurrent_operations | 64 | operazioni | pool condiviso | ["prepare","read","write"] |
+| --deadline-ms | 30000 | ms | operazione; scadenza distinta dalle quote | timeout |
+
+<!-- generato da codice/quote: fine -->
 
 I limiti si applicano **prima** dell'allocazione che dovrebbero impedire. Un
 tetto verificato dopo aver materializzato la cella non è un tetto.
@@ -908,7 +940,7 @@ La deadline conserva la categoria `timeout`.
 
 | | |
 |---|---|
-| **vincolante** | il contratto e la `protocol_version` di ciascuna busta; l'insieme delle chiavi di `plenora-io-error-v1`; il quartetto degli errori |
+| **vincolante** | il contratto e la `protocol_version` di ciascuna busta; l'insieme delle chiavi di `plenora-error-v1`; il quartetto degli errori |
 | **non vincolante** | il testo di `message`; l'ordine delle chiavi; l'API Rust |
 | **cambio breaking** | rimuovere o rinominare una chiave, cambiare un valore del quartetto per un sito esistente, cambiare la semantica di un codice |
 
@@ -959,7 +991,7 @@ per i nuovi rifiuti e la migrazione dalla 7.x. La matrice interop e le campagne
 | tutti: `max_wkb_depth` | la profondità di GEO-011 (32) non è una quota: il parser la applica qualunque sia la configurazione, e `max_wkb_depth` (`--max-wkb-depth`, budget runtime) può solo stringerla. Un valore oltre 32 si rifiuta alla validazione dei limiti (`invalid_configuration/CLI_USAGE`) invece di restare un flag senza effetto; il default passa da 64 a 32. Hazard: una configurazione che chiedeva 64 ora fallisce. Prove: `geo_011_l_annidamento_si_ferma_a_32_qualunque_sia_il_tetto`, `max_wkb_depth_oltre_il_contratto_si_rifiuta` |
 | CRS: PROJJSON (GEO-005) | gli identificatori di un PROJJSON si leggono con un lettore dedicato che replica `json.loads` con i ganci dell'oracolo: numeri di qualunque grandezza (`1e400`), surrogati isolati, codici `-0` (vale `0`) o oltre `u64`, qualunque annidamento. Restano tre differenze, dove l'oracolo in CPython non dà un verdetto perché si ferma con un'eccezione dell'interprete e non con `Malformed`: `RecursionError` oltre circa mille livelli, `ValueError` per un intero di più di 4300 cifre, `decimal.InvalidOperation` per un decimale con un esponente oltre i limiti di `decimal` (`9e9999999999999999999999999999`). Lì IO dà il verdetto della grammatica, perché legge i numeri come testo senza valutarli: il documento è ben formato, un intero lungo è un codice valido, un decimale -- con qualunque esponente -- come `code` è malformato e altrove è un valore qualunque (prove `projjson_*` in `crs_definizione/tests.rs`). **Memoria**: lineare nei byte del documento con un fattore dichiarato -- un byte per contenitore aperto, 16 byte per chiave di un oggetto aperto (liberati alla sua chiusura), della radice soltanto `id` e `ids` e di ogni identificatore soltanto `authority` e `code`, in UTF-8. Fino alla 5.0.1 la verifica teneva un `HashSet` per oggetto aperto e 48 byte per contenitore, e la lettura materializzava ogni membro della radice fino al terzo livello. Misurato in release su documenti di 16 MiB, picco delle allocazioni prima e dopo: 403 MB e 8 MB (`{"a":` e 8 milioni di `[`), 591 MB e 71 MB (3,3 milioni di `{"":` annidati, il caso peggiore: 4,3 volte i byte a 16 MiB, fino a circa 6,8 volte su dimensioni dove le capacità dei vettori raddoppiano appena oltre il necessario, con un tetto assoluto di circa 71 MB fino a 16 MiB), 277 MB e meno di 1 KB (8 milioni di numeri in una lista), 170 MB e 34 MB (2,4 milioni di chiavi in un oggetto), 233 MB e 56 MB (600 mila `ids`, quasi tutto il risultato). Il documento è già limitato dai byte del metadato che lo porta. Il doppione di chiave si cerca alla chiusura dell'oggetto, su impronte SipHash a chiavi casuali e con il confronto esatto delle sole chiavi di impronta uguale: il verdetto non dipende dall'impronta (prova `le_impronte_uguali_non_cambiano_il_verdetto`). Lo **SRID** ricavato da un PROJJSON (`definition_authority_srid`, usato dalle capability e dal confronto delle rappresentazioni nel `LossReport`) usa ora lo stesso lettore: un codice numerico è un intero, un codice stringa è testo e vale solo se canonico, come nel WKT. Fino alla 5.0.1 una stringa passava da `str::parse`, e `"04326"` o `"+4326"` davano 4326 mentre lo stesso codice in un WKT non dava SRID (prova `definition_authority_srid_projjson_distingue_il_numero_dalla_stringa`). Gli **altri** usi di un PROJJSON in IO -- l'ordine degli assi dichiarato verso un formato con l'est prima, il documento `crs` di GeoParquet -- leggono ancora con `serde_json` senza `arbitrary_precision`: per un documento con un numero oltre `f64`, un surrogato isolato o più di 128 livelli l'ordine resta `unknown`, e GeoParquet tratta la definizione come una che non è PROJJSON (come un WKT): con `EPSG:4326` o `OGC:CRS84` omette il `crs`, che per il formato vale CRS84, e dalla rilettura 10 dichiara la definizione perduta (`crs_definition_not_preserved_absent`), dalla rilettura 11 con `EPSG:4326` anche l'identificatore (`crs_id_not_preserved_absent`), altrimenti rifiuta con `unsupported`. Quando invece il documento si scrive, si scrive e si rilegge con i suoi byte (`RawValue`): `serde_json` serve a validarlo, non a riscriverlo. Hazard: nessun risultato sbagliato, un rifiuto o un'informazione in meno. Rientro: portare quei due usi sul lettore dedicato. Prove: `projjson_*` in `crs_definizione/tests.rs` |
 | CRS: spazi e maiuscole | lo spazio della grammatica di `crs_id` (GEO-016) e del WKT è `str.isspace()` di Python 3.11 (Unicode 14), scritto come elenco chiuso: il `White_Space` di Unicode più U+001C..U+001F. Le autorità si confrontano ASCII case-insensitive, come scrivono GEO-005 e GEO-020, anche nella lettura di `gpkg_spatial_ref_sys`: `EPſG` (U+017F) è un'altra autorità. L'oracolo al pin 3aec9f7 usa `str.upper()` e qui diverge; la correzione dell'oracolo è plenora-contracts #53, e nessun vettore copre il caso. Hazard: nessuno per autorità ASCII. Prove: `lo_spazio_e_quello_di_python`, `l_autorita_si_confronta_solo_in_ascii`, `reader_uppercases_the_organization_in_ascii_only` |
-| GeoPackage: codice CRS non canonico | `srs_id` e `organization_coordsys_id` sono interi: un `crs_id` il cui codice non è un intero canonico (`EPSG:04326`, `EPSG:+4326`) non ha un intero che lo rappresenti senza cambiarne l'identità (GEO-005 confronta i codici come testo), e si rifiuta con `crs` prima di creare la destinazione. Fino alla 5.x diventava 4326 e si rileggeva `EPSG:4326`. Lo stesso vale per lo SRID ricavato da un identificatore (`authority_srid`, GeoParquet) e per un codice **stringa** di un `AUTHORITY` WKT: `"04326"` non diventa 4326; un codice **numerico** resta un intero, come per l'oracolo. Hazard: un identificatore così non si scrive in GeoPackage. Prove: `gpkg_rifiuta_un_codice_non_canonico_invece_di_cambiarne_l_identita`, `authority_srid_solo_per_un_codice_canonico` |
+| GeoPackage: codice CRS non canonico | `srs_id` e `organization_coordsys_id` sono interi: un `crs_id` il cui codice non è un intero canonico (`EPSG:04326`, `EPSG:+4326`) non ha un intero che lo rappresenti senza cambiarne l'identità (GEO-005 confronta i codici come testo), e si rifiuta con `unsupported/validate` prima di creare la destinazione. Fino alla 5.x diventava 4326 e si rileggeva `EPSG:4326`. Lo stesso vale per lo SRID ricavato da un identificatore (`authority_srid`, GeoParquet) e per un codice **stringa** di un `AUTHORITY` WKT: `"04326"` non diventa 4326; un codice **numerico** resta un intero, come per l'oracolo. Hazard: un identificatore così non si scrive in GeoPackage. Prove: `gpkg_rifiuta_un_codice_non_canonico_invece_di_cambiarne_l_identita`, `authority_srid_solo_per_un_codice_canonico` |
 | FileGDB | richiede `gdal-backend`. Senza, ogni chiamata fallisce come capability mancante |
 | FileGDB | **si apre con il solo driver GDAL `OpenFileGDB`.** Una directory `.gdb` che GDAL saprebbe aprire con un altro driver (per esempio una directory di CSV) è rifiutata invece di essere letta con le regole di un altro formato (prova `una_directory_gdb_che_non_e_un_filegdb_non_si_apre`). Un layer con più campi geometrici resta enumerato, ne dichiara il numero in `native_metadata["filegdb.geometry_field_count"]`, e la sua lettura è rifiutata con `unsupported` (GEO-012; prova `piu_campi_geometrici_rendono_il_layer_non_supportato`): prima si prendeva il primo campo e gli altri sparivano. Rientra con un contratto multi-geometria per layer |
 | GeoPackage | **una sola colonna geometrica per feature table.** Una tabella con più righe in `gpkg_geometry_columns` è rifiutata all'apertura con `unsupported`, exit 3 (GeoPackage requisito 30; prova `due_colonne_geometriche_per_la_stessa_tabella_sono_rifiutate`): prima ogni riga diventava un layer con lo stesso nome, e in ciascuno l'altra geometria usciva come BLOB. «La stessa tabella» e «la colonna geometrica» si giudicano come li risolve SQLite, senza distinzione di maiuscole ASCII: `features` e `FEATURES` in `gpkg_contents` sono una tabella sola (il join con `gpkg_geometry_columns` usa `NOCASE`), e un `column_name` `GEOM` è la colonna `geom`. Fino alla 5.0.1 il confronto era esatto: la stessa tabella si apriva come due layer, e una colonna geometrica dichiarata con altre maiuscole usciva una seconda volta come attributo binario (prove `due_geometrie_sotto_nomi_di_tabella_che_differiscono_per_maiuscole_sono_rifiutate`, `la_colonna_geometrica_si_riconosce_come_la_riconosce_sqlite`). Hazard: il rifiuto chiude l'intero file, anche le altre tabelle. Vincolo del formato: requisito 30, una geometria per tabella o vista; nessuna suddivisione automatica in altre tabelle |
@@ -1431,3 +1463,863 @@ I tipi Arrow `LargeUtf8`/`Utf8View`, `LargeBinary`/`BinaryView` e
 `utf8`, `binary` e `nested`, come i tipi base. Un writer che non li rappresenta
 usa la situazione `UnrepresentableWriteType`, con un messaggio che nomina la
 classe, senza riportare valori della cella.
+
+
+## Tabelle operative verificate
+
+<!-- generato da codice/uscite: inizio -->
+
+| Categoria | Exit |
+| --- | --- |
+| successo | 0 |
+| invalid_plan | 2 |
+| invalid_configuration | 2 |
+| schema | 3 |
+| data_mapping | 3 |
+| crs | 3 |
+| unsupported | 3 |
+| resource_limit | 4 |
+| io | 5 |
+| not_found | 5 |
+| conflict | 5 |
+| protocol | 5 |
+| authentication | 5 |
+| authorization | 5 |
+| timeout | 5 |
+| transient | 5 |
+| execution | 6 |
+| internal | 70 |
+| cancelled | 130 |
+
+<!-- generato da codice/uscite: fine -->
+
+<!-- generato da codice/errori: inizio -->
+
+| Situazione | Categoria | Fase | Codice | Exit | Messaggio |
+| --- | --- | --- | --- | --- | --- |
+| MissingSource | not_found | read | SOURCE_NOT_FOUND | 5 | sorgente o membro obbligatorio del dataset non trovato |
+| InvalidContent | data_mapping | read | FORMAT_ERROR | 3 | contenuto del dataset vuoto o non valido |
+| DirectoryInsteadOfFile | invalid_configuration | validate | CLI_USAGE | 2 | la sorgente deve essere un file, non una directory |
+| InvalidConfiguration | invalid_configuration | validate | CLI_USAGE | 2 | configurazione non valida |
+| MissingOptionColumn | invalid_configuration | validate | CLI_USAGE | 2 | colonna indicata nelle opzioni non presente |
+| ContradictedCrs | crs | validate | CRS_CONFLICT | 3 | il CRS assunto contraddice quello dichiarato |
+| MissingGeometry | unsupported | write | UNSUPPORTED | 3 | il formato di destinazione richiede una geometria |
+| UnrepresentableWriteType | unsupported | write | UNSUPPORTED | 3 | tipo non rappresentabile nel formato di destinazione |
+| NonFiniteWriteValue | data_mapping | write | FORMAT_ERROR | 3 | valore non finito non rappresentabile in scrittura |
+| ReadMemoryExceeded | resource_limit | read | LIMIT_EXCEEDED | 4 | memory_bytes quota superata |
+| IneffectiveCrsAssumption | invalid_configuration | validate | CLI_USAGE | 2 | --assume-crs senza effetto: il layer non contiene geometrie |
+| MissingLayer | not_found | prepare | NO_LAYER | 5 | layer richiesto non presente |
+| InvalidQuota | invalid_configuration | validate | CLI_USAGE | 2 | le quote devono essere positive e coerenti |
+| InvalidSpillDirectory | invalid_configuration | validate | CLI_USAGE | 2 | PLENORA_SPILL_DIR non indica una directory utilizzabile |
+| MissingWriteBackend | unsupported | write | UNSUPPORTED | 3 | scrittura FileGDB non disponibile: compilare con --features gdal-backend |
+
+<!-- generato da codice/errori: fine -->
+
+<!-- generato da codice/perdite: inizio -->
+
+Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara la trasformazione indicata.
+
+| Driver | Elemento | Lettura | Scrittura |
+| --- | --- | --- | --- |
+| csv | NullGeometry | Preserved | Preserved |
+| csv | EmptyPoint | Preserved | Preserved |
+| csv | SignedZero | Preserved | Preserved |
+| csv | Subtypes | Rejected | Rejected |
+| csv | Aliases | Rejected | Rejected |
+| csv | Domains | Rejected | Rejected |
+| csv | TextStyle | Rejected | Rejected |
+| csv | PaperSpace | Rejected | Rejected |
+| csv | Xdata | Rejected | Rejected |
+| csv | Width | Rejected | Rejected |
+| csv | Thickness | Rejected | Rejected |
+| csv | Lineweight | Rejected | Rejected |
+| csv | Linetype | Rejected | Rejected |
+| csv | Color | Rejected | Rejected |
+| csv | Handle | Rejected | Rejected |
+| csv | DbfDate | Rejected | Rejected |
+| csv | Utf8 | Preserved | Preserved |
+| csv | Null | Preserved | Preserved |
+| csv | EmptyString | Preserved | Preserved |
+| csv | SignedInteger | Transformed(Inference) | Transformed(ArrowCoercion) |
+| csv | UnsignedInteger | Transformed(Inference) | Transformed(ArrowCoercion) |
+| csv | Floating | Transformed(Inference) | Transformed(ArrowCoercion) |
+| csv | Boolean | Preserved | Transformed(ArrowCoercion) |
+| csv | Binary | Rejected | Rejected |
+| csv | Decimal | Rejected | Rejected |
+| csv | Temporal | Transformed(Inference) | Transformed(ArrowCoercion) |
+| csv | NestedDictionary | Rejected | Rejected |
+| csv | FieldNames | Transformed(FieldNames) | Transformed(FieldNames) |
+| csv | NotNull | Preserved | Transformed(NotNull) |
+| csv | FieldOrder | Transformed(FieldOrder) | Transformed(FieldOrder) |
+| csv | SchemaMetadata | Preserved | Transformed(ArrowMetadata) |
+| csv | FieldMetadata | Preserved | Transformed(ArrowMetadata) |
+| csv | NativeMetadata | Preserved | Transformed(ArrowMetadata) |
+| csv | Z | Preserved | Preserved |
+| csv | M | Preserved | Preserved |
+| csv | Dimensions | Preserved | Preserved |
+| csv | GeometryType | Preserved | Preserved |
+| csv | RingOrientation | Preserved | Preserved |
+| csv | EmptyGeometry | Preserved | Preserved |
+| csv | CoordinatePrecision | Transformed(NumberPrecision) | Preserved |
+| csv | CrsId | Preserved | Transformed(CrsIdAbsent) |
+| csv | CrsDefinition | Preserved | Transformed(CrsDefinition) |
+| csv | FeatureId | Preserved | Preserved |
+| csv | Bbox | Rejected | Rejected |
+| csv | ForeignMembers | Rejected | Rejected |
+| csv | LayerMetadata | Rejected | Rejected |
+| csv | Styles | Rejected | Rejected |
+| csv | Hierarchy | Rejected | Rejected |
+| csv | Extensions | Rejected | Rejected |
+| csv | ExternalReference | Rejected | Rejected |
+| csv | ExtendedData | Rejected | Rejected |
+| csv | FeatureMetadata | Rejected | Rejected |
+| csv | AltitudeMode | Rejected | Rejected |
+| csv | Inference | Transformed(Inference) | Transformed(Inference) |
+| csv | NumberPrecision | Transformed(NumberPrecision) | Preserved |
+| csv | StructuredValue | Rejected | Rejected |
+| csv | MissingValue | Rejected | Rejected |
+| csv | CoordinateColumns | Transformed(FieldNames) | Transformed(FieldNames) |
+| csv | NumericFormat | Rejected | Rejected |
+| csv | Formula | Rejected | Rejected |
+| csv | FormulaCache | Rejected | Rejected |
+| csv | Identifier | Rejected | Rejected |
+| csv | Description | Rejected | Rejected |
+| csv | DataColumns | Rejected | Rejected |
+| csv | SqlConstraints | Rejected | Rejected |
+| csv | ContractVersion | Preserved | Transformed(ArrowMetadata) |
+| csv | FieldIdentity | Preserved | Transformed(ArrowMetadata) |
+| csv | TypesDeclaration | Preserved | Transformed(ArrowMetadata) |
+| csv | GeometryEncoding | Preserved | Transformed(ArrowMetadata) |
+| csv | SpatialSemantics | Preserved | Transformed(ArrowMetadata) |
+| csv | Precision | Preserved | Transformed(ArrowMetadata) |
+| csv | Srid | Preserved | Transformed(ArrowMetadata) |
+| csv | CrsResolution | Preserved | Transformed(ArrowMetadata) |
+| csv | DefinitionFormat | Preserved | Transformed(ArrowMetadata) |
+| csv | AxisOrder | Preserved | Transformed(ArrowMetadata) |
+| csv | PrimaryGeometry | Preserved | Transformed(ArrowMetadata) |
+| csv | ExtensionName | Preserved | Transformed(ArrowMetadata) |
+| csv | ExtensionMetadata | Preserved | Transformed(ArrowMetadata) |
+| csv | UnknownDimensions | Preserved | Preserved |
+| csv | Covering | Rejected | Rejected |
+| shp | NullGeometry | Preserved | Preserved |
+| shp | EmptyPoint | Preserved | Preserved |
+| shp | SignedZero | Preserved | Preserved |
+| shp | Subtypes | Rejected | Rejected |
+| shp | Aliases | Rejected | Rejected |
+| shp | Domains | Rejected | Rejected |
+| shp | TextStyle | Rejected | Rejected |
+| shp | PaperSpace | Rejected | Rejected |
+| shp | Xdata | Rejected | Rejected |
+| shp | Width | Rejected | Rejected |
+| shp | Thickness | Rejected | Rejected |
+| shp | Lineweight | Rejected | Rejected |
+| shp | Linetype | Rejected | Rejected |
+| shp | Color | Rejected | Rejected |
+| shp | Handle | Rejected | Rejected |
+| shp | DbfDate | Transformed(ArrowCoercion) | Transformed(ArrowCoercion) |
+| shp | Utf8 | Preserved | Preserved |
+| shp | Null | Preserved | Preserved |
+| shp | EmptyString | Rejected | Rejected |
+| shp | SignedInteger | Transformed(Inference) | Transformed(ArrowCoercion) |
+| shp | UnsignedInteger | Rejected | Transformed(ArrowCoercion) |
+| shp | Floating | Preserved | Transformed(ArrowCoercion) |
+| shp | Boolean | Preserved | Preserved |
+| shp | Binary | Rejected | Transformed(ArrowCoercion) |
+| shp | Decimal | Rejected | Transformed(ArrowCoercion) |
+| shp | Temporal | Transformed(ArrowCoercion) | Transformed(ArrowCoercion) |
+| shp | NestedDictionary | Rejected | Rejected |
+| shp | FieldNames | Preserved | Transformed(FieldNames) |
+| shp | NotNull | Preserved | Transformed(NotNull) |
+| shp | FieldOrder | Transformed(FieldOrder) | Transformed(FieldOrder) |
+| shp | SchemaMetadata | Preserved | Transformed(ArrowMetadata) |
+| shp | FieldMetadata | Preserved | Transformed(ArrowMetadata) |
+| shp | NativeMetadata | Preserved | Transformed(ArrowMetadata) |
+| shp | Z | Preserved | Preserved |
+| shp | M | Preserved | Preserved |
+| shp | Dimensions | Preserved | Preserved |
+| shp | GeometryType | Transformed(GeometryType) | Transformed(GeometryType) |
+| shp | RingOrientation | Preserved | Transformed(RingOrientation) |
+| shp | EmptyGeometry | Rejected | Rejected |
+| shp | CoordinatePrecision | Preserved | Preserved |
+| shp | CrsId | Preserved | Transformed(CrsId) |
+| shp | CrsDefinition | Preserved | Transformed(CrsDefinition) |
+| shp | FeatureId | Transformed(FeatureId) | Transformed(ArrowMetadata) |
+| shp | Bbox | Transformed(Bbox) | Transformed(ArrowMetadata) |
+| shp | ForeignMembers | Rejected | Transformed(ArrowMetadata) |
+| shp | LayerMetadata | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
+| shp | Styles | Rejected | Transformed(ArrowMetadata) |
+| shp | Hierarchy | Rejected | Rejected |
+| shp | Extensions | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
+| shp | ExternalReference | Rejected | Rejected |
+| shp | ExtendedData | Rejected | Rejected |
+| shp | FeatureMetadata | Rejected | Rejected |
+| shp | AltitudeMode | Rejected | Rejected |
+| shp | Inference | Transformed(Inference) | Preserved |
+| shp | NumberPrecision | Preserved | Preserved |
+| shp | StructuredValue | Rejected | Rejected |
+| shp | MissingValue | Preserved | Preserved |
+| shp | CoordinateColumns | Rejected | Rejected |
+| shp | NumericFormat | Rejected | Rejected |
+| shp | Formula | Rejected | Rejected |
+| shp | FormulaCache | Rejected | Rejected |
+| shp | Identifier | Rejected | Rejected |
+| shp | Description | Rejected | Rejected |
+| shp | DataColumns | Rejected | Rejected |
+| shp | SqlConstraints | Rejected | Rejected |
+| shp | ContractVersion | Preserved | Transformed(ArrowMetadata) |
+| shp | FieldIdentity | Preserved | Transformed(ArrowMetadata) |
+| shp | TypesDeclaration | Preserved | Transformed(ArrowMetadata) |
+| shp | GeometryEncoding | Preserved | Transformed(ArrowMetadata) |
+| shp | SpatialSemantics | Preserved | Transformed(ArrowMetadata) |
+| shp | Precision | Preserved | Transformed(ArrowMetadata) |
+| shp | Srid | Preserved | Transformed(ArrowMetadata) |
+| shp | CrsResolution | Preserved | Transformed(ArrowMetadata) |
+| shp | DefinitionFormat | Preserved | Transformed(ArrowMetadata) |
+| shp | AxisOrder | Preserved | Transformed(ArrowMetadata) |
+| shp | PrimaryGeometry | Preserved | Transformed(ArrowMetadata) |
+| shp | ExtensionName | Preserved | Transformed(ArrowMetadata) |
+| shp | ExtensionMetadata | Preserved | Transformed(ArrowMetadata) |
+| shp | UnknownDimensions | Preserved | Preserved |
+| shp | Covering | Rejected | Rejected |
+| gpkg | NullGeometry | Preserved | Preserved |
+| gpkg | EmptyPoint | Preserved | Preserved |
+| gpkg | SignedZero | Preserved | Preserved |
+| gpkg | Subtypes | Rejected | Rejected |
+| gpkg | Aliases | Rejected | Rejected |
+| gpkg | Domains | Rejected | Rejected |
+| gpkg | TextStyle | Rejected | Rejected |
+| gpkg | PaperSpace | Rejected | Rejected |
+| gpkg | Xdata | Rejected | Rejected |
+| gpkg | Width | Rejected | Rejected |
+| gpkg | Thickness | Rejected | Rejected |
+| gpkg | Lineweight | Rejected | Rejected |
+| gpkg | Linetype | Rejected | Rejected |
+| gpkg | Color | Rejected | Rejected |
+| gpkg | Handle | Rejected | Rejected |
+| gpkg | DbfDate | Rejected | Rejected |
+| gpkg | Utf8 | Preserved | Preserved |
+| gpkg | Null | Preserved | Preserved |
+| gpkg | EmptyString | Preserved | Preserved |
+| gpkg | SignedInteger | Preserved | Transformed(ArrowCoercion) |
+| gpkg | UnsignedInteger | Preserved | Transformed(ArrowCoercion) |
+| gpkg | Floating | Preserved | Transformed(ArrowCoercion) |
+| gpkg | Boolean | Preserved | Transformed(ArrowCoercion) |
+| gpkg | Binary | Preserved | Preserved |
+| gpkg | Decimal | Rejected | Rejected |
+| gpkg | Temporal | Transformed(ArrowCoercion) | Rejected |
+| gpkg | NestedDictionary | Rejected | Rejected |
+| gpkg | FieldNames | Preserved | Preserved |
+| gpkg | NotNull | Preserved | Preserved |
+| gpkg | FieldOrder | Transformed(SqlSchema) | Transformed(SqlSchema) |
+| gpkg | SchemaMetadata | Preserved | Transformed(GpkgMetadata) |
+| gpkg | FieldMetadata | Preserved | Transformed(GpkgMetadata) |
+| gpkg | NativeMetadata | Preserved | Transformed(GpkgMetadata) |
+| gpkg | Z | Preserved | Preserved |
+| gpkg | M | Preserved | Preserved |
+| gpkg | Dimensions | Preserved | Preserved |
+| gpkg | GeometryType | Preserved | Preserved |
+| gpkg | RingOrientation | Preserved | Preserved |
+| gpkg | EmptyGeometry | Preserved | Preserved |
+| gpkg | CoordinatePrecision | Rejected | Rejected |
+| gpkg | CrsId | Preserved | Preserved |
+| gpkg | CrsDefinition | Preserved | Preserved |
+| gpkg | FeatureId | Preserved | Preserved |
+| gpkg | Bbox | Rejected | Rejected |
+| gpkg | ForeignMembers | Rejected | Rejected |
+| gpkg | LayerMetadata | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
+| gpkg | Styles | Transformed(NativeStyles) | Transformed(ArrowMetadata) |
+| gpkg | Hierarchy | Rejected | Rejected |
+| gpkg | Extensions | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
+| gpkg | ExternalReference | Rejected | Rejected |
+| gpkg | ExtendedData | Rejected | Rejected |
+| gpkg | FeatureMetadata | Rejected | Rejected |
+| gpkg | AltitudeMode | Rejected | Rejected |
+| gpkg | Inference | Rejected | Rejected |
+| gpkg | NumberPrecision | Rejected | Rejected |
+| gpkg | StructuredValue | Rejected | Rejected |
+| gpkg | MissingValue | Rejected | Rejected |
+| gpkg | CoordinateColumns | Rejected | Rejected |
+| gpkg | NumericFormat | Rejected | Rejected |
+| gpkg | Formula | Rejected | Rejected |
+| gpkg | FormulaCache | Rejected | Rejected |
+| gpkg | Identifier | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
+| gpkg | Description | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
+| gpkg | DataColumns | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
+| gpkg | SqlConstraints | Transformed(SqlSchema) | Transformed(SqlSchema) |
+| gpkg | ContractVersion | Preserved | Preserved |
+| gpkg | FieldIdentity | Preserved | Preserved |
+| gpkg | TypesDeclaration | Preserved | Transformed(GpkgMetadata) |
+| gpkg | GeometryEncoding | Preserved | Transformed(GpkgMetadata) |
+| gpkg | SpatialSemantics | Preserved | Transformed(GpkgMetadata) |
+| gpkg | Precision | Preserved | Transformed(GpkgMetadata) |
+| gpkg | Srid | Preserved | Transformed(GpkgMetadata) |
+| gpkg | CrsResolution | Preserved | Transformed(GpkgMetadata) |
+| gpkg | DefinitionFormat | Preserved | Transformed(GpkgMetadata) |
+| gpkg | AxisOrder | Preserved | Transformed(GpkgMetadata) |
+| gpkg | PrimaryGeometry | Preserved | Transformed(GpkgMetadata) |
+| gpkg | ExtensionName | Preserved | Transformed(GpkgMetadata) |
+| gpkg | ExtensionMetadata | Preserved | Transformed(GpkgMetadata) |
+| gpkg | UnknownDimensions | Preserved | Preserved |
+| gpkg | Covering | Rejected | Rejected |
+| filegdb | NullGeometry | Preserved | Preserved |
+| filegdb | EmptyPoint | Transformed(MissingValue) | Transformed(MissingValue) |
+| filegdb | SignedZero | Preserved | Transformed(CoordinatePrecision) |
+| filegdb | Subtypes | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
+| filegdb | Aliases | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
+| filegdb | Domains | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
+| filegdb | TextStyle | Rejected | Rejected |
+| filegdb | PaperSpace | Rejected | Rejected |
+| filegdb | Xdata | Rejected | Rejected |
+| filegdb | Width | Rejected | Rejected |
+| filegdb | Thickness | Rejected | Rejected |
+| filegdb | Lineweight | Rejected | Rejected |
+| filegdb | Linetype | Rejected | Rejected |
+| filegdb | Color | Rejected | Rejected |
+| filegdb | Handle | Rejected | Rejected |
+| filegdb | DbfDate | Rejected | Rejected |
+| filegdb | Utf8 | Preserved | Preserved |
+| filegdb | Null | Preserved | Preserved |
+| filegdb | EmptyString | Preserved | Preserved |
+| filegdb | SignedInteger | Preserved | Transformed(ArrowCoercion) |
+| filegdb | UnsignedInteger | Rejected | Rejected |
+| filegdb | Floating | Preserved | Transformed(ArrowCoercion) |
+| filegdb | Boolean | Rejected | Rejected |
+| filegdb | Binary | Rejected | Rejected |
+| filegdb | Decimal | Rejected | Rejected |
+| filegdb | Temporal | Rejected | Rejected |
+| filegdb | NestedDictionary | Rejected | Rejected |
+| filegdb | FieldNames | Preserved | Transformed(FieldNames) |
+| filegdb | NotNull | Transformed(NotNull) | Transformed(NotNull) |
+| filegdb | FieldOrder | Transformed(FieldOrder) | Transformed(FieldOrder) |
+| filegdb | SchemaMetadata | Preserved | Transformed(ArrowMetadata) |
+| filegdb | FieldMetadata | Preserved | Transformed(ArrowMetadata) |
+| filegdb | NativeMetadata | Preserved | Transformed(ArrowMetadata) |
+| filegdb | Z | Preserved | Preserved |
+| filegdb | M | Preserved | Preserved |
+| filegdb | Dimensions | Preserved | Preserved |
+| filegdb | GeometryType | Preserved | Preserved |
+| filegdb | RingOrientation | Preserved | Transformed(RingOrientation) |
+| filegdb | EmptyGeometry | Transformed(MissingValue) | Transformed(MissingValue) |
+| filegdb | CoordinatePrecision | Preserved | Transformed(CoordinatePrecision) |
+| filegdb | CrsId | Preserved | Transformed(CrsId) |
+| filegdb | CrsDefinition | Preserved | Transformed(CrsDefinition) |
+| filegdb | FeatureId | Transformed(FeatureId) | Transformed(ArrowMetadata) |
+| filegdb | Bbox | Transformed(Bbox) | Transformed(ArrowMetadata) |
+| filegdb | ForeignMembers | Rejected | Transformed(ArrowMetadata) |
+| filegdb | LayerMetadata | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
+| filegdb | Styles | Rejected | Transformed(ArrowMetadata) |
+| filegdb | Hierarchy | Transformed(NativeHierarchy) | Transformed(ArrowMetadata) |
+| filegdb | Extensions | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
+| filegdb | ExternalReference | Transformed(ExternalReference) | Transformed(ArrowMetadata) |
+| filegdb | ExtendedData | Rejected | Rejected |
+| filegdb | FeatureMetadata | Rejected | Rejected |
+| filegdb | AltitudeMode | Rejected | Rejected |
+| filegdb | Inference | Rejected | Rejected |
+| filegdb | NumberPrecision | Preserved | Transformed(CoordinatePrecision) |
+| filegdb | StructuredValue | Rejected | Rejected |
+| filegdb | MissingValue | Preserved | Preserved |
+| filegdb | CoordinateColumns | Rejected | Rejected |
+| filegdb | NumericFormat | Rejected | Rejected |
+| filegdb | Formula | Rejected | Rejected |
+| filegdb | FormulaCache | Rejected | Rejected |
+| filegdb | Identifier | Rejected | Rejected |
+| filegdb | Description | Rejected | Rejected |
+| filegdb | DataColumns | Rejected | Rejected |
+| filegdb | SqlConstraints | Rejected | Rejected |
+| filegdb | ContractVersion | Preserved | Transformed(ArrowMetadata) |
+| filegdb | FieldIdentity | Preserved | Transformed(ArrowMetadata) |
+| filegdb | TypesDeclaration | Preserved | Transformed(ArrowMetadata) |
+| filegdb | GeometryEncoding | Preserved | Transformed(ArrowMetadata) |
+| filegdb | SpatialSemantics | Preserved | Transformed(ArrowMetadata) |
+| filegdb | Precision | Preserved | Transformed(ArrowMetadata) |
+| filegdb | Srid | Preserved | Transformed(ArrowMetadata) |
+| filegdb | CrsResolution | Preserved | Transformed(ArrowMetadata) |
+| filegdb | DefinitionFormat | Preserved | Transformed(ArrowMetadata) |
+| filegdb | AxisOrder | Preserved | Transformed(ArrowMetadata) |
+| filegdb | PrimaryGeometry | Preserved | Transformed(ArrowMetadata) |
+| filegdb | ExtensionName | Preserved | Transformed(ArrowMetadata) |
+| filegdb | ExtensionMetadata | Preserved | Transformed(ArrowMetadata) |
+| filegdb | UnknownDimensions | Rejected | Rejected |
+| filegdb | Covering | Rejected | Rejected |
+| geojson | NullGeometry | Preserved | Preserved |
+| geojson | EmptyPoint | Rejected | Rejected |
+| geojson | SignedZero | Preserved | Preserved |
+| geojson | Subtypes | Rejected | Rejected |
+| geojson | Aliases | Rejected | Rejected |
+| geojson | Domains | Rejected | Rejected |
+| geojson | TextStyle | Rejected | Rejected |
+| geojson | PaperSpace | Rejected | Rejected |
+| geojson | Xdata | Rejected | Rejected |
+| geojson | Width | Rejected | Rejected |
+| geojson | Thickness | Rejected | Rejected |
+| geojson | Lineweight | Rejected | Rejected |
+| geojson | Linetype | Rejected | Rejected |
+| geojson | Color | Rejected | Rejected |
+| geojson | Handle | Rejected | Rejected |
+| geojson | DbfDate | Rejected | Rejected |
+| geojson | Utf8 | Preserved | Preserved |
+| geojson | Null | Preserved | Preserved |
+| geojson | EmptyString | Preserved | Preserved |
+| geojson | SignedInteger | Transformed(Inference) | Transformed(ArrowCoercion) |
+| geojson | UnsignedInteger | Transformed(Inference) | Transformed(ArrowCoercion) |
+| geojson | Floating | Transformed(NumberPrecision) | Transformed(ArrowCoercion) |
+| geojson | Boolean | Preserved | Preserved |
+| geojson | Binary | Rejected | Rejected |
+| geojson | Decimal | Rejected | Rejected |
+| geojson | Temporal | Rejected | Transformed(ArrowCoercion) |
+| geojson | NestedDictionary | Transformed(StructuredValue) | Rejected |
+| geojson | FieldNames | Preserved | Transformed(FieldNames) |
+| geojson | NotNull | Preserved | Transformed(NotNull) |
+| geojson | FieldOrder | Transformed(FieldOrder) | Transformed(FieldOrder) |
+| geojson | SchemaMetadata | Preserved | Transformed(ArrowMetadata) |
+| geojson | FieldMetadata | Preserved | Transformed(ArrowMetadata) |
+| geojson | NativeMetadata | Transformed(ForeignMembers) | Transformed(ArrowMetadata) |
+| geojson | Z | Preserved | Preserved |
+| geojson | M | Rejected | Rejected |
+| geojson | Dimensions | Transformed(Dimensions) | Transformed(Dimensions) |
+| geojson | GeometryType | Preserved | Preserved |
+| geojson | RingOrientation | Preserved | Preserved |
+| geojson | EmptyGeometry | Rejected | Rejected |
+| geojson | CoordinatePrecision | Transformed(NumberPrecision) | Preserved |
+| geojson | CrsId | Preserved | Transformed(CrsId) |
+| geojson | CrsDefinition | Preserved | Transformed(CrsDefinition) |
+| geojson | FeatureId | Transformed(FeatureId) | Transformed(ArrowMetadata) |
+| geojson | Bbox | Transformed(Bbox) | Transformed(ArrowMetadata) |
+| geojson | ForeignMembers | Transformed(ForeignMembers) | Transformed(ArrowMetadata) |
+| geojson | LayerMetadata | Transformed(ForeignMembers) | Transformed(ArrowMetadata) |
+| geojson | Styles | Transformed(ForeignMembers) | Transformed(ArrowMetadata) |
+| geojson | Hierarchy | Rejected | Rejected |
+| geojson | Extensions | Transformed(ForeignMembers) | Transformed(ArrowMetadata) |
+| geojson | ExternalReference | Transformed(ForeignMembers) | Transformed(ArrowMetadata) |
+| geojson | ExtendedData | Rejected | Rejected |
+| geojson | FeatureMetadata | Transformed(ForeignMembers) | Transformed(ArrowMetadata) |
+| geojson | AltitudeMode | Rejected | Rejected |
+| geojson | Inference | Transformed(Inference) | Transformed(Inference) |
+| geojson | NumberPrecision | Transformed(NumberPrecision) | Preserved |
+| geojson | StructuredValue | Transformed(StructuredValue) | Rejected |
+| geojson | MissingValue | Transformed(MissingValue) | Preserved |
+| geojson | CoordinateColumns | Rejected | Rejected |
+| geojson | NumericFormat | Rejected | Rejected |
+| geojson | Formula | Rejected | Rejected |
+| geojson | FormulaCache | Rejected | Rejected |
+| geojson | Identifier | Rejected | Rejected |
+| geojson | Description | Rejected | Rejected |
+| geojson | DataColumns | Rejected | Rejected |
+| geojson | SqlConstraints | Rejected | Rejected |
+| geojson | ContractVersion | Preserved | Transformed(ArrowMetadata) |
+| geojson | FieldIdentity | Preserved | Transformed(ArrowMetadata) |
+| geojson | TypesDeclaration | Preserved | Transformed(ArrowMetadata) |
+| geojson | GeometryEncoding | Preserved | Transformed(ArrowMetadata) |
+| geojson | SpatialSemantics | Preserved | Transformed(ArrowMetadata) |
+| geojson | Precision | Preserved | Transformed(ArrowMetadata) |
+| geojson | Srid | Preserved | Transformed(ArrowMetadata) |
+| geojson | CrsResolution | Preserved | Transformed(ArrowMetadata) |
+| geojson | DefinitionFormat | Preserved | Transformed(ArrowMetadata) |
+| geojson | AxisOrder | Preserved | Transformed(ArrowMetadata) |
+| geojson | PrimaryGeometry | Preserved | Transformed(ArrowMetadata) |
+| geojson | ExtensionName | Preserved | Transformed(ArrowMetadata) |
+| geojson | ExtensionMetadata | Preserved | Transformed(ArrowMetadata) |
+| geojson | UnknownDimensions | Preserved | Preserved |
+| geojson | Covering | Rejected | Rejected |
+| kml | NullGeometry | Preserved | Preserved |
+| kml | EmptyPoint | Rejected | Rejected |
+| kml | SignedZero | Preserved | Preserved |
+| kml | Subtypes | Rejected | Rejected |
+| kml | Aliases | Rejected | Rejected |
+| kml | Domains | Rejected | Rejected |
+| kml | TextStyle | Rejected | Rejected |
+| kml | PaperSpace | Rejected | Rejected |
+| kml | Xdata | Rejected | Rejected |
+| kml | Width | Rejected | Rejected |
+| kml | Thickness | Rejected | Rejected |
+| kml | Lineweight | Rejected | Rejected |
+| kml | Linetype | Rejected | Rejected |
+| kml | Color | Rejected | Rejected |
+| kml | Handle | Rejected | Rejected |
+| kml | DbfDate | Rejected | Rejected |
+| kml | Utf8 | Preserved | Preserved |
+| kml | Null | Preserved | Preserved |
+| kml | EmptyString | Preserved | Preserved |
+| kml | SignedInteger | Rejected | Transformed(ArrowCoercion) |
+| kml | UnsignedInteger | Rejected | Transformed(ArrowCoercion) |
+| kml | Floating | Rejected | Transformed(ArrowCoercion) |
+| kml | Boolean | Rejected | Transformed(ArrowCoercion) |
+| kml | Binary | Rejected | Rejected |
+| kml | Decimal | Rejected | Rejected |
+| kml | Temporal | Rejected | Transformed(ArrowCoercion) |
+| kml | NestedDictionary | Rejected | Rejected |
+| kml | FieldNames | Transformed(ExtendedData) | Transformed(FieldNames) |
+| kml | NotNull | Preserved | Transformed(NotNull) |
+| kml | FieldOrder | Transformed(FieldOrder) | Transformed(FieldOrder) |
+| kml | SchemaMetadata | Preserved | Transformed(ArrowMetadata) |
+| kml | FieldMetadata | Preserved | Transformed(ArrowMetadata) |
+| kml | NativeMetadata | Transformed(ForeignMembers) | Transformed(ArrowMetadata) |
+| kml | Z | Transformed(AltitudeMode) | Preserved |
+| kml | M | Rejected | Rejected |
+| kml | Dimensions | Transformed(Dimensions) | Transformed(Dimensions) |
+| kml | GeometryType | Transformed(GeometryType) | Transformed(GeometryType) |
+| kml | RingOrientation | Preserved | Preserved |
+| kml | EmptyGeometry | Rejected | Rejected |
+| kml | CoordinatePrecision | Transformed(NumberPrecision) | Preserved |
+| kml | CrsId | Preserved | Transformed(CrsId) |
+| kml | CrsDefinition | Preserved | Transformed(CrsDefinition) |
+| kml | FeatureId | Transformed(FeatureId) | Transformed(ArrowMetadata) |
+| kml | Bbox | Rejected | Transformed(ArrowMetadata) |
+| kml | ForeignMembers | Transformed(ForeignMembers) | Transformed(ArrowMetadata) |
+| kml | LayerMetadata | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
+| kml | Styles | Transformed(Styles) | Transformed(ArrowMetadata) |
+| kml | Hierarchy | Transformed(Hierarchy) | Transformed(ArrowMetadata) |
+| kml | Extensions | Transformed(ForeignMembers) | Transformed(ArrowMetadata) |
+| kml | ExternalReference | Transformed(ExternalReference) | Transformed(ArrowMetadata) |
+| kml | ExtendedData | Transformed(ExtendedData) | Transformed(ExtendedData) |
+| kml | FeatureMetadata | Transformed(FeatureMetadata) | Transformed(ArrowMetadata) |
+| kml | AltitudeMode | Transformed(AltitudeMode) | Preserved |
+| kml | Inference | Rejected | Transformed(Inference) |
+| kml | NumberPrecision | Transformed(NumberPrecision) | Preserved |
+| kml | StructuredValue | Transformed(ExtendedData) | Rejected |
+| kml | MissingValue | Transformed(MissingValue) | Preserved |
+| kml | CoordinateColumns | Rejected | Rejected |
+| kml | NumericFormat | Rejected | Rejected |
+| kml | Formula | Rejected | Rejected |
+| kml | FormulaCache | Rejected | Rejected |
+| kml | Identifier | Rejected | Rejected |
+| kml | Description | Rejected | Rejected |
+| kml | DataColumns | Rejected | Rejected |
+| kml | SqlConstraints | Rejected | Rejected |
+| kml | ContractVersion | Preserved | Transformed(ArrowMetadata) |
+| kml | FieldIdentity | Preserved | Transformed(ArrowMetadata) |
+| kml | TypesDeclaration | Preserved | Transformed(ArrowMetadata) |
+| kml | GeometryEncoding | Preserved | Transformed(ArrowMetadata) |
+| kml | SpatialSemantics | Preserved | Transformed(ArrowMetadata) |
+| kml | Precision | Preserved | Transformed(ArrowMetadata) |
+| kml | Srid | Preserved | Transformed(ArrowMetadata) |
+| kml | CrsResolution | Preserved | Transformed(ArrowMetadata) |
+| kml | DefinitionFormat | Preserved | Transformed(ArrowMetadata) |
+| kml | AxisOrder | Preserved | Transformed(ArrowMetadata) |
+| kml | PrimaryGeometry | Preserved | Transformed(ArrowMetadata) |
+| kml | ExtensionName | Preserved | Transformed(ArrowMetadata) |
+| kml | ExtensionMetadata | Preserved | Transformed(ArrowMetadata) |
+| kml | UnknownDimensions | Preserved | Preserved |
+| kml | Covering | Rejected | Rejected |
+| dxf | NullGeometry | Rejected | Rejected |
+| dxf | EmptyPoint | Rejected | Rejected |
+| dxf | SignedZero | Preserved | Transformed(CoordinatePrecision) |
+| dxf | Subtypes | Rejected | Rejected |
+| dxf | Aliases | Rejected | Rejected |
+| dxf | Domains | Rejected | Rejected |
+| dxf | TextStyle | Transformed(NativeStyles) | Transformed(ArrowMetadata) |
+| dxf | PaperSpace | Transformed(NativeHierarchy) | Transformed(ArrowMetadata) |
+| dxf | Xdata | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
+| dxf | Width | Transformed(NativeStyles) | Transformed(ArrowMetadata) |
+| dxf | Thickness | Transformed(NativeStyles) | Transformed(ArrowMetadata) |
+| dxf | Lineweight | Transformed(NativeStyles) | Transformed(ArrowMetadata) |
+| dxf | Linetype | Transformed(NativeStyles) | Transformed(ArrowMetadata) |
+| dxf | Color | Transformed(NativeStyles) | Transformed(ArrowMetadata) |
+| dxf | Handle | Transformed(FeatureId) | Transformed(ArrowMetadata) |
+| dxf | DbfDate | Rejected | Rejected |
+| dxf | Utf8 | Preserved | Transformed(DxfAttribute) |
+| dxf | Null | Preserved | Transformed(DxfAttribute) |
+| dxf | EmptyString | Preserved | Transformed(DxfAttribute) |
+| dxf | SignedInteger | Rejected | Transformed(DxfAttribute) |
+| dxf | UnsignedInteger | Rejected | Transformed(DxfAttribute) |
+| dxf | Floating | Rejected | Transformed(DxfAttribute) |
+| dxf | Boolean | Rejected | Transformed(DxfAttribute) |
+| dxf | Binary | Rejected | Transformed(DxfAttribute) |
+| dxf | Decimal | Rejected | Transformed(DxfAttribute) |
+| dxf | Temporal | Rejected | Transformed(DxfAttribute) |
+| dxf | NestedDictionary | Rejected | Rejected |
+| dxf | FieldNames | Transformed(FieldNames) | Transformed(FieldNames) |
+| dxf | NotNull | Preserved | Transformed(NotNull) |
+| dxf | FieldOrder | Transformed(FieldOrder) | Transformed(FieldOrder) |
+| dxf | SchemaMetadata | Preserved | Transformed(ArrowMetadata) |
+| dxf | FieldMetadata | Preserved | Transformed(ArrowMetadata) |
+| dxf | NativeMetadata | Preserved | Transformed(ArrowMetadata) |
+| dxf | Z | Preserved | Preserved |
+| dxf | M | Rejected | Rejected |
+| dxf | Dimensions | Transformed(Dimensions) | Transformed(Dimensions) |
+| dxf | GeometryType | Transformed(GeometryType) | Transformed(GeometryType) |
+| dxf | RingOrientation | Preserved | Preserved |
+| dxf | EmptyGeometry | Rejected | Rejected |
+| dxf | CoordinatePrecision | Preserved | Transformed(CoordinatePrecision) |
+| dxf | CrsId | Preserved | Transformed(CrsId) |
+| dxf | CrsDefinition | Preserved | Transformed(CrsDefinition) |
+| dxf | FeatureId | Transformed(FeatureId) | Transformed(ArrowMetadata) |
+| dxf | Bbox | Rejected | Transformed(ArrowMetadata) |
+| dxf | ForeignMembers | Rejected | Transformed(ArrowMetadata) |
+| dxf | LayerMetadata | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
+| dxf | Styles | Transformed(NativeStyles) | Transformed(ArrowMetadata) |
+| dxf | Hierarchy | Transformed(NativeHierarchy) | Transformed(ArrowMetadata) |
+| dxf | Extensions | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
+| dxf | ExternalReference | Rejected | Transformed(ArrowMetadata) |
+| dxf | ExtendedData | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
+| dxf | FeatureMetadata | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
+| dxf | AltitudeMode | Rejected | Rejected |
+| dxf | Inference | Rejected | Rejected |
+| dxf | NumberPrecision | Preserved | Transformed(CoordinatePrecision) |
+| dxf | StructuredValue | Rejected | Rejected |
+| dxf | MissingValue | Preserved | Preserved |
+| dxf | CoordinateColumns | Rejected | Rejected |
+| dxf | NumericFormat | Rejected | Rejected |
+| dxf | Formula | Rejected | Rejected |
+| dxf | FormulaCache | Rejected | Rejected |
+| dxf | Identifier | Rejected | Rejected |
+| dxf | Description | Rejected | Rejected |
+| dxf | DataColumns | Rejected | Rejected |
+| dxf | SqlConstraints | Rejected | Rejected |
+| dxf | ContractVersion | Preserved | Transformed(ArrowMetadata) |
+| dxf | FieldIdentity | Preserved | Transformed(ArrowMetadata) |
+| dxf | TypesDeclaration | Preserved | Transformed(ArrowMetadata) |
+| dxf | GeometryEncoding | Preserved | Transformed(ArrowMetadata) |
+| dxf | SpatialSemantics | Preserved | Transformed(ArrowMetadata) |
+| dxf | Precision | Preserved | Transformed(ArrowMetadata) |
+| dxf | Srid | Preserved | Transformed(ArrowMetadata) |
+| dxf | CrsResolution | Preserved | Transformed(ArrowMetadata) |
+| dxf | DefinitionFormat | Preserved | Transformed(ArrowMetadata) |
+| dxf | AxisOrder | Preserved | Transformed(ArrowMetadata) |
+| dxf | PrimaryGeometry | Preserved | Transformed(ArrowMetadata) |
+| dxf | ExtensionName | Preserved | Transformed(ArrowMetadata) |
+| dxf | ExtensionMetadata | Preserved | Transformed(ArrowMetadata) |
+| dxf | UnknownDimensions | Preserved | Preserved |
+| dxf | Covering | Rejected | Rejected |
+| xls | NullGeometry | Preserved | Preserved |
+| xls | EmptyPoint | Preserved | Preserved |
+| xls | SignedZero | Preserved | Preserved |
+| xls | Subtypes | Rejected | Rejected |
+| xls | Aliases | Rejected | Rejected |
+| xls | Domains | Rejected | Rejected |
+| xls | TextStyle | Rejected | Rejected |
+| xls | PaperSpace | Rejected | Rejected |
+| xls | Xdata | Rejected | Rejected |
+| xls | Width | Rejected | Rejected |
+| xls | Thickness | Rejected | Rejected |
+| xls | Lineweight | Rejected | Rejected |
+| xls | Linetype | Rejected | Rejected |
+| xls | Color | Rejected | Rejected |
+| xls | Handle | Rejected | Rejected |
+| xls | DbfDate | Rejected | Rejected |
+| xls | Utf8 | Preserved | Preserved |
+| xls | Null | Preserved | Preserved |
+| xls | EmptyString | Preserved | Preserved |
+| xls | SignedInteger | Transformed(Inference) | Transformed(ArrowCoercion) |
+| xls | UnsignedInteger | Transformed(Inference) | Transformed(ArrowCoercion) |
+| xls | Floating | Transformed(Inference) | Transformed(ArrowCoercion) |
+| xls | Boolean | Preserved | Preserved |
+| xls | Binary | Rejected | Rejected |
+| xls | Decimal | Rejected | Rejected |
+| xls | Temporal | Transformed(Inference) | Transformed(ArrowCoercion) |
+| xls | NestedDictionary | Rejected | Rejected |
+| xls | FieldNames | Transformed(FieldNames) | Transformed(FieldNames) |
+| xls | NotNull | Preserved | Transformed(NotNull) |
+| xls | FieldOrder | Transformed(FieldOrder) | Transformed(FieldOrder) |
+| xls | SchemaMetadata | Preserved | Transformed(ArrowMetadata) |
+| xls | FieldMetadata | Preserved | Transformed(ArrowMetadata) |
+| xls | NativeMetadata | Preserved | Transformed(ArrowMetadata) |
+| xls | Z | Preserved | Preserved |
+| xls | M | Preserved | Preserved |
+| xls | Dimensions | Preserved | Preserved |
+| xls | GeometryType | Preserved | Preserved |
+| xls | RingOrientation | Preserved | Preserved |
+| xls | EmptyGeometry | Preserved | Preserved |
+| xls | CoordinatePrecision | Transformed(NumberPrecision) | Preserved |
+| xls | CrsId | Preserved | Transformed(CrsIdAbsent) |
+| xls | CrsDefinition | Preserved | Transformed(CrsDefinition) |
+| xls | FeatureId | Preserved | Preserved |
+| xls | Bbox | Rejected | Rejected |
+| xls | ForeignMembers | Rejected | Rejected |
+| xls | LayerMetadata | Rejected | Rejected |
+| xls | Styles | Rejected | Rejected |
+| xls | Hierarchy | Rejected | Rejected |
+| xls | Extensions | Rejected | Rejected |
+| xls | ExternalReference | Rejected | Rejected |
+| xls | ExtendedData | Rejected | Rejected |
+| xls | FeatureMetadata | Rejected | Rejected |
+| xls | AltitudeMode | Rejected | Rejected |
+| xls | Inference | Transformed(Inference) | Transformed(Inference) |
+| xls | NumberPrecision | Transformed(NumberPrecision) | Preserved |
+| xls | StructuredValue | Rejected | Rejected |
+| xls | MissingValue | Rejected | Rejected |
+| xls | CoordinateColumns | Transformed(FieldNames) | Transformed(FieldNames) |
+| xls | NumericFormat | Transformed(NativeStyles) | Transformed(ArrowMetadata) |
+| xls | Formula | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
+| xls | FormulaCache | Preserved | Preserved |
+| xls | Identifier | Rejected | Rejected |
+| xls | Description | Rejected | Rejected |
+| xls | DataColumns | Rejected | Rejected |
+| xls | SqlConstraints | Rejected | Rejected |
+| xls | ContractVersion | Preserved | Transformed(ArrowMetadata) |
+| xls | FieldIdentity | Preserved | Transformed(ArrowMetadata) |
+| xls | TypesDeclaration | Preserved | Transformed(ArrowMetadata) |
+| xls | GeometryEncoding | Preserved | Transformed(ArrowMetadata) |
+| xls | SpatialSemantics | Preserved | Transformed(ArrowMetadata) |
+| xls | Precision | Preserved | Transformed(ArrowMetadata) |
+| xls | Srid | Preserved | Transformed(ArrowMetadata) |
+| xls | CrsResolution | Preserved | Transformed(ArrowMetadata) |
+| xls | DefinitionFormat | Preserved | Transformed(ArrowMetadata) |
+| xls | AxisOrder | Preserved | Transformed(ArrowMetadata) |
+| xls | PrimaryGeometry | Preserved | Transformed(ArrowMetadata) |
+| xls | ExtensionName | Preserved | Transformed(ArrowMetadata) |
+| xls | ExtensionMetadata | Preserved | Transformed(ArrowMetadata) |
+| xls | UnknownDimensions | Preserved | Preserved |
+| xls | Covering | Rejected | Rejected |
+| geoparquet | NullGeometry | Preserved | Preserved |
+| geoparquet | EmptyPoint | Preserved | Preserved |
+| geoparquet | SignedZero | Preserved | Preserved |
+| geoparquet | Subtypes | Rejected | Rejected |
+| geoparquet | Aliases | Rejected | Rejected |
+| geoparquet | Domains | Rejected | Rejected |
+| geoparquet | TextStyle | Rejected | Rejected |
+| geoparquet | PaperSpace | Rejected | Rejected |
+| geoparquet | Xdata | Rejected | Rejected |
+| geoparquet | Width | Rejected | Rejected |
+| geoparquet | Thickness | Rejected | Rejected |
+| geoparquet | Lineweight | Rejected | Rejected |
+| geoparquet | Linetype | Rejected | Rejected |
+| geoparquet | Color | Rejected | Rejected |
+| geoparquet | Handle | Rejected | Rejected |
+| geoparquet | DbfDate | Rejected | Rejected |
+| geoparquet | Utf8 | Preserved | Preserved |
+| geoparquet | Null | Preserved | Preserved |
+| geoparquet | EmptyString | Preserved | Preserved |
+| geoparquet | SignedInteger | Preserved | Preserved |
+| geoparquet | UnsignedInteger | Preserved | Preserved |
+| geoparquet | Floating | Preserved | Preserved |
+| geoparquet | Boolean | Preserved | Preserved |
+| geoparquet | Binary | Preserved | Preserved |
+| geoparquet | Decimal | Preserved | Preserved |
+| geoparquet | Temporal | Preserved | Preserved |
+| geoparquet | NestedDictionary | Preserved | Preserved |
+| geoparquet | FieldNames | Preserved | Preserved |
+| geoparquet | NotNull | Preserved | Preserved |
+| geoparquet | FieldOrder | Preserved | Preserved |
+| geoparquet | SchemaMetadata | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| geoparquet | FieldMetadata | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| geoparquet | NativeMetadata | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| geoparquet | Z | Preserved | Preserved |
+| geoparquet | M | Rejected | Rejected |
+| geoparquet | Dimensions | Preserved | Preserved |
+| geoparquet | GeometryType | Preserved | Preserved |
+| geoparquet | RingOrientation | Preserved | Preserved |
+| geoparquet | EmptyGeometry | Preserved | Preserved |
+| geoparquet | CoordinatePrecision | Preserved | Preserved |
+| geoparquet | CrsId | Preserved | Preserved |
+| geoparquet | CrsDefinition | Preserved | Preserved |
+| geoparquet | FeatureId | Preserved | Preserved |
+| geoparquet | Bbox | Transformed(Bbox) | Transformed(ArrowMetadata) |
+| geoparquet | ForeignMembers | Rejected | Rejected |
+| geoparquet | LayerMetadata | Rejected | Rejected |
+| geoparquet | Styles | Rejected | Rejected |
+| geoparquet | Hierarchy | Rejected | Rejected |
+| geoparquet | Extensions | Rejected | Rejected |
+| geoparquet | ExternalReference | Rejected | Rejected |
+| geoparquet | ExtendedData | Rejected | Rejected |
+| geoparquet | FeatureMetadata | Rejected | Rejected |
+| geoparquet | AltitudeMode | Rejected | Rejected |
+| geoparquet | Inference | Rejected | Rejected |
+| geoparquet | NumberPrecision | Preserved | Preserved |
+| geoparquet | StructuredValue | Rejected | Rejected |
+| geoparquet | MissingValue | Rejected | Rejected |
+| geoparquet | CoordinateColumns | Rejected | Rejected |
+| geoparquet | NumericFormat | Rejected | Rejected |
+| geoparquet | Formula | Rejected | Rejected |
+| geoparquet | FormulaCache | Rejected | Rejected |
+| geoparquet | Identifier | Rejected | Rejected |
+| geoparquet | Description | Rejected | Rejected |
+| geoparquet | DataColumns | Rejected | Rejected |
+| geoparquet | SqlConstraints | Rejected | Rejected |
+| geoparquet | ContractVersion | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| geoparquet | FieldIdentity | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| geoparquet | TypesDeclaration | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| geoparquet | GeometryEncoding | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| geoparquet | SpatialSemantics | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| geoparquet | Precision | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| geoparquet | Srid | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| geoparquet | CrsResolution | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| geoparquet | DefinitionFormat | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| geoparquet | AxisOrder | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| geoparquet | PrimaryGeometry | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| geoparquet | ExtensionName | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| geoparquet | ExtensionMetadata | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| geoparquet | UnknownDimensions | Preserved | Preserved |
+| geoparquet | Covering | Transformed(Bbox) | Preserved |
+| ipc | NullGeometry | Preserved | Preserved |
+| ipc | EmptyPoint | Preserved | Preserved |
+| ipc | SignedZero | Preserved | Preserved |
+| ipc | Subtypes | Rejected | Rejected |
+| ipc | Aliases | Rejected | Rejected |
+| ipc | Domains | Rejected | Rejected |
+| ipc | TextStyle | Rejected | Rejected |
+| ipc | PaperSpace | Rejected | Rejected |
+| ipc | Xdata | Rejected | Rejected |
+| ipc | Width | Rejected | Rejected |
+| ipc | Thickness | Rejected | Rejected |
+| ipc | Lineweight | Rejected | Rejected |
+| ipc | Linetype | Rejected | Rejected |
+| ipc | Color | Rejected | Rejected |
+| ipc | Handle | Rejected | Rejected |
+| ipc | DbfDate | Rejected | Rejected |
+| ipc | Utf8 | Preserved | Preserved |
+| ipc | Null | Preserved | Preserved |
+| ipc | EmptyString | Preserved | Preserved |
+| ipc | SignedInteger | Preserved | Preserved |
+| ipc | UnsignedInteger | Preserved | Preserved |
+| ipc | Floating | Preserved | Preserved |
+| ipc | Boolean | Preserved | Preserved |
+| ipc | Binary | Preserved | Preserved |
+| ipc | Decimal | Preserved | Preserved |
+| ipc | Temporal | Preserved | Preserved |
+| ipc | NestedDictionary | Preserved | Preserved |
+| ipc | FieldNames | Preserved | Preserved |
+| ipc | NotNull | Preserved | Preserved |
+| ipc | FieldOrder | Preserved | Preserved |
+| ipc | SchemaMetadata | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| ipc | FieldMetadata | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| ipc | NativeMetadata | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| ipc | Z | Preserved | Preserved |
+| ipc | M | Preserved | Preserved |
+| ipc | Dimensions | Preserved | Preserved |
+| ipc | GeometryType | Preserved | Preserved |
+| ipc | RingOrientation | Preserved | Preserved |
+| ipc | EmptyGeometry | Preserved | Preserved |
+| ipc | CoordinatePrecision | Preserved | Preserved |
+| ipc | CrsId | Preserved | Preserved |
+| ipc | CrsDefinition | Preserved | Preserved |
+| ipc | FeatureId | Preserved | Preserved |
+| ipc | Bbox | Rejected | Rejected |
+| ipc | ForeignMembers | Rejected | Rejected |
+| ipc | LayerMetadata | Rejected | Rejected |
+| ipc | Styles | Rejected | Rejected |
+| ipc | Hierarchy | Rejected | Rejected |
+| ipc | Extensions | Rejected | Rejected |
+| ipc | ExternalReference | Rejected | Rejected |
+| ipc | ExtendedData | Rejected | Rejected |
+| ipc | FeatureMetadata | Rejected | Rejected |
+| ipc | AltitudeMode | Rejected | Rejected |
+| ipc | Inference | Rejected | Rejected |
+| ipc | NumberPrecision | Preserved | Preserved |
+| ipc | StructuredValue | Rejected | Rejected |
+| ipc | MissingValue | Rejected | Rejected |
+| ipc | CoordinateColumns | Rejected | Rejected |
+| ipc | NumericFormat | Rejected | Rejected |
+| ipc | Formula | Rejected | Rejected |
+| ipc | FormulaCache | Rejected | Rejected |
+| ipc | Identifier | Rejected | Rejected |
+| ipc | Description | Rejected | Rejected |
+| ipc | DataColumns | Rejected | Rejected |
+| ipc | SqlConstraints | Rejected | Rejected |
+| ipc | ContractVersion | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| ipc | FieldIdentity | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| ipc | TypesDeclaration | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| ipc | GeometryEncoding | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| ipc | SpatialSemantics | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| ipc | Precision | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| ipc | Srid | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| ipc | CrsResolution | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| ipc | DefinitionFormat | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| ipc | AxisOrder | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| ipc | PrimaryGeometry | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| ipc | ExtensionName | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| ipc | ExtensionMetadata | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| ipc | UnknownDimensions | Preserved | Preserved |
+| ipc | Covering | Rejected | Rejected |
+
+<!-- generato da codice/perdite: fine -->

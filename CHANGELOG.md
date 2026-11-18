@@ -12,7 +12,7 @@
 - Rimossi archivio eseguibile delle release precedenti, ricevute non piu richieste e note obsolete; handoff ridotto al contratto corrente.
 - Allineata la busta di panico al protocollo 2; `plenora-error-v1` resta il contratto comune corrente.
 
-La candidate resta non congelata; qualifica finale e pubblicazione non eseguite.
+La raccolta 10.0.0 ? congelata; le correzioni successive non attestano una nuova qualifica o pubblicazione.
 
 ## 9.0.0 - 2026-11-15
 

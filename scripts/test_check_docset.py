@@ -616,5 +616,39 @@ class SondeEccezione(unittest.TestCase):
         self.assertNotIn("scripts/stato_release.py", gate.VALIDATORI)
 
 
+class TabelleProdotto(unittest.TestCase):
+    def test_blocco_alterato_o_mancante_fallisce(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            path = root / "README.md"
+            start, end = gate.product_marker("versione"), gate.product_marker("versione", True)
+            with mock.patch.object(gate, "ROOT", root), \
+                    mock.patch.object(gate, "PRODUCT_DOCUMENTS", ("README.md",)), \
+                    mock.patch.object(gate, "product_blocks", return_value={"versione": "versione corrente"}):
+                path.write_text(start + "\n\nversione vecchia\n\n" + end, encoding="utf-8")
+                self.assertTrue(gate.product_docset("unused"))
+                self.assertFalse(gate.product_docset("unused", rewrite=True))
+                self.assertFalse(gate.product_docset("unused"))
+                path.write_text("", encoding="utf-8")
+                self.assertTrue(gate.product_docset("unused"))
+
+    def test_esempio_senza_attesa_o_con_esito_diverso_fallisce(self):
+        import types
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "target").mkdir()
+            path = root / "README.md"
+            with mock.patch.object(gate, "ROOT", root), \
+                    mock.patch.object(gate, "PRODUCT_DOCUMENTS", ("README.md",)), \
+                    mock.patch.object(gate.subprocess, "run", return_value=types.SimpleNamespace(
+                        returncode=0, stdout='{"status":"ok"}', stderr="")):
+                path.write_text('```sh\nplenora-io catalog\n```', encoding="utf-8")
+                self.assertTrue(gate.document_examples("unused"))
+                path.write_text('```sh\n# esito: {"exit":3}\nplenora-io catalog\n```', encoding="utf-8")
+                self.assertTrue(gate.document_examples("unused"))
+                path.write_text('```sh\n# esito: {"exit":0,"status":"ok"}\nplenora-io catalog\n```', encoding="utf-8")
+                self.assertFalse(gate.document_examples("unused"))
+
+
 if __name__ == "__main__":
     unittest.main()

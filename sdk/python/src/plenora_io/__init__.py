@@ -124,8 +124,7 @@ PROFILES = FrozenList(list(_PROFILI))
 #: l'allineamento. Client.version() interroga invece il backend in uso.
 __version__ = "10.0.0"
 
-#: Il protocollo che questo SDK sa leggere. La busta di bootstrap non lo porta
-#: -- si legge prima della negoziazione -- ma tutte le altre lo dichiarano, e
+#: Il protocollo verificato su ogni busta, inclusa quella di versione.
 #: l'SDK non pretende di capire una busta che ne dichiari un altro.
 PROTOCOL_VERSION = 2
 

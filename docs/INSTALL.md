@@ -1,4 +1,15 @@
-# Installazione e migrazione — mettere in funzione 2.0.0
+# Installazione e migrazione — mettere in funzione il prodotto
+
+<!-- generato da codice/versione: inizio -->
+
+Versione del prodotto: **10.0.0**.
+
+| Artefatto Python | Nome |
+| --- | --- |
+| wheel | plenora_io-10.0.0-py3-none-any.whl |
+| sdist | plenora_io-10.0.0.tar.gz |
+
+<!-- generato da codice/versione: fine -->
 
 Questo documento si rivolge a chi **riceve** il prodotto: installa un artefatto,
 lo collega a qualcosa che già funziona, e — se veniva da una 1.x — deve sapere
@@ -35,7 +46,7 @@ Un archivio per **piattaforma × profilo**, chiamato secondo la forma
 plenora-io-<versione>-<piattaforma>-<profilo>.<estensione>
 ```
 
-per esempio `plenora-io-2.0.0-linux-x86_64-filegdb.tar.gz`. Le piattaforme
+per esempio `plenora-io-<versione>-linux-x86_64-filegdb.tar.gz`. Le piattaforme
 distribuite sono `linux-x86_64` (`tar.gz`) e `windows-x86_64` (`zip`); i profili
 sono `base` e `filegdb`.
 
@@ -114,6 +125,7 @@ entrambe le piattaforme — e i suoi dati.
 Il modo per sapere che cosa si è installato non è leggere il nome del file:
 
 ```
+# esito: {"exit":0,"status":"ok"}
 plenora-io catalog
 ```
 
@@ -131,6 +143,9 @@ bin/plenora-io          (bin/plenora-io.exe su Windows)
 lib/                    solo profilo filegdb — su Windows le DLL stanno in bin/
 share/gdal/             solo profilo filegdb
 share/proj/             solo profilo filegdb
+LICENSE
+LICENSES/
+SBOM.spdx.json
 MANIFEST.json
 ```
 
@@ -195,12 +210,14 @@ del runtime, gli strumenti -- ma le scrivono i nostri script e nessuno le firma.
 ### La prima prova
 
 ```
+# esito: {"exit":0,"status":"ok","result.cli_protocol_version":2}
 bin/plenora-io --version
+# esito: {"exit":0,"status":"ok"}
 bin/plenora-io catalog
 ```
 
-La prima risponde `{"status":"ok","version":"2.0.0"}` — due campi, né uno di
-più. La seconda enumera i dieci driver con ciò che ciascuno sa fare.
+La prima risponde con la busta `plenora-io-version-v2`; `result` contiene
+`component_version` e `cli_protocol_version`. La seconda enumera i dieci driver con ciò che ciascuno sa fare.
 
 Nulla va aggiunto al `PATH` perché il binario funzioni: se lo si aggiunge è per
 comodità, e l'SDK Python lo troverebbe anche di lì (vedi sotto).
@@ -208,20 +225,20 @@ comodità, e l'SDK Python lo troverebbe anche di lì (vedi sotto).
 ## Installare l'SDK Python
 
 ```
-pip install plenora_io-2.0.0-py3-none-any.whl
+pip install plenora_io-<versione>-py3-none-any.whl
 ```
 
 oppure, se si preferisce ricostruire dai sorgenti:
 
 ```
-pip install plenora_io-2.0.0.tar.gz
+pip install plenora_io-<versione>.tar.gz
 ```
 
 Con l'adattatore Arrow facoltativo (`read_table()`, `write()` da un oggetto
 PyArrow) si chiede l'extra, che installa `pyarrow>=25,<26`:
 
 ```
-pip install "plenora_io-2.0.0-py3-none-any.whl[pyarrow]"
+pip install "plenora_io-<versione>-py3-none-any.whl[pyarrow]"
 ```
 
 L'installazione non scarica nient'altro: il pacchetto non ha dipendenze
@@ -231,13 +248,14 @@ lockfile controlla, e chi lo installa non l'ha chiesta.
 
 ### Come l'SDK trova il binario
 
-Quattro posti, in quest'ordine, e nessun quinto:
+La selezione segue questo ordine; i primi due sono vincolanti e non ripiegano se il file manca:
 
 1. il percorso passato esplicitamente: `Client(binary="/opt/plenora/bin/plenora-io")`;
 2. la variabile d'ambiente `PLENORA_IO_BIN`;
-3. `bin/plenora-io` nell'albero distribuito, se il pacchetto è stato installato
+3. il modulo `_native`, se disponibile e senza selezione esplicita;
+4. `bin/plenora-io` nell'albero distribuito, se il pacchetto è stato installato
    accanto a uno;
-4. il `PATH`.
+5. il `PATH`.
 
 Se non lo trova solleva `BinaryNotFound` **dicendo dove ha cercato**. Non ne
 inventa uno e non ne procura uno.
@@ -255,7 +273,7 @@ un'altra installazione le mescolerebbe.
 from plenora_io import Client
 
 cliente = Client()
-print(cliente.version())          # Version(status='ok', version='2.0.0')
+print(cliente.version())          # Version(component_version=..., cli_protocol_version=2)
 print(len(cliente.catalog().drivers))
 ```
 
@@ -267,12 +285,12 @@ cliente.require_profile("filegdb")    # solleva ProfileError se l'albero è `bas
 ```
 
 Va chiamato **prima** del lavoro. Scoprire il profilo sbagliato dal fallimento
-di una conversione a metà costa un file d'uscita parziale e un errore che parla
-di un driver invece che di un pacchetto.
+di una conversione a metà produce un errore del driver anziché una verifica preventiva del pacchetto.
 
 Il controllo legge `MANIFEST.json` accanto al binario. Un binario costruito da
 `cargo` non ha un manifesto, ed è perfettamente usabile: l'assenza non è un
-errore. Un manifesto **presente e illeggibile** lo è, perché vuol dire che
+errore per l’uso normale, ma `require_profile()` solleva `ProfileError` senza manifesto,
+anche col backend nativo. Un manifesto **presente e illeggibile** lo è, perché vuol dire che
 l'artefatto è rotto.
 
 ## Protocollo corrente
@@ -289,3 +307,46 @@ Non sono disponibili protocolli delle release Plenora precedenti.
 | [ENGINEERING.md](ENGINEERING.md) | come è fatto e come viene verificato |
 | [sdk/python/README.md](../sdk/python/README.md) | l'SDK: metodi, errori, deadline, cancellazione |
 | [`release/cli-protocol-v2.json`](../release/cli-protocol-v2.json) | il contratto delle buste, campo per campo |
+
+
+## Identificatori e opzioni dei formati
+
+<!-- generato da codice/formati: inizio -->
+
+| Id | Estensioni | Direzione | Feature | Lettura nativa | Lettura effettiva | Pruning spaziale / predicati | Fedeltà | Tipi scrivibili |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| csv | ["csv"] | bidirectional | assente | streaming_sequential | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
+| dxf | ["dxf"] | bidirectional | assente | materialized | streaming_sequential | none / none | approximating | ["boolean","signed_integer","unsigned_integer","floating","utf8","binary","temporal","decimal"] |
+| filegdb | ["gdb"] | bidirectional | gdal-backend | streaming_sequential | materializing | none / none | conditional | ["signed_integer","floating","utf8"] |
+| geojson | ["geojson","json"] | bidirectional | assente | streaming_sequential | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
+| geoparquet | ["parquet"] | bidirectional | assente | streaming_random | streaming_columnar | bounding_box_statistics / numeric_min_max_statistics | lossless | ["boolean","signed_integer","unsigned_integer","floating","utf8","binary","temporal","decimal","nested","other"] |
+| gpkg | ["gpkg"] | bidirectional | assente | streaming_random | streaming_sequential | optional_rtree_index / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","binary"] |
+| ipc | ["arrow","arrows"] | bidirectional | assente | streaming_random | streaming_sequential | none / none | lossless | ["boolean","signed_integer","unsigned_integer","floating","utf8","binary","temporal","decimal","nested","other"] |
+| kml | ["kml"] | bidirectional | assente | materialized | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
+| shp | ["shp","shp.d"] | bidirectional | assente | streaming_sequential | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","binary","temporal","decimal"] |
+| xls | ["xlsx"] | bidirectional | assente | materialized | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
+
+<!-- generato da codice/formati: fine -->
+
+<!-- generato da codice/opzioni: inizio -->
+
+| Driver | Chiave | Fase | Dominio | Default | Significato |
+| --- | --- | --- | --- | --- | --- |
+| csv | delimiter | both | char | , | separatore di campo ASCII, esclusi virgolette, CR e LF |
+| csv | geometry_encoding | write | {"enum":["wkt","xy"]} | wkt | come scrivere la geometria: colonna WKT o colonne x/y |
+| csv | wkt_column | read | text | assente | colonna che contiene la geometria in WKT |
+| csv | x_column | read | text | assente | colonna dell'ascissa, da usare insieme a y_column |
+| csv | y_column | read | text | assente | colonna dell'ordinata, da usare insieme a x_column |
+| geoparquet | compression | write | {"enum":["brotli","gzip","lz4","none","snappy","uncompressed","zstd"]} | snappy | codec di compressione delle pagine |
+| ipc | serialization | write | {"enum":["file","stream"]} | file | serializzazione IPC: contenitore `file` con footer, o flusso `stream` |
+| shp | publish_mode | write | {"enum":["shapefile_directory_dataset","loose_shapefile_set"]} | assente | forma di pubblicazione; .shp.d si deduce, .shp va accettata |
+| shp | row_diagnostics.examples_limit | read | {"integer":{"max":64,"min":1}} | 64 | numero massimo di righe di esempio per diagnostica |
+| shp | row_diagnostics.key_field | read | text | assente | campo DBF usato come chiave nelle diagnostiche di riga |
+| shp | row_diagnostics.key_policy | read | {"enum":["emit","redact"]} | assente | se emettere o redigere la chiave; richiede row_diagnostics.key_field |
+| xls | geometry_encoding | write | {"enum":["wkt","xy"]} | wkt | come scrivere la geometria: colonna WKT o colonne x/y |
+| xls | sheet | read | text | assente | nome del foglio da leggere; in assenza, il primo |
+| xls | wkt_column | read | text | assente | colonna che contiene la geometria in WKT |
+| xls | x_column | read | text | assente | colonna dell'ascissa, da usare insieme a y_column |
+| xls | y_column | read | text | assente | colonna dell'ordinata, da usare insieme a x_column |
+
+<!-- generato da codice/opzioni: fine -->

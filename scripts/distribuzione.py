@@ -16,7 +16,7 @@ riconta guarda quelle.
 
 # La firma e' una scelta esplicita, anche quando non e' richiesta
 
-La release 2.0.0 distribuisce intenzionalmente artefatti senza firma di
+La distribuzione corrente fornisce intenzionalmente artefatti senza firma di
 piattaforma sia su Linux sia su Windows. Non e' un'omissione dedotta
 dall'assenza di un certificato: la politica lo dichiara, il manifesto lo porta
 come `non_richiesta`, e checksum e provenance restano obbligatori. Su Windows
@@ -142,7 +142,7 @@ NOTA_DEL_CANALE = {
         "«candidate» significa che questo artefatto e' quello che si consegna: "
         "viene da una revisione congelata, che il campo `revisione` nomina, e la "
         "sua integrita' si verifica con lo sha256, il manifesto e la provenance "
-        "pubblicati accanto. La 2.0.0 non richiede una firma di piattaforma: su "
+        "pubblicati accanto. La {versione} non richiede una firma di piattaforma: su "
         "Windows il PE non porta Authenticode, quindi il sistema puo' mostrare "
         "«editore sconosciuto» e una policy aziendale puo' impedirne "
         "l'esecuzione."
@@ -257,7 +257,10 @@ def nota_del_canale(canale: str) -> str:
     a un canale sconosciuto e' esattamente il documento che si contraddice, con
     un passaggio in meno per accorgersene.
     """
-    return NOTA_DEL_CANALE[canale]
+    import tomllib
+
+    versione = tomllib.loads((pathlib.Path(__file__).resolve().parent.parent / "Cargo.toml").read_text(encoding="utf-8"))["workspace"]["package"]["version"]
+    return NOTA_DEL_CANALE[canale].format(versione=versione)
 
 
 def revisione_del_repository() -> str | None:
@@ -327,7 +330,7 @@ def manifesto(comuni: dict, extra: dict) -> dict:
             f"canale «{canale}» non fra {sorted(NOTA_DEL_CANALE)}: un artefatto "
             "di un canale che non esiste non ha una politica da dichiarare."
         )
-    if comuni["canale_nota"] != NOTA_DEL_CANALE[canale]:
+    if comuni["canale_nota"] != nota_del_canale(canale):
         raise ValueError(
             f"`canale_nota` non e' la nota del canale «{canale}». La nota si "
             "deriva dal canale reale: scritta a parte, ha descritto un artefatto "

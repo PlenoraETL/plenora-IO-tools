@@ -7,7 +7,7 @@
 * `BinaryNotFound`, `ManifestError`, `ProfileError`, `ProtocolError` sono
   dell'**SDK**: nascono prima che il comando parta, o quando cio' che torna non
   e' cio' che il protocollo promette. Nessuna di loro ha una busta dietro;
-* `CommandFailed` porta la busta d'errore `plenora-io-error-v1`, con i suoi
+* `CommandFailed` porta la busta d'errore `plenora-error-v1`, con i suoi
   quattro assi -- categoria, fase, effetto remoto, disposizione al ritentativo
   -- e il codice d'uscita.
 
@@ -67,8 +67,8 @@ class PlenoraError(Exception):
 
     Qui gli assi hanno un valore per classe, scelto una volta e dichiarato
     accanto alla classe: `_CATEGORIA` e `_FASE`. L'effetto remoto parte da
-    `none`; `ProtocolError` e' l'unico che lo puo' alzare, perche' e' l'unico
-    che puo' nascere **dopo** che il processo e' partito (vedi `process.py`).
+    `none`; `ProtocolError`, `CleanupError` e `UnexpectedError` possono alzarlo
+    dopo l’avvio o la pubblicazione (vedi `process.py`).
     Il ritentativo e' sempre `never`: un errore dell'SDK non diventa un
     successo ripetendo la stessa chiamata, e dire il contrario sarebbe una
     promessa che nessuno ha verificato.
@@ -166,7 +166,7 @@ class PlenoraError(Exception):
 
     @property
     def retry(self) -> dict[str, Any]:
-        """La disposizione al ritentativo, come oggetto `{kind}` nuovo a ogni lettura."""
+        """La disposizione al ritentativo, come `FrozenDict` immutabile `{kind}`."""
         return FrozenDict({"kind": "never"})
 
     @property
@@ -264,6 +264,8 @@ def classe_dell_sdk(tipo: type) -> bool:
 #: ammesse da `_dallo_sdk`; una prova sull'AST verifica che ogni chiamata ne usi
 #: una letterale, e una seconda prova prova ogni chiave con parametri ostili.
 MESSAGGI: dict[str, str] = {
+    "layer.stato": "Stato di leggibilità del layer non valido.",
+    "processo.contratto": "Contratto o versione di protocollo della busta non supportati.",
     # la fabbrica e la ricostruzione
     "sdk.sconosciuto": "errore dell'SDK senza un messaggio a catalogo.",
     "fabbrica.non_sdk": "solo un errore dell'SDK nasce dalla fabbrica.",
@@ -478,7 +480,7 @@ MESSAGGI: dict[str, str] = {
     "busta.senza_error": "la busta d'errore non porta l'oggetto `error` (e' {tipo}).",
     "busta.mancanti": (
         "busta d'errore senza i campi obbligatori {mancanti}. "
-        "`plenora-io-error-v1` ne dichiara sei, e ci sono sempre."
+        "`plenora-error-v1` ne dichiara sei, e ci sono sempre."
     ),
     "busta.details": (
         "`error.details` e' {tipo} e non un oggetto: lo schema `plenora-error-v1` "
@@ -865,7 +867,8 @@ class ProtocolError(PlenoraError):
 class LocalIoError(PlenoraError):
     """Un'operazione dell'SDK sul filesystem locale e' fallita prima di eseguire.
 
-    Oggi e' la directory temporanea dell'adattatore Arrow: una `temp_dir` che
+    Comprende la ricerca del binario, il manifesto e l’I/O temporaneo Arrow:
+    una `temp_dir` che
     non esiste o non si puo' scrivere, o il file IPC temporaneo che non si
     scrive. Il comando non e' partito, e l'effetto e' `none`. L'errore del
     sistema operativo non entra nel messaggio ne' nella catena: porta il
@@ -971,7 +974,7 @@ class ResultLookupError(PlenoraError, KeyError, IndexError):
 
 @dataclass(frozen=True)
 class ErrorEnvelope:
-    """La busta `plenora-io-error-v1`, con i suoi campi obbligatori.
+    """La busta `plenora-error-v1`, con i suoi campi obbligatori.
 
     `row_diagnostics` c'e' solo quando l'errore porta la diagnostica riga per
     riga, e sul filo vive dentro `details`: ROW-DIAGNOSTICS-1.0 dice che «when
@@ -1381,6 +1384,8 @@ _PROFONDITA = _Intero(0, 1_000_000)
 #: Il tipo di ogni parametro di ogni modello di `MESSAGGI`. Una prova verifica
 #: che i parametri dichiarati siano esattamente i segnaposto del modello.
 PARAMETRI: dict[str, dict[str, Any]] = {
+    "layer.stato": {},
+    "processo.contratto": {},
     "errore.stato_sigillato": {"nome": _CLASSE},
     "errore.gia_costruito": {"nome": _CLASSE},
     **{
@@ -1738,7 +1743,7 @@ class CommandFailed(PlenoraError):
 
     Non e' un guasto dell'SDK: e' il prodotto che rifiuta, e il rifiuto e'
     un'informazione. `exit_code` sta accanto alla busta perche' la CLI lo usa
-    per distinguere famiglie di rifiuti che la busta descrive in prosa.
+    come proiezione della categoria strutturata; non sostituisce gli assi della busta.
 
     Non si costruisce a mano: `failure_from_envelope` sceglie la sottoclasse
     dalla **categoria**, che e' un vocabolario chiuso del contratto.
@@ -1793,8 +1798,8 @@ class CommandFailed(PlenoraError):
         """La disposizione fissata alla costruzione, come oggetto nuovo.
 
         Ricostruita dalle decisioni private della busta, fissate dopo la
-        validazione, e resa come `dict` nuovo a ogni lettura: chi la cambia
-        cambia la propria copia, non l'eccezione ne' la busta.
+        validazione, e resa come `FrozenDict` immutabile a ogni lettura.
+        Tentare di modificarla solleva `InvalidArgumentError`.
         """
         busta = self.envelope
         if busta._tipo_di_ritentativo == "after":
@@ -1909,7 +1914,7 @@ class UnsupportedError(CommandFailed):
 
 
 class NotFoundError(CommandFailed):
-    """`not_found`: la sorgente, il layer o il campo non esistono."""
+    """`not_found`: la sorgente, un membro obbligatorio o il layer non esistono."""
 
 
 class ConflictError(CommandFailed):
@@ -2044,3 +2049,11 @@ def _failure_from_envelope(
 # In fondo: `contenitori` importa `InvalidArgumentError` da qui, e `_tipo` deve
 # riconoscere i due contenitori per identita'.
 from ._contenitori import FrozenDict, FrozenList  # noqa: E402
+
+
+def valida_identita(documento: dict[str, Any], contratto: str) -> None:
+    """Contratto esatto e versione intera su una busta esterna o locale al layer."""
+    if (type(documento.get("protocol_version")) is not int
+            or documento["protocol_version"] != 2
+            or documento.get("contract") != contratto):
+        raise _dallo_sdk(ProtocolError, "processo.contratto")

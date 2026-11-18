@@ -1,4 +1,4 @@
-"""I modelli delle due buste che questo ciclo copre: bootstrap e catalogo.
+"""I modelli delle risposte delle operazioni, della versione e delle capability.
 
 # I nomi sono quelli del wire
 
@@ -36,7 +36,7 @@ from __future__ import annotations
 
 import types
 import typing
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from ._argomenti import testo
@@ -648,6 +648,21 @@ class Geometry:
         )
 
 
+def _stato_del_layer(documento: dict[str, Any]) -> dict[str, Any]:
+    from ._errors import ErrorEnvelope, valida_identita
+
+    status = documento["status"]
+    if type(status.get("readable")) is not bool:
+        raise _dallo_sdk(ProtocolError, "layer.stato")
+    if not status["readable"]:
+        error = status.get("error")
+        if type(error) is not dict:
+            raise _dallo_sdk(ProtocolError, "layer.stato")
+        valida_identita(error, "plenora-error-v1")
+        ErrorEnvelope.from_json(error)
+    return status
+
+
 @dataclass(frozen=True, kw_only=True)
 class Layer:
     """Un layer con il suo schema, come `inspect` lo descrive."""
@@ -659,7 +674,9 @@ class Layer:
     geometry: Geometry | None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
-    _OBBLIGATORI = ("id", "name", "fields", "geometry")
+    status: dict[str, Any]
+
+    _OBBLIGATORI = ("id", "name", "fields", "geometry", "status")
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Layer":
@@ -674,6 +691,7 @@ class Layer:
         return cls(
             id=documento["id"],
             name=documento["name"],
+            status=_stato_del_layer(documento),
             fields=[Field.from_json(voce) for voce in colonne],
             geometry=(
                 None
@@ -714,11 +732,14 @@ class LayerSummary:
     geometry_crs: str | None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
-    _OBBLIGATORI = ("id", "name", "field_count", "geometry_crs")
+    status: dict[str, Any]
+
+    _OBBLIGATORI = ("id", "name", "field_count", "geometry_crs", "status")
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "LayerSummary":
         documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "layers.layers[]", cls)
+        _stato_del_layer(documento)
         return cls(
             **{campo: documento[campo] for campo in _schema(cls)._OBBLIGATORI},
             raw=dict(documento),
@@ -845,7 +866,7 @@ class Delivered:
 
 @dataclass(frozen=True, kw_only=True)
 class Validation:
-    """L'esito di `validate()`, cioe' della busta `plenora-io-read-result-v1`.
+    """L'esito di `validate()`, cioe' della busta `plenora-io-read-result-v2`.
 
     # Che cosa dice, e che cosa non da'
 
@@ -892,7 +913,9 @@ class Validation:
         consegna = documento["delivered"]
         return cls(
             format=documento["format"],
-            layer=Layer.from_json(documento["layer"]),
+            # La busta read non porta status: il successo attesta la leggibilità.
+            layer=replace(Layer.from_json({**documento["layer"], "status": {"readable": True}}),
+                          raw=documento["layer"]),
             rows_read=documento["rows_read"],
             batches=documento["batches"],
             truncated=documento["truncated"],

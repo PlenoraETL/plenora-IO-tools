@@ -11,8 +11,7 @@ dataclass li nomina, e chi sbaglia lo scopre dove ha scritto.
 
 `deadline` e' un **budget** che il prodotto conosce: lo rispetta, e quando scade
 si ferma da se' e risponde con una busta d'errore che lo dice --
-`TimeoutError`, categoria `timeout`. Il lavoro fatto fino a quel punto e'
-descritto.
+`TimeoutError`, categoria `timeout`. La busta descrive l’effetto remoto, non il progresso del lavoro.
 
 `Client(timeout=...)` e' un'altra cosa: uccide il processo da fuori, e quel che
 resta e' un `ProtocolError` che dice **non si sa**. Nessuna busta, nessun

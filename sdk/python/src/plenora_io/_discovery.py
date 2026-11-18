@@ -161,13 +161,15 @@ def trova_binario(esplicito: str | os.PathLike[str] | None = None) -> Path:
         cercati.append("il percorso indicato con Client(binary=...)")
         if _e_un_file(percorso, "il percorso indicato"):
             return _risolto(percorso, "il percorso indicato")
+        raise _dallo_sdk_strutturato(BinaryNotFound, cercati)
 
     dall_ambiente = os.environ.get(VARIABILE)
-    if dall_ambiente:
+    if dall_ambiente is not None:
         percorso = Path(dall_ambiente)
         cercati.append("la variabile d'ambiente PLENORA_IO_BIN")
         if _e_un_file(percorso, VARIABILE):
             return _risolto(percorso, VARIABILE)
+        raise _dallo_sdk_strutturato(BinaryNotFound, cercati)
     else:
         cercati.append("PLENORA_IO_BIN (non impostata)")
 
@@ -194,7 +196,7 @@ class Manifest:
     """Il `MANIFEST.json` dell'artefatto distribuito.
 
     Solo i campi che l'SDK usa per **decidere** qualcosa, piu' il documento
-    intero in `raw`. Ricopiare qui i quattordici campi comuni li farebbe
+    intero in `raw`. Ricopiare qui tutti i campi comuni li farebbe
     divergere: il manifesto della distribuzione ha il proprio gate, e questo non
     e' un secondo posto in cui dichiararne la forma.
     """

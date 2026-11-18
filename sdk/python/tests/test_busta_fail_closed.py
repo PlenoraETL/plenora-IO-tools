@@ -228,7 +228,7 @@ class IModelliControllanoITipi(unittest.TestCase):
     """`_pretendi` controllava la presenza delle chiavi, non il tipo."""
 
     def test_un_intero_null_stringa_o_booleano_e_rifiutato(self) -> None:
-        sano = {"id": 0, "name": "a", "field_count": 1, "geometry_crs": "EPSG:4326"}
+        sano = {"id": 0, "name": "a", "field_count": 1, "status": {"readable": True}, "geometry_crs": "EPSG:4326"}
         LayerSummary.from_json(sano)
         for valore in (None, "1", True, 1.0):
             with self.subTest(valore=valore):

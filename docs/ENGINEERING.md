@@ -348,7 +348,7 @@ driver interpreta come geometria passa da un'analisi che applica i tetti
 driver binario ha altre difese, e riassumerle in un booleano solo lo renderebbe
 inutile.
 
-Oggi la dichiarano `csv`, `xlsx` e `geojson`.
+Oggi la dichiarano `csv`, `xls` e `geojson`.
 `scripts/check_capability_input_ostile.py` non le crede: confronta la
 dichiarazione con gli entry point che il driver attraversa davvero, nei due
 versi — un `true` senza il parser è rosso, e un parser senza il `true` pure,
@@ -372,7 +372,7 @@ garanzia `hostile_input_hardened`. È un bug del confine precedente, non una
 sintassi da conservare.
 
 Lo spazio finale resta accettato, perché non è testo. Il rifiuto è un errore di
-**sintassi** (`DataMapping/Validate/Wkb/Never`), non di budget: dire «limite
+**sintassi** (`data_mapping/read/FORMAT_ERROR/never`), non di budget: dire «limite
 superato» a chi ha una parentesi di troppo lo manderebbe ad allargare una quota
 che non c'entra.
 
@@ -383,7 +383,7 @@ Ogni errore pubblico porta il quartetto `(category, phase, code, retry)` più
 [PRODUCT.md § PublicMessage](PRODUCT.md#publicmessage--il-testo-è-scelto-a-compile-time).
 
 I nomi di campo e di layer non entrano nel testo: entrano in campi tipizzati che
-non raggiungono il wire.
+raggiungono `error.details` sul wire. I dettagli delle perdite usano indici strutturali e categorie statiche.
 
 ---
 

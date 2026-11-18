@@ -81,7 +81,7 @@ class ConUnFinto(unittest.TestCase):
     @saltabile
     def test_la_busta_di_successo_arriva_da_stdout(self) -> None:
         client = self.client(
-            'print(json.dumps({"status": "ok", "result": {"component_version": "9.9.9", "cli_protocol_version": 2}}))\n'
+            'print(json.dumps({"status": "ok", "protocol_version": 2, "contract": "plenora-io-version-v2", "result": {"component_version": "9.9.9", "cli_protocol_version": 2}}))\n'
         )
         self.assertEqual(client.version().version, "9.9.9")
 
@@ -152,7 +152,7 @@ class ConUnFinto(unittest.TestCase):
 
     @saltabile
     def test_il_manifesto_e_none_per_un_binario_nudo(self) -> None:
-        client = self.client('print(json.dumps({"status": "ok", "result": {"component_version": "1.0.0", "cli_protocol_version": 2}}))\n')
+        client = self.client('print(json.dumps({"status": "ok", "protocol_version": 2, "contract": "plenora-io-version-v2", "result": {"component_version": "1.0.0", "cli_protocol_version": 2}}))\n')
         self.assertIsNone(client.manifest)
 
 
@@ -556,10 +556,10 @@ class IlRunnerNativo(unittest.TestCase):
             self.chiamate.append((argv, timeout))
             return self.risposta
 
-    BUSTA_OK = json.dumps({"status": "ok", "result": {"x": 1}})
+    BUSTA_OK = json.dumps({"status": "ok", "protocol_version": 2, "contract": "plenora-io-catalog-v2", "result": {"x": 1}})
     BUSTA_ERRORE = json.dumps(
         {
-            "status": "error",
+            "status": "error", "protocol_version": 2, "contract": "plenora-error-v1",
             "error": {
                 "category": "cancelled",
                 "phase": "read",

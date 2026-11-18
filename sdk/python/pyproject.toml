@@ -15,7 +15,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "plenora-io"
-description = "Wrapper Python puro sopra la CLI plenora-io e il suo protocollo v2"
+description = "SDK Python per plenora-io, con backend nativo o subprocess e protocollo v2"
 readme = "README.md"
 
 # Minimo deciso dal titolare; fonte .python-version e guardia check_python_version.py.
