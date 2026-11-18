@@ -6,8 +6,23 @@ use arrow_array::*;
 #[allow(clippy::needless_pass_by_value)]
 fn scritto(array: ArrayRef) -> Result<Vec<u8>> {
     let mut wb = Workbook::new();
-    write_cell(wb.add_worksheet(), 0, 0, &ValidatedArray::new(&array)?, 0)?;
-    wb.save_to_buffer().map_err(xls_err)
+    let mut empty_cells = BTreeSet::new();
+    write_cell(
+        wb.add_worksheet(),
+        0,
+        0,
+        &ValidatedArray::new(&array)?,
+        0,
+        &mut empty_cells,
+    )?;
+    empty_strings::encode(wb.save_to_buffer().map_err(xls_err)?, &empty_cells)
+}
+
+#[test]
+fn stringa_vuota_e_cella_stringa_presente() {
+    let bytes = scritto(Arc::new(StringArray::from(vec![Some("")]))).unwrap();
+    assert!(xml(&bytes, "xl/worksheets/sheet1.xml").contains("t=\"inlineStr\"><is><t></t></is>"));
+    assert_eq!(rileggi(bytes), Data::String(String::new()));
 }
 
 fn xml(bytes: &[u8], parte: &str) -> String {

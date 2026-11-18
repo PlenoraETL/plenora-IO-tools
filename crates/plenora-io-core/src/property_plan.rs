@@ -3,126 +3,7 @@ use arrow_schema::{Field, Schema};
 use plenora_io_model::geometry::{PLENORA_ENCODING_KEY, PLENORA_SRID_KEY};
 use serde::{Deserialize, Serialize};
 
-/// Qualification properties, with GPKG write/read rules and opaque fallback.
-///
-/// Reconstructed declares catalog/native reconstruction, not value inequality.
-/// Only logical identity and contract version promise metadata preservation.
-pub const PROPERTIES: &[(&str, &str, Rule, Rule)] = &[
-    (
-        "contract_version",
-        "plenora.contract.version",
-        Rule::Preserved,
-        Rule::Preserved,
-    ),
-    (
-        "field_id",
-        "plenora.field_id",
-        Rule::Preserved,
-        Rule::Preserved,
-    ),
-    (
-        "types_declaration",
-        "plenora.geometry.types_declaration",
-        Rule::Reconstructed,
-        Rule::Preserved,
-    ),
-    (
-        "geometry_types",
-        "plenora.geometry.types",
-        Rule::Reconstructed,
-        Rule::Preserved,
-    ),
-    (
-        "dimensions",
-        "plenora.geometry.dimensions",
-        Rule::Reconstructed,
-        Rule::Preserved,
-    ),
-    (
-        "encoding",
-        "plenora.geometry.encoding",
-        Rule::Reconstructed,
-        Rule::Preserved,
-    ),
-    (
-        "geometry_or_geography",
-        "plenora.geometry.spatial_semantics",
-        Rule::Reconstructed,
-        Rule::Preserved,
-    ),
-    (
-        "precision",
-        "plenora.geometry.precision",
-        Rule::Reconstructed,
-        Rule::Preserved,
-    ),
-    (
-        "srid",
-        "plenora.geometry.srid",
-        Rule::Reconstructed,
-        Rule::Preserved,
-    ),
-    (
-        "crs_id",
-        "plenora.geometry.crs_id",
-        Rule::Reconstructed,
-        Rule::Preserved,
-    ),
-    (
-        "crs_resolution",
-        "plenora.geometry.crs_resolution",
-        Rule::Reconstructed,
-        Rule::Preserved,
-    ),
-    (
-        "crs_definition",
-        "plenora.geometry.crs_definition",
-        Rule::Reconstructed,
-        Rule::Preserved,
-    ),
-    (
-        "crs_definition_format",
-        "plenora.geometry.crs_definition_format",
-        Rule::Reconstructed,
-        Rule::Preserved,
-    ),
-    (
-        "axis_order",
-        "plenora.geometry.axis_order",
-        Rule::Reconstructed,
-        Rule::Preserved,
-    ),
-    (
-        "native_metadata",
-        "plenora.geometry.native.",
-        Rule::Removed,
-        Rule::Preserved,
-    ),
-    ("", "gpkg.declared_type", Rule::Preserved, Rule::Preserved),
-    ("", "gpkg.primary_key", Rule::Preserved, Rule::Preserved),
-    (
-        "",
-        "ARROW:extension:name",
-        Rule::Reconstructed,
-        Rule::Preserved,
-    ),
-    (
-        "",
-        "ARROW:extension:metadata",
-        Rule::Removed,
-        Rule::Preserved,
-    ),
-    (
-        "",
-        "plenora.primary_geometry",
-        Rule::Removed,
-        Rule::Preserved,
-    ),
-    ("", "gpkg.schema_normalized", Rule::Removed, Rule::Preserved),
-    ("", "crs", Rule::Removed, Rule::Preserved),
-    ("", "geo", Rule::Removed, Rule::Preserved),
-    ("", "", Rule::Removed, Rule::Rejected),
-];
+pub use crate::loss_table::PROPERTIES;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -131,18 +12,21 @@ pub enum Rule {
     Rejected,
     Reconstructed,
     Removed,
+    ArrowMetadataRemoved,
     EwkbToWkb,
     SridRemoved,
     SridToCatalog,
 }
 
 const METADATA_REMOVED: &str = "gpkg_metadata_not_preserved";
+const ARROW_METADATA_REMOVED: &str = "arrow_metadata_not_preserved";
 const GEOMETRY_NORMALIZED: &str = "geometry_representation_normalized";
 
 impl Rule {
     const fn loss_category(self) -> Option<&'static str> {
         match self {
             Self::Removed => Some(METADATA_REMOVED),
+            Self::ArrowMetadataRemoved => Some(ARROW_METADATA_REMOVED),
             Self::EwkbToWkb | Self::SridRemoved | Self::SridToCatalog => Some(GEOMETRY_NORMALIZED),
             _ => None,
         }
@@ -174,15 +58,7 @@ pub fn metadata_rule(driver: &str, key: &str, value: &str, convert_ewkb: bool) -
             Rule::SridRemoved
         };
     }
-    // Outside GPKG this plan governs the representation adapter only;
-    // it does not claim that a different format preserves Arrow metadata.
-    if driver != "gpkg" {
-        return Rule::Preserved;
-    }
-    PROPERTIES
-        .iter()
-        .find(|(_, pattern, _, _)| matches_key(pattern, key))
-        .map_or(Rule::Rejected, |entry| entry.2)
+    crate::loss_table::metadata_rule(driver, crate::loss_table::TransportDirection::Write, key)
 }
 
 #[must_use]
@@ -249,7 +125,7 @@ fn matches_key(pattern: &str, key: &str) -> bool {
 }
 
 /// Complete structural plan. No input name, metadata value or digest is carried.
-/// For GPKG this covers format metadata; for other sinks it covers the EWKB adapter.
+/// Covers format metadata and the EWKB representation adapter.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PropertyPlan {
@@ -363,7 +239,7 @@ impl PropertyPlan {
         Ok(())
     }
 
-    /// A complete report, independent of the bounded illustrative examples.
+    /// Representation effects and metadata counts with bounded indexed examples.
     /// # Errors
     /// Rejects reports exceeding the complete-inventory byte budget.
     pub fn report(
@@ -376,11 +252,13 @@ impl PropertyPlan {
             if effect.rule == Rule::Preserved {
                 continue;
             }
-            report.property_changes.push(PropertyChange {
-                layer_index,
-                phase,
-                effect: effect.clone(),
-            });
+            if effect.rule != Rule::ArrowMetadataRemoved {
+                report.property_changes.push(PropertyChange {
+                    layer_index,
+                    phase,
+                    effect: effect.clone(),
+                });
+            }
             let rule = effect.rule;
             let Some(category) = rule.loss_category() else {
                 continue;
@@ -406,6 +284,7 @@ impl PropertyPlan {
                         effect.key_index,
                         effect.field_id.map_or_else(|| "absent".to_owned(), |id| id.to_string()),
                         match effect.rule {
+                            Rule::ArrowMetadataRemoved => "rule=native_schema_reconstruction",
                             Rule::EwkbToWkb => "encoding=ewkb_to_iso_wkb byte_order=little_endian coordinates=bitwise",
                             Rule::SridToCatalog => "srid=gpkg_catalog payload_srid=removed",
                             Rule::SridRemoved => "srid=removed crs=validated",
@@ -436,7 +315,14 @@ fn valid_rule(driver: &str, effect: &PropertyEffect) -> bool {
                 && effect.property.as_deref() == Some("srid")
                 && (driver == "gpkg") == (effect.rule == Rule::SridToCatalog)
         }
-        _ if driver != "gpkg" => effect.rule == Rule::Preserved,
+        _ if driver != "gpkg" => {
+            effect.rule
+                == crate::loss_table::metadata_rule(
+                    driver,
+                    crate::loss_table::TransportDirection::Write,
+                    "",
+                )
+        }
         _ => PROPERTIES.iter().any(|(name, _, rule, _)| {
             effect.property.as_deref() == (!name.is_empty()).then_some(*name)
                 && effect.rule == *rule
@@ -474,10 +360,11 @@ pub fn validate_gpkg_read_schema(schema: &Schema) -> plenora_io_model::Result<()
         std::iter::once(schema.metadata()).chain(schema.fields().iter().map(|f| f.metadata()))
     {
         for key in metadata.keys() {
-            let rule = PROPERTIES
-                .iter()
-                .find(|(_, pattern, _, _)| matches_key(pattern, key))
-                .map_or(Rule::Rejected, |entry| entry.3);
+            let rule = crate::loss_table::metadata_rule(
+                "gpkg",
+                crate::loss_table::TransportDirection::Read,
+                key,
+            );
             if rule == Rule::Rejected {
                 return Err(plenora_io_model::PlenoraIoError::contratto_redatto(
                     &plenora_io_model::PublicMessage::Curated(

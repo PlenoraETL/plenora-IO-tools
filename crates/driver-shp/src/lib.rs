@@ -51,8 +51,7 @@ use plenora_io_core::{
     validate_write, with_write_validation, write_row_rejection, AttributeWriteSupport,
     CrsDerivation, CrsRepresentationCapabilities, CrsRepresentationState, CrsWriteSupport,
     FormatWriteCapabilities, NullabilitySupport, SinkPathConstraint, SinkPathReason,
-    TypeCoercionPolicy, WritePlan, DBF_FIELD_NAMES, SCALAR_TYPES,
-    WKB_SINGLE_TYPE_ALL_DIMENSIONS_GEOMETRY,
+    TypeCoercionPolicy, WritePlan, DBF_FIELD_NAMES, WKB_SINGLE_TYPE_ALL_DIMENSIONS_GEOMETRY,
 };
 use plenora_io_model::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
@@ -601,10 +600,13 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     None,
     Some(FormatWriteCapabilities {
         field_names: DBF_FIELD_NAMES,
-        allowed_types: SCALAR_TYPES,
+        allowed_types: plenora_io_core::loss_table::SHP.allowed_types,
         type_coercion: TypeCoercionPolicy::ExplicitText,
         attributes: AttributeWriteSupport::All,
-        geometry: WKB_SINGLE_TYPE_ALL_DIMENSIONS_GEOMETRY,
+        geometry: plenora_io_core::GeometryWriteSupport {
+            dimensions: plenora_io_core::loss_table::SHP.dimensions,
+            ..WKB_SINGLE_TYPE_ALL_DIMENSIONS_GEOMETRY
+        },
         crs: CrsWriteSupport::Embedded,
         crs_representations: CrsRepresentationCapabilities::new(
             // L'identificatore si rilegge dal `.prj`, e il `.prj` c'e' se la

@@ -40,7 +40,7 @@ use plenora_io_core::{
     validate_write, with_write_validation, AttributeWriteSupport, CrsDerivation,
     CrsRepresentationCapabilities, CrsRepresentationState, CrsWriteSupport,
     FormatWriteCapabilities, NullabilitySupport, SinkPathConstraint, TypeCoercionPolicy, WritePlan,
-    ALL_ARROW_TYPES, UTF8_FIELD_NAMES, WKB_PASSTHROUGH_GEOMETRY,
+    UTF8_FIELD_NAMES, WKB_PASSTHROUGH_GEOMETRY,
 };
 use plenora_io_model::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
@@ -1024,10 +1024,13 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     Some("1.1.0"),
     Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
-        allowed_types: ALL_ARROW_TYPES,
+        allowed_types: plenora_io_core::loss_table::GEOPARQUET.allowed_types,
         type_coercion: TypeCoercionPolicy::Reject,
         attributes: AttributeWriteSupport::All,
-        geometry: WKB_PASSTHROUGH_GEOMETRY,
+        geometry: plenora_io_core::GeometryWriteSupport {
+            dimensions: plenora_io_core::loss_table::GEOPARQUET.dimensions,
+            ..WKB_PASSTHROUGH_GEOMETRY
+        },
         // Un CRS risolto, oppure `crs: null` per un `missing`: e' cosi' che
         // GeoParquet 1.1 dice «CRS ignoto». Il dichiarato ma non risolto non
         // ha un modo conforme di essere scritto, e si rifiuta.

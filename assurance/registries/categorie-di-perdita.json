@@ -5,6 +5,11 @@
   "limite_di_lunghezza_byte": 128,
   "categorie": [
     {
+      "id": "arrow_metadata_not_preserved",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
       "id": "gpkg_incompatible_storage_discarded",
       "superficie": "driver-gpkg",
       "forma": "costante"

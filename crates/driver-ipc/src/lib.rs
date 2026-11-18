@@ -29,7 +29,7 @@ use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
     validate_write, with_write_validation, AttributeWriteSupport, CrsRepresentationCapabilities,
     CrsRepresentationState, CrsWriteSupport, FormatWriteCapabilities, NullabilitySupport,
-    SinkPathConstraint, TypeCoercionPolicy, WritePlan, ALL_ARROW_TYPES, UTF8_FIELD_NAMES,
+    SinkPathConstraint, TypeCoercionPolicy, WritePlan, UTF8_FIELD_NAMES,
     WKB_EWKB_PASSTHROUGH_GEOMETRY,
 };
 use plenora_io_model::contract::{
@@ -79,10 +79,13 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     None,
     Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
-        allowed_types: ALL_ARROW_TYPES,
+        allowed_types: plenora_io_core::loss_table::IPC.allowed_types,
         type_coercion: TypeCoercionPolicy::Reject,
         attributes: AttributeWriteSupport::All,
-        geometry: WKB_EWKB_PASSTHROUGH_GEOMETRY,
+        geometry: plenora_io_core::GeometryWriteSupport {
+            dimensions: plenora_io_core::loss_table::IPC.dimensions,
+            ..WKB_EWKB_PASSTHROUGH_GEOMETRY
+        },
         crs: CrsWriteSupport::EmbeddedOptional,
         crs_representations: CrsRepresentationCapabilities::new(
             CrsRepresentationState::Preserved,

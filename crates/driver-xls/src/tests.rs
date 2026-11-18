@@ -930,11 +930,6 @@ fn n1_resolve_geometry_nomina_la_colonna_che_manca_e_rifiuta_due_geometrie() {
             "colonna Y assente dall'intestazione",
         ),
         (
-            "nessuna opzione di geometria",
-            vec![],
-            "specificare wkt_column, oppure x_column con y_column, in format_options",
-        ),
-        (
             "coppia a meta': solo l'ascissa",
             vec![("x_column", "lon")],
             "specificare wkt_column, oppure x_column con y_column, in format_options",
@@ -954,6 +949,9 @@ fn n1_resolve_geometry_nomina_la_colonna_che_manca_e_rifiuta_due_geometrie() {
             "{caso}: il messaggio manda a correggere la cosa sbagliata"
         );
     }
+    let (geometry, columns) = resolve_geometry(&intestazioni, INIZIO, &BTreeMap::new()).unwrap();
+    assert!(matches!(geometry, XlsxGeomSpec::None));
+    assert!(columns.is_empty());
 
     // Le accettazioni: senza, una funzione che rifiutasse tutto passerebbe
     // la tabella dei negativi.
@@ -1882,7 +1880,14 @@ fn n1_write_cell_scrive_i_valori_convertibili_e_propaga_il_rifiuto_del_formato()
     ] {
         // Un `match` e non un `unwrap_or_else`: non c'e' un valore di
         // ripiego, e il censimento dei fallback conta la forma sintattica.
-        match write_cell(foglio, 0, 0, &ValidatedArray::new(&array).unwrap(), 0) {
+        match write_cell(
+            foglio,
+            0,
+            0,
+            &ValidatedArray::new(&array).unwrap(),
+            0,
+            &mut BTreeSet::new(),
+        ) {
             Ok(()) => {}
             Err(errore) => panic!("{caso}: {errore:?}"),
         }
@@ -1905,6 +1910,7 @@ fn n1_write_cell_scrive_i_valori_convertibili_e_propaga_il_rifiuto_del_formato()
         0,
         &ValidatedArray::new(&non_convertibile).unwrap(),
         0,
+        &mut BTreeSet::new(),
     ) else {
         panic!("un tipo non convertibile non puo' diventare una cella");
     };
@@ -1926,6 +1932,7 @@ fn n1_write_cell_scrive_i_valori_convertibili_e_propaga_il_rifiuto_del_formato()
         0,
         &ValidatedArray::new(&troppo_lunga).unwrap(),
         0,
+        &mut BTreeSet::new(),
     ) else {
         panic!("una cella oltre il tetto del formato non puo' essere troncata in silenzio");
     };
@@ -2054,7 +2061,7 @@ const fn vertice(x: f64, y: f64) -> WkbCoordinate {
 /// rifiuto e' la scelta opposta: l'encoding `xy` si chiede esplicitamente,
 /// e chi lo chiede su una `LineString` ha sbagliato piano, non dato.
 #[test]
-fn n1_finish_rifiuta_il_lotto_senza_geometria_binaria_e_la_geometria_non_xy() {
+fn n1_finish_accetta_tabelle_e_rifiuta_geometria_non_binaria_o_non_xy() {
     let dir = tempfile::tempdir().unwrap();
     let campo = geometry_field("geometry", "EPSG:4326");
     let punto = wkb_di(WkbValue::Point(vertice(1.0, 2.0)));
@@ -2086,10 +2093,13 @@ fn n1_finish_rifiuta_il_lotto_senza_geometria_binaria_e_la_geometria_non_xy() {
         vec![Arc::new(arrow_array::StringArray::from(vec![Some("uno")]))],
     )
     .unwrap();
-    let Err(errore) = scrittore(&dir.path().join("senza.xlsx"), false, vec![senza]).finish() else {
-        panic!("un foglio XLSX di questo driver ha sempre una colonna geometria");
-    };
-    assert_eq!(errore.message, "nessuna colonna geometria");
+    let path = dir.path().join("senza.xlsx");
+    scrittore(&path, false, vec![senza]).finish().unwrap();
+    let dataset = XlsDriver
+        .open(Source::Path(path), opzioni_lettura())
+        .unwrap();
+    assert!(dataset.layers()[0].contract.geometry.is_none());
+    assert_eq!(dataset.layers()[0].contract.schema.fields().len(), 1);
 
     // Colonna dichiarata geometria ma di tipo non binario: i metadati sono
     // gli stessi, cambia solo il tipo Arrow. E' cio' che un piano costruito

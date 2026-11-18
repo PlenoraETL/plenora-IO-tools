@@ -42,6 +42,62 @@ const SAMPLE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
         <LineString><coordinates>0,0,0 1,1,0</coordinates></LineString></Placemark>
     </Document></kml>"#;
 
+#[test]
+fn scrittura_z_assoluta_e_vuote_rifiutate() {
+    let point = |x, y| WkbCoordinate {
+        x,
+        y,
+        z: Some(3.0),
+        m: None,
+    };
+    for value in [
+        WkbValue::Point(point(1.0, 2.0)),
+        WkbValue::LineString(vec![point(1.0, 2.0), point(4.0, 5.0)]),
+        WkbValue::Polygon(vec![vec![
+            point(0.0, 0.0),
+            point(1.0, 0.0),
+            point(1.0, 1.0),
+            point(0.0, 0.0),
+        ]]),
+    ] {
+        let geometry = WkbGeometry {
+            value,
+            dimensions: CoordinateDimensions::Xyz,
+            srid: None,
+        };
+        let output = kml_geometry_from_wkb(&geometry).unwrap();
+        let mode = match output {
+            KmlGeometry::Point(point) => point.altitude_mode,
+            KmlGeometry::LineString(line) => line.altitude_mode,
+            KmlGeometry::Polygon(polygon) => polygon.altitude_mode,
+            _ => panic!("geometria inattesa"),
+        };
+        assert_eq!(mode, kml::types::AltitudeMode::Absolute);
+    }
+    for value in [
+        WkbValue::Point(WkbCoordinate {
+            x: f64::NAN,
+            y: f64::NAN,
+            z: None,
+            m: None,
+        }),
+        WkbValue::LineString(vec![]),
+        WkbValue::MultiPoint(vec![]),
+        WkbValue::MultiLineString(vec![]),
+        WkbValue::MultiPolygon(vec![]),
+        WkbValue::GeometryCollection(vec![]),
+    ] {
+        let geometry = WkbGeometry {
+            value,
+            dimensions: CoordinateDimensions::Xy,
+            srid: None,
+        };
+        let error = kml_geometry_from_wkb(&geometry).unwrap_err();
+        assert_eq!(error.category, plenora_io_model::ErrorCategory::DataMapping);
+        assert_eq!(error.message, "geometria vuota non rappresentabile in KML");
+    }
+}
+
 const FUZZ_TIMEOUT_REGRESSION: &[u8] = br#"<kml xmlns="http://www.opengis.net/kml/2.2"><Placemark><MultiGeomgis.net/kml/2.2"><Placemark><MultiGeometry>></LikeString></MultiGww.opengis.net/kml/2.2etry>></LikeString></MultiGww.opengis.net/kml/2.2"><>"#;
 const FUZZ_EMPTY_POINT_REGRESSION: &[u8] =
     br#"<kml xmlns="httpw.opengis.net/kml/2.2"><Placemark><Point></Point></Placemark></kml>"#;

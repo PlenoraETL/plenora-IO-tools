@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use arrow_array::{BinaryArray, LargeBinaryArray, RecordBatch};
-use arrow_schema::{DataType, SchemaRef};
+use arrow_schema::SchemaRef;
 use plenora_io_model::budget::{
     ConcurrencyLease, CountedLease, InputPermit, InternalMemoryLease, OperationBudget,
     OperationCounter, PipelineContext, PipelineLimits, ReadBudgetParts, SourceEntry,
@@ -29,7 +29,7 @@ use plenora_io_model::{
 use plenora_io_model::{ContractIdentifier, IoErrorCode, NumeroStrutturale, PublicMessage};
 
 use crate::descriptor::{
-    ArrowTypeClass, AttributeWriteSupport, CrsDerivation, CrsRepresentationState, FormatDescriptor,
+    AttributeWriteSupport, CrsDerivation, CrsRepresentationState, FormatDescriptor,
     GeometryWriteSupport, NullabilitySupport, TypeCoercionPolicy,
 };
 use crate::loss::{FidelityAssessment, FidelityReasonCode, LossExample, LossReport, Posizione};

@@ -272,6 +272,30 @@ configurazione, non un valore ignorato.
 Nessun driver riproietta. Il CRS viene letto, scritto o dichiarato — mai
 trasformato.
 
+CSV e XLSX senza `wkt_column`, `x_column` e `y_column` si leggono come tabelle
+senza geometria e senza `--assume-crs`. La presenza di una sola coordinata
+configurata resta un errore; per leggere una geometria occorrono la colonna WKT
+oppure entrambe le colonne X/Y, e il CRS esplicito. Anche la scrittura XLSX
+accetta tabelle senza geometria. Una stringa vuota viene scritta come cella
+stringa presente, distinta dalla cella assente che rappresenta null.
+
+La tabella `loss_table` del core governa le classi di attributi e le dimensioni
+del catalogo, la normalizzazione dei tipi in scrittura e il trasporto dei
+metadati Arrow. I formati nativi che ricostruiscono lo schema dichiarano
+`arrow_metadata_not_preserved`, con conteggi e indici di layer, campo e chiave;
+i valori e i nomi delle chiavi opache non entrano nella diagnostica. GPKG
+mantiene le categorie specifiche del proprio piano. La dichiarazione del
+trasporto dei metadati non attesta ancora la copertura delle perdite dei membri
+nativi ignorati dai parser.
+
+Una geometria con `shp.measure_no_data` nei metadati nativi è rifiutata con
+`unsupported` verso destinazioni diverse da SHP, IPC e GeoParquet: il controllo
+è conservativo sul contratto, anche se un batch non contiene la sentinella.
+La misura mancante non viene convertita in una misura reale. KML scrive Z con
+`altitudeMode=absolute` e rifiuta Point vuoti, LineString senza coordinate e
+aggregati geometrici vuoti. Per FileGDB, OGC:CRS84 non conservato come
+identificatore è dichiarato `crs_id_not_preserved_absent`.
+
 #### `--assume-crs` e il CRS che la sorgente dichiara
 
 L'opzione **nomina** un CRS che la sorgente non dichiara. Quando la sorgente ne

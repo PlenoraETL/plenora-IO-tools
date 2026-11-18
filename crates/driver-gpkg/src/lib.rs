@@ -41,7 +41,7 @@ use plenora_io_core::loss::LossReport;
 use plenora_io_core::publish::StagedFile;
 use plenora_io_core::request::{Bbox, ReadRequest};
 use plenora_io_core::{
-    validate_write, with_write_validation, ArrowTypeClass, AttributeWriteSupport, CrsDerivation,
+    validate_write, with_write_validation, AttributeWriteSupport, CrsDerivation,
     CrsRepresentationCapabilities, CrsRepresentationState, CrsWriteSupport,
     FormatWriteCapabilities, NullabilitySupport, SinkPathConstraint, SinkPathReason,
     TypeCoercionPolicy, WritePlan, UTF8_FIELD_NAMES, WKB_PASSTHROUGH_GEOMETRY,
@@ -319,15 +319,6 @@ impl Coercion {
     }
 }
 
-const GPKG_ATTRIBUTE_TYPES: &[ArrowTypeClass] = &[
-    ArrowTypeClass::Boolean,
-    ArrowTypeClass::SignedInteger,
-    ArrowTypeClass::UnsignedInteger,
-    ArrowTypeClass::Floating,
-    ArrowTypeClass::Utf8,
-    ArrowTypeClass::Binary,
-];
-
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     "gpkg",
     &plenora_io_core::dataset_files::FILE_SETS[2],
@@ -359,10 +350,13 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     None,
     Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
-        allowed_types: GPKG_ATTRIBUTE_TYPES,
+        allowed_types: plenora_io_core::loss_table::GPKG.allowed_types,
         type_coercion: TypeCoercionPolicy::Reject,
         attributes: AttributeWriteSupport::All,
-        geometry: WKB_PASSTHROUGH_GEOMETRY,
+        geometry: plenora_io_core::GeometryWriteSupport {
+            dimensions: plenora_io_core::loss_table::GPKG.dimensions,
+            ..WKB_PASSTHROUGH_GEOMETRY
+        },
         crs: CrsWriteSupport::Embedded,
         crs_representations: CrsRepresentationCapabilities::new(
             CrsRepresentationState::Preserved,

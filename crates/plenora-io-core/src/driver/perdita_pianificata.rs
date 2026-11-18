@@ -5,8 +5,8 @@ use plenora_io_model::crs::CrsDefinitionFormat;
 use crate::descriptor::CrsRepresentationCapabilities;
 
 use super::{
-    is_geometry_field, saturating_u64, ArrowTypeClass, AttributeWriteSupport, CrsDerivation,
-    CrsRepresentationState, CrsResolution, DataType, FidelityAssessment, FidelityReasonCode,
+    is_geometry_field, saturating_u64, AttributeWriteSupport, CrsDerivation,
+    CrsRepresentationState, CrsResolution, FidelityAssessment, FidelityReasonCode,
     FormatDescriptor, GeometryType, LossExample, LossReport, NullabilitySupport, Posizione,
     TypeCoercionPolicy, WritePlan,
 };
@@ -38,6 +38,7 @@ pub fn planned_write_loss(
         properties.validate_schema(descriptor.id(), &layer.contract.schema)?;
         loss.merge(&properties.report(indice_layer as u64, crate::property_plan::Phase::Write)?);
         let geometries = layer.contract.geometries()?;
+        crate::loss_table::validate_native_measures(descriptor.id(), &geometries)?;
         for geometry in geometries.iter().filter(|g| {
             layer.contract.geometry.is_some()
                 || geometries.len() > 1
@@ -79,7 +80,15 @@ pub fn planned_write_loss(
                 dove,
                 RappresentazioneDelCrs::CrsId,
                 crs_id.map(str::len),
-                stato_dell_identificatore(&capabilities.crs_representations, &fonti, grammatica),
+                if descriptor.id() == "filegdb"
+                    && crs_id.is_some_and(|id| {
+                        plenora_io_model::crs::stesso_identificatore(id, "OGC:CRS84")
+                    })
+                {
+                    CrsRepresentationState::Absent
+                } else {
+                    stato_dell_identificatore(&capabilities.crs_representations, &fonti, grammatica)
+                },
             );
             record_crs_representation_loss(
                 &mut loss,
@@ -136,7 +145,9 @@ fn record_attribute_loss(
                 capabilities.type_coercion,
                 TypeCoercionPolicy::ExplicitText | TypeCoercionPolicy::LossReported
             );
-        if unsupported_text_coercion || normalizza_tipo(descriptor.id(), field.data_type()) {
+        if unsupported_text_coercion
+            || crate::loss_table::normalizes_type(descriptor.id(), field.data_type())
+        {
             loss.record("coercion tipo attributo", 1);
             loss.add_example(LossExample {
                 category: "coercion tipo attributo".to_owned(),
@@ -148,19 +159,6 @@ fn record_attribute_loss(
                 context: "il tipo dell'attributo richiede una coercizione".to_owned(),
             });
         }
-    }
-}
-
-/// I formati senza schema Arrow dichiarano anche la normalizzazione dei tipi nativi.
-fn normalizza_tipo(formato: &str, tipo: &DataType) -> bool {
-    match formato {
-        "csv" => *tipo != DataType::Utf8,
-        "kml" => crate::capabilities::arrow_type_class(tipo) != ArrowTypeClass::Utf8,
-        "gpkg" => !matches!(
-            tipo,
-            DataType::Int64 | DataType::Float64 | DataType::Utf8 | DataType::Binary
-        ),
-        _ => false,
     }
 }
 

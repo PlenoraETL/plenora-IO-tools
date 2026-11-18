@@ -5,8 +5,8 @@
 #![forbid(unsafe_code)]
 
 use plenora_io_core::descriptor::{
-    ArrowTypeClass, CrsHandling, Direction, Fidelity, FormatDescriptor, GeometryWriteSupport,
-    ReadMode, ReaderConcurrency, Runtime, WriteMode,
+    CrsHandling, Direction, Fidelity, FormatDescriptor, GeometryWriteSupport, ReadMode,
+    ReaderConcurrency, Runtime, WriteMode,
 };
 use plenora_io_core::driver::{
     FormatDriver, FormatWriter, OpenDatasetHandle, ReadOptions, Sink, Source, WriteOptions,
@@ -16,26 +16,13 @@ use plenora_io_core::{
     CrsRepresentationState, CrsWriteSupport, FormatWriteCapabilities, NullabilitySupport,
     SinkPathConstraint, TypeCoercionPolicy, WritePlan, UTF8_FIELD_NAMES,
 };
-use plenora_io_model::contract::{
-    CoordinateDimensions, GeometryEncoding, GeometryType, SpatialSemantics,
-};
+use plenora_io_model::contract::{GeometryEncoding, GeometryType, SpatialSemantics};
 use plenora_io_model::Result;
-
-const FILEGDB_ATTRIBUTE_TYPES: &[ArrowTypeClass] = &[
-    ArrowTypeClass::SignedInteger,
-    ArrowTypeClass::Floating,
-    ArrowTypeClass::Utf8,
-];
 
 const FILEGDB_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport {
     supported: true,
     encodings: &[GeometryEncoding::Wkb],
-    dimensions: &[
-        CoordinateDimensions::Xy,
-        CoordinateDimensions::Xyz,
-        CoordinateDimensions::Xym,
-        CoordinateDimensions::Xyzm,
-    ],
+    dimensions: plenora_io_core::loss_table::FILEGDB.dimensions,
     spatial_semantics: &[SpatialSemantics::Geometry],
     geometry_types: &[
         GeometryType::Point,
@@ -79,7 +66,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     None,
     Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
-        allowed_types: FILEGDB_ATTRIBUTE_TYPES,
+        allowed_types: plenora_io_core::loss_table::FILEGDB.allowed_types,
         type_coercion: TypeCoercionPolicy::Reject,
         attributes: AttributeWriteSupport::All,
         geometry: FILEGDB_GEOMETRY,

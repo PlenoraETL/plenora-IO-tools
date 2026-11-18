@@ -456,7 +456,8 @@
     ],
     "infer_layout": [
       "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never"
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "Crs/Validate/Crs/Never"
     ],
     "limiti_osservati": [
       "ResourceLimit/Validate/LimitExceeded/Never",
@@ -468,8 +469,7 @@
     "open": [
       "Unsupported/Validate/Unsupported/Never",
       "esplicito/esplicito/Format/esplicito",
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "Crs/Validate/Crs/Never"
+      "ResourceLimit/Validate/LimitExceeded/Never"
     ],
     "resolve_geometry": [
       "esplicito/esplicito/Generic/esplicito"
@@ -674,6 +674,11 @@
   "crates/plenora-io-core/src/loss.rs": {
     "validate_property_budget": [
       "ResourceLimit/Validate/LimitExceeded/Never"
+    ]
+  },
+  "crates/plenora-io-core/src/loss_table.rs": {
+    "validate_native_measures": [
+      "Unsupported/Validate/Capability/Never"
     ]
   },
   "crates/plenora-io-core/src/property_plan.rs": {

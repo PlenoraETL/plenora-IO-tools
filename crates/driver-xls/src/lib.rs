@@ -4,6 +4,8 @@
 //! `format_options["sheet"]` o il primo worksheet visibile; tutti i fogli sono enumerati.
 #![forbid(unsafe_code)]
 
+mod empty_strings;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufReader, BufWriter, Read, Seek, Write as _};
 use std::path::PathBuf;
@@ -39,7 +41,7 @@ use plenora_io_core::{
     check_cancelled, check_cancelled_periodically, validate_write, with_write_validation,
     AttributeWriteSupport, CrsRepresentationCapabilities, CrsRepresentationState, CrsWriteSupport,
     FormatWriteCapabilities, NullabilitySupport, SingleReaderGate, SinkPathConstraint,
-    TypeCoercionPolicy, WritePlan, SCALAR_TYPES, UTF8_FIELD_NAMES, WKB_PASSTHROUGH_GEOMETRY,
+    TypeCoercionPolicy, WritePlan, UTF8_FIELD_NAMES, WKB_PASSTHROUGH_GEOMETRY,
 };
 use plenora_io_model::budget::{OperationBudget, SpillLease};
 use plenora_io_model::contract::{
@@ -277,10 +279,13 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     None,
     Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
-        allowed_types: SCALAR_TYPES,
-        type_coercion: TypeCoercionPolicy::ExplicitText,
+        allowed_types: plenora_io_core::loss_table::XLS.allowed_types,
+        type_coercion: TypeCoercionPolicy::Reject,
         attributes: AttributeWriteSupport::All,
-        geometry: WKB_PASSTHROUGH_GEOMETRY,
+        geometry: plenora_io_core::GeometryWriteSupport {
+            dimensions: plenora_io_core::loss_table::XLS.dimensions,
+            ..WKB_PASSTHROUGH_GEOMETRY
+        },
         crs: CrsWriteSupport::None,
         crs_representations: CrsRepresentationCapabilities::new(
             CrsRepresentationState::Absent,
@@ -366,17 +371,13 @@ impl FormatDriver for XlsDriver {
                         plenora_io_model::CapabilityReason::ObjectChartSheet,
                     ));
                 }
-                let crs = opts.assume_crs.clone().ok_or_else(|| {
-                    PlenoraIoError::crs_redatto(&PublicMessage::Curated(
-                        "XLSX con geometria richiede --assume-crs",
-                    ))
-                })?;
+                let crs = opts.assume_crs.as_deref().unwrap_or("");
                 let styles = NativeStyles::read(&path, &sheet.name, opts.budget())?;
                 infer_layout(
                     &mut wb,
                     &sheet.name,
                     &opts.format_options,
-                    &crs,
+                    crs,
                     opts.cancellation(),
                     XlsxQuote::from_read_options(&opts),
                     &styles,
@@ -872,6 +873,7 @@ impl OpenDatasetHandle for XlsDataset {
 
 #[derive(Clone, Copy)]
 enum XlsxGeomSpec {
+    None,
     Wkt(u32),
     Xy(u32, u32),
 }
@@ -944,6 +946,7 @@ fn write_cell(
     c: u16,
     array: &ValidatedArray,
     row: usize,
+    empty_cells: &mut BTreeSet<String>,
 ) -> Result<()> {
     match array.json(row)? {
         JsonValue::Null => {}
@@ -975,6 +978,11 @@ fn write_cell(
             sheet.write_number(r, c, value).map_err(xls_err)?;
         }
         JsonValue::String(s) => {
+            if s.is_empty() {
+                empty_cells.insert(rust_xlsxwriter::utility::row_col_to_cell(r, c));
+                sheet.write_string(r, c, " ").map_err(xls_err)?;
+                return Ok(());
+            }
             if s.contains(['\u{fffe}', '\u{ffff}']) {
                 return Err(err(&PublicMessage::Curated(
                     "carattere XLSX non conservabile in rilettura",
@@ -1004,27 +1012,34 @@ impl FormatWriter for XlsWriterState {
         let limits = self.wkb_limits;
         let mut wrote_header = false;
         let mut r: u32 = 0;
+        let mut empty_cells = BTreeSet::new();
 
         for batch in &self.batches {
             let cells = ValidatedArray::columns(batch.columns())?;
             let schema = batch.schema();
-            let geom_idx = geometry_index(&schema)
-                .ok_or_else(|| err(&PublicMessage::Curated("nessuna colonna geometria")))?;
-            let geom_col = batch
-                .column(geom_idx)
-                .as_any()
-                .downcast_ref::<BinaryArray>()
-                .ok_or_else(|| err(&PublicMessage::Curated("colonna geometria non binaria")))?;
+            let geom_idx = geometry_index(&schema);
+            let geom_col = geom_idx
+                .map(|index| {
+                    batch
+                        .column(index)
+                        .as_any()
+                        .downcast_ref::<BinaryArray>()
+                        .ok_or_else(|| {
+                            err(&PublicMessage::Curated("colonna geometria non binaria"))
+                        })
+                })
+                .transpose()?;
 
             if !wrote_header {
                 let mut col: u16 = 0;
                 for (i, f) in schema.fields().iter().enumerate() {
-                    if i != geom_idx {
+                    if Some(i) != geom_idx {
                         sheet.write_string(0, col, f.name()).map_err(xls_err)?;
                         col += 1;
                     }
                 }
-                if self.xy {
+                if geom_idx.is_none() {
+                } else if self.xy {
                     sheet.write_string(0, col, "x").map_err(xls_err)?;
                     sheet.write_string(0, col + 1, "y").map_err(xls_err)?;
                 } else {
@@ -1037,12 +1052,12 @@ impl FormatWriter for XlsWriterState {
             for row in 0..batch.num_rows() {
                 let mut col: u16 = 0;
                 for (i, _) in schema.fields().iter().enumerate() {
-                    if i != geom_idx {
-                        write_cell(sheet, r, col, &cells[i], row)?;
+                    if Some(i) != geom_idx {
+                        write_cell(sheet, r, col, &cells[i], row, &mut empty_cells)?;
                         col += 1;
                     }
                 }
-                if !geom_col.is_null(row) {
+                if let Some(geom_col) = geom_col.filter(|column| !column.is_null(row)) {
                     // `Finalize` e non `Write`: il writer XLSX accumula i batch e
                     // materializza il foglio in `finish`, che e' dove siamo. E'
                     // la stessa fase che `scrittura_limitata` dichiara li'.
@@ -1076,7 +1091,7 @@ impl FormatWriter for XlsWriterState {
             }
         }
 
-        let buf = wb.save_to_buffer().map_err(xls_err)?;
+        let buf = empty_strings::encode(wb.save_to_buffer().map_err(xls_err)?, &empty_cells)?;
         let mut temp = create_staged_file(&self.path)?;
         temp.as_file_mut().write_all(&buf)?;
         temp.as_file_mut().flush()?;
@@ -1348,6 +1363,9 @@ fn resolve_geometry(
             BTreeSet::from([x_column, y_column]),
         ));
     }
+    if !opts.contains_key("x_column") && !opts.contains_key("y_column") {
+        return Ok((XlsxGeomSpec::None, BTreeSet::new()));
+    }
     Err(err(&PublicMessage::Curated(
         "specificare wkt_column, oppure x_column con y_column, in format_options",
     )))
@@ -1375,6 +1393,7 @@ fn encode_geometry_cell(
     wkb_buffer: &mut Vec<u8>,
 ) -> Result<bool> {
     match geom {
+        XlsxGeomSpec::None => return Ok(false),
         XlsxGeomSpec::Wkt(column) => {
             let text = data_to_string(cell_at(row, bounds, column)?);
             if text.trim().is_empty() {
@@ -1796,31 +1815,44 @@ where
     // Il genere con la regola comune dei driver: prima un elenco proprio, che
     // distingueva le maiuscole (`epsg:4326` era ignoto) e non conosceva
     // `EPSG:3857`.
-    let kind = plenora_io_model::crs::crs_kind_for(Some(crs), None, "xls")?;
-    // Come il CSV: con le colonne di coordinate la x e' l'est; una colonna
-    // WKT non fissa l'ordine e la richiesta non lo dice (GEO-002).
-    let crs_dichiarato = ResolvedCrs::new(Some(crs.to_owned()), kind, None);
-    let crs_dichiarato = match geom {
-        XlsxGeomSpec::Xy(_, _) => crs_dichiarato.stored_east_first(),
-        XlsxGeomSpec::Wkt(_) => crs_dichiarato,
-    };
-    let mut geometry_contract =
-        GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, crs_dichiarato, true);
-    geometry_contract.dimensions = dimensions;
-    geometry_contract.set_exact_geometry_types(detected_types.into_iter().collect());
-    geometry_contract.native_metadata.insert(
-        "xlsx.geometry_encoding".to_owned(),
-        if matches!(geom, XlsxGeomSpec::Wkt(_)) {
-            "wkt"
-        } else {
-            "xy_columns"
+    let geometry_contract = if matches!(geom, XlsxGeomSpec::None) {
+        None
+    } else {
+        if crs.is_empty() {
+            return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+                "XLSX con geometria richiede --assume-crs",
+            )));
         }
-        .to_owned(),
-    );
-    let mut fields = vec![with_geometry_contract_metadata(
-        &geometry_field(GEOMETRY, crs),
-        &geometry_contract,
-    )];
+        let kind = plenora_io_model::crs::crs_kind_for(Some(crs), None, "xls")?;
+        // Come il CSV: con le colonne di coordinate la x e' l'est; una colonna
+        // WKT non fissa l'ordine e la richiesta non lo dice (GEO-002).
+        let crs_dichiarato = ResolvedCrs::new(Some(crs.to_owned()), kind, None);
+        let crs_dichiarato = match geom {
+            XlsxGeomSpec::Xy(_, _) => crs_dichiarato.stored_east_first(),
+            XlsxGeomSpec::Wkt(_) | XlsxGeomSpec::None => crs_dichiarato,
+        };
+        let mut geometry_contract =
+            GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, crs_dichiarato, true);
+        geometry_contract.dimensions = dimensions;
+        geometry_contract.set_exact_geometry_types(detected_types.into_iter().collect());
+        geometry_contract.native_metadata.insert(
+            "xlsx.geometry_encoding".to_owned(),
+            if matches!(geom, XlsxGeomSpec::Wkt(_)) {
+                "wkt"
+            } else {
+                "xy_columns"
+            }
+            .to_owned(),
+        );
+        Some(geometry_contract)
+    };
+    let mut fields = Vec::new();
+    if let Some(geometry) = &geometry_contract {
+        fields.push(with_geometry_contract_metadata(
+            &geometry_field(GEOMETRY, crs),
+            geometry,
+        ));
+    }
     let mut attrs = Vec::with_capacity(accumulators.len());
     let mut attribute_index = 0usize;
     for (offset, name) in headers.iter().enumerate() {
@@ -1851,10 +1883,14 @@ where
     }
 
     let schema: SchemaRef = Arc::new(Schema::new(fields));
-    let contract = DataContract::new(
-        plenora_io_model::geometry::schema_from_native_fields(&schema, &geometry_contract),
-        Some(geometry_contract),
-    );
+    let contract = if let Some(geometry) = geometry_contract {
+        DataContract::new(
+            plenora_io_model::geometry::schema_from_native_fields(&schema, &geometry),
+            Some(geometry),
+        )
+    } else {
+        DataContract::new(schema, None)
+    };
     let schema = contract.schema.clone();
     Ok((
         XlsxLayout {
@@ -1874,7 +1910,11 @@ fn finish_read_batch(
     row_count: usize,
 ) -> Result<RecordBatch> {
     let mut arrays: Vec<ArrayRef> = Vec::with_capacity(1 + attributes.len());
-    arrays.push(Arc::new(geometry.finish()));
+    if schema.fields().len() > attributes.len() {
+        arrays.push(Arc::new(geometry.finish()));
+    } else {
+        let _ = geometry.finish();
+    }
     for builder in attributes {
         let array = builder.finish();
         arrays.push(date_native::restore(

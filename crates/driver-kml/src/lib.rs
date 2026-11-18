@@ -35,7 +35,7 @@ use plenora_io_core::{
     with_write_validation, write_row_rejection, AttributeWriteSupport, CrsDerivation,
     CrsRepresentationCapabilities, CrsRepresentationState, CrsWriteSupport,
     FormatWriteCapabilities, NullabilitySupport, SingleReaderGate, SinkPathConstraint,
-    TypeCoercionPolicy, WritePlan, SCALAR_TYPES, UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
+    TypeCoercionPolicy, WritePlan, UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
 };
 use plenora_io_model::budget::{OperationBudget, SpillLease};
 #[cfg(test)]
@@ -313,10 +313,13 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     None,
     Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
-        allowed_types: SCALAR_TYPES,
+        allowed_types: plenora_io_core::loss_table::KML.allowed_types,
         type_coercion: TypeCoercionPolicy::Reject,
         attributes: AttributeWriteSupport::All,
-        geometry: WKB_XY_XYZ_GEOMETRY,
+        geometry: plenora_io_core::GeometryWriteSupport {
+            dimensions: plenora_io_core::loss_table::KML.dimensions,
+            ..WKB_XY_XYZ_GEOMETRY
+        },
         crs: CrsWriteSupport::Fixed("OGC:CRS84"),
         crs_representations: CrsRepresentationCapabilities::new(
             // Nessuna rappresentazione conservata, e l'identificatore e'
@@ -1747,7 +1750,21 @@ fn kml_geometry_from_wkb(geometry: &WkbGeometry) -> Result<KmlGeometry> {
         )));
     }
     let dimensions = geometry.dimensions;
-    match &geometry.value {
+    let empty = match &geometry.value {
+        WkbValue::Point(point) => point.x.is_nan() || point.y.is_nan(),
+        WkbValue::LineString(points) => points.is_empty(),
+        WkbValue::MultiPoint(parts)
+        | WkbValue::MultiLineString(parts)
+        | WkbValue::MultiPolygon(parts)
+        | WkbValue::GeometryCollection(parts) => parts.is_empty(),
+        _ => false,
+    };
+    if empty {
+        return Err(err(&PublicMessage::Curated(
+            "geometria vuota non rappresentabile in KML",
+        )));
+    }
+    let mut output = match &geometry.value {
         WkbValue::Point(coordinate) => Ok(KmlGeometry::Point(KmlPoint::from(kml_coord_from_wkb(
             coordinate, dimensions,
         )?))),
@@ -1807,7 +1824,20 @@ fn kml_geometry_from_wkb(geometry: &WkbGeometry) -> Result<KmlGeometry> {
         | WkbValue::Triangle(_) => Err(err(&PublicMessage::Curated(
             "tipo WKB esteso non rappresentabile in KML senza linearizzazione",
         ))),
+    }?;
+    if dimensions == CoordinateDimensions::Xyz {
+        match &mut output {
+            KmlGeometry::Point(point) => point.altitude_mode = kml::types::AltitudeMode::Absolute,
+            KmlGeometry::LineString(line) => {
+                line.altitude_mode = kml::types::AltitudeMode::Absolute;
+            }
+            KmlGeometry::Polygon(polygon) => {
+                polygon.altitude_mode = kml::types::AltitudeMode::Absolute;
+            }
+            _ => {}
+        }
     }
+    Ok(output)
 }
 
 fn kml_contract(

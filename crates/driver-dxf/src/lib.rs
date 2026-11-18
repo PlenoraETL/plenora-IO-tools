@@ -45,7 +45,7 @@ use plenora_io_core::{
     with_write_validation, write_row_rejection, AttributeWriteSupport, CrsDerivation,
     CrsRepresentationCapabilities, CrsRepresentationState, CrsWriteSupport,
     FormatWriteCapabilities, NullabilitySupport, SingleReaderGate, SinkPathConstraint,
-    TypeCoercionPolicy, WritePlan, SCALAR_TYPES, UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
+    TypeCoercionPolicy, WritePlan, UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
 };
 use plenora_io_model::budget::{OperationBudget, SpillLease};
 use plenora_io_model::contract::{
@@ -481,10 +481,13 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     None,
     Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
-        allowed_types: SCALAR_TYPES,
+        allowed_types: plenora_io_core::loss_table::DXF.allowed_types,
         type_coercion: TypeCoercionPolicy::LossReported,
         attributes: AttributeWriteSupport::LossReported,
-        geometry: WKB_XY_XYZ_GEOMETRY,
+        geometry: plenora_io_core::GeometryWriteSupport {
+            dimensions: plenora_io_core::loss_table::DXF.dimensions,
+            ..WKB_XY_XYZ_GEOMETRY
+        },
         crs: CrsWriteSupport::Embedded,
         crs_representations: CrsRepresentationCapabilities::new(
             // L'identificatore si rilegge dal GEODATA incorporato. A

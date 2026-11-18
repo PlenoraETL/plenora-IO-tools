@@ -58,7 +58,7 @@ use plenora_io_core::{
     read_row_error, validate_write, with_write_validation, AttributeWriteSupport, CrsDerivation,
     CrsRepresentationCapabilities, CrsRepresentationState, CrsWriteSupport,
     FormatWriteCapabilities, NullabilitySupport, SinkPathConstraint, TypeCoercionPolicy, WritePlan,
-    SCALAR_TYPES, UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
+    UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
 };
 use plenora_io_model::contract::{
     DataContract, FieldId, GeometryColumnContract, GeometryType, LayerContract, LayerId,
@@ -116,10 +116,13 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     None,
     Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
-        allowed_types: SCALAR_TYPES,
+        allowed_types: plenora_io_core::loss_table::GEOJSON.allowed_types,
         type_coercion: TypeCoercionPolicy::Reject,
         attributes: AttributeWriteSupport::All,
-        geometry: WKB_XY_XYZ_GEOMETRY,
+        geometry: plenora_io_core::GeometryWriteSupport {
+            dimensions: plenora_io_core::loss_table::GEOJSON.dimensions,
+            ..WKB_XY_XYZ_GEOMETRY
+        },
         crs: CrsWriteSupport::Fixed("OGC:CRS84"),
         crs_representations: CrsRepresentationCapabilities::new(
             // Nessuna rappresentazione conservata, e l'identificatore e'

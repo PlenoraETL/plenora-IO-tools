@@ -328,7 +328,14 @@ fn nessun_driver_fa_uscire_il_payload_in_apertura() {
         let percorso = fixture(file);
         assert!(percorso.exists(), "{nome}: fixture {file} assente");
 
-        match driver.open(Source::Path(percorso), opzioni_lettura()) {
+        let mut options = opzioni_lettura();
+        if nome == "csv" {
+            options
+                .format_options
+                .insert("wkt_column".to_owned(), "geometry".to_owned());
+            options.assume_crs = Some("EPSG:4326".to_owned());
+        }
+        match driver.open(Source::Path(percorso), options) {
             Ok(_) => panic!("{nome}: la fixture ostile e' stata accettata in apertura"),
             Err(errore) => verifica(&format!("{nome}/apertura"), &errore, None),
         }

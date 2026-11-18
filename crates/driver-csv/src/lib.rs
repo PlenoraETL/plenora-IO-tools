@@ -28,8 +28,8 @@ use serde_json::Value as JsonValue;
 
 use driver_common::wkt_lossless::{format_wkt_into, parse_wkt_bounded};
 use driver_common::{
-    classify_i64, geometry_field, geometry_index, ColType, InferredColumnBuilder,
-    ObservedValueClass, TypeAccumulator, ValidatedArray,
+    classify_i64, geometry_index, ColType, InferredColumnBuilder, ObservedValueClass,
+    TypeAccumulator, ValidatedArray,
 };
 use driver_common::{colonna_per_nome, ColonnaPerNome};
 use plenora_io_core::descriptor::{
@@ -149,17 +149,13 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     None,
     Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
-        allowed_types: &[
-            plenora_io_core::ArrowTypeClass::Boolean,
-            plenora_io_core::ArrowTypeClass::SignedInteger,
-            plenora_io_core::ArrowTypeClass::UnsignedInteger,
-            plenora_io_core::ArrowTypeClass::Floating,
-            plenora_io_core::ArrowTypeClass::Utf8,
-            plenora_io_core::ArrowTypeClass::Temporal,
-        ],
+        allowed_types: plenora_io_core::loss_table::CSV.allowed_types,
         type_coercion: TypeCoercionPolicy::Reject,
         attributes: AttributeWriteSupport::All,
-        geometry: WKB_PASSTHROUGH_GEOMETRY,
+        geometry: plenora_io_core::GeometryWriteSupport {
+            dimensions: plenora_io_core::loss_table::CSV.dimensions,
+            ..WKB_PASSTHROUGH_GEOMETRY
+        },
         crs: CrsWriteSupport::None,
         crs_representations: CrsRepresentationCapabilities::new(
             CrsRepresentationState::Absent,
@@ -211,7 +207,7 @@ fn delimiter(opts: &std::collections::BTreeMap<String, String>) -> Option<u8> {
 fn colonne_geometriche(
     headers: &[String],
     format_options: &std::collections::BTreeMap<String, String>,
-) -> Result<(GeomSpec, HashSet<usize>)> {
+) -> Result<(Option<GeomSpec>, HashSet<usize>)> {
     // Un nome che l'intestazione ripete e' ambiguo: prendere la prima
     // occorrenza sceglieva in silenzio da quale colonna leggere la geometria.
     let idx = |name: &str, assente: &'static str, ambigua: &'static str| match colonna_per_nome(
@@ -244,7 +240,7 @@ fn colonne_geometriche(
             "colonna WKT assente dall'intestazione",
             "colonna WKT ambigua: il nome compare piu' volte nell'intestazione",
         )?;
-        return Ok((GeomSpec::Wkt(wi), HashSet::from([wi])));
+        return Ok((Some(GeomSpec::Wkt(wi)), HashSet::from([wi])));
     }
     if let (Some(x), Some(y)) = (
         format_options.get("x_column"),
@@ -260,7 +256,10 @@ fn colonne_geometriche(
             "colonna Y assente dall'intestazione",
             "colonna Y ambigua: il nome compare piu' volte nell'intestazione",
         )?;
-        return Ok((GeomSpec::Xy(xi, yi), HashSet::from([xi, yi])));
+        return Ok((Some(GeomSpec::Xy(xi, yi)), HashSet::from([xi, yi])));
+    }
+    if !format_options.contains_key("x_column") && !format_options.contains_key("y_column") {
+        return Ok((None, HashSet::new()));
     }
     Err(err(&PublicMessage::Curated(
         "specificare wkt_column, oppure x_column con y_column, in format_options",
@@ -358,11 +357,6 @@ impl FormatDriver for CsvDriver {
     fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
         let path = plenora_io_core::preflight_source(self.descriptor(), source, &mut opts)?;
         let delim = delimiter(&opts.format_options).ok_or_else(delimiter_non_valido)?;
-        let crs = opts.assume_crs.clone().ok_or_else(|| {
-            PlenoraIoError::crs_redatto(&PublicMessage::Curated(
-                "CSV con geometria richiede --assume-crs",
-            ))
-        })?;
 
         // Intestazione (nomi colonna).
         let headers: Vec<String> = {
@@ -385,47 +379,64 @@ impl FormatDriver for CsvDriver {
         let quote = QuoteInferenza::from_read_options(&opts);
         let attrs = infer_types(&path, delim, &headers, &geom_cols, quote)?;
 
-        let (dimensions, geometry_types) = match geom {
-            GeomSpec::Wkt(wi) => infer_wkt_geometry(&path, delim, wi, quote)?,
-            GeomSpec::Xy(_, _) => (CoordinateDimensions::Xy, vec![GeometryType::Point]),
+        let geometry_contract = if let Some(geom) = geom {
+            let crs = opts.assume_crs.clone().ok_or_else(|| {
+                PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+                    "CSV con geometria richiede --assume-crs",
+                ))
+            })?;
+            let (dimensions, geometry_types) = match geom {
+                GeomSpec::Wkt(wi) => infer_wkt_geometry(&path, delim, wi, quote)?,
+                GeomSpec::Xy(_, _) => (CoordinateDimensions::Xy, vec![GeometryType::Point]),
+            };
+            // Il genere con la regola comune dei driver: prima un elenco proprio, che
+            // distingueva le maiuscole (`epsg:4326` era ignoto) e non conosceva
+            // `EPSG:3857`.
+            let kind = plenora_io_model::crs::crs_kind_for(Some(&crs), None, "csv")?;
+            // L'ordine memorizzato lo dichiara la richiesta (GEO-002): con
+            // `x_column`/`y_column` la x e' l'est, e i valori escono (x, y). Una
+            // colonna WKT non fissa l'ordine e la richiesta non lo dice: il
+            // produttore non lo sa, e dichiara `unknown`.
+            let crs_dichiarato = ResolvedCrs::new(Some(crs), kind, None);
+            let crs_dichiarato = match geom {
+                GeomSpec::Xy(_, _) => crs_dichiarato.stored_east_first(),
+                GeomSpec::Wkt(_) => crs_dichiarato,
+            };
+            let mut geometry_contract =
+                GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, crs_dichiarato, true);
+            geometry_contract.dimensions = dimensions;
+            geometry_contract.set_exact_geometry_types(geometry_types);
+            let native_encoding = match geom {
+                GeomSpec::Wkt(_) => "wkt",
+                GeomSpec::Xy(_, _) => "xy_columns",
+            };
+            geometry_contract.native_metadata.insert(
+                "csv.geometry_encoding".to_owned(),
+                native_encoding.to_owned(),
+            );
+            Some(geometry_contract)
+        } else {
+            None
         };
-        // Il genere con la regola comune dei driver: prima un elenco proprio, che
-        // distingueva le maiuscole (`epsg:4326` era ignoto) e non conosceva
-        // `EPSG:3857`.
-        let kind = plenora_io_model::crs::crs_kind_for(Some(&crs), None, "csv")?;
-        // L'ordine memorizzato lo dichiara la richiesta (GEO-002): con
-        // `x_column`/`y_column` la x e' l'est, e i valori escono (x, y). Una
-        // colonna WKT non fissa l'ordine e la richiesta non lo dice: il
-        // produttore non lo sa, e dichiara `unknown`.
-        let crs_dichiarato = ResolvedCrs::new(Some(crs.clone()), kind, None);
-        let crs_dichiarato = match geom {
-            GeomSpec::Xy(_, _) => crs_dichiarato.stored_east_first(),
-            GeomSpec::Wkt(_) => crs_dichiarato,
-        };
-        let mut geometry_contract =
-            GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, crs_dichiarato, true);
-        geometry_contract.dimensions = dimensions;
-        geometry_contract.set_exact_geometry_types(geometry_types);
-        let native_encoding = match geom {
-            GeomSpec::Wkt(_) => "wkt",
-            GeomSpec::Xy(_, _) => "xy_columns",
-        };
-        geometry_contract.native_metadata.insert(
-            "csv.geometry_encoding".to_owned(),
-            native_encoding.to_owned(),
-        );
-        let mut fields = vec![with_geometry_contract_metadata(
-            &geometry_field(GEOMETRY, &crs),
-            &geometry_contract,
-        )];
+        let mut fields = Vec::new();
+        if let Some(geometry) = &geometry_contract {
+            fields.push(with_geometry_contract_metadata(
+                &Field::new(GEOMETRY, arrow_schema::DataType::Binary, true),
+                geometry,
+            ));
+        }
         for (ci, ct) in &attrs {
             fields.push(Field::new(&headers[*ci], ct.arrow_data_type(), true));
         }
         let schema: SchemaRef = Arc::new(Schema::new(fields));
-        let contract = DataContract::new(
-            plenora_io_model::geometry::schema_from_native_fields(&schema, &geometry_contract),
-            Some(geometry_contract),
-        );
+        let contract = if let Some(geometry) = geometry_contract {
+            DataContract::new(
+                plenora_io_model::geometry::schema_from_native_fields(&schema, &geometry),
+                Some(geometry),
+            )
+        } else {
+            DataContract::new(schema, None)
+        };
         let name = path
             .file_stem()
             .and_then(|s| s.to_str())
@@ -563,7 +574,7 @@ impl FormatDriver for CsvDriver {
 struct CsvDataset {
     path: PathBuf,
     delim: u8,
-    geom: GeomSpec,
+    geom: Option<GeomSpec>,
     /// Le quote WKB configurate, non i default del contratto: il dataset
     /// sopravvive alle opzioni, e senza portarsele dietro la lettura tornerebbe
     /// al default proprio dopo che l'inferenza ha rispettato il flag.
@@ -585,12 +596,12 @@ impl OpenDatasetHandle for CsvDataset {
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
         let (indices, layer) = plenora_io_core::project_layer_contract(&self.layers[0], request)?;
-        let include_geometry = indices.binary_search(&0).is_ok();
+        let include_geometry = self.geom.is_some() && indices.binary_search(&0).is_ok();
         let attrs = indices
             .iter()
             .filter_map(|&index| {
                 index
-                    .checked_sub(1)
+                    .checked_sub(usize::from(self.geom.is_some()))
                     .and_then(|attr_index| self.attrs.get(attr_index))
                     .copied()
             })
@@ -605,7 +616,7 @@ impl OpenDatasetHandle for CsvDataset {
                 delim: self.delim,
                 cella_wkt: self.wkb_limits,
             },
-            include_geometry.then_some(self.geom),
+            self.geom.filter(|_| include_geometry),
             attrs,
             layer.contract.schema.clone(),
             batch_sizer,

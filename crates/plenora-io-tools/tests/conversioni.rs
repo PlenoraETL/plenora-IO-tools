@@ -342,7 +342,10 @@ fn geojson_a_shp_conserva_anche_la_riga_senza_geometria() {
     // riportato da fuori. Fino alla rilettura 11 la perdita era `derived`.
     assert_eq!(
         esito.perdite(),
-        perdite(&[("crs_id_not_preserved_absent", 1)]),
+        perdite(&[
+            ("arrow_metadata_not_preserved", 13),
+            ("crs_id_not_preserved_absent", 1)
+        ]),
         "il .prj sintetizzato si rilegge EPSG:4326, non OGC:CRS84"
     );
     let righe = per_id(&uscita, &[]);
@@ -371,7 +374,10 @@ fn xls_a_csv_conserva_null_e_interi_larghi() {
     assert!(esito.riuscito, "{}", esito.stderr);
     assert_eq!(
         esito.perdite(),
-        perdite(&[("crs_id_not_preserved_absent", 1)]),
+        perdite(&[
+            ("arrow_metadata_not_preserved", 15),
+            ("crs_id_not_preserved_absent", 1)
+        ]),
         "il CSV non porta il CRS, e non c'e' niente da cui ricavarlo"
     );
     let righe = per_id(&uscita, &con(CRS_PROIETTATO, WKT));
@@ -406,7 +412,10 @@ fn kml_a_xls_dichiara_geometria_e_crs_perduti() {
     assert!(esito.riuscito, "{}", esito.stderr);
     assert_eq!(
         esito.perdite(),
-        perdite(&[("crs_id_not_preserved_absent", 1)]),
+        perdite(&[
+            ("arrow_metadata_not_preserved", 13),
+            ("crs_id_not_preserved_absent", 1)
+        ]),
         "il CRS e' dichiarato perduto"
     );
     // La geometria non sparisce in silenzio: la fedelta' scende, e con la
@@ -440,6 +449,7 @@ fn geoparquet_a_csv_dichiara_la_perdita_del_crs() {
     assert_eq!(
         esito.perdite(),
         perdite(&[
+            ("arrow_metadata_not_preserved", 20),
             ("coercion tipo attributo", 5),
             ("crs_definition_not_preserved_absent", 1),
             ("crs_id_not_preserved_absent", 1),
@@ -628,7 +638,10 @@ fn dxf_a_geojson_restituisce_solo_cio_che_il_dxf_aveva_conservato() {
     assert!(esito.riuscito, "{}", esito.stderr);
     assert_eq!(
         esito.perdite(),
-        perdite(&[("crs_id_not_preserved_derived", 1)]),
+        perdite(&[
+            ("arrow_metadata_not_preserved", 15),
+            ("crs_id_not_preserved_derived", 1)
+        ]),
         "GeoJSON fissa il proprio CRS, e l'identificatore si ricava da li'"
     );
     assert_eq!(

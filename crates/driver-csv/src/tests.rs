@@ -5,6 +5,7 @@
 //! una riga la superficie pubblica del crate.
 
 use super::*;
+use driver_common::geometry_field;
 
 /// Opzioni di lettura sul modello unificato.
 ///

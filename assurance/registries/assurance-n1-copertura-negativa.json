@@ -933,7 +933,7 @@
       "prova": [
         {
           "crate": "driver-xls",
-          "test": "tests::n1_finish_rifiuta_il_lotto_senza_geometria_binaria_e_la_geometria_non_xy",
+          "test": "tests::n1_finish_accetta_tabelle_e_rifiuta_geometria_non_binaria_o_non_xy",
           "configurazione": "default",
           "esito": "coperto"
         },
