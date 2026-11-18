@@ -1,8 +1,8 @@
 //! Metadati SQL conservabili e normalizzazioni dello schema.
 use super::{
     err, geometry_field, sql_err, sqlite_type, Arc, Connection, DataType, Field, LossReport,
-    PlenoraIoError, PublicMessage, ResolvedCrs, Result, Schema, SchemaRef, DECLARED_TYPE,
-    PRIMARY_KEY, SCHEMA_NORMALIZED,
+    PublicMessage, ResolvedCrs, Result, Schema, SchemaRef, DECLARED_TYPE, PRIMARY_KEY,
+    SCHEMA_NORMALIZED,
 };
 
 /// Vocabolario chiuso: nessun frammento SQL proveniente dal file entra nel DDL.
@@ -29,6 +29,13 @@ pub fn recognized_declared_type(declared: &str) -> Option<&'static str> {
 pub fn validate_sqlite_metadata(schema: &Schema) -> Result<()> {
     let mut keys = 0;
     for field in schema.fields() {
+        if field.metadata().contains_key("gpkg.identifier")
+            || field.metadata().contains_key("gpkg.description")
+        {
+            return Err(err(&PublicMessage::Curated(
+                "identifier e description GeoPackage sono metadati di schema, non di campo",
+            )));
+        }
         if let Some(declared) = field.metadata().get(DECLARED_TYPE) {
             if recognized_declared_type(declared).is_none()
                 || sqlite_declared_to_arrow(declared) != *field.data_type()
@@ -210,12 +217,18 @@ pub fn build_schema(
             attribute_fields.push(field);
         }
     }
-    let crs_id = crs.id.as_deref().ok_or_else(|| {
-        PlenoraIoError::crs_redatto(&PublicMessage::Curated(
-            "GeoPackage: CRS risolto senza identificatore; vietato assumere OGC:CRS84",
-        ))
-    })?;
-    let mut fields = vec![geometry_field(geom_col, crs_id).with_nullable(geometry_nullable)];
+    let geometry = crs.id.as_deref().map_or_else(
+        || {
+            Field::new(geom_col, DataType::Binary, true).with_metadata(
+                std::collections::HashMap::from([(
+                    "ARROW:extension:name".to_owned(),
+                    "geoarrow.wkb".to_owned(),
+                )]),
+            )
+        },
+        |id| geometry_field(geom_col, id),
+    );
+    let mut fields = vec![geometry.with_nullable(geometry_nullable)];
     if let Some((name, dt, field)) = primary {
         attrs.push((name, dt));
         attribute_fields.push(field);
@@ -244,6 +257,21 @@ fn finish_schema(
     normalized: std::collections::BTreeSet<&str>,
 ) -> Result<ReadSchema> {
     let mut metadata = std::collections::HashMap::new();
+    let (identifier, description): (Option<String>, Option<String>) = conn
+        .query_row(
+            "SELECT identifier, description FROM gpkg_contents WHERE table_name=?1",
+            [table],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(sql_err)?;
+    for (key, value) in [
+        ("gpkg.identifier", identifier),
+        ("gpkg.description", description),
+    ] {
+        if let Some(value) = value {
+            metadata.insert(key.to_owned(), value);
+        }
+    }
     if !normalized.is_empty() {
         metadata.insert(
             "gpkg.schema_normalized".to_owned(),
@@ -297,9 +325,6 @@ fn has_unrepresented_sql(conn: &Connection, table: &str) -> Result<bool> {
 pub fn columns_ddl(schema: &Schema, geom_idx: usize) -> Vec<String> {
     let geom_name = schema.field(geom_idx).name();
     let mut cols_ddl = Vec::new();
-    if let Some(generated) = super::contract_plan::generated_primary_name(schema) {
-        cols_ddl.push(format!("\"{generated}\" INTEGER PRIMARY KEY"));
-    }
     cols_ddl.push(format!(
         "\"{}\" BLOB{}",
         geom_name.replace('"', "\"\""),
@@ -309,7 +334,19 @@ pub fn columns_ddl(schema: &Schema, geom_idx: usize) -> Vec<String> {
             " NOT NULL"
         }
     ));
-    for (i, f) in schema.fields().iter().enumerate() {
+    for (i, f) in schema
+        .fields()
+        .iter()
+        .enumerate()
+        .filter(|(_, f)| !f.metadata().contains_key(PRIMARY_KEY))
+        .chain(
+            schema
+                .fields()
+                .iter()
+                .enumerate()
+                .filter(|(_, f)| f.metadata().contains_key(PRIMARY_KEY)),
+        )
+    {
         if i == geom_idx {
             continue;
         }
@@ -326,6 +363,9 @@ pub fn columns_ddl(schema: &Schema, geom_idx: usize) -> Vec<String> {
                 ""
             },
         ));
+    }
+    if let Some(generated) = super::contract_plan::generated_primary_name(schema) {
+        cols_ddl.push(format!("\"{generated}\" INTEGER PRIMARY KEY"));
     }
     cols_ddl
 }
@@ -344,19 +384,6 @@ pub fn native_layer_loss(conn: &Connection, table: &str, layer: u64) -> Result<L
             None,
         );
     };
-    let mut contents = conn
-        .prepare("SELECT identifier, description FROM gpkg_contents WHERE table_name = ?1")
-        .map_err(sql_err)?;
-    let mut rows = contents.query([table]).map_err(sql_err)?;
-    while let Some(row) = rows.next().map_err(sql_err)? {
-        for (index, element) in [
-            (0, NativeElement::Identifier),
-            (1, NativeElement::Description),
-        ] {
-            let value: Option<String> = row.get(index).map_err(sql_err)?;
-            observe(element, u64::from(value.is_some_and(|v| !v.is_empty())));
-        }
-    }
     for (accessory, column, element) in [
         (
             "gpkg_data_columns",
@@ -383,8 +410,47 @@ pub fn native_layer_loss(conn: &Connection, table: &str, layer: u64) -> Result<L
             let count: i64 = conn
                 .query_row(&sql, [table], |row| row.get(0))
                 .map_err(sql_err)?;
-            observe(element, count.unsigned_abs());
+            // The identity document is validated and consumed by build_schema.
+            let consumed = if accessory == "gpkg_metadata_reference"
+                && super::sqlite_table_exists(conn, "gpkg_metadata")?
+            {
+                conn.query_row("SELECT count(*) FROM gpkg_metadata_reference r JOIN gpkg_metadata m ON m.id=r.md_file_id WHERE r.table_name=?1 AND m.md_standard_uri=?2",
+                    rusqlite::params![table, super::contract_plan::URI], |row| row.get::<_, i64>(0)).map_err(sql_err)?
+            } else {
+                0
+            };
+            observe(element, count.saturating_sub(consumed).unsigned_abs());
         }
     }
     Ok(report)
+}
+
+/// Report only a permutation of existing columns; an appended generated key
+/// does not reorder the input fields.
+pub fn write_order_loss(plan: &plenora_io_core::WritePlan) -> LossReport {
+    let mut report = LossReport::default();
+    for (layer_index, layer) in plan.layers.iter().enumerate() {
+        let schema = &layer.contract.schema;
+        let geometry = super::geometry_index(schema);
+        let mut indices: Vec<_> = (0..schema.fields().len()).collect();
+        indices.sort_by_key(|&i| {
+            if Some(i) == geometry {
+                0
+            } else if schema.field(i).metadata().contains_key(PRIMARY_KEY) {
+                2
+            } else {
+                1
+            }
+        });
+        let changed = indices.iter().copied().ne(0..indices.len());
+        plenora_io_core::loss_table::observe_native(
+            &mut report,
+            (super::NativeDriver::Gpkg, super::TransportDirection::Write),
+            super::NativeElement::FieldOrder,
+            u64::from(changed),
+            layer_index as u64,
+            None,
+        );
+    }
+    report
 }

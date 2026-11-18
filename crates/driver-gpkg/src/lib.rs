@@ -439,7 +439,18 @@ impl FormatDriver for GpkgDriver {
             })?);
             let result = (|| -> Result<(LayerContract, LayerRead)> {
                 validate_object(&conn, &table_meta)?;
-                let crs = crs_for(&conn, table_meta.srs_id)?;
+                let mut crs = crs_for(&conn, table_meta.srs_id)?;
+                if matches!(table_meta.srs_id, 0 | -1) {
+                    if let Some(id) = opts.assume_crs.as_deref() {
+                        plenora_io_model::crs::valida_crs_assunto(id)?;
+                        crs = ResolvedCrs::new(
+                            Some(id.to_owned()),
+                            plenora_io_model::crs::crs_kind_for(Some(id), None, "gpkg")?,
+                            None,
+                        )
+                        .stored_east_first();
+                    }
+                }
                 let rtree_table = registered_rtree(&conn, &table_meta.table, &table_meta.geom_col)?;
                 let schema::ReadSchema {
                     schema,
@@ -452,13 +463,20 @@ impl FormatDriver for GpkgDriver {
                     crs,
                     schema.field(0).is_nullable(),
                 );
+                if matches!(table_meta.srs_id, 0 | -1) && opts.assume_crs.is_none() {
+                    geometry.crs = plenora_io_model::crs::CrsResolution::Missing;
+                }
                 geometry.identita_dichiarata = schema
                     .field(0)
                     .metadata()
                     .get(plenora_io_model::geometry::PLENORA_FIELD_ID_KEY)
                     .and_then(|id| id.parse().ok());
                 geometry.dimensions = gpkg_dimensions(table_meta.z, table_meta.m);
-                geometry.srid = i32::try_from(table_meta.srs_id).ok();
+                geometry.srid = if matches!(table_meta.srs_id, 0 | -1) {
+                    None
+                } else {
+                    i32::try_from(table_meta.srs_id).ok()
+                };
                 if let Some(geometry_type) = gpkg_geometry_type(&table_meta.geometry_type_name) {
                     geometry.set_exact_geometry_types(vec![geometry_type]);
                 } else {
@@ -666,6 +684,7 @@ impl FormatDriver for GpkgDriver {
                 staging,
                 conn: Some(conn),
                 layers,
+                loss: schema::write_order_loss(plan),
                 limiti_wkb: opts.wkb_limits(),
             }),
             self.descriptor(),
@@ -1248,6 +1267,7 @@ struct ActiveLayer {
 }
 
 struct GpkgWriter {
+    loss: LossReport,
     staging: StagedFile,
     conn: Option<Connection>,
     layers: Vec<ActiveLayer>,
@@ -1294,7 +1314,7 @@ impl FormatWriter for GpkgWriter {
         let (bytes, outcome) = self.staging.publish()?;
         Ok(Published {
             bytes,
-            loss: LossReport::default(),
+            loss: self.loss.clone(),
             fidelity: plenora_io_core::FidelityAssessment::lossless(),
             outcome,
         })
@@ -1812,6 +1832,14 @@ fn crs_for(conn: &Connection, srs_id: i64) -> Result<ResolvedCrs> {
     // Il valore entra nel testo della query da una costante, non da un valore
     // letto: `rusqlite` non lega un `usize`.
     const GUARDIA_SQL: usize = 2 * MAX_BYTE_DEFINIZIONE_CRS;
+    if matches!(srs_id, 0 | -1) {
+        return Ok(ResolvedCrs::new(
+            None,
+            plenora_io_model::crs::CrsKind::Unknown,
+            None,
+        ));
+    }
+
     let sql = format!(
         "SELECT organization, organization_coordsys_id, \
          CASE WHEN length(CAST(definition AS BLOB)) <= {GUARDIA_SQL} \
@@ -2711,9 +2739,9 @@ fn create_feature_table(
     // (ISO 8601 UTC). Compilarlo alla CREATE evita che i validator conformi
     // rifiutino il file per un metadato omesso.
     conn.execute(
-        "INSERT INTO gpkg_contents (table_name, data_type, identifier, last_change, srs_id) \
-         VALUES (?1, 'features', ?1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?2)",
-        rusqlite::params![name, srs_id],
+        "INSERT INTO gpkg_contents (table_name, data_type, identifier, description, last_change, srs_id) \
+         VALUES (?1, 'features', ?3, ?4, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?2)",
+        rusqlite::params![name, srs_id, schema.metadata().get("gpkg.identifier"), schema.metadata().get("gpkg.description")],
     )
     .map_err(sql_err)?;
     let geometry_type = geometry_contract

@@ -48,6 +48,8 @@ impl TextEncoding {
                 .trim_start_matches('\u{feff}')
                 .trim()
                 .to_ascii_uppercase()
+                .split_ascii_whitespace()
+                .collect::<String>()
                 .as_str()
             {
                 "UTF-8" | "UTF8" | "65001" => Ok(Self::Encoded(encoding_rs::UTF_8)),
@@ -57,6 +59,7 @@ impl TextEncoding {
                     let number = name
                         .strip_prefix("WINDOWS-")
                         .or_else(|| name.strip_prefix("CP"))
+                        .or_else(|| name.strip_prefix("ANSI"))
                         .unwrap_or(name);
                     Self::windows(number)
                 }
@@ -128,7 +131,7 @@ impl TextEncoding {
 
 fn codepage_error() -> PlenoraIoError {
     err(&PublicMessage::Curated(
-        "DBF: codepage sconosciuta o testo non decodificabile esattamente",
+        "DBF: codepage sconosciuta o testo non decodificabile esattamente; System non identifica una codifica: indicare nel .cpg la codepage originale supportata, oppure rimuoverlo solo se LDID e' corretto",
     ))
 }
 
@@ -285,5 +288,27 @@ impl DbfExactIntegerRows {
         }
         *record = restored;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod cpg_alias_tests {
+    use super::*;
+
+    #[test]
+    fn explicit_aliases_decode_cp1252_and_system_never_guesses() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("encoding.dbf");
+        std::fs::write(&path, [0_u8; 32]).unwrap();
+        for alias in ["ANSI 1252", " ansi  1252 ", "Cp 1252", " windows-1252 "] {
+            std::fs::write(path.with_extension("cpg"), alias).unwrap();
+            let encoding = TextEncoding::from_path(&path).unwrap();
+            assert_eq!(encoding.decode(&[0x80, 0xe9]).unwrap(), "€é");
+        }
+        for alias in ["System", " system ", "ANSI", "ANSI 9999"] {
+            std::fs::write(path.with_extension("cpg"), alias).unwrap();
+            let error = TextEncoding::from_path(&path).unwrap_err();
+            assert!(error.message.contains("codepage originale supportata"));
+        }
     }
 }

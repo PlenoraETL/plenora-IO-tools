@@ -111,5 +111,16 @@
     "api": "with_quiet_errors",
     "reason": "Handler silenzioso GDAL limitato al thread e alla durata della chiamata; ripristino RAII anche durante unwinding. Impedisce stderr nativo con percorsi e nomi degli oggetti durante le aperture FileGDB. Gli errori pubblici restano quelli redatti del driver.",
     "verification": "driver-filegdb con gdal-backend; riproduzioni raccolta-a sotto target/r2-reproductions. Non costituisce una nuova misura fuzz o benchmark."
+  },
+  "native_fields_2026_11_18": {
+    "file": "vendor/gdal/src/vector/feature.rs",
+    "motivo": "Lettura FileGDB Binary e Date/DateTime senza conversione testuale, troncamento dei secondi o assegnazione implicita di UTC. Flag di schema per le versioni GDAL che lo forniscono; GDAL 3.9 OpenFileGDB dichiara UTC anche nel proprio XML IsTimeInUTC.",
+    "api": [
+      "Feature::field_as_binary(usize) -> Result<Option<Vec<u8>>>",
+      "Feature::field_as_datetime_components(usize) -> Result<Option<(i32, i32, i32, i32, i32, f32, i32)>>",
+      "Feature::field_datetime_timezone_flag(usize) -> Result<i32> (GDAL >= 3.8)"
+    ],
+    "proposta_upstream": "contributi-upstream/gdal-campi-nativi/patch.diff",
+    "prove": "driver-filegdb --features gdal-backend: valori nativi, null, indici invalidi, frazioni, offset; nessuna nuova misura fuzz o benchmark."
   }
 }

@@ -542,7 +542,8 @@ mod backend {
     use std::sync::Arc;
 
     use arrow_array::builder::{
-        BinaryBuilder, Float64Builder, Int32Builder, Int64Builder, StringBuilder,
+        BinaryBuilder, Date32Builder, Float64Builder, Int32Builder, Int64Builder, StringBuilder,
+        TimestampMicrosecondBuilder,
     };
     use arrow_array::{
         ArrayRef, BinaryArray, Float64Array, Int32Array, RecordBatch, RecordBatchOptions,
@@ -1666,7 +1667,12 @@ mod backend {
                     }
                     None => None,
                 };
-                let mut loss = native_definition_report(&ds, &name, i as u64)?;
+                let (mut loss, time_in_utc) = native_definition_report(&ds, &name, i as u64)?;
+                let empty_feature = Feature::new(layer.defn()).map_err(|_| {
+                    err(&PublicMessage::Curated(
+                        "lettura schema temporale FileGDB fallita",
+                    ))
+                })?;
                 let native_fields: Vec<(LayerFieldMeta, Field)> = layer
                     .defn()
                     .fields()
@@ -1682,8 +1688,27 @@ mod backend {
                         );
                         let name = field.name();
                         let field_type = field.field_type();
-                        ogr_to_arrow(field_type).map(|data_type| {
-                            let metadata = HashMap::from([
+                        let mut data_type = ogr_to_arrow(field_type)?;
+                        let mut timezone_metadata = None;
+                        if field_type == gdal::vector::OGRFieldType::OFTDateTime {
+                            let mut flag = empty_feature
+                                .field_datetime_timezone_flag(field_index)
+                                .map_err(|_| {
+                                    err(&PublicMessage::Curated("lettura fuso FileGDB fallita"))
+                                })?;
+                            // GDAL 3.9 exposes the row flag but leaves the field flag
+                            // unknown. Its native layer definition carries IsTimeInUTC.
+                            timezone_metadata = Some(flag.to_string());
+                            if flag == 0 && time_in_utc == Some(true) {
+                                flag = 100;
+                            }
+                            data_type = DataType::Timestamp(
+                                arrow_schema::TimeUnit::Microsecond,
+                                ogr_timezone(flag)?,
+                            );
+                        }
+                        Ok({
+                            let mut metadata = HashMap::from([
                                 (OGR_FIELD_TYPE_KEY.to_owned(), field_type.to_string()),
                                 (OGR_FIELD_WIDTH_KEY.to_owned(), field.width().to_string()),
                                 (
@@ -1691,6 +1716,9 @@ mod backend {
                                     field.precision().to_string(),
                                 ),
                             ]);
+                            if let Some(flag) = timezone_metadata {
+                                metadata.insert("filegdb.ogr_timezone_flag".to_owned(), flag);
+                            }
                             let arrow_field =
                                 Field::new(&name, data_type.clone(), true).with_metadata(metadata);
                             (
@@ -1787,8 +1815,13 @@ mod backend {
         }))
     }
 
-    fn native_definition_report(ds: &Dataset, name: &str, layer: u64) -> Result<LossReport> {
+    fn native_definition_report(
+        ds: &Dataset,
+        name: &str,
+        layer: u64,
+    ) -> Result<(LossReport, Option<bool>)> {
         let mut report = LossReport::default();
+        let mut time_in_utc = None;
         let query = format!("GetLayerDefinition {name}");
         let mut result = ds
             .execute_sql(&query, None, gdal::vector::sql::Dialect::DEFAULT)
@@ -1810,9 +1843,37 @@ mod backend {
             })?;
             if let Some(definition) = definition {
                 observe_definition_xml(&mut report, &definition, layer)?;
+                time_in_utc = definition_time_in_utc(&definition)?;
             }
         }
-        Ok(report)
+        Ok((report, time_in_utc))
+    }
+
+    fn definition_time_in_utc(xml: &str) -> Result<Option<bool>> {
+        use quick_xml::events::Event;
+        let mut reader = quick_xml::Reader::from_str(xml);
+        let mut result = None;
+        loop {
+            match reader.read_event() {
+                Ok(Event::Start(element)) if element.local_name().as_ref() == "IsTimeInUTC" => {
+                    let text = reader
+                        .read_text(element.name())
+                        .map_err(|_| temporal_error())?;
+                    let value = match text.trim() {
+                        "true" | "1" => true,
+                        "false" | "0" => false,
+                        _ => return Err(temporal_error()),
+                    };
+                    if result.is_some_and(|previous| previous != value) {
+                        return Err(temporal_error());
+                    }
+                    result = Some(value);
+                }
+                Ok(Event::Eof) => return Ok(result),
+                Err(_) => return Err(temporal_error()),
+                _ => {}
+            }
+        }
     }
 
     fn observe_definition_xml(report: &mut LossReport, xml: &str, layer: u64) -> Result<()> {
@@ -1885,6 +1946,15 @@ mod backend {
             Ok(DataType::Float64)
         } else if ft == OGRFieldType::OFTString || ft == OGRFieldType::OFTWideString {
             Ok(DataType::Utf8)
+        } else if ft == OGRFieldType::OFTBinary {
+            Ok(DataType::Binary)
+        } else if ft == OGRFieldType::OFTDate {
+            Ok(DataType::Date32)
+        } else if ft == OGRFieldType::OFTDateTime {
+            Ok(DataType::Timestamp(
+                arrow_schema::TimeUnit::Microsecond,
+                None,
+            ))
         } else {
             // Ne' il nome ne' il codice del tipo OGR escono: entrambi vengono
             // dallo schema che GDAL ha letto dal file.
@@ -1896,6 +1966,28 @@ mod backend {
                     "tipo campo OGR non ancora rappresentato senza perdita nel bordo Arrow",
                 ),
             ))
+        }
+    }
+
+    fn ogr_timezone(flag: i32) -> Result<Option<Arc<str>>> {
+        match flag {
+            0 | 1 => Ok(None),
+            100 => Ok(Some("UTC".into())),
+            3..=199 => {
+                let minutes = (flag - 100) * 15;
+                Ok(Some(
+                    format!(
+                        "{}{:02}:{:02}",
+                        if minutes < 0 { '-' } else { '+' },
+                        minutes.abs() / 60,
+                        minutes.abs() % 60
+                    )
+                    .into(),
+                ))
+            }
+            _ => Err(err(&PublicMessage::Curated(
+                "fusi OGR misti o non rappresentabili nello stesso campo Arrow",
+            ))),
         }
     }
 
@@ -2074,6 +2166,40 @@ mod backend {
         Ok(())
     }
 
+    fn configure_read_layer(
+        layer: &mut gdal::vector::Layer<'_>,
+        fields: &[ProjectedField],
+        geometria: GeometriaDelLayer,
+    ) -> Result<()> {
+        // Il worker riapre il dataset: prima di usare gli indici OGR
+        // pre-risolti verifica che nessuno abbia cambiato lo schema.
+        let actual_fields: Vec<_> = layer
+            .defn()
+            .fields()
+            .map(|field| (field.name(), field.field_type()))
+            .collect();
+        verifica_schema_invariato(&actual_fields, fields)?;
+        let selected_fields: HashSet<usize> = fields.iter().map(|field| field.ogr_index).collect();
+        let mut ignored_fields = actual_fields
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| !selected_fields.contains(index))
+            .map(|(_, (name, _))| name.as_str())
+            .collect::<Vec<_>>();
+        // `OGR_GEOMETRY` si ignora solo dove esiste: su una tabella
+        // non c'e' campo geometrico da nominare, e nominarlo sarebbe
+        // una projection su un campo che il layer non ha.
+        if geometria.presente && !geometria.inclusa {
+            ignored_fields.push("OGR_GEOMETRY");
+        }
+        layer.set_ignored_fields(&ignored_fields).map_err(|_| {
+            err(&PublicMessage::Curated(
+                "projection fisica FileGDB non applicabile",
+            ))
+        })?;
+        Ok(())
+    }
+
     fn spawn_reader(
         path: PathBuf,
         gdal_idx: usize,
@@ -2083,7 +2209,9 @@ mod backend {
         mut batch_sizer: plenora_io_core::AdaptiveBatchSizer,
         contract: LayerContract,
     ) -> Result<Box<dyn LayerReader>> {
-        spawn_batch_reader(
+        let (loss_tx, loss_rx) = std::sync::mpsc::channel();
+        let layer_index = u64::from(contract.id.0);
+        let reader = spawn_batch_reader(
             DESCRIPTOR.id(),
             contract,
             2,
@@ -2097,44 +2225,19 @@ mod backend {
                             "apertura del layer FileGDB fallita",
                         ))
                     })?;
-                    // Il worker riapre il dataset: prima di usare gli indici OGR
-                    // pre-risolti verifica che nessuno abbia cambiato lo schema.
-                    let actual_fields: Vec<_> = layer
-                        .defn()
-                        .fields()
-                        .map(|field| (field.name(), field.field_type()))
-                        .collect();
-                    verifica_schema_invariato(&actual_fields, &fields)?;
-                    let selected_fields: HashSet<usize> =
-                        fields.iter().map(|field| field.ogr_index).collect();
-                    let mut ignored_fields = actual_fields
-                        .iter()
-                        .enumerate()
-                        .filter(|(index, _)| !selected_fields.contains(index))
-                        .map(|(_, (name, _))| name.as_str())
-                        .collect::<Vec<_>>();
-                    // `OGR_GEOMETRY` si ignora solo dove esiste: su una tabella
-                    // non c'e' campo geometrico da nominare, e nominarlo sarebbe
-                    // una projection su un campo che il layer non ha.
-                    if geometria.presente && !geometria.inclusa {
-                        ignored_fields.push("OGR_GEOMETRY");
-                    }
-                    layer.set_ignored_fields(&ignored_fields).map_err(|_| {
-                        err(&PublicMessage::Curated(
-                            "projection fisica FileGDB non applicabile",
-                        ))
-                    })?;
+                    configure_read_layer(&mut layer, &fields, geometria)?;
                     let mut geom = geometria.inclusa.then(BinaryBuilder::new);
                     let mut builders: Vec<ReadCol> = fields
                         .iter()
                         .map(|field| ReadCol::new(&field.data_type))
                         .collect();
                     let mut n = 0usize;
+                    let mut batch_loss = LossReport::default();
                     for feature in layer.features().take(geometria.row_limit) {
                         if let Some(builder) = &mut geom {
                             match feature.geometry_by_index(0) {
                                 Ok(geometry) => {
-                                    let bytes = geometry.wkb().map_err(|_| {
+                                    let bytes = geometry.iso_wkb().map_err(|_| {
                                         err(&PublicMessage::Curated(
                                             "conversione della geometria FileGDB in WKB fallita",
                                         ))
@@ -2154,8 +2257,21 @@ mod backend {
                                 }
                             }
                         }
-                        for (builder, field) in builders.iter_mut().zip(&fields) {
-                            builder.append_feature(&feature, field)?;
+                        for (index, (builder, field)) in
+                            builders.iter_mut().zip(&fields).enumerate()
+                        {
+                            if builder.append_feature(&feature, field)? {
+                                observe_native(
+                                    &mut batch_loss,
+                                    (NativeDriver::FileGdb, TransportDirection::Read),
+                                    NativeElement::Temporal,
+                                    1,
+                                    layer_index,
+                                    Some(driver_common::saturating_u64(
+                                        index + usize::from(geometria.inclusa),
+                                    )),
+                                );
+                            }
                         }
                         n += 1;
                         if n >= batch_sizer.rows() {
@@ -2165,7 +2281,9 @@ mod backend {
                                 plenora_io_model::ErrorPhase::Read,
                             )?;
                             batch_sizer.observe(&batch);
-                            if !emitter.send(batch) {
+                            if loss_tx.send(std::mem::take(&mut batch_loss)).is_err()
+                                || !emitter.send(batch)
+                            {
                                 return Ok(());
                             }
                             n = 0;
@@ -2173,14 +2291,42 @@ mod backend {
                     }
                     if n > 0 {
                         let batch = finish_read_batch(&schema, &mut geom, &mut builders, n)?;
-                        if !emitter.send(batch) {
+                        if loss_tx.send(batch_loss).is_err() || !emitter.send(batch) {
                             return Ok(());
                         }
                     }
                     Ok(())
                 })
             },
-        )
+        )?;
+        Ok(Box::new(TemporalLossReader {
+            reader,
+            loss_rx,
+            loss: LossReport::default(),
+        }))
+    }
+
+    struct TemporalLossReader {
+        reader: Box<dyn LayerReader>,
+        loss_rx: std::sync::mpsc::Receiver<LossReport>,
+        loss: LossReport,
+    }
+
+    impl LayerReader for TemporalLossReader {
+        fn contract(&self) -> &LayerContract {
+            self.reader.contract()
+        }
+        fn next_batch(&mut self) -> Result<Option<RecordBatch>> {
+            let batch = self.reader.next_batch()?;
+            if batch.is_some() {
+                self.loss
+                    .merge(&self.loss_rx.recv().map_err(|_| temporal_error())?);
+            }
+            Ok(batch)
+        }
+        fn loss_report(&self) -> LossReport {
+            self.loss.clone()
+        }
     }
 
     fn finish_read_batch(
@@ -2205,11 +2351,57 @@ mod backend {
         })
     }
 
+    fn temporal_error() -> PlenoraIoError {
+        err(&PublicMessage::Curated(
+            "data o fuso OGR non rappresentabile senza ambiguita'",
+        ))
+    }
+
+    // OGR exposes seconds as f32. Round to Arrow microseconds; the reader
+    // reports a precision loss only if the supplied value actually changes.
+    #[allow(clippy::cast_possible_truncation)]
+    fn temporal_value(components: (i32, i32, i32, i32, i32, f32, i32), zoned: bool) -> Result<i64> {
+        let (year, month, day, hour, minute, second, flag) = components;
+        if !second.is_finite()
+            || !(0.0..60.0).contains(&second)
+            || zoned != ogr_timezone(flag)?.is_some()
+        {
+            return Err(temporal_error());
+        }
+        let date = chrono::NaiveDate::from_ymd_opt(
+            year,
+            u32::try_from(month).map_err(|_| temporal_error())?,
+            u32::try_from(day).map_err(|_| temporal_error())?,
+        )
+        .ok_or_else(temporal_error)?;
+        let value = date
+            .and_hms_opt(
+                u32::try_from(hour).map_err(|_| temporal_error())?,
+                u32::try_from(minute).map_err(|_| temporal_error())?,
+                0,
+            )
+            .ok_or_else(temporal_error)?;
+        let offset = if zoned {
+            i64::from(flag - 100) * 900_000_000
+        } else {
+            0
+        };
+        value
+            .and_utc()
+            .timestamp_micros()
+            .checked_add((f64::from(second) * 1_000_000.0).round() as i64)
+            .and_then(|v| v.checked_sub(offset))
+            .ok_or_else(temporal_error)
+    }
+
     enum ReadCol {
         I32(Int32Builder),
         I64(Int64Builder),
         F64(Float64Builder),
         Str(StringBuilder),
+        Bin(BinaryBuilder),
+        Date(Date32Builder),
+        Time(TimestampMicrosecondBuilder, bool),
     }
 
     impl ReadCol {
@@ -2218,10 +2410,21 @@ mod backend {
                 DataType::Int32 => Self::I32(Int32Builder::new()),
                 DataType::Int64 => Self::I64(Int64Builder::new()),
                 DataType::Float64 => Self::F64(Float64Builder::new()),
+                DataType::Binary => Self::Bin(BinaryBuilder::new()),
+                DataType::Date32 => Self::Date(Date32Builder::new()),
+                DataType::Timestamp(_, tz) => Self::Time(
+                    TimestampMicrosecondBuilder::new().with_timezone_opt(tz.clone()),
+                    tz.is_some(),
+                ),
                 _ => Self::Str(StringBuilder::new()),
             }
         }
-        fn append_feature(&mut self, feature: &Feature<'_>, field: &ProjectedField) -> Result<()> {
+        fn append_feature(
+            &mut self,
+            feature: &Feature<'_>,
+            field: &ProjectedField,
+        ) -> Result<bool> {
+            let mut rounded = false;
             // Ne' il nome del campo ne' il testo di GDAL escono: il primo
             // viene dallo schema letto dal file, il secondo dalla dipendenza.
             let read_error = |_| {
@@ -2237,6 +2440,36 @@ mod backend {
                 ))
             };
             match self {
+                Self::Bin(builder) => builder.append_option(
+                    feature
+                        .field_as_binary(field.ogr_index)
+                        .map_err(read_error)?,
+                ),
+                Self::Date(builder) => {
+                    let value = feature
+                        .field_as_datetime_components(field.ogr_index)
+                        .map_err(read_error)?;
+                    builder.append_option(
+                        value
+                            .map(|v| {
+                                temporal_value(v, false).and_then(|v| {
+                                    i32::try_from(v.div_euclid(86_400_000_000))
+                                        .map_err(|_| temporal_error())
+                                })
+                            })
+                            .transpose()?,
+                    );
+                }
+                Self::Time(builder, zoned) => {
+                    let value = feature
+                        .field_as_datetime_components(field.ogr_index)
+                        .map_err(read_error)?;
+                    if let Some(v) = value {
+                        let micros = (f64::from(v.5) * 1_000_000.0).round();
+                        rounded = (micros / 1_000_000.0).to_bits() != f64::from(v.5).to_bits();
+                    }
+                    builder.append_option(value.map(|v| temporal_value(v, *zoned)).transpose()?);
+                }
                 Self::I32(builder) => {
                     match feature
                         .field_as_integer(field.ogr_index)
@@ -2274,7 +2507,7 @@ mod backend {
                     }
                 }
             }
-            Ok(())
+            Ok(rounded)
         }
         fn finish(&mut self) -> ArrayRef {
             match self {
@@ -2282,6 +2515,9 @@ mod backend {
                 Self::I64(b) => Arc::new(b.finish()),
                 Self::F64(b) => Arc::new(b.finish()),
                 Self::Str(b) => Arc::new(b.finish()),
+                Self::Bin(b) => Arc::new(b.finish()),
+                Self::Date(b) => Arc::new(b.finish()),
+                Self::Time(b, _) => Arc::new(b.finish()),
             }
         }
     }
@@ -2952,7 +3188,18 @@ mod backend {
                 .as_any()
                 .downcast_ref::<BinaryArray>()
                 .unwrap();
-            let decoded = decode_wkb(geometry.value(0), &WkbLimits::default()).unwrap();
+            let bytes = geometry.value(0);
+            let type_code = if bytes[0] == 1 {
+                u32::from_le_bytes(bytes[1..5].try_into().unwrap())
+            } else {
+                u32::from_be_bytes(bytes[1..5].try_into().unwrap())
+            };
+            assert_eq!(
+                type_code & 0xe000_0000,
+                0,
+                "ISO WKB must not carry EWKB/25D flags"
+            );
+            let decoded = decode_wkb(bytes, &WkbLimits::default()).unwrap();
             assert_eq!(decoded.dimensions, CoordinateDimensions::Xyz);
             assert_eq!(
                 decoded.value,
@@ -3067,7 +3314,18 @@ mod backend {
                     .as_any()
                     .downcast_ref::<BinaryArray>()
                     .unwrap();
-                let decoded = decode_wkb(geometry.value(0), &WkbLimits::default()).unwrap();
+                let bytes = geometry.value(0);
+                let type_code = if bytes[0] == 1 {
+                    u32::from_le_bytes(bytes[1..5].try_into().unwrap())
+                } else {
+                    u32::from_be_bytes(bytes[1..5].try_into().unwrap())
+                };
+                assert_eq!(
+                    type_code & 0xe000_0000,
+                    0,
+                    "ISO WKB must not carry EWKB/25D flags"
+                );
+                let decoded = decode_wkb(bytes, &WkbLimits::default()).unwrap();
                 assert_eq!(decoded.dimensions, dimensions);
                 assert_eq!(
                     decoded.value,
@@ -3146,7 +3404,18 @@ mod backend {
                 .as_any()
                 .downcast_ref::<BinaryArray>()
                 .unwrap();
-            let decoded = decode_wkb(geometry.value(0), &WkbLimits::default()).unwrap();
+            let bytes = geometry.value(0);
+            let type_code = if bytes[0] == 1 {
+                u32::from_le_bytes(bytes[1..5].try_into().unwrap())
+            } else {
+                u32::from_be_bytes(bytes[1..5].try_into().unwrap())
+            };
+            assert_eq!(
+                type_code & 0xe000_0000,
+                0,
+                "ISO WKB must not carry EWKB/25D flags"
+            );
+            let decoded = decode_wkb(bytes, &WkbLimits::default()).unwrap();
             assert_eq!(decoded, geometry_value);
         }
 
@@ -3625,7 +3894,12 @@ mod backend {
                 (DataType::Int64, "int64"),
                 (DataType::Boolean, "boolean"),
                 (DataType::Date32, "date32"),
+                (
+                    DataType::Timestamp(arrow_schema::TimeUnit::Microsecond, Some("UTC".into())),
+                    "datetime",
+                ),
                 (DataType::Binary, "binary"),
+                (DataType::LargeBinary, "large_binary"),
             ] {
                 let dir = tempfile::tempdir().unwrap();
                 let path = dir.path().join(format!("{suffix}.gdb"));

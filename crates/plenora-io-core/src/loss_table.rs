@@ -106,6 +106,8 @@ pub const PROPERTIES: &[(&str, &str, Rule, Rule)] = &[
     ),
     ("", "gpkg.declared_type", Rule::Preserved, Rule::Preserved),
     ("", "gpkg.primary_key", Rule::Preserved, Rule::Preserved),
+    ("", "gpkg.identifier", Rule::Preserved, Rule::Preserved),
+    ("", "gpkg.description", Rule::Preserved, Rule::Preserved),
     (
         "",
         "ARROW:extension:name",
@@ -496,9 +498,9 @@ native_elements! {
     UnsignedInteger => [T(NativeChange::Inference), T(NativeChange::ArrowCoercion), R, T(NativeChange::ArrowCoercion), R, T(NativeChange::ArrowCoercion), R, T(NativeChange::DxfAttribute), R, R, T(NativeChange::Inference), T(NativeChange::ArrowCoercion), T(NativeChange::Inference), T(NativeChange::ArrowCoercion), P, T(NativeChange::ArrowCoercion), P, P, P, P];
     Floating => [T(NativeChange::NumberPrecision), T(NativeChange::ArrowCoercion), R, T(NativeChange::ArrowCoercion), P, T(NativeChange::ArrowCoercion), R, T(NativeChange::DxfAttribute), P, T(NativeChange::ArrowCoercion), T(NativeChange::Inference), T(NativeChange::ArrowCoercion), T(NativeChange::Inference), T(NativeChange::ArrowCoercion), P, T(NativeChange::ArrowCoercion), P, P, P, P];
     Boolean => [P, P, R, T(NativeChange::ArrowCoercion), P, P, R, T(NativeChange::DxfAttribute), R, R, P, T(NativeChange::ArrowCoercion), P, P, P, T(NativeChange::ArrowCoercion), P, P, P, P];
-    Binary => [R, R, R, R, R, T(NativeChange::ArrowCoercion), R, T(NativeChange::DxfAttribute), R, R, R, R, R, R, P, P, P, P, P, P];
+    Binary => [R, R, R, R, R, T(NativeChange::ArrowCoercion), R, T(NativeChange::DxfAttribute), P, R, R, R, R, R, P, P, P, P, P, P];
     Decimal => [R, R, R, R, R, T(NativeChange::ArrowCoercion), R, T(NativeChange::DxfAttribute), R, R, R, R, R, R, R, R, P, P, P, P];
-    Temporal => [R, T(NativeChange::ArrowCoercion), R, T(NativeChange::ArrowCoercion), T(NativeChange::ArrowCoercion), T(NativeChange::ArrowCoercion), R, T(NativeChange::DxfAttribute), R, R, T(NativeChange::Inference), T(NativeChange::ArrowCoercion), T(NativeChange::Inference), T(NativeChange::ArrowCoercion), T(NativeChange::ArrowCoercion), R, P, P, P, P];
+    Temporal => [R, T(NativeChange::ArrowCoercion), R, T(NativeChange::ArrowCoercion), T(NativeChange::ArrowCoercion), T(NativeChange::ArrowCoercion), R, T(NativeChange::DxfAttribute), T(NativeChange::NumberPrecision), R, T(NativeChange::Inference), T(NativeChange::ArrowCoercion), T(NativeChange::Inference), T(NativeChange::ArrowCoercion), T(NativeChange::ArrowCoercion), R, P, P, P, P];
     NestedDictionary => [T(NativeChange::StructuredValue), R, R, R, R, R, R, R, R, R, R, R, R, R, R, R, P, P, P, P];
     FieldNames => [P, T(NativeChange::FieldNames), T(NativeChange::ExtendedData), T(NativeChange::FieldNames), P, T(NativeChange::FieldNames), T(NativeChange::FieldNames), T(NativeChange::FieldNames), P, T(NativeChange::FieldNames), T(NativeChange::FieldNames), T(NativeChange::FieldNames), T(NativeChange::FieldNames), T(NativeChange::FieldNames), P, P, P, P, P, P];
     NotNull => [P, T(NativeChange::NotNull), P, T(NativeChange::NotNull), P, T(NativeChange::NotNull), P, T(NativeChange::NotNull), T(NativeChange::NotNull), T(NativeChange::NotNull), P, T(NativeChange::NotNull), P, T(NativeChange::NotNull), P, P, P, P, P, P];
@@ -534,8 +536,8 @@ native_elements! {
     NumericFormat => [R, R, R, R, R, R, R, R, R, R, R, R, T(NativeChange::NativeStyles), T(NativeChange::ArrowMetadata), R, R, R, R, R, R];
     Formula => [R, R, R, R, R, R, R, R, R, R, R, R, T(NativeChange::LayerMetadata), T(NativeChange::ArrowMetadata), R, R, R, R, R, R];
     FormulaCache => [R, R, R, R, R, R, R, R, R, R, R, R, P, P, R, R, R, R, R, R];
-    Identifier => [R, R, R, R, R, R, R, R, R, R, R, R, R, R, T(NativeChange::LayerMetadata), T(NativeChange::ArrowMetadata), R, R, R, R];
-    Description => [R, R, R, R, R, R, R, R, R, R, R, R, R, R, T(NativeChange::LayerMetadata), T(NativeChange::ArrowMetadata), R, R, R, R];
+    Identifier => [R, R, R, R, R, R, R, R, R, R, R, R, R, R, P, P, R, R, R, R];
+    Description => [R, R, R, R, R, R, R, R, R, R, R, R, R, R, P, P, R, R, R, R];
     DataColumns => [R, R, R, R, R, R, R, R, R, R, R, R, R, R, T(NativeChange::LayerMetadata), T(NativeChange::ArrowMetadata), R, R, R, R];
     SqlConstraints => [R, R, R, R, R, R, R, R, R, R, R, R, R, R, T(NativeChange::SqlSchema), T(NativeChange::SqlSchema), R, R, R, R];
     ContractVersion => [P, T(NativeChange::ArrowMetadata), P, T(NativeChange::ArrowMetadata), P, T(NativeChange::ArrowMetadata), P, T(NativeChange::ArrowMetadata), P, T(NativeChange::ArrowMetadata), P, T(NativeChange::ArrowMetadata), P, T(NativeChange::ArrowMetadata), P, P, T(NativeChange::ArrowMetadata), T(NativeChange::ArrowMetadata), T(NativeChange::ArrowMetadata), T(NativeChange::ArrowMetadata)];
