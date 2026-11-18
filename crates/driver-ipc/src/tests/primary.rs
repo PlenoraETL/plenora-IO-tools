@@ -485,3 +485,27 @@ fn cumulative_component_budget_without_primary() {
         }
     }
 }
+
+#[test]
+fn primary_read_loss_compares_the_selected_geometry() {
+    let two = schema(Some("17"));
+    let mut metadata = two.metadata().clone();
+    metadata.remove(KEY);
+    let one_implicit = Schema::new_with_metadata(vec![two.field(0).as_ref().clone()], metadata);
+    let mut metadata = one_implicit.metadata().clone();
+    metadata.insert(KEY, "17");
+    let one_explicit = one_implicit.clone().with_metadata(metadata.clone());
+    assert!(read_metadata_changes(&one_explicit, &one_implicit)
+        .counts
+        .is_empty());
+    metadata.insert(KEY, "none");
+    let none = one_implicit.clone().with_metadata(metadata);
+    assert_eq!(
+        read_metadata_changes(&none, &one_implicit).counts["arrow_metadata_not_preserved"],
+        1
+    );
+    assert_eq!(
+        read_metadata_changes(&two, &schema(Some("91"))).counts["arrow_metadata_not_preserved"],
+        1
+    );
+}

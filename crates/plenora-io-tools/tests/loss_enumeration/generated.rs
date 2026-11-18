@@ -4,6 +4,8 @@
 mod constraints;
 #[path = "geometry.rs"]
 mod geometry;
+#[path = "group_a.rs"]
+mod group_a;
 #[path = "native.rs"]
 mod native;
 #[path = "values.rs"]
@@ -715,14 +717,26 @@ fn without_external_crs(batch: RecordBatch, driver: &str) -> RecordBatch {
 #[allow(clippy::too_many_lines)] // Collect all failures before enforcing the product.
 fn generated_product_requires_operational_evidence() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/s1f-generated");
+    let root = if std::env::var_os("PLENORA_LOSS_GROUP_A").is_some() {
+        root.with_file_name("s1g-a-generated")
+    } else {
+        root
+    };
     std::fs::create_dir_all(&root).unwrap();
     let mut rows = Vec::new();
     for driver in DRIVERS {
+        if std::env::var_os("PLENORA_LOSS_GROUP_A").is_some() && !group_a::owns(driver.driver) {
+            continue;
+        }
         let native = driver.qualified_native.unwrap();
         for element in NATIVE_ELEMENTS {
             for direction in [D::Read, D::Write] {
                 let expected = native_rule(native, direction, *element);
                 let mut row = json!({"driver":driver.driver,"direction":format!("{direction:?}"),"element":format!("{element:?}"),"expected":format!("{expected:?}")});
+                if group_a::exercise(driver.driver, native, *element, direction, &root, &mut row) {
+                    rows.push(row);
+                    continue;
+                }
                 if driver.driver == "filegdb" && !cfg!(feature = "gdal-backend") {
                     row["status"] = json!("not-executed");
                     row["reason"] = json!("gdal-backend unavailable");
@@ -877,6 +891,9 @@ fn generated_product_requires_operational_evidence() {
         })
         .collect::<Vec<_>>();
     std::fs::write(root.join("remaining.tsv"), remaining.join("\n")).unwrap();
+    if std::env::var_os("PLENORA_LOSS_GROUP_A").is_some() {
+        group_a::write_audit(&root, &rows);
+    }
     let failed = remaining.len();
     assert_eq!(
         failed,

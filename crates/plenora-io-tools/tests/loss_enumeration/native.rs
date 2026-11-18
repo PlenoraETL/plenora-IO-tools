@@ -210,3 +210,8 @@ fn native_fixtures(element: E) -> Vec<arrow_array::RecordBatch> {
         })
         .collect::<Vec<_>>()
 }
+
+// Additive reuse by the independent group-A native document factories.
+pub(super) fn group_a_xlsx_document(cells: &str) -> Vec<u8> {
+    xlsx_native::xlsx_con(cells)
+}

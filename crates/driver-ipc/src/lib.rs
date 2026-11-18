@@ -521,17 +521,54 @@ impl OpenDatasetHandle for IpcDataset {
                         }
                     },
                 }),
-                loss_table::metadata_changes(
-                    NativeDriver::Ipc,
-                    TransportDirection::Read,
-                    &self.received_schema,
-                    &self.layers[0].contract.schema,
-                ),
+                read_metadata_changes(&self.received_schema, &self.layers[0].contract.schema),
             ),
             request.batch_target,
             request.cancellation.clone(),
         ))
     }
+}
+
+// An explicit selection of the only geometry and its implicit selection
+// express the same contract. Compare the selection before counting a removed
+// Arrow key, while preserving explicit `none` and multi-geometry distinctions.
+fn read_metadata_changes(
+    before: &arrow_schema::Schema,
+    after: &arrow_schema::Schema,
+) -> plenora_io_core::LossReport {
+    use plenora_io_model::primary::{PrimaryState, KEY};
+    let sole_geometry = |schema: &arrow_schema::Schema| {
+        schema
+            .fields()
+            .iter()
+            .filter(|f| is_geometry_field(f))
+            .count()
+            == 1
+    };
+    let selected_name = |schema: &arrow_schema::Schema| {
+        PrimaryState::read(schema)
+            .ok()
+            .and_then(|primary| primary.position(schema))
+            .map(|index| schema.field(index).name().clone())
+    };
+    let mut compared = before.clone();
+    if before.metadata().contains_key(KEY)
+        && !after.metadata().contains_key(KEY)
+        && sole_geometry(before)
+        && sole_geometry(after)
+        && selected_name(before).is_some()
+        && selected_name(before) == selected_name(after)
+    {
+        let mut metadata = before.metadata().clone();
+        metadata.remove(KEY);
+        compared = compared.with_metadata(metadata);
+    }
+    loss_table::metadata_changes(
+        NativeDriver::Ipc,
+        TransportDirection::Read,
+        &compared,
+        after,
+    )
 }
 
 /// Le due serializzazioni dietro la stessa interfaccia di lettura.
