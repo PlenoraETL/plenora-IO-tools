@@ -1226,8 +1226,8 @@ e' configurazione non valida. I fogli nascosti sono leggibili con selezione espl
 
 KML conserva i Placemark con Model, Track, MultiTrack o estensione gx sconosciuta
 con geometria nulla; conta le geometrie omesse in `kml.unsupported_geometry`.
-Il documento resta leggibile. Le categorie dettagliate della perdita restano da
-completare nella regola dedicata alle perdite. DXF espone anche i blocchi separati:
+Il documento resta leggibile; le perdite native sono dettagliate sotto.
+DXF espone anche i blocchi separati:
 un blocco esterno o non rappresentabile ha un rifiuto locale.
 
 GPKG `srs_id` 0 e -1 sono righe obbligatorie e valide della specifica OGC
@@ -1235,3 +1235,57 @@ GPKG `srs_id` 0 e -1 sono righe obbligatorie e valide della specifica OGC
 identificatori risolti: il driver GPKG supporta in lettura solo un CRS risolto e la lettura
 del relativo layer resta `crs_unresolved`. La presenza delle righe non impedisce
 di enumerare o leggere gli altri layer. Non si assegna implicitamente EPSG:4326.
+
+### Trasporto nativo GeoJSON e KML
+
+La tabella comune `plenora-io-core::loss_table` dichiara, per lettura e scrittura,
+conservazione, trasformazione con categoria o rifiuto. Le classi Arrow sono
+raffinate dai tipi stabili della stessa tabella: ad esempio Int64 GeoJSON resta
+Int64, mentre Int8 richiede `coercion tipo attributo`. Le righe sui valori
+conservati valgono per i campi effettivamente rappresentati; KML conserva
+`name` e `description`, mentre gli altri attributi scritti in ExtendedData
+non vengono letti e sono dichiarati in entrambe le direzioni. Se mancano nello
+schema sorgente, le colonne standard name/description aggiunte in rilettura
+sono dichiarate con `native_fields_reconstructed`.
+
+GeoJSON dichiara ID di feature, bbox, membri esterni di collezioni, feature e
+geometrie, incluse quelle annidate. L'inferenza dichiara valori convertiti a
+un tipo comune, oggetti/array riscritti come testo JSON, proprietà assenti rese
+null e riordino alfabetico. Un null esplicito resta null. NOT NULL e il nome
+non canonico della geometria non sopravvivono al giro e hanno categorie proprie.
+
+KML dichiara ExtendedData/SchemaData, ID, metadati temporali e visibility,
+stili, metadati di Document/Folder, gerarchie appiattite, NetworkLink e
+GroundOverlay non seguiti. Le osservazioni dei discendenti entrano nel report
+dell'aggregato e dei loro contenitori; selezionare un Placemark non include le
+perdite di un altro Placemark. LinearRing autonomo e MultiGeometry dichiarano
+la ricostruzione del tipo geometrico. Una quarta ordinata è rifiutata.
+
+`kml_altitude_mode_not_preserved` indica quote Z con modalità implicita o
+non assoluta: i numeri sono restituiti senza conversione e **non rappresentano
+quote assolute**. Il report lo esplicita. Il writer continua a emettere
+`absolute` per le geometrie Z. Le geometrie vuote non rappresentabili sono
+rifiutate; una geometria null resta null.
+
+I conteggi sono strutturali, non misure dell'errore numerico:
+
+- `native_number_precision`: un valore numerico di proprietà JSON passato a
+  binary64, oppure un elemento nativo di coordinate analizzato; dichiara la
+  perdita della rappresentazione decimale, anche quando il numero è esatto.
+- `native_dimensions_not_declared`: una colonna geometrica la cui dichiarazione
+  viene ricostruita; GeoJSON espone unknown, KML inferisce dalle coordinate.
+- `native_type_inference`: valori scalari convertiti al tipo comune;
+  `native_structured_value_rewritten`: valori oggetto/array riscritti;
+  `native_missing_as_null`: celle assenti, oppure elementi testuali KML
+  autochiusi, resi null. Conta inoltre i contenitori properties null/assenti
+  e i membri geometry assenti normalizzati alla rappresentazione tabellare.
+- `native_field_order_changed`: in scrittura, campi spostati nel giro; in
+  lettura GeoJSON, inversioni adiacenti osservate nelle proprietà, oppure una
+  normalizzazione dell'ordine di prima comparsa se non vi erano inversioni.
+- Le omissioni native contano i membri o elementi presenti; ExtendedData conta
+  i contenitori letti e i campi persi nel giro in scrittura. Le dichiarazioni
+  di vincoli, nomi e metadati dello schema contano campi o chiavi.
+
+Gli esempi riportano indici di layer/campo, mai nomi, ID, URI o valori del file.
+Gli esempi restano limitati; i conteggi sono aggregati. I metadati Arrow e le
+rappresentazioni CRS continuano a seguire i piani comuni per chiave.

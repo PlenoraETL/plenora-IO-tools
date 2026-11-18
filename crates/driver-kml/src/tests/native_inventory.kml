@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2">
+<Document id="doc1">
+  <name>Documento</name>
+  <description>descr documento</description>
+  <Style id="s1"><LineStyle><color>ff0000ff</color></LineStyle></Style>
+  <Schema name="sch" id="schId"><SimpleField type="int" name="pop"/></Schema>
+  <Folder><name>Cartella A</name>
+    <Placemark id="pm1">
+      <name>  Uno  </name>
+      <description><![CDATA[<b>html</b>]]></description>
+      <TimeStamp><when>2024-01-02T03:04:05Z</when></TimeStamp>
+      <styleUrl>#s1</styleUrl>
+      <visibility>0</visibility>
+      <ExtendedData>
+        <Data name="k"><value>v</value></Data>
+        <SchemaData schemaUrl="#schId"><SimpleData name="pop">42</SimpleData></SchemaData>
+      </ExtendedData>
+      <Point><altitudeMode>relativeToGround</altitudeMode><coordinates>12.5,42.1,100</coordinates></Point>
+    </Placemark>
+  </Folder>
+  <Placemark id="pm2"><name>Senza geometria</name></Placemark>
+  <Placemark><name>MG</name><MultiGeometry><Point><coordinates>1,2</coordinates></Point><LineString><coordinates>0,0 1,1</coordinates></LineString></MultiGeometry></Placemark>
+  <GroundOverlay><name>overlay</name><LatLonBox><north>1</north><south>0</south><east>1</east><west>0</west></LatLonBox></GroundOverlay>
+  <NetworkLink><name>nl</name><Link><href>http://example.invalid/x.kml</href></Link></NetworkLink>
+  <Placemark><name>Ring</name><LinearRing><coordinates>0,0 1,0 1,1 0,0</coordinates></LinearRing></Placemark>
+  <Placemark><name>Unk</name><gx:Foo><coordinates>0,0</coordinates></gx:Foo></Placemark>
+</Document>
+</kml>

@@ -370,10 +370,20 @@ MATRICE: tuple[dict[str, Any], ...] = (
             "geojson",
         ],
         "perche": (
-            "la stessa conversione senza perdita di CRS: `write_loss.counts` "
-            "resta vuoto, ed e' cio' che rende osservabile che i suoi percorsi "
-            "interni non ci sono sempre."
+            "il giro GeoJSON dichiara anche le normalizzazioni dello schema nativo."
         ),
+    },
+    {
+        "nome": "write-ipc-lossless",
+        "busta": "plenora-io-write-result-v2",
+        "argomenti": ["write", "{canoniche}/canonico_senza_geometria.arrow", "{uscita}/lossless.arrow", "--to", "ipc"],
+        "perche": "Una scrittura senza perdite esercita conteggi e ragioni vuoti.",
+    },
+    {
+        "nome": "convert-ipc-lossless",
+        "busta": "plenora-io-convert-v1",
+        "argomenti": ["convert", "{canoniche}/canonico_senza_geometria.arrow", "{uscita}/lossless-convert.arrow", "--from", "ipc", "--to", "ipc"],
+        "perche": "Una conversione senza perdite esercita conteggi e ragioni vuoti.",
     },
     {'nome': 'write-property-plan', 'busta': 'plenora-io-write-result-v2', 'argomenti': ['write', '{proprieta}', '{uscita}/property-plan.gpkg', '--to', 'gpkg'], 'perche': 'IO-a: inventario completo per campo/chiave, valori nullable e provenienza write/source_write.'},
     {'nome': 'read-property-plan', 'busta': 'plenora-io-read-result-v2', 'argomenti': ['read', '{uscita}/property-plan.gpkg'], 'perche': 'IO-a: inventario completo per campo/chiave, valori nullable e provenienza write/source_write.'},

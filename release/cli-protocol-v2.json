@@ -1097,7 +1097,7 @@
           "tipi": [
             "object"
           ],
-          "sempre": true
+          "sempre": false
         },
         ".result.conversion_fidelity.reasons[].code": {
           "tipi": [
@@ -1403,13 +1403,13 @@
           "tipi": [
             "integer"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".result.write_fidelity.reasons[].layer_index": {
           "tipi": [
             "integer"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".result.write_fidelity.troncato": {
           "tipi": [
@@ -1710,6 +1710,12 @@
             "integer"
           ],
           "sempre": true
+        },
+        ".result.read_loss.esempi[].field_index": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": false
         }
       },
       "required_result_fields": [
@@ -3559,6 +3565,12 @@
             "integer"
           ],
           "sempre": true
+        },
+        ".result.loss.esempi[].field_index": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": false
         }
       },
       "semantica": {
@@ -3798,7 +3810,7 @@
           "tipi": [
             "object"
           ],
-          "sempre": true
+          "sempre": false
         },
         ".result.fidelity.reasons[].code": {
           "tipi": [
@@ -3816,13 +3828,13 @@
           "tipi": [
             "integer"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".result.fidelity.reasons[].layer_index": {
           "tipi": [
             "integer"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".result.fidelity.troncato": {
           "tipi": [
@@ -4080,7 +4092,7 @@
           "tipi": [
             "object"
           ],
-          "sempre": true
+          "sempre": false
         },
         ".result.write_fidelity.reasons[].code": {
           "tipi": [
@@ -4098,13 +4110,13 @@
           "tipi": [
             "integer"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".result.write_fidelity.reasons[].layer_index": {
           "tipi": [
             "integer"
           ],
-          "sempre": false
+          "sempre": true
         },
         ".result.write_fidelity.troncato": {
           "tipi": [
@@ -4128,7 +4140,7 @@
           "tipi": [
             "object"
           ],
-          "sempre": true
+          "sempre": false
         },
         ".result.write_loss.counts[].categoria": {
           "tipi": [
@@ -4152,7 +4164,7 @@
           "tipi": [
             "object"
           ],
-          "sempre": true
+          "sempre": false
         },
         ".result.write_loss.esempi[].category": {
           "tipi": [

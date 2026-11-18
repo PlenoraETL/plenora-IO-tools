@@ -188,6 +188,101 @@
       "id": "kml.unsupported_geometry",
       "superficie": "driver-kml",
       "forma": "literal"
+    },
+    {
+      "id": "native_not_null_not_preserved",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "native_field_order_changed",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "native_feature_id_not_preserved",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "native_bbox_not_preserved",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "native_foreign_members_not_preserved",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "native_type_inference",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "native_number_precision",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "native_structured_value_rewritten",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "native_missing_as_null",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "native_dimensions_not_declared",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "kml_extended_data_not_preserved",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "kml_feature_metadata_not_preserved",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "native_layer_metadata_not_preserved",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "kml_styles_not_preserved",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "kml_hierarchy_flattened",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "native_external_reference_not_followed",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "native_geometry_type_changed",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "kml_altitude_mode_not_preserved",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "native_fields_reconstructed",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
     }
   ],
   "vie_dinamiche_ammesse": [

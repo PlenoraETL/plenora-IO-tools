@@ -52,13 +52,16 @@ use plenora_io_core::driver::{
     Published, ReadOptions, Sink, Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
+use plenora_io_core::loss_table::{
+    observe_native, NativeDriver, NativeElement, TransportDirection,
+};
 use plenora_io_core::publish::StagedFile;
 use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
     read_row_error, validate_write, with_write_validation, AttributeWriteSupport, CrsDerivation,
     CrsRepresentationCapabilities, CrsRepresentationState, CrsWriteSupport,
-    FormatWriteCapabilities, NullabilitySupport, SinkPathConstraint, TypeCoercionPolicy, WritePlan,
-    UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
+    FormatWriteCapabilities, SinkPathConstraint, TypeCoercionPolicy, WritePlan, UTF8_FIELD_NAMES,
+    WKB_XY_XYZ_GEOMETRY,
 };
 use plenora_io_model::contract::{
     DataContract, FieldId, GeometryColumnContract, GeometryType, LayerContract, LayerId,
@@ -71,6 +74,8 @@ use plenora_io_model::wkb::decode_wkb;
 use plenora_io_model::wkb::{encode_wkb_into_bounded, WkbFlavor};
 use plenora_io_model::{NumeroStrutturale, PlenoraIoError, PublicMessage, Result};
 
+const NATIVE_READ: (NativeDriver, TransportDirection) =
+    (NativeDriver::GeoJson, TransportDirection::Read);
 const GEOMETRY: &str = "geometry";
 
 fn err(reason: &PublicMessage) -> PlenoraIoError {
@@ -132,7 +137,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
             CrsRepresentationState::Absent,
             CrsRepresentationState::Absent,
         ),
-        nullability: NullabilitySupport::Preserve,
+        nullability: plenora_io_core::loss_table::native_nullability(NativeDriver::GeoJson),
         multi_layer: false,
         sink_path: SinkPathConstraint::Free,
     }),
@@ -156,7 +161,7 @@ impl FormatDriver for GeoJsonDriver {
         let path = plenora_io_core::preflight_source(self.descriptor(), source, &mut opts)?;
         // Pass 1: inferenza schema in streaming (RAM O(1)).
         let quote = QuoteInferenza::from_read_options(&opts);
-        let (schema, cols, tipi) = infer_schema(&path, quote)?;
+        let (schema, cols, tipi, loss) = infer_schema(&path, quote)?;
         let mut geometria = GeometryColumnContract::wkb_passthrough(
             FieldId(0),
             GEOMETRY,
@@ -201,6 +206,7 @@ impl FormatDriver for GeoJsonDriver {
                 path,
                 quote,
                 cols,
+                loss,
                 layers: vec![LayerContract {
                     id: LayerId(0),
                     name,
@@ -264,6 +270,7 @@ impl FormatDriver for GeoJsonDriver {
                 staging,
                 writer: Some(writer),
                 first: true,
+                loss: plenora_io_core::loss_table::native_write_report(NativeDriver::GeoJson, plan),
                 wkb_limits: opts.wkb_limits(),
             }),
             self.descriptor(),
@@ -281,6 +288,7 @@ struct GeoJsonDataset {
     /// al default proprio dopo che l'inferenza ha rispettato il flag.
     quote: QuoteInferenza,
     cols: Vec<(String, ColType)>,
+    loss: LossReport,
     layers: Vec<LayerContract>,
 }
 
@@ -322,7 +330,7 @@ impl OpenDatasetHandle for GeoJsonDataset {
             layer,
         )?;
         Ok(plenora_io_core::with_cancellation(
-            reader,
+            plenora_io_core::loss_table::with_native_report(reader, self.loss.clone()),
             request.cancellation.clone(),
         ))
     }
@@ -361,7 +369,12 @@ impl QuoteInferenza {
 
 /// Cio' che la passata di inferenza sa dire del file: lo schema, le colonne
 /// con il tipo accumulato, e i tipi geometrici visti.
-type SchemaInferito = (SchemaRef, Vec<(String, ColType)>, Vec<GeometryType>);
+type SchemaInferito = (
+    SchemaRef,
+    Vec<(String, ColType)>,
+    Vec<GeometryType>,
+    LossReport,
+);
 
 fn infer_schema(path: &Path, quote: QuoteInferenza) -> Result<SchemaInferito> {
     let file = File::open(path)?;
@@ -389,6 +402,7 @@ fn infer_schema(path: &Path, quote: QuoteInferenza) -> Result<SchemaInferito> {
         });
     }
     let tipi: Vec<GeometryType> = accs.tipi_geometrici.iter().copied().collect();
+    let loss = accs.native_report();
     let cols = accs
         .into_columns()
         .map_err(|motivo| err(&PublicMessage::Curated(motivo)))?;
@@ -396,13 +410,16 @@ fn infer_schema(path: &Path, quote: QuoteInferenza) -> Result<SchemaInferito> {
     for (k, ct) in &cols {
         fields.push(Field::new(k, ct.arrow_data_type(), true));
     }
-    Ok((Arc::new(Schema::new(fields)), cols, tipi))
+    Ok((Arc::new(Schema::new(fields)), cols, tipi, loss))
 }
 
 // --- pass-1: visitor serde streaming (chiavi + tipo, zero valori) ----------
 
 #[derive(Default)]
 struct SchemaAccumulators {
+    loss: LossReport,
+    observations: Vec<[u64; 8]>,
+    names: Vec<String>,
     indices: HashMap<String, usize>,
     values: Vec<TypeAccumulator>,
     source_rows_seen: u64,
@@ -428,6 +445,78 @@ struct SchemaAccumulators {
 }
 
 impl SchemaAccumulators {
+    fn native_report(&self) -> LossReport {
+        let mut loss = self.loss.clone();
+        observe_native(
+            &mut loss,
+            NATIVE_READ,
+            NativeElement::Dimensions,
+            1,
+            0,
+            Some(0),
+        );
+        let mut fields: Vec<_> = self.indices.iter().collect();
+        fields.sort_by(|a, b| a.0.cmp(b.0));
+        if fields
+            .iter()
+            .enumerate()
+            .any(|(sorted, (_, source))| sorted != **source)
+            && !loss.counts.contains_key("native_field_order_changed")
+        {
+            observe_native(
+                &mut loss,
+                NATIVE_READ,
+                NativeElement::FieldOrder,
+                1,
+                0,
+                None,
+            );
+        }
+        for (field, (_, index)) in fields.iter().enumerate() {
+            let counts = self.observations[**index];
+            let position = Some(field as u64 + 1);
+            let total: u64 = counts[..6].iter().sum();
+            observe_native(
+                &mut loss,
+                NATIVE_READ,
+                NativeElement::MissingValue,
+                self.source_rows_seen.saturating_sub(total),
+                0,
+                position,
+            );
+            observe_native(
+                &mut loss,
+                NATIVE_READ,
+                NativeElement::NumberPrecision,
+                counts[3],
+                0,
+                position,
+            );
+            observe_native(
+                &mut loss,
+                NATIVE_READ,
+                NativeElement::StructuredValue,
+                counts[6],
+                0,
+                position,
+            );
+            let converted = match self.values[**index].column_type() {
+                ColType::Text => counts[1] + counts[2] + counts[3] + counts[4] + counts[7],
+                ColType::Number => counts[1] + counts[2],
+                ColType::Integer | ColType::Boolean => 0,
+            };
+            observe_native(
+                &mut loss,
+                NATIVE_READ,
+                NativeElement::Inference,
+                converted,
+                0,
+                position,
+            );
+        }
+        loss
+    }
+
     fn index_for(&mut self, name: &str) -> usize {
         if let Some(index) = self.indices.get(name) {
             return *index;
@@ -435,6 +524,8 @@ impl SchemaAccumulators {
         let index = self.values.len();
         self.indices.insert(name.to_owned(), index);
         self.values.push(TypeAccumulator::default());
+        self.observations.push([0; 8]);
+        self.names.push(name.to_owned());
         index
     }
 
@@ -503,7 +594,7 @@ impl RowSink {
     }
 }
 
-struct TypeTag(ObservedValueClass);
+struct TypeTag(ObservedValueClass, bool, bool);
 
 impl<'de> serde::Deserialize<'de> for TypeTag {
     fn deserialize<D: Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
@@ -518,46 +609,50 @@ impl<'de> Visitor<'de> for TagVisitor {
         f.write_str("un valore JSON")
     }
     fn visit_i64<E>(self, value: i64) -> std::result::Result<TypeTag, E> {
-        Ok(TypeTag(classify_i64(value)))
+        Ok(TypeTag(classify_i64(value), false, false))
     }
     fn visit_u64<E>(self, value: u64) -> std::result::Result<TypeTag, E> {
-        Ok(TypeTag(classify_u64(value)))
+        Ok(TypeTag(classify_u64(value), false, value > i64::MAX as u64))
     }
     fn visit_i128<E>(self, value: i128) -> std::result::Result<TypeTag, E> {
         Ok(TypeTag(
             i64::try_from(value).map_or(ObservedValueClass::Text, classify_i64),
+            false,
+            false,
         ))
     }
     fn visit_u128<E>(self, value: u128) -> std::result::Result<TypeTag, E> {
         Ok(TypeTag(
             u64::try_from(value).map_or(ObservedValueClass::Text, classify_u64),
+            false,
+            false,
         ))
     }
     fn visit_f64<E>(self, _: f64) -> std::result::Result<TypeTag, E> {
-        Ok(TypeTag(ObservedValueClass::Number))
+        Ok(TypeTag(ObservedValueClass::Number, false, false))
     }
     fn visit_bool<E>(self, _: bool) -> std::result::Result<TypeTag, E> {
-        Ok(TypeTag(ObservedValueClass::Boolean))
+        Ok(TypeTag(ObservedValueClass::Boolean, false, false))
     }
     fn visit_str<E>(self, _: &str) -> std::result::Result<TypeTag, E> {
-        Ok(TypeTag(ObservedValueClass::Text))
+        Ok(TypeTag(ObservedValueClass::Text, false, false))
     }
     fn visit_none<E>(self) -> std::result::Result<TypeTag, E> {
-        Ok(TypeTag(ObservedValueClass::Null))
+        Ok(TypeTag(ObservedValueClass::Null, false, false))
     }
     fn visit_unit<E>(self) -> std::result::Result<TypeTag, E> {
-        Ok(TypeTag(ObservedValueClass::Null))
+        Ok(TypeTag(ObservedValueClass::Null, false, false))
     }
     fn visit_some<D: Deserializer<'de>>(self, d: D) -> std::result::Result<TypeTag, D::Error> {
         d.deserialize_any(Self)
     }
     fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> std::result::Result<TypeTag, A::Error> {
         while seq.next_element::<IgnoredAny>()?.is_some() {}
-        Ok(TypeTag(ObservedValueClass::Text))
+        Ok(TypeTag(ObservedValueClass::Text, true, false))
     }
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> std::result::Result<TypeTag, A::Error> {
         while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
-        Ok(TypeTag(ObservedValueClass::Text))
+        Ok(TypeTag(ObservedValueClass::Text, true, false))
     }
 }
 
@@ -611,8 +706,28 @@ impl<'de> Visitor<'de> for TopVisitor<'_> {
                     if !map.next_value_seed(crs_storico::CrsStorico)? {
                         return Err(self.accs.ferma(crs_storico::rifiuto()));
                     }
+                    observe_native(
+                        &mut self.accs.loss,
+                        NATIVE_READ,
+                        NativeElement::NativeMetadata,
+                        1,
+                        0,
+                        None,
+                    );
                 }
                 _ => {
+                    observe_native(
+                        &mut self.accs.loss,
+                        NATIVE_READ,
+                        if key == "bbox" {
+                            NativeElement::Bbox
+                        } else {
+                            NativeElement::ForeignMembers
+                        },
+                        1,
+                        0,
+                        None,
+                    );
                     map.next_value::<IgnoredAny>()?;
                 }
             }
@@ -687,9 +802,14 @@ impl<'de> Visitor<'de> for FeatureVisitor<'_> {
         // hanno tipo diverso (es. Geometry standalone in un array di
         // features) o che omettono il tipo del tutto.
         let mut type_observed: Option<String> = None;
+        let mut properties_observed = false;
+        let mut geometry_observed = false;
         while let Some(key) = map.next_key_seed(FeatKeySeed)? {
             match key {
-                FeatKey::Props => map.next_value_seed(PropsSeed { accs: self.accs })?,
+                FeatKey::Props => {
+                    properties_observed = true;
+                    map.next_value_seed(PropsSeed { accs: self.accs })?;
+                }
                 FeatKey::Type => {
                     let value: String = map.next_value()?;
                     if value != "Feature" {
@@ -699,13 +819,39 @@ impl<'de> Visitor<'de> for FeatureVisitor<'_> {
                     }
                     type_observed = Some(value);
                 }
-                FeatKey::Geom => map.next_value_seed(TipoGeometricoSeed { accs: self.accs })?,
+                FeatKey::Geom => {
+                    geometry_observed = true;
+                    map.next_value_seed(TipoGeometricoSeed {
+                        accs: self.accs,
+                        root: true,
+                    })?;
+                }
                 FeatKey::Crs => {
                     if !map.next_value_seed(crs_storico::CrsStorico)? {
                         return Err(self.accs.ferma(crs_storico::rifiuto()));
                     }
+                    observe_native(
+                        &mut self.accs.loss,
+                        NATIVE_READ,
+                        NativeElement::NativeMetadata,
+                        1,
+                        0,
+                        None,
+                    );
                 }
-                FeatKey::Other => {
+                FeatKey::Id | FeatKey::Bbox | FeatKey::Other => {
+                    observe_native(
+                        &mut self.accs.loss,
+                        NATIVE_READ,
+                        match key {
+                            FeatKey::Id => NativeElement::FeatureId,
+                            FeatKey::Bbox => NativeElement::Bbox,
+                            _ => NativeElement::ForeignMembers,
+                        },
+                        1,
+                        0,
+                        None,
+                    );
                     map.next_value::<IgnoredAny>()?;
                 }
             }
@@ -714,6 +860,26 @@ impl<'de> Visitor<'de> for FeatureVisitor<'_> {
             return Err(self.accs.ferma(err(&PublicMessage::Curated(
                 "membro di features senza campo 'type'",
             ))));
+        }
+        if !properties_observed {
+            observe_native(
+                &mut self.accs.loss,
+                NATIVE_READ,
+                NativeElement::MissingValue,
+                1,
+                0,
+                None,
+            );
+        }
+        if !geometry_observed {
+            observe_native(
+                &mut self.accs.loss,
+                NATIVE_READ,
+                NativeElement::MissingValue,
+                1,
+                0,
+                Some(0),
+            );
         }
         self.accs.in_feature = false;
         self.accs.source_rows_seen =
@@ -753,18 +919,51 @@ impl<'de> Visitor<'de> for PropsVisitor<'_> {
         f.write_str("le properties di un Feature (oggetto o null)")
     }
     fn visit_unit<E>(self) -> std::result::Result<(), E> {
+        observe_native(
+            &mut self.accs.loss,
+            NATIVE_READ,
+            NativeElement::MissingValue,
+            1,
+            0,
+            None,
+        );
         Ok(())
     }
-    fn visit_none<E>(self) -> std::result::Result<(), E> {
-        Ok(())
+    fn visit_none<E: DeError>(self) -> std::result::Result<(), E> {
+        self.visit_unit()
     }
     fn visit_some<D: Deserializer<'de>>(self, d: D) -> std::result::Result<(), D::Error> {
         d.deserialize_any(self)
     }
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> std::result::Result<(), A::Error> {
+        let mut previous: Option<usize> = None;
         while let Some(index) = map.next_key_seed(SchemaKeySeed { accs: self.accs })? {
-            let tag = map.next_value::<TypeTag>()?.0;
-            if let Err(motivo) = self.accs.observe(index, tag) {
+            let tag = map.next_value::<TypeTag>()?;
+            let class = match tag.0 {
+                ObservedValueClass::Null => 0,
+                ObservedValueClass::Integer => 1,
+                ObservedValueClass::WideInteger => 2,
+                ObservedValueClass::Number => 3,
+                ObservedValueClass::Boolean => 4,
+                ObservedValueClass::Text => 5,
+            };
+            self.accs.observations[index][class] += 1;
+            self.accs.observations[index][6] += u64::from(tag.1);
+            self.accs.observations[index][7] += u64::from(tag.2);
+            if let Some(prior) = previous {
+                if self.accs.names[prior] > self.accs.names[index] {
+                    observe_native(
+                        &mut self.accs.loss,
+                        NATIVE_READ,
+                        NativeElement::FieldOrder,
+                        1,
+                        0,
+                        None,
+                    );
+                }
+            }
+            previous = Some(index);
+            if let Err(motivo) = self.accs.observe(index, tag.0) {
                 return Err(self.accs.ferma(err(&PublicMessage::Curated(motivo))));
             }
         }
@@ -1145,7 +1344,7 @@ impl<'de> Visitor<'de> for FeatureSink<'_> {
                         return Err(self.sink.ferma(crs_storico::rifiuto()));
                     }
                 }
-                FeatKey::Other => {
+                FeatKey::Id | FeatKey::Bbox | FeatKey::Other => {
                     map.next_value::<IgnoredAny>()?;
                 }
             }
@@ -1218,6 +1417,8 @@ enum FeatKey {
     Type,
     /// Il membro `crs` di `GeoJSON` 2008 (vedi [`crs_storico`]).
     Crs,
+    Id,
+    Bbox,
     Other,
 }
 struct FeatKeySeed;
@@ -1238,6 +1439,8 @@ impl Visitor<'_> for FeatKeySeed {
             "properties" => FeatKey::Props,
             "type" => FeatKey::Type,
             "crs" => FeatKey::Crs,
+            "id" => FeatKey::Id,
+            "bbox" => FeatKey::Bbox,
             _ => FeatKey::Other,
         })
     }
@@ -1253,6 +1456,7 @@ impl Visitor<'_> for FeatKeySeed {
 /// `geometry` puo' essere `null`, ed e' un caso normale: una feature senza
 /// geometria non aggiunge tipi e non e' un errore.
 struct TipoGeometricoSeed<'a> {
+    root: bool,
     accs: &'a mut SchemaAccumulators,
 }
 
@@ -1290,16 +1494,77 @@ impl<'de> Visitor<'de> for TipoGeometricoSeed<'_> {
                 // scansione descrittiva, e a rifiutarlo e' la lettura vera con
                 // la propria diagnostica di riga.
                 if let Some(tipo) = GeometryType::from_canonical_name(&nome.to_ascii_lowercase()) {
-                    self.accs.tipi_geometrici.insert(tipo);
+                    if self.root {
+                        self.accs.tipi_geometrici.insert(tipo);
+                    }
                 }
             } else if chiave == "crs" {
                 if !map.next_value_seed(crs_storico::CrsStorico)? {
                     return Err(self.accs.ferma(crs_storico::rifiuto()));
                 }
+                observe_native(
+                    &mut self.accs.loss,
+                    NATIVE_READ,
+                    NativeElement::NativeMetadata,
+                    1,
+                    0,
+                    None,
+                );
+            } else if chiave == "geometries" {
+                map.next_value_seed(NativeGeometries { accs: self.accs })?;
             } else {
+                if chiave == "coordinates" {
+                    observe_native(
+                        &mut self.accs.loss,
+                        NATIVE_READ,
+                        NativeElement::NumberPrecision,
+                        1,
+                        0,
+                        Some(0),
+                    );
+                } else {
+                    observe_native(
+                        &mut self.accs.loss,
+                        NATIVE_READ,
+                        if chiave == "bbox" {
+                            NativeElement::Bbox
+                        } else {
+                            NativeElement::ForeignMembers
+                        },
+                        1,
+                        0,
+                        Some(0),
+                    );
+                }
                 map.next_value::<IgnoredAny>()?;
             }
         }
+        Ok(())
+    }
+}
+
+struct NativeGeometries<'a> {
+    accs: &'a mut SchemaAccumulators,
+}
+impl<'de> DeserializeSeed<'de> for NativeGeometries<'_> {
+    type Value = ();
+    fn deserialize<D: Deserializer<'de>>(self, d: D) -> std::result::Result<(), D::Error> {
+        d.deserialize_seq(self)
+    }
+}
+impl<'de> Visitor<'de> for NativeGeometries<'_> {
+    type Value = ();
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("geometries")
+    }
+    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> std::result::Result<(), A::Error> {
+        while seq
+            .next_element_seed(TipoGeometricoSeed {
+                accs: self.accs,
+                root: false,
+            })?
+            .is_some()
+        {}
         Ok(())
     }
 }
@@ -1573,6 +1838,7 @@ pub fn __fuzz_read_geojson(bytes: &[u8]) -> std::result::Result<usize, String> {
 // --- scrittura (bufferizzante nella v1) -----------------------------------
 
 struct GeoJsonWriter {
+    loss: LossReport,
     staging: StagedFile,
     writer: Option<BufWriter<File>>,
     first: bool,
@@ -1620,7 +1886,7 @@ impl FormatWriter for GeoJsonWriter {
         let (bytes, outcome) = self.staging.publish()?;
         Ok(Published {
             bytes,
-            loss: LossReport::default(),
+            loss: self.loss,
             fidelity: plenora_io_core::FidelityAssessment::lossless(),
             outcome,
         })

@@ -640,7 +640,9 @@ fn dxf_a_geojson_restituisce_solo_cio_che_il_dxf_aveva_conservato() {
         esito.perdite(),
         perdite(&[
             ("arrow_metadata_not_preserved", 15),
-            ("crs_id_not_preserved_derived", 1)
+            ("crs_id_not_preserved_derived", 1),
+            ("native_dimensions_not_declared", 1),
+            ("native_field_order_changed", 2)
         ]),
         "GeoJSON fissa il proprio CRS, e l'identificatore si ricava da li'"
     );

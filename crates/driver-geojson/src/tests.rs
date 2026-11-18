@@ -551,8 +551,8 @@ fn source_property_order_does_not_change_inferred_schema_order() {
     )
     .unwrap();
 
-    let (za_schema, za_columns, _) = infer_schema(&za, quote_di_prova()).unwrap();
-    let (az_schema, az_columns, _) = infer_schema(&az, quote_di_prova()).unwrap();
+    let (za_schema, za_columns, _, _) = infer_schema(&za, quote_di_prova()).unwrap();
+    let (az_schema, az_columns, _, _) = infer_schema(&az, quote_di_prova()).unwrap();
     assert_eq!(za_schema, az_schema);
     assert_eq!(za_columns, az_columns);
     assert_eq!(
@@ -1110,4 +1110,134 @@ fn la_decodifica_difensiva_del_writer_dichiara_la_fase_di_scrittura() {
         plenora_io_model::RemoteEffect::None,
         "{errore}"
     );
+}
+
+#[test]
+fn native_inventory_cases_and_roundtrips() {
+    let cases: std::collections::BTreeMap<String, String> =
+        serde_json::from_str(include_str!("tests/native_cases.json")).unwrap();
+    for (name, source) in cases {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("native.geojson");
+        std::fs::write(&path, source).unwrap();
+        let read = || -> Result<(RecordBatch, LayerContract, LossReport)> {
+            let dataset = GeoJsonDriver.open(Source::Path(path.clone()), opzioni_lettura())?;
+            let mut reader = dataset.open_layer_reader(&req())?;
+            let batch = reader.next_batch()?.unwrap();
+            assert!(reader.next_batch()?.is_none());
+            Ok((batch, reader.contract().clone(), reader.loss_report()))
+        };
+        let result = read();
+        if matches!(
+            name.as_str(),
+            "coord4"
+                | "mixdim"
+                | "big_exp"
+                | "empty_geom_coll"
+                | "empty_coords"
+                | "empty_point"
+                | "single_feature"
+                | "bare_geometry"
+                | "geometry_key_prop"
+        ) {
+            assert!(result.is_err(), "{name}");
+            continue;
+        }
+        let (batch, layer, loss) = match result {
+            Ok(value) => value,
+            Err(error) => panic!("{name}: {error}"),
+        };
+        let expected = match name.as_str() {
+            "coll_members" | "feat_foreign" | "geom_foreign" => {
+                Some("native_foreign_members_not_preserved")
+            }
+            "feat_id_str" | "feat_id_num" => Some("native_feature_id_not_preserved"),
+            "feat_bbox" | "geom_bbox" => Some("native_bbox_not_preserved"),
+            "big_int" | "int_float_mix" | "int_float_mix2" | "bool_str_mix" | "num_str_mix" => {
+                Some("native_type_inference")
+            }
+            "nested" => Some("native_structured_value_rewritten"),
+            "props_null" | "missing_key" => Some("native_missing_as_null"),
+            "prec" => Some("native_number_precision"),
+            _ => None,
+        };
+        if let Some(category) = expected {
+            assert!(loss.counts[category] > 0, "{name}");
+        }
+        assert_eq!(loss.counts["native_dimensions_not_declared"], 1);
+        let out = dir.path().join("out.geojson");
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: "layer".to_owned(),
+                contract: layer.contract,
+            }],
+        };
+        let mut writer = GeoJsonDriver
+            .create(Sink::Path(out.clone()), &plan, &opzioni_scrittura())
+            .unwrap();
+        writer.write(&batch).unwrap();
+        let published = writer.finish().unwrap();
+        assert_eq!(published.loss.counts["native_dimensions_not_declared"], 1);
+        let (back, _) = read_all(&GeoJsonDriver, &out);
+        assert_eq!(batch.columns(), back.columns(), "{name}");
+    }
+}
+
+#[test]
+fn native_observations_count_locations_and_no_payload() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("native.geojson");
+    std::fs::write(&path, r#"{"type":"FeatureCollection","secret_collection":1,"bbox":[],"features":[
+        {"type":"Feature","id":"secret_id","bbox":[],"geometry":{"type":"GeometryCollection","geometries":[{"type":"Point","coordinates":[1,2],"secret_geometry":true,"bbox":[]}]},"properties":{"z":true,"a":{"secret_value":[2.50]}}},
+        {"type":"Feature","geometry":null,"properties":{"z":"text","a":null}},
+        {"type":"Feature","geometry":null,"properties":{}}]}"#).unwrap();
+    let dataset = GeoJsonDriver
+        .open(Source::Path(path), opzioni_lettura())
+        .unwrap();
+    let mut reader = dataset.open_layer_reader(&req()).unwrap();
+    let batch = reader.next_batch().unwrap().unwrap();
+    assert_eq!(batch.schema().fields()[1].name(), "a");
+    let loss = reader.loss_report();
+    for (category, count) in [
+        ("native_feature_id_not_preserved", 1),
+        ("native_bbox_not_preserved", 3),
+        ("native_foreign_members_not_preserved", 2),
+        ("native_field_order_changed", 2),
+        ("native_structured_value_rewritten", 1),
+        ("native_type_inference", 1),
+        ("native_missing_as_null", 2),
+    ] {
+        assert_eq!(loss.counts[category], count, "{category}");
+    }
+    let examples: Vec<_> = loss.esempi_canonici().collect();
+    let text = serde_json::to_string(&examples).unwrap();
+    assert!(!text.contains("secret"));
+    assert!(examples
+        .iter()
+        .any(|e| e.category == "native_structured_value_rewritten"
+            && e.posizione.field_index == Some(1)));
+}
+
+#[test]
+fn native_missing_and_null_property_containers_are_declared() {
+    for (feature, count) in [
+        (r#"{"type":"Feature"}"#, 2),
+        (r#"{"type":"Feature","geometry":null,"properties":null}"#, 1),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("native.geojson");
+        std::fs::write(
+            &path,
+            format!(r#"{{"type":"FeatureCollection","features":[{feature}]}}"#),
+        )
+        .unwrap();
+        let dataset = GeoJsonDriver
+            .open(Source::Path(path), opzioni_lettura())
+            .unwrap();
+        let mut reader = dataset.open_layer_reader(&req()).unwrap();
+        let batch = reader.next_batch().unwrap().unwrap();
+        assert_eq!(batch.num_columns(), 1);
+        assert!(batch.column(0).is_null(0));
+        assert_eq!(reader.loss_report().counts["native_missing_as_null"], count);
+    }
 }

@@ -1,0 +1,275 @@
+//! Native schema and value regressions through the public CLI.
+use arrow_array::{
+    ArrayRef, BinaryArray, BooleanArray, Date32Array, Float32Array, Float64Array, Int64Array,
+    Int8Array, RecordBatch, StringArray, UInt64Array,
+};
+use arrow_schema::{DataType, Field, Schema};
+use plenora_io_model::{
+    contract::{FieldId, GeometryColumnContract, GeometryType},
+    crs::ResolvedCrs,
+};
+use serde_json::Value;
+use std::{collections::HashMap, fs::File, path::Path, process::Command, sync::Arc};
+
+fn convert(src: &Path, dst: &Path, from: &str, to: &str) -> Value {
+    let output = Command::new(env!("CARGO_BIN_EXE_plenora-io"))
+        .arg("convert")
+        .arg(src)
+        .arg(dst)
+        .args(["--from", from, "--to", to])
+        .output()
+        .unwrap();
+    assert!(output.stderr.is_empty());
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(output.status.success(), "{from} -> {to}: {result}");
+    result
+}
+fn count(result: &Value, direction: &str, category: &str) -> u64 {
+    result["result"][direction]["counts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|c| c["categoria"] == category)
+        .map(|c| c["conteggio"].as_u64().unwrap())
+        .sum()
+}
+fn load(path: &Path) -> RecordBatch {
+    arrow_ipc::reader::FileReader::try_new(File::open(path).unwrap(), None)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+}
+
+#[test]
+fn native_schema_values_and_losses_roundtrip() {
+    let arrays: Vec<ArrayRef> = vec![
+        Arc::new(Int8Array::from(vec![Some(-128), None])),
+        Arc::new(Int64Array::from(vec![Some(i64::MAX), None])),
+        Arc::new(UInt64Array::from(vec![Some(u64::MAX), None])),
+        Arc::new(Float32Array::from(vec![Some(0.1), None])),
+        Arc::new(Float64Array::from(vec![Some(1e-20), None])),
+        Arc::new(BooleanArray::from(vec![Some(true), None])),
+        Arc::new(Date32Array::from(vec![Some(0), None])),
+        Arc::new(StringArray::from(vec![Some(""), None])),
+        Arc::new(BinaryArray::from(vec![Some(&b"abc"[..]), None])),
+        Arc::new(
+            arrow_array::Decimal128Array::from(vec![Some(123_i128), None])
+                .with_precision_and_scale(20, 4)
+                .unwrap(),
+        ),
+        Arc::new(arrow_array::ListArray::from_iter_primitive::<
+            arrow_array::types::Int32Type,
+            _,
+            _,
+        >(vec![Some(vec![Some(1)]), None])),
+    ];
+    for array in arrays {
+        let batch = fixture(&array);
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("source.arrow");
+        let mut writer =
+            arrow_ipc::writer::FileWriter::try_new(File::create(&source).unwrap(), &batch.schema())
+                .unwrap();
+        writer.write(&batch).unwrap();
+        writer.finish().unwrap();
+        drop(writer);
+        for driver in ["geojson", "kml"] {
+            let native = dir.path().join(format!("native.{driver}"));
+            let back = dir.path().join(format!("{driver}.arrow"));
+            if matches!(
+                array.data_type(),
+                DataType::Binary | DataType::Decimal128(_, _) | DataType::List(_)
+            ) {
+                let output = Command::new(env!("CARGO_BIN_EXE_plenora-io"))
+                    .arg("convert")
+                    .arg(&source)
+                    .arg(&native)
+                    .args(["--from", "ipc", "--to", driver])
+                    .output()
+                    .unwrap();
+                assert!(!output.status.success());
+                assert!(output.stderr.is_empty());
+                let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+                assert_eq!(result["error"]["category"], "unsupported");
+                assert!(!native.exists());
+                continue;
+            }
+            check_roundtrip(driver, &source, &native, &back, &batch, &array);
+        }
+    }
+}
+
+fn fixture(array: &ArrayRef) -> RecordBatch {
+    let mut geometry =
+        GeometryColumnContract::wkb_xy(FieldId(1), "geom", ResolvedCrs::wgs84(), true);
+    geometry.set_exact_geometry_types(vec![GeometryType::Point]);
+    let geom_field = plenora_io_model::geometry::with_geometry_contract_metadata(
+        &Field::new("geom", DataType::Binary, true).with_metadata(HashMap::from([(
+            "ARROW:extension:name".into(),
+            "geoarrow.wkb".into(),
+        )])),
+        &geometry,
+    );
+    let point = [
+        vec![1, 1, 0, 0, 0],
+        1.123_456_789_012_345_f64.to_le_bytes().to_vec(),
+        1e-20_f64.to_le_bytes().to_vec(),
+    ]
+    .concat();
+    let schema = Arc::new(Schema::new_with_metadata(
+        vec![
+            Field::new("z", array.data_type().clone(), true).with_metadata(HashMap::from([(
+                "secret_key".into(),
+                "secret_value".into(),
+            )])),
+            geom_field,
+            Field::new("a", DataType::Utf8, false),
+            Field::new("name", DataType::Utf8, true),
+            Field::new("description", DataType::Utf8, true),
+        ],
+        HashMap::from([
+            ("secret_schema".into(), "secret_value".into()),
+            ("plenora.contract.version".into(), "1".into()),
+        ]),
+    ));
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            array.clone(),
+            Arc::new(BinaryArray::from(vec![Some(point.as_slice()), None])),
+            Arc::new(StringArray::from(vec!["", " "])),
+            Arc::new(StringArray::from(vec![Some(""), None])),
+            Arc::new(StringArray::from(vec![Some("text"), Some(" ")])),
+        ],
+    )
+    .unwrap();
+    batch
+}
+
+fn check_roundtrip(
+    driver: &str,
+    source: &Path,
+    native: &Path,
+    back: &Path,
+    batch: &RecordBatch,
+    array: &ArrayRef,
+) {
+    let write = convert(source, native, "ipc", driver);
+    assert_eq!(
+        count(&write, "write_loss", "native_not_null_not_preserved"),
+        1
+    );
+    assert!(count(&write, "write_loss", "native_field_order_changed") > 0);
+    assert_eq!(
+        count(&write, "write_loss", "native_fields_reconstructed"),
+        1
+    );
+    assert!(count(&write, "write_loss", "arrow_metadata_not_preserved") > 0);
+    assert!(!write["result"]["write_loss"].to_string().contains("secret"));
+    if plenora_io_core::loss_table::normalizes_type(driver, array.data_type()) {
+        assert_eq!(count(&write, "write_loss", "coercion tipo attributo"), 1);
+    }
+    let read = convert(native, back, driver, "ipc");
+    let actual = load(back);
+    assert_eq!(actual.column(0), batch.column(1));
+    for name in ["name", "description"] {
+        assert_eq!(
+            actual.column(actual.schema().index_of(name).unwrap()),
+            batch.column(batch.schema().index_of(name).unwrap())
+        );
+    }
+    assert!(actual
+        .schema()
+        .fields()
+        .iter()
+        .all(|field| field.is_nullable()));
+    assert_eq!(
+        count(&read, "read_loss", "native_dimensions_not_declared"),
+        1
+    );
+    if driver == "kml" {
+        assert_eq!(actual.num_columns(), 3);
+        assert_eq!(
+            count(&write, "write_loss", "kml_extended_data_not_preserved"),
+            2
+        );
+        assert_eq!(
+            count(&read, "read_loss", "kml_extended_data_not_preserved"),
+            2
+        );
+    } else {
+        assert_eq!(
+            actual
+                .schema()
+                .fields()
+                .iter()
+                .map(|f| f.name().as_str())
+                .collect::<Vec<_>>(),
+            ["geometry", "a", "description", "name", "z"]
+        );
+        assert_eq!(actual.column(1), batch.column(2));
+        let z = actual.column(4);
+        assert_eq!(z.null_count(), array.null_count());
+        if z.data_type() == array.data_type() {
+            assert_eq!(z, array);
+        } else {
+            assert_eq!(count(&write, "write_loss", "coercion tipo attributo"), 1);
+            assert_converted_value(z, array.data_type());
+        }
+    }
+}
+
+fn assert_converted_value(z: &ArrayRef, original: &DataType) {
+    match original {
+        DataType::Int8 => assert_eq!(
+            z.as_any().downcast_ref::<Int64Array>().unwrap().value(0),
+            -128
+        ),
+        DataType::Float32 => assert_eq!(
+            z.as_any()
+                .downcast_ref::<Float64Array>()
+                .unwrap()
+                .value(0)
+                .to_bits(),
+            f64::from(0.1_f32).to_bits()
+        ),
+        DataType::Date32 => assert_eq!(
+            z.as_any().downcast_ref::<StringArray>().unwrap().value(0),
+            "1970-01-01"
+        ),
+        DataType::UInt64 => assert_eq!(
+            z.as_any().downcast_ref::<StringArray>().unwrap().value(0),
+            u64::MAX.to_string()
+        ),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn kml_declares_standard_fields_added_on_readback() {
+    let array: ArrayRef = Arc::new(StringArray::from(vec![Some("value"), None]));
+    let batch = fixture(&array).project(&[0, 1, 2]).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("source.arrow");
+    let native = dir.path().join("native.kml");
+    let back = dir.path().join("back.arrow");
+    let mut writer =
+        arrow_ipc::writer::FileWriter::try_new(File::create(&source).unwrap(), &batch.schema())
+            .unwrap();
+    writer.write(&batch).unwrap();
+    writer.finish().unwrap();
+    drop(writer);
+    let write = convert(&source, &native, "ipc", "kml");
+    assert_eq!(
+        count(&write, "write_loss", "native_fields_reconstructed"),
+        3
+    );
+    convert(&native, &back, "kml", "ipc");
+    let actual = load(&back);
+    assert_eq!(actual.num_columns(), 3);
+    assert_eq!(actual.schema().fields()[1].name(), "name");
+    assert_eq!(actual.schema().fields()[2].name(), "description");
+    assert_eq!(actual.column(1).null_count(), 2);
+    assert_eq!(actual.column(2).null_count(), 2);
+}
