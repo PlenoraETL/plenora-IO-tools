@@ -41,6 +41,8 @@ rules! {
     (MissingGeometry, Unsupported, Write, Capability, "UNSUPPORTED", "il formato di destinazione richiede una geometria"),
     (UnrepresentableWriteType, Unsupported, Write, Capability, "UNSUPPORTED", "tipo non rappresentabile nel formato di destinazione"),
     (NonFiniteWriteValue, DataMapping, Write, Format, "FORMAT_ERROR", "valore non finito non rappresentabile in scrittura"),
+    (ReadMemoryExceeded, ResourceLimit, Read, LimitExceeded, "LIMIT_EXCEEDED", "quota memory_bytes superata durante la lettura"),
+    (IneffectiveCrsAssumption, InvalidConfiguration, Validate, Generic, "CLI_USAGE", "--assume-crs senza effetto: il layer non contiene geometrie"),
     (MissingLayer, NotFound, Prepare, Generic, "NO_LAYER", "layer richiesto non presente"),
     (InvalidQuota, InvalidConfiguration, Validate, Generic, "CLI_USAGE", "le quote devono essere positive e coerenti"),
     (InvalidSpillDirectory, InvalidConfiguration, Validate, Generic, "CLI_USAGE", "PLENORA_SPILL_DIR non indica una directory utilizzabile"),

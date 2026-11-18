@@ -909,12 +909,14 @@ fn json_validated(array: &ArrayRef, row: usize) -> Result<JsonValue> {
     // nomi di campo e metadati letti dal file, e non e' un formato che arrow
     // abbia promesso di tenere stabile. Al suo posto la classe, che e' un
     // vocabolario nostro.
-    Err(PlenoraIoError::non_supportato_redatto(
-        &PublicMessage::CuratedPair(
-            "tipo Arrow non rappresentabile dal convertitore di celle, classe:",
-            classe_arrow(array.data_type()),
+    Err(
+        plenora_io_model::error_table::Situation::UnrepresentableWriteType.error_with(
+            &PublicMessage::CuratedPair(
+                "tipo Arrow non rappresentabile dal convertitore di celle, classe:",
+                classe_arrow(array.data_type()),
+            ),
         ),
-    ))
+    )
 }
 
 /// Conteggio saturante da `usize` a `u64`, per i numeri strutturali.
@@ -948,7 +950,8 @@ pub const fn classe_arrow(tipo: &DataType) -> &'static str {
             "unsigned_integer"
         }
         DataType::Float16 | DataType::Float32 | DataType::Float64 => "floating",
-        DataType::Utf8 | DataType::LargeUtf8 => "utf8",
+        DataType::Utf8 => "utf8",
+        DataType::LargeUtf8 => "large_utf8",
         DataType::Binary | DataType::LargeBinary | DataType::FixedSizeBinary(_) => "binary",
         DataType::Date32
         | DataType::Date64

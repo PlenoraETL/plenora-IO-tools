@@ -15,9 +15,6 @@
     "json": [
       "Schema/Validate/Schema/Never"
     ],
-    "json_validated": [
-      "Unsupported/Validate/Unsupported/Never"
-    ],
     "new": [
       "Schema/Validate/Schema/Never"
     ],
@@ -754,11 +751,6 @@
   "crates/plenora-io-model/src/error_table.rs": {
     "error_with": [
       "esplicito/esplicito/?/esplicito"
-    ]
-  },
-  "crates/plenora-io-model/src/format_options.rs": {
-    "scarto": [
-      "esplicito/esplicito/Unsupported/esplicito"
     ]
   },
   "crates/plenora-io-model/src/geometry.rs": {

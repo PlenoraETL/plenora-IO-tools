@@ -325,6 +325,9 @@ impl FormatWriter for LimitedWriter {
     }
 
     fn write_to_layer(&mut self, layer: LayerId, batch: &RecordBatch) -> Result<()> {
+        if self.layer_rows.get(layer.0 as usize).is_none() {
+            return Err(plenora_io_model::error_table::Situation::MissingLayer.error());
+        }
         check_cancelled(&self.cancellation, ErrorPhase::Write)?;
         if self.failed {
             return Err(PlenoraIoError::formato_redatto(

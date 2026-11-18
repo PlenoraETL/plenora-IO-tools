@@ -430,14 +430,7 @@ impl SchemaOpzioniFormato {
 /// conta per chi automatizza: davanti a `Unsupported` si cambia driver,
 /// davanti a `InvalidConfiguration` si corregge la richiesta.
 fn scarto(messaggio: &PublicMessage) -> PlenoraIoError {
-    PlenoraIoError::redatto(
-        crate::IoErrorCode::Unsupported,
-        crate::ErrorCategory::InvalidConfiguration,
-        crate::ErrorPhase::Validate,
-        crate::RemoteEffect::None,
-        crate::RetryDisposition::Never,
-        messaggio,
-    )
+    crate::error_table::Situation::InvalidConfiguration.error_with(messaggio)
 }
 
 /// Verifica le opzioni ricevute contro lo schema del driver.
@@ -490,6 +483,14 @@ pub fn valida_opzioni(
             // ogni variante di `ValoreAmmesso` salvo l'intero, che compone il
             // proprio intervallo: il testo resta nostro in entrambi i casi.
             let _ = ammessi;
+            if let ValoreAmmesso::Intero { minimo, massimo } = dichiarata.valore {
+                return Err(scarto(&PublicMessage::CuratedBetween(
+                    "valore di opzione non valido: richiesto un intero decimale fra",
+                    crate::NumeroStrutturale::Limite(minimo),
+                    "e",
+                    crate::NumeroStrutturale::Limite(massimo),
+                )));
+            }
             return Err(scarto(&PublicMessage::OpzioneRifiutata {
                 driver,
                 testo: "valore di opzione non valido; forma richiesta:",

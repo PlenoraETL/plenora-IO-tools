@@ -220,3 +220,125 @@ fn invalid_options_are_redacted_in_both_driver_directions() {
         }
     }
 }
+
+#[test]
+fn ineffective_and_malformed_crs_assumptions_are_configuration_errors() {
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("plain.csv");
+    std::fs::write(&source, b"value\n1\n").unwrap();
+    for command in ["read", "inspect", "layers"] {
+        let (_, result) = esegui(
+            &[
+                command.to_owned(),
+                source.to_str().unwrap().to_owned(),
+                "--assume-crs".to_owned(),
+                "EPSG:4326".to_owned(),
+            ],
+            &CancellationToken::new(),
+        );
+        let (_, doc) = result.unwrap_err();
+        let rule = Situation::IneffectiveCrsAssumption.rule();
+        assert_eq!(
+            doc["error"]["category"],
+            serde_json::to_value(rule.category).unwrap()
+        );
+        assert_eq!(doc["error"]["code"], rule.wire_code);
+    }
+    std::fs::write(&source, b"wkt\nPOINT (0 0)\n").unwrap();
+    for crs in [
+        "EPSG:SECRET",
+        "EPSG:4326 ",
+        "EPSG:0",
+        "EPSG:+4326",
+        "EPSG:04326",
+        "EPSG:2147483648",
+    ] {
+        let (_, result) = esegui(
+            &[
+                "read".to_owned(),
+                source.to_str().unwrap().to_owned(),
+                "--opt".to_owned(),
+                "wkt_column=wkt".to_owned(),
+                "--assume-crs".to_owned(),
+                crs.to_owned(),
+            ],
+            &CancellationToken::new(),
+        );
+        let (_, doc) = result.unwrap_err();
+        assert_eq!(doc["error"]["category"], "invalid_configuration", "{doc}");
+        assert_eq!(doc["error"]["code"], "CLI_USAGE");
+        assert!(!doc["error"]["message"].as_str().unwrap().contains("SECRET"));
+    }
+    let (_, result) = esegui(
+        &[
+            "read".to_owned(),
+            source.to_str().unwrap().to_owned(),
+            "--opt".to_owned(),
+            "wkt_column=wkt".to_owned(),
+            "--assume-crs".to_owned(),
+            "EPSG:999999".to_owned(),
+        ],
+        &CancellationToken::new(),
+    );
+    assert!(
+        result.is_ok(),
+        "a syntactically valid declaration does not resolve a registry: {result:?}"
+    );
+}
+
+#[test]
+fn missing_geometry_is_checked_for_every_writer() {
+    use arrow_schema::{DataType, Field, Schema};
+    use std::sync::Arc;
+    let root = tempfile::tempdir().unwrap();
+    let input = root.path().join("properties.arrow");
+    let schema = Arc::new(Schema::new(vec![Field::new(
+        "value",
+        DataType::Int64,
+        true,
+    )]));
+    let batch = arrow_array::RecordBatch::try_new(
+        schema.clone(),
+        vec![Arc::new(arrow_array::Int64Array::from(vec![1]))],
+    )
+    .unwrap();
+    let mut writer =
+        arrow_ipc::writer::FileWriter::try_new(std::fs::File::create(&input).unwrap(), &schema)
+            .unwrap();
+    writer.write(&batch).unwrap();
+    writer.finish().unwrap();
+    drop(writer);
+    for &(driver, extension) in DRIVERS {
+        let output = root.path().join(format!("out.{extension}"));
+        let args = vec![
+            "write".to_owned(),
+            input.to_str().unwrap().to_owned(),
+            output.to_str().unwrap().to_owned(),
+            "--to".to_owned(),
+            driver.to_owned(),
+        ];
+        let (_, result) = esegui(&args, &CancellationToken::new());
+        if ["csv", "xls", "ipc"].contains(&driver) {
+            assert!(result.is_ok(), "{driver}: {result:?}");
+        } else {
+            let (_, doc) = result.expect_err(driver);
+            let rule = if driver == "filegdb" {
+                Situation::MissingWriteBackend.rule()
+            } else {
+                Situation::MissingGeometry.rule()
+            };
+            assert_eq!(
+                doc["error"]["category"],
+                serde_json::to_value(rule.category).unwrap(),
+                "{driver}: {doc}"
+            );
+            assert_eq!(
+                doc["error"]["phase"],
+                serde_json::to_value(rule.phase).unwrap(),
+                "{driver}: {doc}"
+            );
+            assert_eq!(doc["error"]["code"], rule.wire_code, "{driver}: {doc}");
+            assert!(!output.exists());
+        }
+    }
+}

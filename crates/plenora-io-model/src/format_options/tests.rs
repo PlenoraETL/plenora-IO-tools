@@ -274,9 +274,14 @@ fn un_intero_rispetta_gli_estremi_dichiarati() {
     // Fuori intervallo, non numerici, e le forme che `parse::<u64>`
     // rifiuta da sola: segno, spazi, decimali.
     for rifiutato in ["0", "65", "", "otto", "-1", " 8", "8.0", "+8"] {
-        assert!(
-            prova(rifiutato).is_err(),
-            "{rifiutato:?} doveva essere rifiutato"
+        let error = prova(rifiutato).expect_err("valore fuori dominio");
+        assert!(error.message.contains("fra 1 e 64"), "{error}");
+        assert_eq!(error.category, crate::ErrorCategory::InvalidConfiguration);
+        assert_eq!(
+            error.code,
+            crate::error_table::Situation::InvalidConfiguration
+                .rule()
+                .code
         );
     }
 }

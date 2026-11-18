@@ -29,7 +29,7 @@ fn i_vocabolari_statici_sono_distinti_e_coprono_le_famiglie() {
         (DataType::Float16, "floating"),
         (DataType::Float64, "floating"),
         (DataType::Utf8, "utf8"),
-        (DataType::LargeUtf8, "utf8"),
+        (DataType::LargeUtf8, "large_utf8"),
         (DataType::Binary, "binary"),
         (DataType::FixedSizeBinary(4), "binary"),
         (DataType::Date32, "temporal"),
@@ -131,7 +131,7 @@ fn json_conversion_never_conflates_unsupported_or_non_finite_with_null() {
 
     assert!(matches!(
         json_from_array(&unsupported, 0),
-        Err(error) if error.code == plenora_io_model::IoErrorCode::Unsupported
+        Err(error) if error.code == plenora_io_model::error_table::Situation::UnrepresentableWriteType.rule().code
     ));
     assert!(matches!(
         json_from_array(&non_finite, 0),
@@ -348,4 +348,22 @@ fn renderer_validato_riusabile_e_indici_controllati() {
     assert!(cells.text(3).is_err());
     assert!(json_from_array(&array, usize::MAX).is_err());
     assert!(cell_string(&array, usize::MAX).is_err());
+}
+
+#[test]
+fn large_utf8_rejection_names_the_actual_representation() {
+    let array: arrow_array::ArrayRef =
+        std::sync::Arc::new(arrow_array::LargeStringArray::from(vec![
+            Some("SECRET"),
+            None,
+        ]));
+    let error = json_from_array(&array, 0).unwrap_err();
+    let rule = plenora_io_model::error_table::Situation::UnrepresentableWriteType.rule();
+    assert_eq!(
+        (error.category, error.phase, error.code),
+        (rule.category, rule.phase, rule.code)
+    );
+    assert!(error.message.contains("large_utf8"));
+    assert!(!error.message.contains("SECRET"));
+    assert_eq!(json_from_array(&array, 1).unwrap(), serde_json::Value::Null);
 }

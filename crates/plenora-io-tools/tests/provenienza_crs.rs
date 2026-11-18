@@ -424,9 +424,8 @@ fn gpkg_conserva_l_identificatore_e_ne_deriva_le_altre_rappresentazioni() {
 /// GEO-005 confronta i codici come testo: `EPSG:04326` e `EPSG:+4326` non sono
 /// `EPSG:4326`. Il `GeoPackage` porta il codice come intero, e scriverli come
 /// 4326 li faceva rileggere `EPSG:4326`, un'altra identita'. Ora si rifiutano
-/// prima di creare la destinazione: con `unsupported` dalla rilettura 11,
-/// perche' e' il bersaglio a non poterli rappresentare (REJ-001 «support»),
-/// non il CRS a essere sbagliato.
+/// prima di creare la destinazione: l'assunzione EPSG non canonica e'
+/// una configurazione non valida, indipendentemente dal writer scelto.
 #[test]
 fn gpkg_rifiuta_un_codice_non_canonico_invece_di_cambiarne_l_identita() {
     for crs in ["EPSG:04326", "EPSG:+4326", "EPSG:4326 "] {
@@ -437,12 +436,7 @@ fn gpkg_rifiuta_un_codice_non_canonico_invece_di_cambiarne_l_identita() {
         let busta: serde_json::Value =
             serde_json::from_str(esito.stdout.trim()).expect("il rifiuto emette una busta JSON");
         assert_eq!(
-            busta["error"]["category"],
-            if crs.ends_with(' ') {
-                "crs"
-            } else {
-                "unsupported"
-            },
+            busta["error"]["category"], "invalid_configuration",
             "{crs}: {busta}"
         );
         assert!(

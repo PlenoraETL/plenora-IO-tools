@@ -784,8 +784,22 @@ fn valida_lunghezza_del_footer(file: &File, dimensione: u64, tetto: u64) -> Resu
         .map_err(|_| illeggibile())?;
     let [l0, l1, l2, l3, ..] = coda;
     let lunghezza = u64::from(u32::from_le_bytes([l0, l1, l2, l3]));
+    // Prima la struttura: byte arbitrari non sono una richiesta di memoria.
+    let mut magic = [0_u8; 4];
+    lettore
+        .seek(SeekFrom::Start(0))
+        .and_then(|_| lettore.read_exact(&mut magic))
+        .map_err(|_| illeggibile())?;
+    if magic != *b"PAR1"
+        || coda[4..] != *b"PAR1"
+        || lunghezza == 0
+        || lunghezza > inizio_coda.saturating_sub(4)
+    {
+        return Err(illeggibile());
+    }
     if lunghezza.saturating_mul(2) > tetto {
-        return Err(fmt_err(&PublicMessage::Curated(MSG_FOOTER_OLTRE_IL_TETTO)));
+        return Err(plenora_io_model::error_table::Situation::ReadMemoryExceeded
+            .error_with(&PublicMessage::Curated(MSG_FOOTER_OLTRE_IL_TETTO)));
     }
     Ok(())
 }

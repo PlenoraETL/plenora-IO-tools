@@ -668,7 +668,6 @@ impl FormatDriver for ShpDriver {
             &mut opts,
         )?)?;
         valida_struttura_shp(&path)?;
-        let crs = resolve_crs(&path, &opts)?;
         // Pass 1: inferenza schema (nomi + tipi) dai record, a RAM O(ncol).
         let ShpInference {
             cols,
@@ -677,6 +676,7 @@ impl FormatDriver for ShpDriver {
             active_row_count,
             loss,
         } = infer_shp_schema(&path)?;
+        let crs = resolve_crs(&path, &opts)?;
         let row_diagnostics =
             ShpRowDiagnosticsConfig::from_options(&opts.format_options, &cols, &dbf_layout)?;
         let mut geometry_contract =

@@ -319,6 +319,13 @@ senza che la busta lo dicesse. Il confronto non è un resolver: `OGC:CRS84` ed
 in `plenora-io-tools`, `verifica_crs_assunto_rifiuta_cio_che_non_puo_confermare`
 in `plenora-io-model`).
 
+Un layer senza geometrie rifiuta `--assume-crs` come configurazione senza effetto
+(`invalid_configuration/validate/CLI_USAGE`). Il controllo EPSG richiede un
+codice intero positivo canonico nei 32 bit con segno: testo, segno `+`, zeri
+iniziali e zero sono rifiutati come configurazione. Non si consulta un registro:
+un codice sintatticamente valido, anche `EPSG:999999`, resta una dichiarazione
+del chiamante, senza attestazione di esistenza e con genere `unknown`.
+
 #### `--assume-crs` dichiara, non risolve
 
 `--assume-crs EPSG:3003` dice **quale** CRS hanno i dati. Non è un resolver

@@ -61,6 +61,9 @@ pub fn with_read_budget(
     opts: &crate::driver::ReadOptions,
     physical_row_indices_attestable: bool,
 ) -> Result<Box<dyn OpenDatasetHandle>> {
+    if let Some(assunto) = opts.assume_crs.as_deref() {
+        plenora_io_model::crs::valida_crs_assunto(assunto)?;
+    }
     let mut rifiuti = BTreeMap::new();
     for layer in dataset.layers() {
         if dataset.rifiuto_del_layer(layer.id).is_some() {
@@ -77,6 +80,13 @@ pub fn with_read_budget(
                 continue;
             }
         };
+        if geometrie.is_empty() && opts.assume_crs.is_some() {
+            rifiuti.insert(
+                layer.id.0,
+                plenora_io_model::error_table::Situation::IneffectiveCrsAssumption.error(),
+            );
+            continue;
+        }
         for geometria in &geometrie {
             // Il contratto nomina la colonna geometrica, e chi la cerca nei
             // batch -- la validazione, il conteggio dei componenti, gli esempi
@@ -163,6 +173,14 @@ impl OpenDatasetHandle for BudgetedDataset {
         &self,
         request: &crate::request::ReadRequest,
     ) -> Result<Box<dyn LayerReader>> {
+        if !self
+            .dataset
+            .layers()
+            .iter()
+            .any(|layer| layer.id == request.layer)
+        {
+            return Err(plenora_io_model::error_table::Situation::MissingLayer.error());
+        }
         if let Some(rifiuto) = self.rifiuto_del_layer(request.layer) {
             return Err(rifiuto);
         }

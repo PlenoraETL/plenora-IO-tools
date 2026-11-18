@@ -79,10 +79,11 @@ fn native_read_loss(
     if let Some(GeomSpec::Xy(x, y)) = geom {
         let mut reader = csv_reader(path, delim)?;
         let mut row = csv::StringRecord::new();
-        while reader
-            .read_record(&mut row)
-            .map_err(|_| err(&PublicMessage::Curated("CSV non valido")))?
-        {
+        while reader.read_record(&mut row).map_err(|_| {
+            err(&PublicMessage::Curated(
+                "CSV non valido: richiesti testo UTF-8 e quoting CSV valido",
+            ))
+        })? {
             opts.ensure_active()?;
             for index in [x, y] {
                 if row.get(index).is_some_and(|value| !value.is_empty()) {
@@ -402,9 +403,11 @@ fn csv_reader(path: &Path, delim: u8) -> Result<wire::Reader<File>> {
         File::open(path).map_err(|_| err(&PublicMessage::Curated("apertura del CSV fallita")))?;
     let mut reader = wire::Reader::new(file, delim);
     let mut header = csv::StringRecord::new();
-    reader
-        .read_record(&mut header)
-        .map_err(|_| err(&PublicMessage::Curated("intestazione CSV non valida")))?;
+    reader.read_record(&mut header).map_err(|_| {
+        err(&PublicMessage::Curated(
+            "intestazione CSV non valida: richiesti testo UTF-8 e quoting CSV valido",
+        ))
+    })?;
     Ok(reader)
 }
 
@@ -429,10 +432,11 @@ impl FormatDriver for CsvDriver {
                 .map_err(|_| err(&PublicMessage::Curated("apertura del CSV fallita")))?;
             let mut rdr = wire::Reader::new(file, delim);
             let mut first = csv::StringRecord::new();
-            if !rdr
-                .read_record(&mut first)
-                .map_err(|_| err(&PublicMessage::Curated("CSV non valido")))?
-            {
+            if !rdr.read_record(&mut first).map_err(|_| {
+                err(&PublicMessage::Curated(
+                    "CSV non valido: richiesti testo UTF-8 e quoting CSV valido",
+                ))
+            })? {
                 return Err(err(&PublicMessage::Curated("CSV vuoto")));
             }
             first.iter().map(str::to_owned).collect()
@@ -781,10 +785,11 @@ fn infer_types(
     let mut rdr = csv_reader(path, delim)?;
     let mut rec = csv::StringRecord::new();
     let mut visitate = 0_usize;
-    while rdr
-        .read_record(&mut rec)
-        .map_err(|_| err(&PublicMessage::Curated("riga CSV non valida")))?
-    {
+    while rdr.read_record(&mut rec).map_err(|_| {
+        err(&PublicMessage::Curated(
+            "riga CSV non valida: richiesti testo UTF-8 e quoting CSV valido",
+        ))
+    })? {
         // Prima di osservare le celle: un CSV ostile con miliardi di record
         // rende la passata di inferenza illimitata nel tempo anche se ogni
         // cella e' minuscola, e nessun contatore di riga e' ancora entrato in
@@ -822,10 +827,11 @@ fn infer_wkt_geometry(
     let mut dimensions = BTreeSet::new();
     let mut geometry_types = BTreeSet::new();
     let mut visitate = 0_usize;
-    while reader
-        .read_record(&mut record)
-        .map_err(|_| err(&PublicMessage::Curated("riga CSV non valida")))?
-    {
+    while reader.read_record(&mut record).map_err(|_| {
+        err(&PublicMessage::Curated(
+            "riga CSV non valida: richiesti testo UTF-8 e quoting CSV valido",
+        ))
+    })? {
         // Il tetto sulle righe si applica **prima** di leggere la cella:
         // fermarsi dopo averla parsata vorrebbe dire aver gia' allocato cio'
         // che il limite doveva impedire.
@@ -907,9 +913,11 @@ fn spawn_parser(
             .collect();
         let mut n = 0usize;
         loop {
-            let more = rdr
-                .read_record(&mut rec)
-                .map_err(|_| err(&PublicMessage::Curated("riga CSV non valida")))?;
+            let more = rdr.read_record(&mut rec).map_err(|_| {
+                err(&PublicMessage::Curated(
+                    "riga CSV non valida: richiesti testo UTF-8 e quoting CSV valido",
+                ))
+            })?;
             if !more {
                 break;
             }
