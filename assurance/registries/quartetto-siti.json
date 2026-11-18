@@ -16,8 +16,6 @@
       "Schema/Validate/Schema/Never"
     ],
     "json_validated": [
-      "Schema/Validate/Schema/Never",
-      "Schema/Validate/Schema/Never",
       "Unsupported/Validate/Unsupported/Never"
     ],
     "new": [
@@ -739,7 +737,6 @@
     ],
     "verifica_crs_assunto": [
       "Crs/Validate/Crs/Never",
-      "Crs/Validate/Crs/Never",
       "Crs/Validate/Crs/Never"
     ],
     "verifica_crs_emesso": [
@@ -752,6 +749,11 @@
     ],
     "verifica_dimensione_definizione": [
       "ResourceLimit/Validate/LimitExceeded/Never"
+    ]
+  },
+  "crates/plenora-io-model/src/error_table.rs": {
+    "error_with": [
+      "esplicito/esplicito/?/esplicito"
     ]
   },
   "crates/plenora-io-model/src/format_options.rs": {

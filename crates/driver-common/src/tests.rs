@@ -135,7 +135,7 @@ fn json_conversion_never_conflates_unsupported_or_non_finite_with_null() {
     ));
     assert!(matches!(
         json_from_array(&non_finite, 0),
-        Err(error) if error.code == plenora_io_model::IoErrorCode::Schema
+        Err(error) if error.code == plenora_io_model::IoErrorCode::Format
     ));
     assert_eq!(json_from_array(&absent, 0).unwrap(), JsonValue::Null);
 }

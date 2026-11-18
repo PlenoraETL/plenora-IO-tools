@@ -130,8 +130,8 @@ fn l_inferenza_xlsx_dichiara_l_allestimento_del_reader() {
     assert_eq!(codice, Some(4), "il tetto deve rifiutare: {busta}");
     let errore = &busta["error"];
     assert_eq!(
-        errore["phase"], "prepare",
-        "l'inferenza gira dentro `open`, come `reader_busy`: {busta}"
+        errore["phase"], "read",
+        "il contenuto viene analizzato nella fase read: {busta}"
     );
     // La correzione riguarda la sola fase: gli altri assi non si muovono.
     assert_eq!(errore["code"], "LIMIT_EXCEEDED", "{busta}");

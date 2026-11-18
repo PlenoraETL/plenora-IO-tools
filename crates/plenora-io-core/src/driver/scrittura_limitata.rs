@@ -302,7 +302,9 @@ impl FormatWriter for LimitedWriter {
         }
         let result = self.account(0, batch).and_then(|resources| {
             let rows = resources.rows;
-            self.inner.write(batch)?;
+            self.inner
+                .write(batch)
+                .map_err(|error| error.during(ErrorPhase::Write))?;
             resources.commit()?;
             self.layer_rows[0] = self.layer_rows[0].checked_add(rows).ok_or_else(|| {
                 PlenoraIoError::limite_redatto(&PublicMessage::Curated(
@@ -333,7 +335,9 @@ impl FormatWriter for LimitedWriter {
         }
         let result = self.account(layer.0 as usize, batch).and_then(|resources| {
             let rows = resources.rows;
-            self.inner.write_to_layer(layer, batch)?;
+            self.inner
+                .write_to_layer(layer, batch)
+                .map_err(|error| error.during(ErrorPhase::Write))?;
             resources.commit()?;
             let layer_rows = self.layer_rows.get_mut(layer.0 as usize).ok_or_else(|| {
                 PlenoraIoError::contratto_redatto(&layer_fuori_dal_piano(u64::from(layer.0)))

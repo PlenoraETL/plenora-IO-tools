@@ -240,8 +240,8 @@ operativa.
 
 Le opzioni sono dichiarate in uno **schema**: chiave, fase (`read`, `write`,
 `both`), tipo del valore e default. Un valore fuori schema è rifiutato prima di
-raggiungere il driver, con il token dell'opzione rifiutata e l'elenco degli
-ammessi.
+raggiungere il driver, con categoria `invalid_configuration`, codice
+`CLI_USAGE` e il vocabolario ammesso. Chiavi e valori ricevuti sono redatti.
 
 `plenora-io catalog` emette lo schema completo. Le opzioni con un default
 diverso da «assente»:
@@ -837,7 +837,8 @@ costruisce da varianti che accettano solo `&'static str` e numeri strutturali:
 | `CuratedWith` | un testo e un numero strutturale (indice, conteggio, limite) |
 | `CuratedBetween` | due testi e due numeri |
 | `Capability` | una ragione tipizzata |
-| `OpzioneRifiutata` | l'unica variante con testo runtime: un token **bounded e scappato**, coniabile solo dal validatore delle opzioni |
+| `OpzioneRifiutata` | condizione ed elenco statico degli ammessi; il token ricevuto non viene emesso |
+| `CuratedList` | elenco di termini statici derivato dal catalogo, mai valori del chiamante |
 
 Il valore **decodificato** di `message` non supera **2048 byte UTF-8**. Il tetto
 non è promesso sul JSON serializzato, dove l'escaping espande: una virgoletta

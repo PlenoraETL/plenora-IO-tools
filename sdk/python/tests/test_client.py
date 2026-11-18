@@ -36,6 +36,8 @@ from plenora_io import (
     NativeRunner,
     ProtocolError,
     ResourceLimitError,
+    NotFoundError,
+    InvalidConfigurationError,
     __version__,
 )
 from plenora_io._discovery import NOME, VARIABILE
@@ -223,8 +225,11 @@ class ContrIlBinarioVero(unittest.TestCase):
         self.assertEqual(esito.format, "gpkg")
         self.assertTrue(esito.layers)
         for riassunto in esito.layers:
-            self.assertGreater(riassunto.field_count, 0)
-            self.assertTrue(riassunto.geometry_crs)
+            if riassunto.raw["status"]["readable"]:
+                self.assertGreater(riassunto.field_count, 0)
+                self.assertTrue(riassunto.geometry_crs)
+            else:
+                self.assertIn("error", riassunto.raw["status"])
 
     def test_i_due_comandi_concordano_sullo_stesso_file(self) -> None:
         """`layers` e' `inspect` senza lo schema, e i due devono dire lo stesso.
@@ -245,7 +250,8 @@ class ContrIlBinarioVero(unittest.TestCase):
         )
         for strato, sommario in zip(completo.layers, riassunto.layers):
             self.assertEqual(len(strato.fields), sommario.field_count)
-            self.assertEqual(strato.geometry.crs, sommario.geometry_crs)
+            self.assertEqual(strato.geometry.crs if strato.geometry else None, sommario.geometry_crs)
+            self.assertEqual(strato.raw["status"], sommario.raw["status"])
 
     def test_la_fedelta_arriva_strutturata(self) -> None:
         cliente = self.nuovo_client()
@@ -306,18 +312,8 @@ class ContrIlBinarioVero(unittest.TestCase):
             [c.name for c in guardato.layers[0].fields],
         )
 
-    def test_il_limite_e_per_batch_e_truncated_dice_perche_si_e_fermato(self) -> None:
-        """Il comportamento **misurato**, che il nome non suggerisce.
-
-        `--limit` ferma la lettura dopo il primo batch che raggiunge il limite,
-        quindi `rows_read` puo' superarlo. E `truncated` dice «mi sono fermato
-        per il limite», non «c'era altro»: con il limite pari al numero di righe
-        del file esce vero pur avendole lette tutte.
-
-        Nessuna delle due cose e' dichiarata nel contratto, che ha censito la
-        forma delle buste e non il significato dei valori. La sonda le fissa
-        cosi' che un cambiamento si veda.
-        """
+    def test_il_limite_e_esatto_e_truncated_indica_altre_righe(self) -> None:
+        """Limite esatto, sotto EOF e oltre EOF sul binario reale."""
         cliente = self.nuovo_client()
         fixture = RADICE / "crates/plenora-io-tools/tests/fixtures/canoniche/canonico.geojson"
         intero = cliente.validate(fixture)
@@ -325,19 +321,29 @@ class ContrIlBinarioVero(unittest.TestCase):
 
         assaggio = cliente.validate(fixture, limit=1)
         self.assertEqual(
-            assaggio.rows_read, righe, "il limite e' per batch, non per riga"
+            assaggio.rows_read, 1, "il conteggio deve fermarsi al limite"
         )
         self.assertTrue(assaggio.truncated)
 
         esatto = cliente.validate(fixture, limit=righe)
-        self.assertTrue(
-            esatto.truncated,
-            "vero anche quando il file e' finito: dice perche' si e' fermato",
-        )
+        self.assertFalse(esatto.truncated)
+        self.assertTrue(esatto.complete)
 
         oltre = cliente.validate(fixture, limit=righe + 1)
         self.assertFalse(oltre.truncated)
         self.assertTrue(oltre.complete)
+
+    def test_r4_sorgente_assente_e_quota_zero_hanno_categorie_precise(self) -> None:
+        cliente = self.nuovo_client()
+        with TemporaryDirectory() as directory:
+            source = Path(directory) / "SECRET-missing.geojson"
+            with self.assertRaises(NotFoundError) as missing:
+                cliente.validate(source)
+            self.assertEqual(missing.exception.envelope.code, "SOURCE_NOT_FOUND")
+            self.assertNotIn("SECRET", missing.exception.envelope.message)
+            with self.assertRaises(InvalidConfigurationError) as invalid:
+                cliente.validate(source, limits=Limits(max_rows=0))
+            self.assertEqual(invalid.exception.envelope.code, "CLI_USAGE")
 
     def test_un_tetto_superato_e_un_errore_tipizzato(self) -> None:
         """La difesa che scatta e' un'informazione, non un guasto: chi la
@@ -408,8 +414,8 @@ class ContrIlBinarioVero(unittest.TestCase):
         fixture = RADICE / "crates/plenora-io-tools/tests/fixtures/canoniche/canonico.geojson"
         with self.assertRaises(CommandFailed) as preso:
             cliente.validate(fixture, options={"chiave_inventata": "1"})
-        self.assertEqual(preso.exception.envelope.code, "UNSUPPORTED")
-        self.assertIn("chiave_inventata", preso.exception.envelope.message)
+        self.assertEqual(preso.exception.envelope.code, "CLI_USAGE")
+        self.assertNotIn("chiave_inventata", preso.exception.envelope.message)
 
     def test_una_opzione_nota_passa(self) -> None:
         """Il contro-esempio: senza, «rifiuta tutto» sarebbe indistinguibile.

@@ -932,12 +932,12 @@ fn n1_resolve_geometry_nomina_la_colonna_che_manca_e_rifiuta_due_geometrie() {
         (
             "coppia a meta': solo l'ascissa",
             vec![("x_column", "lon")],
-            "specificare wkt_column, oppure x_column con y_column, in format_options",
+            "specificare entrambe le opzioni x_column e y_column",
         ),
         (
             "coppia a meta': solo l'ordinata",
             vec![("y_column", "lat")],
-            "specificare wkt_column, oppure x_column con y_column, in format_options",
+            "specificare entrambe le opzioni x_column e y_column",
         ),
     ] {
         let esito = resolve_geometry(&intestazioni, INIZIO, &opzioni(&coppie));

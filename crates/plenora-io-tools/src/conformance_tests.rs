@@ -1573,8 +1573,8 @@ fn unknown_option_key_produces_typed_error_not_silent_ignore() {
         );
         let testo = errore.to_string();
         assert!(
-            testo.contains("optzione_inesistente"),
-            "{}: l'errore non nomina la chiave rifiutata: {errore}",
+            !testo.contains("optzione_inesistente"),
+            "{}: l'errore espone la chiave rifiutata: {errore}",
             descriptor.id()
         );
         // L'errore deve elencare cosa si accetta, non solo cosa si rifiuta:
@@ -1582,7 +1582,7 @@ fn unknown_option_key_produces_typed_error_not_silent_ignore() {
         let attese = descriptor.format_options().chiavi(FaseOpzione::Lettura);
         if attese.is_empty() {
             assert!(
-                testo.contains("nessuna"),
+                testo.contains("opzione sconosciuta"),
                 "{}: schema vuoto, ma l'errore non lo dice: {errore}",
                 descriptor.id()
             );
@@ -1622,8 +1622,8 @@ fn unknown_compression_value_produces_typed_error_not_snappy_default() {
     );
     let testo = errore.to_string();
     assert!(
-        testo.contains("zstsd"),
-        "l'errore non nomina il valore rifiutato: {errore}"
+        !testo.contains("zstsd"),
+        "l'errore espone il valore rifiutato: {errore}"
     );
     assert!(
         testo.contains("zstd"),

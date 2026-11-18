@@ -66,7 +66,6 @@ const EXIT_TIMEOUT: i32 = 5;
 
 /// La proiezione di `resource_limit`, secondo CLI 2.0 §8: il rifiuto di una
 /// quota a zero, che non e' una scadenza.
-const EXIT_LIMITE: i32 = 4;
 
 /// `128 + SIGINT`, l'exit code della categoria `Cancelled`.
 ///
@@ -217,10 +216,10 @@ fn una_deadline_a_zero_e_rifiutata() {
         .output()
         .expect("il binario si esegue");
 
-    assert_eq!(output.status.code(), Some(EXIT_LIMITE));
+    assert_eq!(output.status.code(), Some(2));
     assert_eq!(
         busta(&String::from_utf8_lossy(&output.stdout))["error"]["code"],
-        "LIMIT_EXCEEDED"
+        "CLI_USAGE"
     );
     assert!(!uscita.exists());
 }

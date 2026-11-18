@@ -235,7 +235,21 @@ impl FileSet {
     /// # Errors
     /// Membro assente, ambiguo o errore I/O.
     pub fn input(self, path: &Path) -> Result<Vec<PathBuf>> {
-        let paths = self.paths(path)?;
+        let main = required(path)?;
+        let metadata = std::fs::symlink_metadata(&main)?;
+        let shapefile_directory = self.directory_main.is_some()
+            && main.file_name().is_some_and(|name| {
+                name.as_encoded_bytes()
+                    .to_ascii_lowercase()
+                    .ends_with(b".shp.d")
+            });
+        if metadata.is_dir() && !self.tree && !shapefile_directory {
+            return Err(plenora_io_model::error_table::Situation::DirectoryInsteadOfFile.error());
+        }
+        if metadata.is_file() && metadata.len() == 0 {
+            return Err(plenora_io_model::error_table::Situation::InvalidContent.error());
+        }
+        let paths = self.paths(&main)?;
         if paths[0].is_dir() {
             if let Some(main) = self.directory_main {
                 self.paths(&paths[0].join(main))?;

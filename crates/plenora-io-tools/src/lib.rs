@@ -35,21 +35,11 @@ use plenora_io_model::{
 /// Errore CLI: (exit code, documento JSON d'errore).
 pub type CliResult = Result<Value, (i32, Value)>;
 
-/// Le estensioni che la CLI riconosce. Vocabolario chiuso di letterali
-/// nostri: puo' comparire in un messaggio pubblico.
-pub(crate) const ESTENSIONI_AMMESSE: &str =
-    "parquet, geojson, csv, gpkg, shp, kml, xlsx, xls, dxf, gdb, arrow";
-
-/// I flag che la CLI riconosce. Stessa ragione.
-/// Gli identificatori di formato che `--to` accetta, nell'ordine del catalogo.
-///
-/// Sta accanto a `ESTENSIONI_AMMESSE` e non lo sostituisce: sono due
-/// vocabolari diversi, uno del filesystem e uno del catalogo, e confonderli e'
-/// esattamente cio' che `--to` esiste per evitare.
+/// Gli identificatori di formato che --to accetta.
 pub(crate) const FORMATI_AMMESSI: &str =
     "geoparquet, geojson, csv, gpkg, shp, kml, xls, dxf, filegdb, ipc";
 
-pub(crate) const OPZIONI_AMMESSE: &str = "--assume-crs, --deadline-ms, --durable, --in-opt, --layer,      --limit, --max-columns, --max-input-bytes, --max-input-entries,      --max-output-bytes, --max-rows, --max-vertices, --max-wkb-cell-bytes,      --format, --max-wkb-components, --max-wkb-depth, --memory-bytes, --opt,      --out-opt, --output, --from, --to, --version";
+pub(crate) const OPZIONI_AMMESSE: &str = "--assume-crs, --deadline-ms, --durable, --in-opt, --layer, --limit, --max-columns, --max-input-bytes, --max-input-entries, --max-output-bytes, --max-rows, --max-vertices, --max-wkb-cell-bytes, --format, --max-wkb-components, --max-wkb-depth, --memory-bytes, --spill-bytes, --output-expansion-ratio, --decompression-ratio, --opt, --out-opt, --output, --from, --to";
 
 #[allow(clippy::cast_possible_truncation)]
 const fn saturating_u64(value: usize) -> u64 {
@@ -183,6 +173,13 @@ fn local_err_doc(
     phase: ErrorPhase,
     message: &PublicMessage,
 ) -> (i32, Value) {
+    let code = if category == ErrorCategory::InvalidConfiguration {
+        plenora_io_model::error_table::Situation::InvalidConfiguration
+            .rule()
+            .wire_code
+    } else {
+        code
+    };
     let documento = err_doc(
         code,
         // `redatto` con `Generic`, non un costruttore di famiglia: il sito
@@ -347,6 +344,10 @@ fn map_err(e: plenora_io_model::PlenoraIoError) -> (i32, Value) {
     // generico e usciva `FORMAT_ERROR`, che a chi legge diceva un file
     // malformato.
     let code = match (e.category, e.code) {
+        (ErrorCategory::InvalidConfiguration, _) => "CLI_USAGE",
+        (ErrorCategory::Crs, IoErrorCode::Generic) => "CRS_CONFLICT",
+        (ErrorCategory::NotFound, IoErrorCode::Io) => "SOURCE_NOT_FOUND",
+        (ErrorCategory::NotFound, _) => "NO_LAYER",
         (ErrorCategory::Cancelled, _) => "CANCELLED",
         (ErrorCategory::Timeout, IoErrorCode::Cancelled) => "DEADLINE_EXCEEDED",
         _ => code,
@@ -435,7 +436,7 @@ fn driver_for_path(path: &Path) -> Result<Box<dyn FormatDriver>, (i32, Value)> {
                     ErrorCategory::Unsupported,
                     ErrorPhase::Validate,
                     &PublicMessage::Curated(
-                        "capability drop esplicita: il contenitore binario BIFF .xls                          non e' supportato; usare .xlsx",
+                        "capability drop esplicita: il contenitore binario BIFF .xls non e' supportato; usare .xlsx",
                     ),
                 ),
             )
@@ -453,12 +454,14 @@ fn driver_for_path(path: &Path) -> Result<Box<dyn FormatDriver>, (i32, Value)> {
         // prova — in forma di binding — che non entra nel messaggio.
         _ => {
             return Err(local_err_doc(
-                    "UNSUPPORTED",
-                    ErrorCategory::Unsupported,
+                    "CLI_USAGE",
+                    ErrorCategory::InvalidConfiguration,
                     ErrorPhase::Validate,
-                    &PublicMessage::CuratedPair(
+                    &PublicMessage::CuratedList(
                         "estensione non riconosciuta; ammesse:",
-                        ESTENSIONI_AMMESSE,
+                        capability::driver_registry().descriptors().iter()
+                            .flat_map(|descriptor| descriptor.recognised_suffixes().iter().copied())
+                            .collect(),
                     ),
                 ),
             )
@@ -753,12 +756,19 @@ fn legge_senza_consegnare(
         .open_layer_reader(&read_request(cli, layer_id, scopo))
         .map_err(map_err)?;
     let (mut rows, mut batches) = (0usize, 0usize);
+    let mut truncated = false;
     while let Some(batch) = reader.next_batch().map_err(map_err)? {
-        rows += batch.num_rows();
-        batches += 1;
-        if cli.limit.is_some_and(|l| rows >= l) {
+        let remaining = cli
+            .limit
+            .map_or(usize::MAX, |limit| limit.saturating_sub(rows));
+        if batch.num_rows() > remaining {
+            rows += remaining;
+            batches += usize::from(remaining > 0);
+            truncated = true;
             break;
         }
+        rows += batch.num_rows();
+        batches += 1;
     }
     let perdita = reader.loss_report();
     Ok(json!({
@@ -768,7 +778,7 @@ fn legge_senza_consegnare(
         "layer": layer_json(contract),
         "rows_read": rows,
         "batches": batches,
-        "truncated": cli.limit.is_some_and(|l| rows >= l),
+        "truncated": truncated,
         "delivered": Value::Null,
     }))
 }
@@ -808,8 +818,8 @@ fn ingresso_ammissibile(cli: &Cli) -> Result<(), (i32, Value)> {
 
     if cli.limit.is_some() && cli.output.is_some() {
         return Err(local_err_doc(
-            "LIMIT_WITH_DELIVERY",
-            ErrorCategory::InvalidPlan,
+            "CLI_USAGE",
+            ErrorCategory::InvalidConfiguration,
             ErrorPhase::Validate,
             &PublicMessage::Curated(
                 "--limit e --output insieme non sono ammessi: io.read non \
@@ -855,8 +865,8 @@ fn driver_per_formato(id: &str) -> Result<Box<dyn FormatDriver>, (i32, Value)> {
         // porta invece l'elenco chiuso di cio' che si puo' chiedere.
         _ => {
             return Err(local_err_doc(
-                "UNKNOWN_FORMAT",
-                ErrorCategory::Unsupported,
+                "CLI_USAGE",
+                ErrorCategory::InvalidConfiguration,
                 ErrorPhase::Validate,
                 &PublicMessage::CuratedPair(
                     "formato non riconosciuto; gli identificatori sono quelli di \
@@ -889,9 +899,9 @@ fn strati_da_pubblicare(
         .map(|l| vec![l])
         .ok_or_else(|| {
             local_err_doc(
-                "LAYER_NOT_FOUND",
-                ErrorCategory::InvalidPlan,
-                ErrorPhase::Validate,
+                "NO_LAYER",
+                ErrorCategory::NotFound,
+                ErrorPhase::Prepare,
                 &PublicMessage::Curated("il layer richiesto non esiste nell'ingresso"),
             )
         })
@@ -1229,7 +1239,7 @@ pub fn cmd_read(cli: &Cli) -> CliResult {
         "layer": layer_json(&contract),
         "rows_read": rows,
         "batches": batches,
-        "truncated": cli.limit.is_some_and(|l| rows >= l),
+        "truncated": false,
         "delivered": {
             "content_type": content_type_consegnato(&cli.out_opts),
             "interchange_contract": "plenora-arrow-interchange-v1",
@@ -1409,7 +1419,7 @@ pub fn cmd_convert(cli: &Cli) -> CliResult {
                 ErrorCategory::InvalidPlan,
                 ErrorPhase::Validate,
                 &PublicMessage::CuratedWith(
-                    "destinazione single-layer ma la sorgente dichiara piu' layer;                      usare --layer per sceglierne uno. Layer nella sorgente:",
+                    "destinazione single-layer ma la sorgente dichiara piu' layer; usare --layer per sceglierne uno. Layer nella sorgente:",
                     NumeroStrutturale::Conteggio(saturating_u64(
                         selected.len(),
                     )),
@@ -1564,7 +1574,7 @@ COMANDI
     convert IN OUT --from F --to G   converte fra due formati espliciti
 
 SCOPERTA
-    --help             questo testo
+    --help, -h         questo testo; anche <comando> --help
     --version          la versione del componente, nella busta comune
 
 Ogni comando emette un documento JSON su stdout e niente su stderr. Il codice
@@ -1597,6 +1607,15 @@ pub fn run() -> EsitoDelComando {
 /// segnali li governa l'interprete. Le due vie chiamano questa funzione, e
 /// rendono quindi lo stesso esito per gli stessi argomenti.
 pub fn esegui(args: &[String], cancellazione: &CancellationToken) -> EsitoDelComando {
+    if args.len() == 2
+        && matches!(
+            args[0].as_str(),
+            "catalog" | "capabilities" | "read" | "write" | "convert" | "inspect" | "layers"
+        )
+        && matches!(args[1].as_str(), "--help" | "-h")
+    {
+        return ("help", Ok(Value::Null));
+    }
     if let Some(nome @ ("inspect" | "layers" | "read" | "write" | "convert")) =
         args.first().map(String::as_str)
     {
@@ -1604,6 +1623,9 @@ pub fn esegui(args: &[String], cancellazione: &CancellationToken) -> EsitoDelCom
             Ok(cli) => cli,
             Err(errore) => return (nome_canonico(nome), Err(errore)),
         };
+        if let Err(error) = cli::validate_command(nome, &cli) {
+            return (nome_canonico(nome), Err(error));
+        }
         let esito = match nome {
             "inspect" => cmd_inspect(&cli),
             "layers" => cmd_layers(&cli),
@@ -1658,7 +1680,7 @@ pub fn esegui(args: &[String], cancellazione: &CancellationToken) -> EsitoDelCom
         _ => (
             COMANDO_IGNOTO,
             Err(usage_err(&PublicMessage::Curated(
-                "uso: plenora-io <catalog|inspect|layers|read|convert> [--format json] \
+                "uso: plenora-io <capabilities|catalog|inspect|layers|read|write|convert> [--format json] \
                  | --help | --version",
             ))),
         ),
@@ -1677,7 +1699,7 @@ pub fn uscita_del_processo(esito: EsitoDelComando) -> (i32, String) {
         // `--help` e' l'unico esito che non e' una busta: e' testo per
         // persone, e CLI 2.0 non vincola il formato umano. Esce 0 su stdout
         // come ogni successo.
-        ("help", Ok(Value::Null)) => (0, AIUTO.to_owned()),
+        ("help", Ok(Value::Null)) => (0, format!("{AIUTO}\nFLAG DEI COMANDI\n{OPZIONI_AMMESSE}\n")),
         (comando, Ok(corpo)) => (0, format!("{}\n", busta_di_successo(comando, corpo))),
         // La busta d'errore esce su **stdout**, e stderr resta vuoto.
         (comando, Err((uscita, documento))) => {

@@ -91,9 +91,10 @@ fn create_without_gdal_feature_is_typed() {
 
 #[test]
 fn open_without_gdal_feature_is_typed() {
-    // Nel build di default (senza feature) l'apertura fallisce tipizzata.
+    // Il percorso esiste: si verifica il backend, non un file mancante.
+    let directory = tempfile::tempdir().unwrap();
     let e = FileGdbDriver
-        .open(Source::Path("x.gdb".into()), opzioni_lettura())
+        .open(Source::Path(directory.path().to_owned()), opzioni_lettura())
         .map(|_| ())
         .unwrap_err();
     assert!(matches!(

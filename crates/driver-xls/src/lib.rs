@@ -1323,7 +1323,10 @@ fn resolve_geometry(
                         "indice colonna XLSX non rappresentabile",
                     ))
                 }),
-            ColonnaPerNome::Assente => Err(err(&PublicMessage::Curated(assente))),
+            ColonnaPerNome::Assente => Err(
+                plenora_io_model::error_table::Situation::MissingOptionColumn
+                    .error_with(&PublicMessage::Curated(assente)),
+            ),
             ColonnaPerNome::Ambigua => Err(err(&PublicMessage::Curated(ambigua))),
         }
     };
@@ -1375,9 +1378,11 @@ fn resolve_geometry(
     if !opts.contains_key("x_column") && !opts.contains_key("y_column") {
         return Ok((XlsxGeomSpec::None, BTreeSet::new()));
     }
-    Err(err(&PublicMessage::Curated(
-        "specificare wkt_column, oppure x_column con y_column, in format_options",
-    )))
+    Err(
+        plenora_io_model::error_table::Situation::InvalidConfiguration.error_with(
+            &PublicMessage::Curated("specificare entrambe le opzioni x_column e y_column"),
+        ),
+    )
 }
 
 fn cell_at(row: &[Data], bounds: SheetBounds, column: u32) -> Result<&Data> {
@@ -1414,7 +1419,7 @@ fn encode_geometry_cell(
             // allocato, invece che dopo.
             // `infer_layout` gira dentro `open`, come l'inferenza del CSV.
             let geometry = parse_wkt_bounded(text.trim(), &cella_wkt)
-                .map_err(|errore| errore.during(plenora_io_model::ErrorPhase::Prepare))?;
+                .map_err(|errore| errore.during(plenora_io_model::ErrorPhase::Read))?;
             detected_dimensions.insert(geometry.dimensions);
             detected_types.insert(geometry.geometry_type());
             wkb_buffer.clear();

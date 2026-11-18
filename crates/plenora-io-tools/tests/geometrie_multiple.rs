@@ -257,8 +257,13 @@ fn filegdb_profile_rejects_multi_before_backend_or_publication() {
         .err()
         .unwrap();
     assert_eq!(error.category, plenora_io_model::ErrorCategory::Unsupported);
-    assert_eq!(error.phase, plenora_io_model::ErrorPhase::Validate);
-    assert!(error.message.contains("colonne geometriche"));
+    if cfg!(feature = "gdal-backend") {
+        assert_eq!(error.phase, plenora_io_model::ErrorPhase::Validate);
+        assert!(error.message.contains("colonne geometriche"));
+    } else {
+        assert_eq!(error.phase, plenora_io_model::ErrorPhase::Write);
+        assert!(error.message.contains("gdal-backend"));
+    }
     assert!(!dest.exists());
 }
 

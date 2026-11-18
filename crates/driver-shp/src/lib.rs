@@ -640,7 +640,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
         },
     }),
     SCHEMA_OPZIONI,
-    &["shp"],
+    &["shp", "shp.d"],
     1,
     9,
     10,

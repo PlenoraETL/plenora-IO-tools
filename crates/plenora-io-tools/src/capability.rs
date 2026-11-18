@@ -268,7 +268,7 @@ pub fn parse_capabilities(argomenti: &[String]) -> Result<(), (i32, Value)> {
     }
 }
 
-pub fn catalog_document_con(filegdb_available: bool) -> Value {
+pub fn driver_registry() -> DriverRegistry {
     let mut registry = DriverRegistry::new();
     registry.register(Box::new(driver_geoparquet::GeoParquetDriver));
     registry.register(Box::new(driver_geojson::GeoJsonDriver));
@@ -280,6 +280,11 @@ pub fn catalog_document_con(filegdb_available: bool) -> Value {
     registry.register(Box::new(driver_dxf::DxfDriver));
     registry.register(Box::new(driver_filegdb::FileGdbDriver));
     registry.register(Box::new(driver_ipc::IpcDriver));
+    registry
+}
+
+pub fn catalog_document_con(filegdb_available: bool) -> Value {
+    let registry = driver_registry();
     let drivers = registry
         .descriptors()
         .into_iter()

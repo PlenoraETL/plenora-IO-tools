@@ -186,8 +186,8 @@ fn un_wkt_malformato_e_rifiutato_dall_inferenza_prima_dello_stream() {
     // Valeva `validate` finche' la fase la dichiarava il parser, che non sa in
     // quale passata sta girando.
     assert_eq!(
-        errore["phase"], "prepare",
-        "l'inferenza gira dentro `open`, come `reader_busy`: {busta}"
+        errore["phase"], "read",
+        "il contenuto viene analizzato nella fase read: {busta}"
     );
 
     assert!(!uscita.exists(), "la destinazione non deve esistere");

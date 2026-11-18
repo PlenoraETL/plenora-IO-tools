@@ -302,5 +302,25 @@ class Spoglio(unittest.TestCase):
         self.assertEqual(gate.spoglia(sorgente), sorgente)
 
 
+
+class MessaggiR4(unittest.TestCase):
+    def test_spazi_e_interpolazione_sono_rifiutati(self):
+        for text in ['PublicMessage::Curated("testo  doppio")',
+                     'PublicMessage::Curated(&format!("valore {}", user))']:
+            self.assertTrue(gate.messaggi_non_redatti(text))
+
+    def test_costante_e_token_non_aggirano_la_guardia(self):
+        self.assertTrue(gate.messaggi_non_redatti(
+            'const MSG: &str = "testo  doppio"; PublicMessage::Curated(MSG)'))
+        self.assertTrue(gate.messaggi_non_redatti(
+            'Self::OpzioneRifiutata { token, dettaglio } => write!(f, "{token}")'))
+        self.assertFalse(gate.messaggi_non_redatti(
+            'Self::OpzioneRifiutata { token: _, dettaglio } => write!(f, "{dettaglio}")'))
+
+    def test_continuazione_e_commenti_non_sono_valori(self):
+        self.assertFalse(gate.messaggi_non_redatti(
+            '// PublicMessage::Curated("due  spazi")\n'
+            'PublicMessage::Curated("testo \\\n    continuo")'))
+
 if __name__ == "__main__":
     unittest.main()

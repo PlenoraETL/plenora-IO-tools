@@ -131,7 +131,7 @@ prodotto, la differenza è dichiarata nel manifesto di adozione.
 plenora-io catalog                      # i dieci driver e le loro capacità
 plenora-io inspect  <file>              # schema, geometria, CRS, fedeltà
 plenora-io layers   <file>              # i layer del dataset
-plenora-io read     <file> [--limit N]  # valida fino a EOF e conta ciò che passa
+plenora-io read     <file> [--limit N]  # valida e conta; senza --limit arriva a EOF
 plenora-io convert  <ingresso> <uscita> # conversione fra due formati
 ```
 
@@ -155,14 +155,20 @@ modo di ottenere i dati è `convert` verso un formato che si sa rileggere.
 
 ### Flag
 
-Valgono per tutti i comandi che aprono una sorgente. Nessuno degrada a un
-default quando il valore manca o è malformato: la CLI **fallisce chiuso**.
+I flag sono ammessi solo dai comandi pertinenti. `--layer` vale per read,
+convert e write; `--limit` e `--output` solo per read, e non insieme.
+`--from` vale solo per convert; `--to` per convert e write.
+`--durable` e `--out-opt` richiedono una destinazione. Flag ripetuti e
+posizionali in eccesso sono `invalid_configuration/CLI_USAGE`; le opzioni di
+formato possono essere ripetute solo con chiavi distinte.
+`--help` (anche `<comando> --help`), `-h`, `--version` e `-V` sono comandi di
+scoperta; `--version` non e un flag da aggiungere a read o convert.
 
 | flag | valore | effetto |
 |---|---|---|
 | `--assume-crs` | identificatore CRS | il CRS da assumere per i formati che non lo portano; `csv` lo esige |
 | `--layer` | intero | seleziona un indice esplicito; senza opzione read e convert usano il layer predefinito |
-| `--limit` | intero | ferma `read` dopo N righe accettate e dichiara `truncated` |
+| `--limit` | intero | riporta esattamente fino a N righe; `truncated` e vero solo se ne esistono altre; N deve essere positivo |
 | `--durable` | — | `fsync` di file e directory prima del rename; l'esito di durabilità è riportato |
 | `--opt` | `chiave=valore` | opzione di formato per entrambe le direzioni |
 | `--in-opt` | `chiave=valore` | come `--opt`, ma sovrascrive per chiave sull'ingresso |
@@ -170,7 +176,10 @@ default quando il valore manca o è malformato: la CLI **fallisce chiuso**.
 | `--version`, `-V` | — | la versione del binario |
 
 Le quote finiscono tutte in `PipelineLimits` e condividono la stessa disciplina.
-Zero è rifiutato da ciascuna; i default sono quelli del modello.
+Zero e incoerenze sono `invalid_configuration/CLI_USAGE`.
+`--memory-bytes` deve essere almeno pari a `--max-wkb-cell-bytes` (64 MiB
+per default); per ridurre ulteriormente la memoria ridurre anche quel tetto.
+I default sono quelli del modello.
 
 | flag | default | governa |
 |---|---|---|
@@ -179,6 +188,9 @@ Zero è rifiutato da ciascuna; i default sono quelli del modello.
 | `--max-input-bytes` | `268435456` | i byte della sorgente, contati prima di aprirla |
 | `--max-input-entries` | `10000` | le entry di una sorgente che è una directory |
 | `--max-output-bytes` | `1073741824` | i byte della destinazione |
+| `--output-expansion-ratio` | `1000` | rapporto massimo tra byte di uscita e ingresso osservato; resta valido il tetto assoluto |
+| `--spill-bytes` | `4294967296` | spazio temporaneo di spill |
+| `--decompression-ratio` | `1000` | rapporto massimo di decompressione |
 | `--max-rows` | `10000000` | le righe dell'operazione |
 | `--max-columns` | `4096` | le colonne del contratto |
 | `--max-vertices` | `50000000` | i vertici complessivi |

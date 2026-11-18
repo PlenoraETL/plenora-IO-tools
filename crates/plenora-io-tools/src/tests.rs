@@ -932,7 +932,7 @@ fn read_limit_stops_before_invalid_tail_but_convert_remains_complete() {
     ])
     .unwrap();
     let summary = cmd_read(&cli).unwrap();
-    assert_eq!(summary["rows_read"], 12);
+    assert_eq!(summary["rows_read"], 10);
     assert_eq!(summary["batches"], 1);
     assert_eq!(summary["truncated"], true);
 
@@ -962,25 +962,17 @@ fn read_limit_stops_before_invalid_tail_but_convert_remains_complete() {
 }
 
 #[test]
-fn zero_read_limit_keeps_the_frozen_summary_without_observing_tail() {
-    let directory = tempfile::tempdir().unwrap();
-    let input = materialize_multibatch_geometry_ipc(&directory, false);
-    let cli = parse(&[
-        input.to_string_lossy().into_owned(),
+fn zero_read_limit_is_invalid_configuration() {
+    let result = parse(&[
+        "input.arrow".to_owned(),
         "--limit".to_owned(),
         "0".to_owned(),
-    ])
-    .unwrap();
-
-    let summary = cmd_read(&cli).unwrap();
-    assert_eq!(summary["rows_read"], 0);
-    assert_eq!(summary["batches"], 0);
-    assert_eq!(summary["truncated"], true);
-    // Il contratto sta nella **busta**, non nel corpo.
-    assert_eq!(
-        busta_di_successo("read", summary)["contract"],
-        "plenora-io-read-result-v2"
-    );
+    ]);
+    let Err((exit, document)) = result else {
+        panic!("zero deve fallire");
+    };
+    assert_eq!(exit, 2);
+    assert_eq!(document["error"]["code"], "CLI_USAGE");
 }
 
 /// Due batch, tutti validi: dodici righe e una.
@@ -1027,23 +1019,9 @@ fn materialize_multibatch_valid_ipc(directory: &tempfile::TempDir) -> PathBuf {
     path
 }
 
-/// `--limit` e' una soglia verificata **fra un batch e il successivo**.
-///
-/// Non taglia un batch a meta': il ciclo di lettura chiede il batch, lo
-/// conta per intero, e solo allora guarda se il limite sia stato raggiunto.
-/// `rows_read` puo' percio' superare il limite della parte residua del
-/// batch corrente, e su un file letto in un colpo solo lo supera sempre.
-///
-/// E' una conseguenza dello streaming, non una svista: fermarsi a meta' di
-/// un batch vorrebbe dire consegnarne uno parziale a chi lo conta, e il
-/// conteggio non direbbe piu' quante righe il reader ha davvero decodificato.
-///
-/// La sonda fissa il fatto perche' il nome non lo suggerisce, e perche'
-/// `release/cli-protocol-v2.json` lo ratifica in `envelopes.read.semantica`:
-/// una clausola del contratto che nessuno esercita e' una promessa che si
-/// legge come verificata.
+/// Il conteggio si ferma esattamente alla riga richiesta.
 #[test]
-fn read_limit_is_checked_between_batches_so_rows_may_exceed_it() {
+fn read_limit_counts_exact_rows() {
     let directory = tempfile::tempdir().unwrap();
     let input = materialize_multibatch_valid_ipc(&directory);
 
@@ -1064,27 +1042,13 @@ fn read_limit_is_checked_between_batches_so_rows_may_exceed_it() {
     let assaggio = cmd_read(&cli).expect("un limite basso non e' un errore");
     assert_eq!(assaggio["batches"], 1, "un batch solo, e intero");
     let lette = assaggio["rows_read"].as_u64().expect("un conteggio");
-    assert!(
-        lette > 1,
-        "il limite si verifica fra i batch: `rows_read` = {lette} lo supera"
-    );
+    assert_eq!(lette, 1);
     assert_eq!(assaggio["truncated"], true);
 }
 
-/// `truncated` dice **arresto per limite con EOF non accertato**.
-///
-/// Non dice che esistano altre righe: dice che la lettura si e' fermata
-/// perche' il limite e' stato raggiunto, e che il reader non ha visto la
-/// fine del file. Le due cose non coincidono, e la differenza si vede
-/// esattamente qui -- un limite pari al numero di righe del file lascia
-/// `truncated` vero pur avendole lette tutte.
-///
-/// Il significato **prudente** e' quello giusto: per sapere che non c'e'
-/// altro bisognerebbe chiedere un batch in piu' e vederlo tornare vuoto,
-/// cioe' leggere oltre il limite che il chiamante ha imposto. Affermare
-/// l'EOF senza averlo osservato sarebbe la cosa peggiore delle due.
+/// `truncated` e' vero solo quando esistono altre righe.
 #[test]
-fn read_truncated_means_stopped_at_the_limit_not_that_more_rows_exist() {
+fn read_truncated_means_more_rows_exist() {
     let directory = tempfile::tempdir().unwrap();
     let input = materialize_multibatch_valid_ipc(&directory);
     let intero = cmd_read(&parse(&[input.to_string_lossy().into_owned()]).unwrap())
@@ -1107,9 +1071,8 @@ fn read_truncated_means_stopped_at_the_limit_not_that_more_rows_exist() {
     .expect("il file si legge");
     assert_eq!(esatto["rows_read"], righe);
     assert_eq!(
-        esatto["truncated"], true,
-        "vero pur non essendoci altro: il reader si e' fermato al limite \
-             senza chiedere il batch che gli avrebbe mostrato la fine"
+        esatto["truncated"], false,
+        "il limite esatto non tronca il risultato"
     );
 
     // Un limite oltre la fine: il reader arriva all'EOF e lo dice.

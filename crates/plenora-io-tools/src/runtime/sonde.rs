@@ -96,7 +96,7 @@ fn una_durata_non_rappresentabile_non_diventa_il_massimo() {
     );
     let errore = millisecondi_della_durata(massimo + Duration::from_millis(1))
         .expect_err("nessuna saturazione");
-    assert_eq!(errore["code"], "RUNTIME_DEADLINE_INVALID");
+    assert_eq!(errore["code"], "CLI_USAGE");
     assert_eq!(errore["category"], "invalid_configuration");
     assert_eq!(errore["phase"], "validate");
     assert_eq!(errore["remote_effect"], "none");
@@ -154,7 +154,7 @@ fn il_nome_risolto_e_quello_del_riferimento() {
         let esito = nome_coerente(riferimento, base.join(file));
         assert_eq!(esito.is_ok(), atteso, "{riferimento} -> {file}");
         if let Err(errore) = esito {
-            assert_eq!(errore["code"], "RUNTIME_ARTIFACT_NAME_MISMATCH");
+            assert_eq!(errore["code"], "CLI_USAGE");
             assert!(
                 !errore.to_string().contains(file),
                 "il nome non entra nel messaggio"

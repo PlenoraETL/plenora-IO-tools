@@ -648,8 +648,8 @@ fn il_limite_con_la_consegna_e_rifiutato() {
         uscita.to_str().unwrap(),
     ]);
     assert!(!esito.riuscita, "{}", esito.stdout);
-    assert_eq!(esito.errore()["category"], "invalid_plan");
-    assert_eq!(esito.errore()["code"], "LIMIT_WITH_DELIVERY");
+    assert_eq!(esito.errore()["category"], "invalid_configuration");
+    assert_eq!(esito.errore()["code"], "CLI_USAGE");
     assert!(!uscita.exists(), "il rifiuto non lascia un file");
 }
 
@@ -682,7 +682,7 @@ fn una_sorgente_inesistente_non_lascia_un_file_a_meta() {
         uscita.to_str().unwrap(),
     ]);
     assert!(!esito.riuscita);
-    assert_eq!(esito.errore()["category"], "io");
+    assert_eq!(esito.errore()["category"], "not_found");
     assert!(
         !uscita.exists(),
         "un fallimento non deve lasciare una consegna parziale"

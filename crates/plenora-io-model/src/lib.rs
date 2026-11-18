@@ -20,6 +20,7 @@ pub mod crs;
 pub mod crs_definizione;
 pub mod diagnostics;
 pub mod error;
+pub mod error_table;
 pub mod format_options;
 pub mod geometry;
 pub mod json;

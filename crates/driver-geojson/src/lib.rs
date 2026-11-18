@@ -22,7 +22,7 @@ pub(crate) mod crs_storico;
 
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{BufReader, BufWriter, Write};
+use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -382,7 +382,7 @@ fn infer_schema(path: &Path, quote: QuoteInferenza) -> Result<SchemaInferito> {
         max_feature: quote.feature,
         ..SchemaAccumulators::default()
     };
-    let mut de = serde_json::Deserializer::from_reader(BufReader::new(file));
+    let mut de = serde_json::Deserializer::from_reader(json_input(file)?);
     if de.deserialize_map(TopVisitor { accs: &mut accs }).is_err() {
         // L'errore vero viene dal canale laterale, non dal testo di serde: la
         // via di serde e' quella che appiattiva codice, categoria e fase.
@@ -1055,7 +1055,7 @@ fn spawn_parser(
         // Deserializer serde streaming: scrive i feature DIRETTAMENTE nei
         // builder (chiavi via key-seed = 0 alloc, valori scalari appesi
         // diretti = 0 alloc). Niente DOM Feature/JsonObject per feature.
-        let mut de = serde_json::Deserializer::from_reader(BufReader::new(file));
+        let mut de = serde_json::Deserializer::from_reader(json_input(file)?);
         let result = de.deserialize_map(TopSink { sink: &mut sink });
         if sink.aborted {
             return Ok(()); // consumatore andato via: stop pulito
@@ -1985,3 +1985,12 @@ fn parse_features(text: &str) -> Result<Vec<geojson::Feature>> {
 
 #[cfg(test)]
 mod tests;
+
+/// Salta soltanto il BOM UTF-8, prima di entrambe le passate streaming.
+fn json_input(file: File) -> Result<BufReader<File>> {
+    let mut reader = BufReader::new(file);
+    if reader.fill_buf()?.starts_with(&[0xef, 0xbb, 0xbf]) {
+        reader.consume(3);
+    }
+    Ok(reader)
+}

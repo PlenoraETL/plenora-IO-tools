@@ -53,7 +53,7 @@ fn una_chiave_sconosciuta_e_rifiutata_e_l_errore_elenca_quelle_valide() {
     let errore = valida(&[("wkt_colunm", "g")], FaseOpzione::Lettura)
         .expect_err("il refuso deve fermarsi qui");
     let testo = errore.to_string();
-    assert!(testo.contains("wkt_colunm"), "{testo}");
+    assert!(!testo.contains("wkt_colunm"), "{testo}");
     assert!(
         testo.contains("wkt_column"),
         "l'elenco deve guidare: {testo}"
@@ -69,7 +69,7 @@ fn una_chiave_della_fase_sbagliata_e_rifiutata() {
     let errore = valida(&[("compression", "zstd")], FaseOpzione::Lettura)
         .expect_err("un'opzione di scrittura non vale in lettura");
     let testo = errore.to_string();
-    assert!(testo.contains("compression"), "{testo}");
+    assert!(!testo.contains("compression"), "{testo}");
     assert!(testo.contains("scrittura"), "{testo}");
 }
 
@@ -230,7 +230,7 @@ fn il_refuso_arriva_all_errore_gia_reso_sicuro() {
         FaseOpzione::Lettura,
     )
     .expect_err("il refuso e' rifiutato");
-    assert!(errore.message.contains("wkt_colunm"), "{errore}");
+    assert!(!errore.message.contains("wkt_colunm"), "{errore}");
     assert!(errore.message.contains("wkt_column"), "{errore}");
 
     // E un refuso ostile arriva **reso**, non grezzo.
@@ -241,7 +241,7 @@ fn il_refuso_arriva_all_errore_gia_reso_sicuro() {
         FaseOpzione::Lettura,
     )
     .expect_err("rifiutato");
-    assert!(errore.message.contains("a\\nb\\\"c"), "{errore}");
+    assert!(!errore.message.contains("a\\nb\\\"c"), "{errore}");
     assert!(
         !errore.message.contains('\n'),
         "newline grezzo nel messaggio"
@@ -309,7 +309,10 @@ fn uno_schema_vuoto_rifiuta_qualunque_chiave() {
         FaseOpzione::Lettura,
     )
     .expect_err("senza opzioni dichiarate ogni chiave e' sconosciuta");
-    assert!(errore.to_string().contains("nessuna"), "{errore}");
+    assert!(
+        errore.to_string().contains("opzione sconosciuta"),
+        "{errore}"
+    );
 }
 
 #[test]

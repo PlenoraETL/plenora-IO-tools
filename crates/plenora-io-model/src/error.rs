@@ -743,10 +743,8 @@ impl std::fmt::Display for NumeroStrutturale {
 ///
 /// # La regola, e la sua unica eccezione
 ///
-/// **Nessun testo runtime, salvo il token bounded di un'opzione rifiutata
-/// prodotto dal validatore centrale.** L'eccezione e' normativa ed esplicita,
-/// registrata nel pacchetto decisionale e in entrambi i design; la porta
-/// [`PublicMessage::OpzioneRifiutata`] e nessun'altra variante.
+/// Nessun testo runtime del chiamante viene emesso. Il token storico di
+/// [`PublicMessage::OpzioneRifiutata`] non viene incluso nella resa pubblica.
 ///
 /// # Costruibile in contesto `const`
 ///
@@ -809,6 +807,8 @@ pub enum PublicMessage {
     /// una frase e un codice strutturale — il nome di un enum nostro, la causa
     /// di un rifiuto — che `Curated` da solo non sa mettere insieme.
     CuratedPair(&'static str, &'static str),
+    /// Elenco di termini statici del catalogo, mai valori del chiamante.
+    CuratedList(&'static str, Vec<&'static str>),
     /// Testo nostro piu' un numero strutturale: «layer 3 fuori dal piano».
     CuratedWith(&'static str, NumeroStrutturale),
     /// Testo nostro, un numero e la sua unita' di misura, entrambi nostri:
@@ -846,6 +846,7 @@ impl std::fmt::Display for PublicMessage {
         match self {
             Self::Curated(testo) => f.write_str(testo),
             Self::CuratedPair(primo, secondo) => write!(f, "{primo} {secondo}"),
+            Self::CuratedList(prefix, values) => write!(f, "{prefix} {}", values.join(", ")),
             Self::CuratedWith(testo, numero) => write!(f, "{testo} {numero}"),
             Self::CuratedBetween(testo, primo, mezzo, secondo) => {
                 write!(f, "{testo} {primo} {mezzo} {secondo}")
@@ -854,11 +855,11 @@ impl std::fmt::Display for PublicMessage {
             Self::OpzioneRifiutata {
                 driver,
                 testo,
-                token,
+                token: _,
                 dettaglio,
                 ammesse,
             } => {
-                write!(f, "{driver}: {testo} '{token}'")?;
+                write!(f, "{driver}: {testo}")?;
                 if !dettaglio.is_empty() {
                     write!(f, " {dettaglio}")?;
                 }
@@ -867,7 +868,7 @@ impl std::fmt::Display for PublicMessage {
                 // opzione in questa fase — e ometterlo lascerebbe credere che
                 // l'elenco sia stato dimenticato.
                 if ammesse.is_empty() {
-                    f.write_str("; accettate: nessuna")
+                    Ok(())
                 } else {
                     write!(f, "; accettate: {}", ammesse.join(", "))
                 }
@@ -989,6 +990,12 @@ impl PlenoraIoError {
         retry: RetryDisposition,
         message: &PublicMessage,
     ) -> Self {
+        let (code, phase) = if category == ErrorCategory::InvalidConfiguration {
+            let rule = crate::error_table::Situation::InvalidConfiguration.rule();
+            (rule.code, rule.phase)
+        } else {
+            (code, phase)
+        };
         let mut errore = Self::new(category, phase, remote_effect, retry, message.to_string());
         errore.code = code;
         errore
@@ -1109,14 +1116,7 @@ impl PlenoraIoError {
     /// dal payload.
     #[must_use]
     pub fn formato_redatto(driver: &'static str, message: &PublicMessage) -> Self {
-        let mut errore = Self::redatto(
-            IoErrorCode::Format,
-            ErrorCategory::DataMapping,
-            ErrorPhase::Read,
-            RemoteEffect::None,
-            RetryDisposition::Never,
-            message,
-        );
+        let mut errore = crate::error_table::Situation::InvalidContent.error_with(message);
         errore.driver = Some(driver.to_owned());
         errore
     }
@@ -1288,6 +1288,9 @@ impl PlenoraIoError {
     // dell'identita' pubblica del bordo I/O.
     #[allow(clippy::needless_pass_by_value)]
     pub fn Io(error: std::io::Error) -> Self {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            return crate::error_table::Situation::MissingSource.error();
+        }
         let mut result = Self::new(
             ErrorCategory::Io,
             ErrorPhase::Read,

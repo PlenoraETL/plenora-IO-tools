@@ -104,6 +104,7 @@ impl Source {
         // La liveness la verifica `scopri` per **ogni** voce, radice
         // compresa: qui non serve un controllo in piu'.
         let mut pending = Vec::new();
+        check_cancelled(context.cancellation(), ErrorPhase::Probe)?;
         let paths = match files {
             Some(files) => files.input(&path)?,
             None => vec![path.clone()],
@@ -884,6 +885,7 @@ pub fn preflight_source(
         &opts.format_options,
         plenora_io_model::format_options::FaseOpzione::Lettura,
     )?;
+    spool::spill_directory()?;
     source.into_paths_observed(opts, Some(descriptor.files()))
 }
 

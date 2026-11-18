@@ -375,6 +375,52 @@ def righe_di_test(testo: str) -> set[int]:
     return dentro
 
 
+def messaggi_non_redatti(testo: str) -> list[str]:
+    """Controlla i letterali nei costruttori PublicMessage, senza leggere commenti.
+
+    Le continuazioni Rust eliminano newline e indentazione; gli spazi rimasti
+    dentro il valore sono invece osservabili e quindi vietati.
+    """
+    token = re.compile(r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\[\s\S]|[^"\\])*"|[()]|PublicMessage::\w+|format!|\b[A-Za-z_]\w*\b')
+    costanti = dict(re.findall(
+        r'\bconst\s+(\w+)\s*:\s*&(?:\x27static\s+)?str\s*=\s*("(?:\\[\s\S]|[^"\\])*")\s*;',
+        testo,
+    ))
+    profondita = 0
+    attivo = None
+    attesa = False
+    errori = []
+    for match in re.finditer(r'Self::OpzioneRifiutata\s*\{([^}]+)\}\s*=>', testo):
+        campi = match.group(1)
+        if re.search(r'\btoken\b', campi) and not re.search(r'\btoken\s*:\s*_\b', campi):
+            errori.append("il renderer pubblico deve scartare il token dell'utente")
+    for match in token.finditer(testo):
+        value = match.group()
+        if value.startswith(("//", "/*")):
+            continue
+        if value.startswith("PublicMessage::"):
+            attesa = True
+        elif value == "(":
+            profondita += 1
+            if attesa:
+                attivo = profondita
+                attesa = False
+        elif value == ")":
+            if attivo == profondita:
+                attivo = None
+            profondita -= 1
+        elif attivo is not None:
+            riga = testo.count("\n", 0, match.start()) + 1
+            value = costanti.get(value, value)
+            if value == "format!":
+                errori.append(f"{riga}: interpolazione in un messaggio pubblico")
+            elif value.startswith('"'):
+                reso = re.sub(r'\\\r?\n\s*', '', value[1:-1])
+                if re.search(r' {2,}|\\t|\\n|\\r', reso):
+                    errori.append(f"{riga}: spazi o controlli incorporati nel messaggio pubblico")
+    return errori
+
+
 def verifica(radice: Path) -> tuple[list[str], dict[str, int]]:
     """`(violazioni, occorrenze per `percorso::funzione`)`."""
     trovate: dict[str, int] = {}
@@ -385,6 +431,10 @@ def verifica(radice: Path) -> tuple[list[str], dict[str, int]]:
         parti = sorgente.relative_to(radice).parts
         crate = parti[1] if parti[0] == "crates" else "fuzz"
         grezzo = sorgente.read_text(encoding="utf-8")
+        violazioni_doctest.extend(
+            f"{sorgente.relative_to(radice).as_posix()}:{errore}"
+            for errore in messaggi_non_redatti(grezzo)
+        )
 
         # I doctest: codice dentro un commento, che `spoglia` cancella.
         percorso_doc = sorgente.relative_to(radice).as_posix()

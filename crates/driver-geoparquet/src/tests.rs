@@ -4537,6 +4537,6 @@ fn le_opzioni_private_ritirate_sono_sconosciute() {
             .err()
             .expect("opzione ritirata");
         assert!(error.message.contains("opzione sconosciuta"));
-        assert!(error.message.contains(key));
+        assert!(!error.message.contains(key));
     }
 }

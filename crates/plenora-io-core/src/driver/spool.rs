@@ -171,26 +171,13 @@ pub fn spill_directory() -> Result<PathBuf> {
 /// test in parallelo, e il fallimento sarebbe intermittente invece che
 /// riproducibile.
 fn resolve_spill_directory(configured: Option<std::ffi::OsString>) -> Result<PathBuf> {
-    match configured {
-        None => Ok(std::env::temp_dir()),
-        Some(configured) => {
-            let path = PathBuf::from(configured);
-            let metadata = std::fs::metadata(&path).map_err(|_| {
-                spool_error(&PublicMessage::CuratedPair(
-                    SPILL_DIR_ENV,
-                    "non e' accessibile come directory di spool",
-                ))
-            })?;
-            if metadata.is_dir() {
-                Ok(path)
-            } else {
-                Err(spool_error(&PublicMessage::CuratedPair(
-                    SPILL_DIR_ENV,
-                    "non e' una directory",
-                )))
-            }
-        }
-    }
+    let Some(configured) = configured else {
+        return Ok(std::env::temp_dir());
+    };
+    let path = PathBuf::from(configured);
+    tempfile::tempfile_in(&path)
+        .map_err(|_| plenora_io_model::error_table::Situation::InvalidSpillDirectory.error())?;
+    Ok(path)
 }
 
 /// Stato della quota di spill: prenotazioni RAII e byte fisici scritti.

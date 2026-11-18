@@ -23,7 +23,23 @@ fn violation(
     reason: CapabilityReason,
     detail: &PublicMessage,
 ) -> PlenoraIoError {
-    PlenoraIoError::capability_redatta(driver, field, reason, detail)
+    let mut error = PlenoraIoError::capability_redatta(driver, field, reason, detail);
+    let situation = match reason {
+        CapabilityReason::TypeNotRepresentable => {
+            Some(plenora_io_model::error_table::Situation::UnrepresentableWriteType)
+        }
+        CapabilityReason::GeometryNotSupported => {
+            Some(plenora_io_model::error_table::Situation::MissingGeometry)
+        }
+        _ => None,
+    };
+    if let Some(situation) = situation {
+        let rule = situation.rule();
+        error.category = rule.category;
+        error.phase = rule.phase;
+        error.code = rule.code;
+    }
+    error
 }
 
 /// L'ordine memorizzato che il campo dichiara; `unknown` senza CRS, perche'

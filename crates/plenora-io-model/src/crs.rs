@@ -386,11 +386,7 @@ pub fn verifica_crs_assunto(
     };
     match identificatore {
         Some(dichiarato) if stesso_identificatore(assunto, dichiarato) => Ok(()),
-        Some(_) => Err(crate::PlenoraIoError::crs_redatto(
-            &crate::PublicMessage::Curated(
-                "--assume-crs contraddice il CRS che la sorgente dichiara",
-            ),
-        )),
+        Some(_) => Err(crate::error_table::Situation::ContradictedCrs.error()),
         None => Err(crate::PlenoraIoError::crs_redatto(
             &crate::PublicMessage::Curated(
                 "--assume-crs non confrontabile: la sorgente dichiara un CRS senza identificatore",

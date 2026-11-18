@@ -451,7 +451,13 @@ impl BudgetedReader {
                     limite_o_scadenza(
                         self.budget.context(),
                         PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                            "batch materializzato oltre la quota prenotata",
+                            if rows > rows_lease.amount() {
+                                "max_rows: batch oltre la quota di righe"
+                            } else if bytes > memory_lease.bytes() {
+                                "memory_bytes: batch oltre la memoria prenotata"
+                            } else {
+                                "max_output_bytes: batch oltre la quota di uscita"
+                            },
                         )),
                         ErrorPhase::Read,
                     ),

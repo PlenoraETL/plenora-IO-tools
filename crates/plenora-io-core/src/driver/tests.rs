@@ -12,7 +12,7 @@
 const DESCRITTORE_DI_PROVA: crate::descriptor::FormatDescriptor =
     crate::descriptor::FormatDescriptor::const_new(
         "prova",
-        &crate::dataset_files::FILE_SETS[4],
+        &crate::dataset_files::FILEGDB,
         crate::descriptor::Direction::Read,
         crate::descriptor::ReadMode::StreamingSequential,
         // I tre assi di INV-7: il descrittore di prova dichiara la
@@ -1403,7 +1403,7 @@ fn geoarrow_field(name: &str, dimensions: Option<&str>) -> Field {
 fn descrittore_che_dichiara_perdite() -> crate::descriptor::FormatDescriptor {
     crate::descriptor::FormatDescriptor::const_new(
         "prova-con-perdite",
-        &crate::dataset_files::FILE_SETS[4],
+        &crate::dataset_files::FILEGDB,
         crate::descriptor::Direction::Bidirectional,
         crate::descriptor::ReadMode::StreamingSequential,
         crate::descriptor::NativeReadMode::StreamingSequential,
@@ -1918,6 +1918,7 @@ fn il_preflight_applica_le_quote_e_pubblica_il_footprint() {
 #[test]
 fn il_preflight_spende_il_permit_e_non_osserva_due_volte() {
     let file = tempfile::NamedTempFile::new().expect("tempfile");
+    std::fs::write(file.path(), b"content").unwrap();
     let mut opts = opzioni_pipeline(plenora_io_model::budget::PipelineLimits::default());
 
     assert!(preflight_source(

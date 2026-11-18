@@ -448,10 +448,8 @@ fn scarto(messaggio: &PublicMessage) -> PlenoraIoError {
 /// * **fase sbagliata** — la chiave esiste ma non in questa fase;
 /// * **valore invalido** — l'errore elenca le forme ammesse.
 ///
-/// Il valore ricevuto compare nel messaggio. Non e' una violazione della
-/// redazione: un'opzione arriva dal chiamante — riga di comando o API — non dal
-/// payload del file, e nasconderla renderebbe l'errore inutile proprio a chi
-/// deve correggerlo.
+/// Chiavi e valori ricevuti non compaiono nei messaggi. Sono pubblicati
+/// soltanto la condizione e il vocabolario statico delle opzioni ammesse.
 ///
 /// # Errors
 ///
@@ -494,7 +492,7 @@ pub fn valida_opzioni(
             let _ = ammessi;
             return Err(scarto(&PublicMessage::OpzioneRifiutata {
                 driver,
-                testo: "valore non valido per l'opzione",
+                testo: "valore di opzione non valido; forma richiesta:",
                 token: RejectedOptionToken::conia(valore),
                 dettaglio: dichiarata.valore.forma(),
                 ammesse: dichiarata.valore.ammessi(),

@@ -586,7 +586,7 @@ fn il_payload_illustrativo_del_vettore_e_rifiutato_dal_nostro_schema() {
         CancellationToken::new(),
     );
     let documento = errore(&risultato);
-    assert_eq!(documento["code"], "RUNTIME_PAYLOAD_INVALID");
+    assert_eq!(documento["code"], "CLI_USAGE");
     assert_eq!(documento["category"], "invalid_configuration");
     assert_eq!(documento["remote_effect"], "none");
     assert_eq!(deposito.chiamate.get(), 0);
@@ -827,7 +827,7 @@ fn i_controlli_non_dichiarati_non_sono_accettati_in_silenzio() {
     );
     doppia.metadata.scadenza = Some("2030-01-01T00:00:00Z".to_owned());
     let risultato = binding.invoca(&doppia, CancellationToken::new());
-    assert_eq!(errore(&risultato)["code"], "RUNTIME_DEADLINE_TWICE");
+    assert_eq!(errore(&risultato)["code"], "CLI_USAGE");
     assert_eq!(errore(&risultato)["category"], "invalid_configuration");
     assert_eq!(deposito.chiamate.get(), 0);
 
@@ -869,10 +869,7 @@ fn i_percorsi_locali_non_raggiungono_il_risolutore() {
             CancellationToken::new(),
         );
         let documento = errore(&risultato);
-        assert_eq!(
-            documento["code"], "RUNTIME_ARTIFACT_REFERENCE_INVALID",
-            "{storto}"
-        );
+        assert_eq!(documento["code"], "CLI_USAGE", "{storto}");
         let testo = documento.to_string();
         assert!(
             !testo.contains(storto),
@@ -914,69 +911,61 @@ fn il_payload_si_legge_contro_lo_schema_dell_operazione() {
         (
             "io.inspect",
             json!({"source": fonte, "layer": 0}),
-            "RUNTIME_PAYLOAD_INVALID",
+            "CLI_USAGE",
         ),
-        ("io.inspect", json!({}), "RUNTIME_PAYLOAD_INVALID"),
+        ("io.inspect", json!({}), "CLI_USAGE"),
         (
             "io.inspect",
             json!({"source": fonte, "assume_crs": null}),
-            "RUNTIME_PAYLOAD_INVALID",
+            "CLI_USAGE",
         ),
         (
             "io.inspect",
             json!({"source": fonte, "deadline_ms": 1.5}),
-            "RUNTIME_PAYLOAD_INVALID",
+            "CLI_USAGE",
         ),
         (
             "io.inspect",
             json!({"source": fonte, "deadline_ms": 0}),
-            "RUNTIME_PAYLOAD_INVALID",
+            "CLI_USAGE",
         ),
-        (
-            "io.inspect",
-            json!({"source": ""}),
-            "RUNTIME_PAYLOAD_INVALID",
-        ),
-        ("io.inspect", json!([fonte]), "RUNTIME_PAYLOAD_INVALID"),
+        ("io.inspect", json!({"source": ""}), "CLI_USAGE"),
+        ("io.inspect", json!([fonte]), "CLI_USAGE"),
         (
             "io.read",
             json!({"source": fonte, "layer": -1}),
-            "RUNTIME_PAYLOAD_INVALID",
+            "CLI_USAGE",
         ),
         (
             "io.read",
             json!({"source": fonte, "budgets": {"max_rows": null}}),
-            "RUNTIME_PAYLOAD_INVALID",
+            "CLI_USAGE",
         ),
         (
             "io.read",
             json!({"source": fonte, "budgets": {"righe": 3}}),
-            "RUNTIME_PAYLOAD_INVALID",
+            "CLI_USAGE",
         ),
         (
             "io.read",
             json!({"source": fonte, "destination": "artifact://output/x.arrow"}),
-            "RUNTIME_READ_DESTINATION",
+            "CLI_USAGE",
         ),
         (
             "io.read",
             json!({"source": fonte, "durable": false}),
-            "RUNTIME_READ_DESTINATION",
+            "CLI_USAGE",
         ),
         (
             "io.read",
             json!({"source": fonte, "limit": 3}),
             "LIMIT_WITH_DELIVERY",
         ),
-        (
-            "io.catalog",
-            json!({"source": fonte}),
-            "RUNTIME_PAYLOAD_INVALID",
-        ),
+        ("io.catalog", json!({"source": fonte}), "CLI_USAGE"),
         (
             "io.write",
             json!({"source": fonte, "destination": "artifact://output/x.geojson"}),
-            "RUNTIME_PAYLOAD_INVALID",
+            "CLI_USAGE",
         ),
     ];
     for (operazione, payload, codice) in casi {
@@ -1566,7 +1555,7 @@ fn il_nome_del_file_materializzato_e_quello_del_riferimento() {
         CancellationToken::new(),
     );
     let documento = errore(&risultato);
-    assert_eq!(documento["code"], "RUNTIME_ARTIFACT_NAME_MISMATCH");
+    assert_eq!(documento["code"], "CLI_USAGE");
     assert!(!documento.to_string().contains("segreto"));
 
     // Con il nome del riferimento, il layer porta quel nome e nessun altro.
@@ -1600,8 +1589,8 @@ fn un_formato_ignoto_non_raggiunge_il_risolutore() {
             &per_operazione(operazione, payload),
             CancellationToken::new(),
         );
-        assert_eq!(errore(&risultato)["code"], "UNKNOWN_FORMAT");
-        assert_eq!(errore(&risultato)["category"], "unsupported");
+        assert_eq!(errore(&risultato)["code"], "CLI_USAGE");
+        assert_eq!(errore(&risultato)["category"], "invalid_configuration");
     }
     assert_eq!(deposito.chiamate.get(), 0);
 }

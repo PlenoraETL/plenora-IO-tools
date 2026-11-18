@@ -889,16 +889,12 @@ fn json_validated(array: &ArrayRef, row: usize) -> Result<JsonValue> {
     if let Some(x) = a.downcast_ref::<Float32Array>() {
         return Number::from_f64(f64::from(x.value(row)))
             .map(JsonValue::Number)
-            .ok_or_else(|| {
-                PlenoraIoError::schema_redatto(&PublicMessage::Curated("Float32 non finito"))
-            });
+            .ok_or_else(|| plenora_io_model::error_table::Situation::NonFiniteWriteValue.error());
     }
     if let Some(x) = a.downcast_ref::<Float64Array>() {
         return Number::from_f64(x.value(row))
             .map(JsonValue::Number)
-            .ok_or_else(|| {
-                PlenoraIoError::schema_redatto(&PublicMessage::Curated("Float64 non finito"))
-            });
+            .ok_or_else(|| plenora_io_model::error_table::Situation::NonFiniteWriteValue.error());
     }
     if let Some(x) = a.downcast_ref::<BooleanArray>() {
         return Ok(JsonValue::Bool(x.value(row)));
@@ -915,7 +911,7 @@ fn json_validated(array: &ArrayRef, row: usize) -> Result<JsonValue> {
     // vocabolario nostro.
     Err(PlenoraIoError::non_supportato_redatto(
         &PublicMessage::CuratedPair(
-            "tipo Arrow non convertibile in JSON senza perdita, classe:",
+            "tipo Arrow non rappresentabile dal convertitore di celle, classe:",
             classe_arrow(array.data_type()),
         ),
     ))

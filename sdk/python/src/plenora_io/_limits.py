@@ -70,6 +70,9 @@ class Limits:
     max_wkb_components: int | None = None
     max_wkb_depth: int | None = None
     memory_bytes: int | None = None
+    spill_bytes: int | None = None
+    output_expansion_ratio: int | None = None
+    decompression_ratio: int | None = None
 
     #: Il campo che non e' un numero, e la sua opzione.
     #:

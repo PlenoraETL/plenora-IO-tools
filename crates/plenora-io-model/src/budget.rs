@@ -157,7 +157,6 @@ const LEASE_MUST_BE_POSITIVE: &str = "una lease deve essere maggiore di zero";
 const MEMORY_EXHAUSTED: &str = "budget di memoria esaurito";
 const SPILL_EXHAUSTED: &str = "budget di spill esaurito";
 const CONCURRENCY_EXHAUSTED: &str = "operazioni concorrenti oltre la quota del pool";
-const COUNTER_EXHAUSTED: &str = "contatore cumulativo dell'operazione esaurito";
 const OUTPUT_LIMIT_EXCEEDED: &str = "output oltre il tetto derivato dall'input osservato";
 const COMMIT_NOT_VALID: &str = "consumo non valido per la lease";
 const TOO_MANY_ENTRIES: &str = "numero di entry di input oltre il limite";
@@ -176,6 +175,10 @@ const SHRINK_TO_ZERO: &str = "un batch custodito non puo' occupare zero byte";
 /// messaggi e' mai stato costruito a runtime — quindi la migrazione qui e' un
 /// cambio di costruttore e nient'altro: stesso testo, stesso wire, ma ora il
 /// tipo dice che non puo' essere altrimenti.
+fn configuration_error(message: &'static str) -> PlenoraIoError {
+    crate::error_table::Situation::InvalidQuota.error_with(&PublicMessage::Curated(message))
+}
+
 fn limit_error(message: &'static str) -> PlenoraIoError {
     PlenoraIoError::limite_redatto(&PublicMessage::Curated(message))
 }
@@ -684,6 +687,10 @@ impl PipelineLimits {
     /// il budget di memoria, o se `max_wkb_depth` supera la profondita' del
     /// contratto ([`crate::limits::PROFONDITA_WKB_CONTRATTO`]).
     pub fn validate(&self) -> Result<()> {
+        // Dominio portabile delle durate: non dipende dall'epoch del clock Windows.
+        if i64::try_from(self.duration_ms).is_err() {
+            return Err(configuration_error(DEADLINE_BEYOND_INSTANT));
+        }
         let positive_u64 = [
             self.max_input_bytes,
             self.max_input_entries,
@@ -698,7 +705,7 @@ impl PipelineLimits {
             self.decompression_ratio,
         ];
         if positive_u64.contains(&0) {
-            return Err(limit_error(LIMIT_MUST_BE_POSITIVE));
+            return Err(configuration_error(LIMIT_MUST_BE_POSITIVE));
         }
         let positive_usize = [
             self.max_wkb_cell_bytes,
@@ -707,18 +714,18 @@ impl PipelineLimits {
             self.max_vertices,
         ];
         if positive_usize.contains(&0) {
-            return Err(limit_error(LIMIT_MUST_BE_POSITIVE));
+            return Err(configuration_error(LIMIT_MUST_BE_POSITIVE));
         }
         let cell_bytes = u64::try_from(self.max_wkb_cell_bytes)
-            .map_err(|_| limit_error(CELL_BYTES_NOT_REPRESENTABLE))?;
+            .map_err(|_| configuration_error(CELL_BYTES_NOT_REPRESENTABLE))?;
         if cell_bytes > self.memory_bytes {
-            return Err(limit_error(CELL_BYTES_ABOVE_MEMORY));
+            return Err(configuration_error(CELL_BYTES_ABOVE_MEMORY));
         }
         // GEO-011: oltre 32 livelli un valore e' malformato, qualunque sia la
         // quota. Il parser non li supera comunque; una quota piu' larga si
         // rifiuta qui invece di restare un flag senza effetto.
         if self.max_wkb_depth > crate::limits::PROFONDITA_WKB_CONTRATTO {
-            return Err(limit_error(WKB_DEPTH_ABOVE_CONTRACT));
+            return Err(configuration_error(WKB_DEPTH_ABOVE_CONTRACT));
         }
         Ok(())
     }
@@ -1569,7 +1576,7 @@ impl PipelineBudgetBuilder {
             .clock
             .now()
             .checked_add(Duration::from_millis(limits.duration_ms))
-            .ok_or_else(|| limit_error(DEADLINE_BEYOND_INSTANT))?;
+            .ok_or_else(|| configuration_error(DEADLINE_BEYOND_INSTANT))?;
         let pipeline_id = allocate_pipeline_id(&NEXT_PIPELINE_ID)?;
         let context = PipelineContext {
             inner: Arc::new(ContextInner {
@@ -1714,9 +1721,12 @@ impl OperationBudget {
             TakeOutcome::AboveCeiling if counter == OperationCounter::OutputBytes => {
                 Err(limit_error(OUTPUT_LIMIT_EXCEEDED))
             }
-            TakeOutcome::AboveCeiling | TakeOutcome::Exhausted => {
-                Err(limit_error(COUNTER_EXHAUSTED))
-            }
+            TakeOutcome::AboveCeiling | TakeOutcome::Exhausted => Err(limit_error(match counter {
+                OperationCounter::Rows => "max_rows: quota di righe superata",
+                OperationCounter::Columns => "max_columns: quota di colonne superata",
+                OperationCounter::GeometryComponents => "max_geometry_components: quota superata",
+                OperationCounter::OutputBytes => "max_output_bytes: quota di uscita superata",
+            })),
         }
     }
 }

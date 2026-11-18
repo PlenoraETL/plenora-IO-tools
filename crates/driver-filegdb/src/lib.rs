@@ -479,7 +479,7 @@ impl FormatDriver for FileGdbDriver {
         }
         #[cfg(not(feature = "gdal-backend"))]
         {
-            let _ = (source, opts);
+            let _ = plenora_io_core::preflight_source(self.descriptor(), source, &mut opts)?;
             Err(plenora_io_model::PlenoraIoError::non_supportato_redatto(
                 &plenora_io_model::PublicMessage::Curated(
                     "FileGDB richiede il tier GDB: compilare con --features gdal-backend",
@@ -495,6 +495,15 @@ impl FormatDriver for FileGdbDriver {
         plan: &WritePlan,
         opts: &WriteOptions,
     ) -> Result<Box<dyn FormatWriter>> {
+        if !cfg!(feature = "gdal-backend") {
+            plenora_io_model::format_options::valida_opzioni(
+                self.descriptor().id(),
+                self.descriptor().format_options(),
+                &opts.format_options,
+                plenora_io_model::format_options::FaseOpzione::Scrittura,
+            )?;
+            return Err(plenora_io_model::error_table::Situation::MissingWriteBackend.error());
+        }
         validate_write(
             self.descriptor(),
             plan,

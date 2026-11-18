@@ -274,7 +274,10 @@ fn colonne_geometriche(
         headers, name,
     ) {
         ColonnaPerNome::Unica(indice) => Ok(indice),
-        ColonnaPerNome::Assente => Err(err(&PublicMessage::Curated(assente))),
+        ColonnaPerNome::Assente => Err(
+            plenora_io_model::error_table::Situation::MissingOptionColumn
+                .error_with(&PublicMessage::Curated(assente)),
+        ),
         ColonnaPerNome::Ambigua => Err(err(&PublicMessage::Curated(ambigua))),
     };
     // Due dichiarazioni di geometria per lo stesso layer: vinceva `wkt_column`
@@ -321,9 +324,11 @@ fn colonne_geometriche(
     if !format_options.contains_key("x_column") && !format_options.contains_key("y_column") {
         return Ok((None, HashSet::new()));
     }
-    Err(err(&PublicMessage::Curated(
-        "specificare wkt_column, oppure x_column con y_column, in format_options",
-    )))
+    Err(
+        plenora_io_model::error_table::Situation::InvalidConfiguration.error_with(
+            &PublicMessage::Curated("specificare entrambe le opzioni x_column e y_column"),
+        ),
+    )
 }
 
 /// Errore per un separatore che la validazione avrebbe dovuto respingere.
@@ -851,7 +856,7 @@ fn infer_wkt_geometry(
         // `projection_unsupported`, che nascono nello stesso `open`. `Probe`
         // etichetta la scoperta della sorgente, che viene prima.
         let geometry = parse_wkt_bounded(text, &quote.cella_wkt)
-            .map_err(|errore| errore.during(plenora_io_model::ErrorPhase::Prepare))?;
+            .map_err(|errore| errore.during(plenora_io_model::ErrorPhase::Read))?;
         dimensions.insert(geometry.dimensions);
         geometry_types.insert(geometry.geometry_type());
     }
