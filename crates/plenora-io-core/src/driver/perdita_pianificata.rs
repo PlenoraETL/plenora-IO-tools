@@ -136,7 +136,10 @@ fn record_attribute_loss(
         .as_ref()
         .map(|geometry| geometry.name.as_str());
     for (indice_campo, field) in layer.contract.schema.fields().iter().enumerate() {
-        if geometry_name == Some(field.name().as_str()) || is_geometry_field(field) {
+        if descriptor.id() == "dxf"
+            || geometry_name == Some(field.name().as_str())
+            || is_geometry_field(field)
+        {
             continue;
         }
         let type_class = crate::capabilities::arrow_type_class(field.data_type());

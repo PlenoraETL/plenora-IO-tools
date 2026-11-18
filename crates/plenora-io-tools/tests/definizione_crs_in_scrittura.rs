@@ -729,7 +729,7 @@ fn un_crs_ignoto_si_riscrive_in_geoparquet_come_null() {
         .as_array()
         .unwrap()
         .iter()
-        .any(|entry| entry["categoria"] == "native_bbox_not_preserved"));
+        .all(|entry| entry["categoria"] != "native_bbox_not_preserved"));
     let riletto = ispeziona(&secondo);
     assert!(riletto.riuscita, "{}", riletto.busta);
     let geometria = &riletto.busta["result"]["layers"][0]["geometry"];

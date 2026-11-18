@@ -176,10 +176,10 @@ fn real_values_in_an_integer_column_are_reported_as_loss_not_silently_coerced() 
     assert_eq!(loss.counts.get(INTEGER_COLUMN_REAL_TRUNCATED), Some(&1));
     assert_eq!(loss.counts.get(INTEGER_COLUMN_REAL_SATURATED), Some(&1));
     // Il 7.0 convertito dall'affinita' non e' una perdita.
-    assert_eq!(loss.counts.values().sum::<u64>(), 5);
+    assert_eq!(loss.counts.values().sum::<u64>(), 3);
     assert_eq!(loss.counts.get(SCHEMA_NORMALIZED), Some(&1));
     // Un esempio per coppia (campo, categoria), mai uno per riga.
-    assert_eq!(loss.esempi_trattenuti(), 5);
+    assert_eq!(loss.esempi_trattenuti(), 3);
     // Il nome della colonna non c'e' piu': al suo posto l'indice nello
     // schema, e i due esempi restano distinti per quello.
     assert!(loss.esempi_canonici().all(|example| {
@@ -2719,7 +2719,7 @@ fn native_layer_accessories_are_counted_without_payload() {
         CREATE TABLE layer_styles(f_table_name TEXT); INSERT INTO layer_styles VALUES ('secret');
         CREATE TABLE gpkg_extensions(table_name TEXT); INSERT INTO gpkg_extensions VALUES ('secret');
         CREATE TABLE gpkg_metadata_reference(table_name TEXT); INSERT INTO gpkg_metadata_reference VALUES ('secret');").unwrap();
-    let report = schema::native_layer_loss(&conn, "secret", 3).unwrap();
+    let report = schema::native_layer_loss(&conn, "secret", 3, false).unwrap();
     assert_eq!(
         report.counts.get("native_layer_metadata_not_preserved"),
         Some(&5)

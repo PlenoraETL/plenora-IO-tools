@@ -3462,27 +3462,6 @@ fn infer_shp_schema(path: &Path, row_limit: Option<u64>) -> Result<ShpInference>
             Some(index as u64 + 1),
         );
     }
-    observe_native(
-        &mut loss,
-        (NativeDriver::Shp, TransportDirection::Read),
-        NativeElement::FieldOrder,
-        1,
-        0,
-        Some(0),
-    );
-    observe_native(
-        &mut loss,
-        (NativeDriver::Shp, TransportDirection::Read),
-        NativeElement::GeometryType,
-        u64::from(geometry_info.geometry_types.iter().any(|kind| {
-            matches!(
-                kind,
-                GeometryType::MultiLineString | GeometryType::MultiPolygon
-            )
-        })),
-        0,
-        Some(0),
-    );
     let mut active_row_count = 0_u64;
     let mut records = reader.iter_records();
     while row_limit.is_none_or(|n| active_row_count < n) {

@@ -243,6 +243,7 @@ fn finish_schema(
     attrs: Vec<(String, DataType)>,
     normalized: std::collections::BTreeSet<&str>,
 ) -> Result<ReadSchema> {
+    let (fields, properties) = super::contract_plan::restore_with_properties(conn, table, fields)?;
     let mut metadata = std::collections::HashMap::new();
     if !normalized.is_empty() {
         metadata.insert(
@@ -250,7 +251,6 @@ fn finish_schema(
             normalized.into_iter().collect::<Vec<_>>().join(","),
         );
     }
-    let (fields, properties) = super::contract_plan::restore_with_properties(conn, table, fields)?;
     Ok(ReadSchema {
         schema: Arc::new(Schema::new_with_metadata(fields, metadata)),
         attrs,
@@ -331,7 +331,12 @@ pub fn columns_ddl(schema: &Schema, geom_idx: usize) -> Vec<String> {
 }
 
 /// Layer accessories that do not travel in the Arrow contract.
-pub fn native_layer_loss(conn: &Connection, table: &str, layer: u64) -> Result<LossReport> {
+pub fn native_layer_loss(
+    conn: &Connection,
+    table: &str,
+    layer: u64,
+    restored_identity: bool,
+) -> Result<LossReport> {
     use super::{loss_table, NativeDriver, NativeElement, TransportDirection};
     let mut report = LossReport::default();
     let mut observe = |element, count| {
@@ -354,7 +359,10 @@ pub fn native_layer_loss(conn: &Connection, table: &str, layer: u64) -> Result<L
             (1, NativeElement::Description),
         ] {
             let value: Option<String> = row.get(index).map_err(sql_err)?;
-            observe(element, u64::from(value.is_some_and(|v| !v.is_empty())));
+            observe(
+                element,
+                u64::from(value.is_some_and(|v| !v.is_empty() && (index != 0 || v != table))),
+            );
         }
     }
     for (accessory, column, element) in [
@@ -380,6 +388,11 @@ pub fn native_layer_loss(conn: &Connection, table: &str, layer: u64) -> Result<L
             .map_err(sql_err)?;
         if exists {
             let sql = format!("SELECT count(*) FROM \"{accessory}\" WHERE \"{column}\" = ?1 OR \"{column}\" IS NULL");
+            let sql = if restored_identity && accessory == "gpkg_metadata_reference" {
+                "SELECT count(*) FROM gpkg_metadata_reference r JOIN gpkg_metadata m ON m.id=r.md_file_id WHERE (r.table_name=?1 OR r.table_name IS NULL) AND m.md_standard_uri <> 'urn:plenora:gpkg:field-identity:1'".to_owned()
+            } else {
+                sql
+            };
             let count: i64 = conn
                 .query_row(&sql, [table], |row| row.get(0))
                 .map_err(sql_err)?;

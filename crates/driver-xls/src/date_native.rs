@@ -172,6 +172,7 @@ pub struct NativeStyles {
     pub epoch: bool,
     pub formulas: u64,
     pub numeric_formats: u64,
+    pub changed_numbers: u64,
 }
 impl NativeStyles {
     pub fn date_only(&self, row: u32, col: u32) -> bool {
@@ -245,7 +246,19 @@ impl NativeStyles {
         }
         drop(member);
         super::valida_riferimenti_selezionati(&path.to_path_buf(), budget, Some(&part))?;
-        scan(&mut zip, &part, budget, |tag, _attrs| {
+        let mut numeric_cell = false;
+        scan(&mut zip, &part, budget, |tag, attrs| {
+            if tag == "worksheet/sheetData/row/c" {
+                numeric_cell = attrs.get("t").is_none_or(|t| t == "n");
+            }
+            if numeric_cell
+                && tag == "worksheet/sheetData/row/c/v/#text"
+                && attrs
+                    .get("text")
+                    .is_some_and(|text| driver_common::decimal_value_changes(text))
+            {
+                result.changed_numbers += 1;
+            }
             if tag == "worksheet/sheetData/row/c/f" {
                 result.formulas += 1;
             }
@@ -430,6 +443,11 @@ where
                 if empty {
                     stack.pop();
                 }
+            }
+            quick_xml::events::Event::Text(text) => {
+                let mut attrs = BTreeMap::new();
+                attrs.insert("text".to_owned(), text.to_string());
+                visit(&format!("{}/#text", stack.join("/")), &attrs)?;
             }
             quick_xml::events::Event::End(_) => {
                 stack.pop();

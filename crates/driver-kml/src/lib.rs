@@ -846,10 +846,9 @@ impl PlacemarkStream {
                 Some(NativeElement::GeometryType)
             }
 
-            "coordinates" => Some(NativeElement::NumberPrecision),
-            "kml" | "Document" | "Placemark" | "Point" | "LineString" | "Polygon"
-            | "LinearRing" | "outerBoundaryIs" | "innerBoundaryIs" | "name" | "description"
-            | "altitudeMode" | "value" => None,
+            "coordinates" | "extrude" | "kml" | "Document" | "Placemark" | "Point"
+            | "LineString" | "Polygon" | "LinearRing" | "outerBoundaryIs" | "innerBoundaryIs"
+            | "name" | "description" | "altitudeMode" | "value" => None,
             _ => Some(NativeElement::ForeignMembers),
         };
         let mut layers = vec![0];
@@ -1108,6 +1107,11 @@ impl PlacemarkStream {
                     }
                     coordinates_visto = true;
                     let text = self.read_text(cancellation)?;
+                    for token in text.split(|c: char| c == ',' || c.is_whitespace()) {
+                        if driver_common::decimal_value_changes(token) {
+                            self.observe_scoped(NativeElement::NumberPrecision);
+                        }
+                    }
                     if text
                         .split_whitespace()
                         .any(|tuple| !(2..=3).contains(&tuple.split(',').count()))
@@ -1121,6 +1125,11 @@ impl PlacemarkStream {
                 }
                 Event::Start(element) if element.local_name().as_ref() == "altitudeMode" => {
                     absolute = self.read_text(cancellation)?.trim() == "absolute";
+                }
+                Event::Start(element) if element.local_name().as_ref() == "extrude" => {
+                    if !matches!(self.read_text(cancellation)?.trim(), "0" | "false") {
+                        self.observe_scoped(NativeElement::ForeignMembers);
+                    }
                 }
                 Event::Start(_) => self.skip_element(cancellation)?,
                 Event::End(element) if element.local_name().as_ref().as_bytes() == end_tag => {
@@ -1156,6 +1165,11 @@ impl PlacemarkStream {
                     rings.push(LinearRing::from(
                         self.read_geometry_coordinates(b"LinearRing", cancellation)?,
                     ));
+                }
+                Event::Start(element) if element.local_name().as_ref() == "extrude" => {
+                    if !matches!(self.read_text(cancellation)?.trim(), "0" | "false") {
+                        self.observe_scoped(NativeElement::ForeignMembers);
+                    }
                 }
                 Event::Start(_) => self.skip_element(cancellation)?,
                 Event::End(element) if element.local_name().as_ref().as_bytes() == end_tag => {
@@ -1194,6 +1208,11 @@ impl PlacemarkStream {
                 }
                 Event::Start(element) if element.local_name().as_ref() == "altitudeMode" => {
                     absolute = self.read_text(cancellation)?.trim() == "absolute";
+                }
+                Event::Start(element) if element.local_name().as_ref() == "extrude" => {
+                    if !matches!(self.read_text(cancellation)?.trim(), "0" | "false") {
+                        self.observe_scoped(NativeElement::ForeignMembers);
+                    }
                 }
                 Event::Start(_) => self.skip_element(cancellation)?,
                 Event::End(element) if element.local_name().as_ref() == "Polygon" => {

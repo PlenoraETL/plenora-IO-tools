@@ -100,7 +100,7 @@ fn controlla_companion(path: &std::path::Path) -> Result<()> {
         .iter()
         .filter(|member| member.read == plenora_io_core::dataset_files::ReadMember::Forbidden)
     {
-        if plenora_io_core::dataset_files::resolve(&member.path(path))?.is_some() {
+        if plenora_io_core::dataset_files::resolve_exact(&member.path(path))?.is_some() {
             return Err(err(&PublicMessage::Curated(
                 "companion SQLite WAL/SHM/journal non ammesso",
             )));
@@ -813,7 +813,12 @@ impl OpenDatasetHandle for GpkgDataset {
                 None,
             ),
         };
-        let native_loss = schema::native_layer_loss(&conn, &m.table, u64::from(request.layer.0))?;
+        let native_loss = schema::native_layer_loss(
+            &conn,
+            &m.table,
+            u64::from(request.layer.0),
+            m.properties.is_some(),
+        )?;
         let reader: Box<dyn LayerReader> = Box::new(GpkgReader {
             sqlite_path,
             conn,

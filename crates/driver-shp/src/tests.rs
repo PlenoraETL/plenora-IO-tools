@@ -2219,7 +2219,7 @@ fn wide_zero_decimal_dbf_numeric_is_read_exactly_as_i64() {
         .open(Source::Path(path), opzioni_lettura())
         .unwrap();
     let assessment = dataset.fidelity_assessment();
-    assert_eq!(assessment.level, Fidelity::Approximating);
+    assert_eq!(assessment.level, Fidelity::Conditional);
 
     let mut reader = dataset.open_layer_reader(&req()).unwrap();
     let loss = reader.loss_report();

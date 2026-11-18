@@ -431,7 +431,7 @@ struct SchemaAccumulators {
     row_limit: Option<u64>,
     limit_reached: bool,
     loss: LossReport,
-    observations: Vec<[u64; 8]>,
+    observations: Vec<[u64; 9]>,
     names: Vec<String>,
     indices: HashMap<String, usize>,
     values: Vec<TypeAccumulator>,
@@ -501,7 +501,7 @@ impl SchemaAccumulators {
                 &mut loss,
                 NATIVE_READ,
                 NativeElement::NumberPrecision,
-                counts[3],
+                counts[8],
                 0,
                 position,
             );
@@ -537,7 +537,7 @@ impl SchemaAccumulators {
         let index = self.values.len();
         self.indices.insert(name.to_owned(), index);
         self.values.push(TypeAccumulator::default());
-        self.observations.push([0; 8]);
+        self.observations.push([0; 9]);
         self.names.push(name.to_owned());
         index
     }
@@ -959,7 +959,13 @@ impl<'de> Visitor<'de> for PropsVisitor<'_> {
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> std::result::Result<(), A::Error> {
         let mut previous: Option<usize> = None;
         while let Some(index) = map.next_key_seed(SchemaKeySeed { accs: self.accs })? {
-            let tag = map.next_value::<TypeTag>()?;
+            let raw = map.next_value::<Box<serde_json::value::RawValue>>()?;
+            let tag: TypeTag = serde_json::from_str(raw.get()).map_err(A::Error::custom)?;
+            if matches!(tag.0, ObservedValueClass::Number)
+                && driver_common::decimal_value_changes(raw.get())
+            {
+                self.accs.observations[index][8] += 1;
+            }
             let class = match tag.0 {
                 ObservedValueClass::Null => 0,
                 ObservedValueClass::Integer => 1,
@@ -1542,28 +1548,36 @@ impl<'de> Visitor<'de> for TipoGeometricoSeed<'_> {
                 map.next_value_seed(NativeGeometries { accs: self.accs })?;
             } else {
                 if chiave == "coordinates" {
+                    let raw = map.next_value::<Box<serde_json::value::RawValue>>()?;
+                    let changed = raw
+                        .get()
+                        .split(|c: char| c == '[' || c == ']' || c == ',' || c.is_whitespace())
+                        .filter(|token| {
+                            !token.is_empty() && driver_common::decimal_value_changes(token)
+                        })
+                        .count();
                     observe_native(
                         &mut self.accs.loss,
                         NATIVE_READ,
                         NativeElement::NumberPrecision,
-                        1,
+                        changed as u64,
                         0,
                         Some(0),
                     );
-                } else {
-                    observe_native(
-                        &mut self.accs.loss,
-                        NATIVE_READ,
-                        if chiave == "bbox" {
-                            NativeElement::Bbox
-                        } else {
-                            NativeElement::ForeignMembers
-                        },
-                        1,
-                        0,
-                        Some(0),
-                    );
+                    continue;
                 }
+                observe_native(
+                    &mut self.accs.loss,
+                    NATIVE_READ,
+                    if chiave == "bbox" {
+                        NativeElement::Bbox
+                    } else {
+                        NativeElement::ForeignMembers
+                    },
+                    1,
+                    0,
+                    Some(0),
+                );
                 map.next_value::<IgnoredAny>()?;
             }
         }

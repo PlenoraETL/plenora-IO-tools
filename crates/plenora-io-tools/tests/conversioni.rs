@@ -409,7 +409,7 @@ fn xls_a_csv_conserva_null_e_interi_larghi() {
 fn kml_a_xls_dichiara_geometria_e_crs_perduti() {
     let dir = temporanea();
     let uscita = dir.path().join("uscita.xlsx");
-    let esito = converti("canonico.kml", &uscita, &[]);
+    let esito = converti("canonico.kml", &uscita, &["--layer", "0"]);
     assert!(esito.riuscito, "{}", esito.stderr);
     assert_eq!(
         esito.perdite(),

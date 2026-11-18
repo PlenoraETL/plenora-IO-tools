@@ -308,6 +308,11 @@
       "id": "dxf_attribute_not_represented",
       "superficie": "plenora-io-core",
       "forma": "costante"
+    },
+    {
+      "id": "source_object_not_readable",
+      "superficie": "plenora-io-tools",
+      "forma": "letterale"
     }
   ],
   "vie_dinamiche_ammesse": [],

@@ -16,7 +16,7 @@ fn convert(src: &Path, dst: &Path, from: &str, to: &str) -> Value {
         .arg("convert")
         .arg(src)
         .arg(dst)
-        .args(["--from", from, "--to", to])
+        .args(["--from", from, "--to", to, "--layer", "0"])
         .output()
         .unwrap();
     assert!(output.stderr.is_empty());
@@ -114,7 +114,10 @@ fn shp_dxf_filegdb_native_roundtrip_declares_schema_and_coordinate_changes() {
             assert!(actual.schema().index_of("secret").is_err());
         } else {
             assert_eq!(actual.column(1), batch.column(0));
-            assert_eq!(count(&read, "read_loss", "native_field_order_changed"), 1);
+            assert_eq!(
+                count(&read, "read_loss", "native_field_order_changed"),
+                u64::from(driver != "shp")
+            );
         }
         if driver == "shp" {
             assert_eq!(actual.column(0), batch.column(1));
@@ -269,7 +272,7 @@ fn native_geometry_promotions_rings_empty_and_signed_zero() {
                 } else {
                     assert_eq!(
                         count(&written, "write_loss", "native_coordinate_precision"),
-                        1
+                        u64::from(driver == "filegdb" || kind == GeometryType::LineString)
                     );
                 }
                 if kind == GeometryType::Polygon && driver != "dxf" {

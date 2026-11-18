@@ -990,3 +990,54 @@ pub fn cell_string(array: &ArrayRef, row: usize) -> Result<Option<String>> {
 
 #[cfg(test)]
 mod tests;
+
+/// Whether parsing a native decimal and writing its shortest round-trip decimal
+/// changes its value. Decimal spelling (zeros, exponent) is not data loss.
+#[must_use]
+pub fn decimal_value_changes(text: &str) -> bool {
+    fn canonical(text: &str) -> Option<(bool, String, i64)> {
+        let text = text.trim();
+        let negative = text.starts_with('-');
+        let text = text.trim_start_matches(['-', '+']);
+        let (mantissa, exponent) = text
+            .split_once(['e', 'E'])
+            .map_or(Some((text, 0)), |(m, e)| {
+                e.parse::<i64>().ok().map(|e| (m, e))
+            })?;
+        let decimals = mantissa.split_once('.').map_or(0, |(_, f)| f.len());
+        let mut digits: String = mantissa.chars().filter(|&c| c != '.').collect();
+        if digits.is_empty() || !digits.bytes().all(|c| c.is_ascii_digit()) {
+            return None;
+        }
+        digits = digits.trim_start_matches('0').to_owned();
+        if digits.is_empty() {
+            return Some((negative, String::from("0"), 0));
+        }
+        let trailing = digits.len() - digits.trim_end_matches('0').len();
+        digits.truncate(digits.len() - trailing);
+        let exponent = exponent
+            .checked_sub(i64::try_from(decimals).ok()?)?
+            .checked_add(i64::try_from(trailing).ok()?)?;
+        Some((negative, digits, exponent))
+    }
+    let Ok(value) = text.trim().parse::<f64>() else {
+        return false;
+    };
+    if !value.is_finite() {
+        return true;
+    }
+    canonical(text) != canonical(&value.to_string())
+}
+
+#[cfg(test)]
+mod decimal_comparison_tests {
+    #[test]
+    fn compares_values_in_both_directions() {
+        for text in ["1", "1.50", "1.5e0", "0.125", "-0", "1000.00", "1e3"] {
+            assert!(!super::decimal_value_changes(text), "{text}");
+        }
+        for text in ["9007199254740993", "1.00000000000000001", "1e-400"] {
+            assert!(super::decimal_value_changes(text), "{text}");
+        }
+    }
+}

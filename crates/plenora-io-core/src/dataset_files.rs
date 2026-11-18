@@ -53,7 +53,7 @@ impl Member {
 /// # Errors
 /// Assenza, ambiguita' o errore I/O.
 pub fn required(path: &Path) -> Result<PathBuf> {
-    resolve(path)?.ok_or_else(|| std::io::Error::from(std::io::ErrorKind::NotFound).into())
+    resolve_exact(path)?.ok_or_else(|| std::io::Error::from(std::io::ErrorKind::NotFound).into())
 }
 
 /// Conserva la grafia dell'estensione principale anche sui companion.
@@ -196,19 +196,24 @@ fn select_name(
     names: impl IntoIterator<Item = std::io::Result<OsString>>,
 ) -> Result<Option<OsString>> {
     let mut found = None;
+    let mut collision = false;
     for name in names {
         let name = name?;
+        if wanted == name {
+            return Ok(Some(name));
+        }
         if same_name(wanted, &name) {
-            if found.is_some() {
-                return Err(ambiguous());
-            }
+            collision |= found.is_some();
             found = Some(name);
         }
+    }
+    if collision {
+        return Err(ambiguous());
     }
     Ok(found)
 }
 
-/// Risolve un membro senza seguire link e senza preferire una grafia.
+/// Risolve un membro senza seguire link; la grafia esatta ha precedenza.
 ///
 /// # Errors
 /// Ambiguita' tipizzata o errore di enumerazione della directory.
@@ -226,7 +231,52 @@ pub fn resolve(path: &Path) -> Result<Option<PathBuf>> {
 /// Ambiguita' o errore di enumerazione.
 pub fn companion(main: &Path, ext: &'static str) -> Result<PathBuf> {
     let logical = member_path(main, Naming::Extension(ext));
-    Ok(resolve(&logical)?.unwrap_or(logical))
+    Ok(resolve_extension(main, ext)?.unwrap_or(logical))
+}
+
+// SQLite opens suffixes using the native filesystem's case rules.
+/// Resolves a physical path using the filesystem's own case rules.
+///
+/// # Errors
+/// Propagates filesystem errors other than absence.
+pub fn resolve_exact(path: &Path) -> Result<Option<PathBuf>> {
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => Ok(Some(path.to_owned())),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn resolve_extension(main: &Path, extension: &str) -> Result<Option<PathBuf>> {
+    let logical = main.with_extension(extension);
+    let path = logical.as_path();
+    let mut prefix = main.file_stem().unwrap_or_default().to_owned();
+    prefix.push(".");
+    if let Some(path) = resolve_exact(path)? {
+        return Ok(Some(path));
+    }
+    let names = std::fs::read_dir(parent(path))?.filter_map(|entry| match entry {
+        Ok(entry)
+            if entry
+                .file_name()
+                .as_encoded_bytes()
+                .starts_with(prefix.as_encoded_bytes()) =>
+        {
+            Some(Ok(entry.file_name()))
+        }
+        Ok(_) => None,
+        Err(error) => Some(Err(error)),
+    });
+    Ok(select_name(path.file_name().unwrap_or_default(), names)?
+        .map(|name| parent(path).join(name)))
+}
+
+fn resolve_member(path: &Path, naming: Naming) -> Result<Option<PathBuf>> {
+    let logical = member_path(path, naming);
+    match naming {
+        Naming::Suffix(_) => resolve_exact(&logical),
+        Naming::Extension(ext) => resolve_extension(path, ext),
+    }
 }
 
 impl FileSet {
@@ -276,13 +326,13 @@ impl FileSet {
     /// # Errors
     /// Ambiguita', membro obbligatorio assente o errore I/O.
     pub fn paths(self, path: &Path) -> Result<Vec<PathBuf>> {
-        let main = resolve(path)?.unwrap_or_else(|| path.to_owned());
+        let main = resolve_exact(path)?.unwrap_or_else(|| path.to_owned());
         let mut paths = vec![main.clone()];
         if main.is_dir() {
             return Ok(paths);
         }
         for member in self.members {
-            match resolve(&member_path(&main, member.naming))? {
+            match resolve_member(&main, member.naming)? {
                 Some(path) => paths.push(path),
                 None if member.read == ReadMember::Required => {
                     return Err(std::io::Error::from(std::io::ErrorKind::NotFound).into());
@@ -315,8 +365,14 @@ impl FileSet {
         {
             return SINGLE.ensure_absent(path);
         }
-        let mut candidates = vec![path.to_owned()];
-        candidates.extend(self.members.iter().map(|m| member_path(path, m.naming)));
+        if resolve_exact(path)?.is_some() {
+            return Err(PlenoraIoError::destinazione_esistente());
+        }
+        for member in self.members {
+            if resolve_member(path, member.naming)?.is_some() {
+                return Err(PlenoraIoError::destinazione_esistente());
+            }
+        }
         let mut prefix = path.file_stem().unwrap_or_default().to_owned();
         prefix.push(FILEGDB_STAGING_MARKER);
         let prefix = name_key(&prefix);
@@ -329,10 +385,7 @@ impl FileSet {
                     .staging_suffixes
                     .iter()
                     .any(|s| lower.ends_with(s.as_bytes()));
-            let member = candidates
-                .iter()
-                .any(|p| p.file_name().is_some_and(|wanted| same_name(wanted, &name)));
-            if member || (staging && !owned.contains(&entry.path().as_path())) {
+            if staging && !owned.contains(&entry.path().as_path()) {
                 return Err(PlenoraIoError::destinazione_esistente());
             }
         }
@@ -363,23 +416,21 @@ mod tests {
                 );
                 std::fs::write(&upper, b"foreign-data").unwrap();
                 assert_eq!(resolve(&logical).unwrap(), Some(upper.clone()));
-                assert_eq!(
-                    spec.ensure_absent(&main).unwrap_err().code,
-                    plenora_io_model::IoErrorCode::OutputExists
-                );
+                assert_eq!(spec.ensure_absent(&main).is_err(), logical.exists());
                 assert_eq!(std::fs::read(&upper).unwrap(), b"foreign-data");
                 // The name enumerator is the filesystem seam: both candidates
                 // are supplied even on a case-insensitive filesystem.
-                let error = select_name(
-                    logical.file_name().unwrap(),
-                    [
-                        Ok(logical.file_name().unwrap().to_owned()),
-                        Ok(upper.file_name().unwrap().to_owned()),
-                    ],
-                )
-                .unwrap_err();
-                assert!(error.message.contains("ambiguo"));
-                assert!(!error.message.contains("dataset".to_uppercase().as_str()));
+                assert_eq!(
+                    select_name(
+                        logical.file_name().unwrap(),
+                        [
+                            Ok(upper.file_name().unwrap().to_owned()),
+                            Ok(logical.file_name().unwrap().to_owned())
+                        ],
+                    )
+                    .unwrap(),
+                    Some(logical.file_name().unwrap().to_owned())
+                );
                 std::fs::remove_file(&upper).unwrap();
                 std::fs::write(&logical, b"member").unwrap();
                 assert_eq!(resolve(&logical).unwrap(), Some(logical));
@@ -409,18 +460,18 @@ mod tests {
             let upper = dir.path().join("MAIN.DATA");
             std::fs::write(&upper, b"main").unwrap();
             assert_eq!(resolve(&main).unwrap(), Some(upper.clone()));
+            assert_eq!(spec.ensure_absent(&main).is_err(), main.exists());
             assert_eq!(
-                spec.ensure_absent(&main).unwrap_err().code,
-                plenora_io_model::IoErrorCode::OutputExists
+                select_name(
+                    main.file_name().unwrap(),
+                    [
+                        Ok(OsString::from("main.data")),
+                        Ok(OsString::from("MAIN.DATA"))
+                    ]
+                )
+                .unwrap(),
+                Some(OsString::from("main.data"))
             );
-            assert!(select_name(
-                main.file_name().unwrap(),
-                [
-                    Ok(OsString::from("main.data")),
-                    Ok(OsString::from("MAIN.DATA"))
-                ]
-            )
-            .is_err());
             for member in spec.members {
                 std::fs::write(member.path(&upper), b"data").unwrap();
             }
@@ -428,12 +479,35 @@ mod tests {
                 let path = member.path(&upper);
                 std::fs::remove_file(&path).unwrap();
                 assert_eq!(
-                    spec.paths(&main).is_err(),
+                    spec.paths(&upper).is_err(),
                     member.read == ReadMember::Required
                 );
                 std::fs::write(path, b"data").unwrap();
             }
         }
+    }
+
+    #[test]
+    fn ambiguous_fallback_requires_no_exact_name() {
+        assert!(select_name(
+            std::ffi::OsStr::new("a.PrJ"),
+            [Ok(OsString::from("a.prj")), Ok(OsString::from("a.PRJ"))]
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn native_case_rules_for_sqlite_and_unrelated_datasets() {
+        let dir = tempfile::tempdir().unwrap();
+        let main = dir.path().join("a.gpkg");
+        std::fs::write(dir.path().join("A.GPKG"), b"database").unwrap();
+        assert_eq!(GPKG.ensure_absent(&main).is_err(), main.exists());
+        std::fs::remove_file(dir.path().join("A.GPKG")).unwrap();
+        std::fs::write(dir.path().join("a.gpkg-WAL"), b"journal").unwrap();
+        assert_eq!(
+            GPKG.ensure_absent(&main).is_err(),
+            dir.path().join("a.gpkg-wal").exists()
+        );
     }
 
     #[test]

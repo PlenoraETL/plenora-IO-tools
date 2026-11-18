@@ -329,9 +329,11 @@ Le modifiche e la migrazione della versione corrente sono nel [CHANGELOG](CHANGE
 
 `layers` e `inspect` elencano anche gli oggetti non leggibili: `status.readable`
 vale `false` e `status.error` contiene il motivo tipizzato, senza dati del file.
-`read` e `convert` senza `--layer` selezionano entrambi un solo oggetto predefinito.
-Negli XLSX e' il primo worksheet visibile (oppure il nome esatto di `sheet`);
-negli altri formati e' l'indice zero. Nessun ripiego se l'oggetto e' rifiutato.
+Senza `--layer`, `read`, `write` e `convert` verso un formato a layer singolo
+usano l'unico oggetto leggibile; con zero o più oggetti leggibili restituiscono
+`LAYER_SELECTION_REQUIRED`, con indici e stati, e richiedono `--layer`.
+`convert` verso GPKG o FileGDB copia tutti gli oggetti leggibili e dichiara gli
+esclusi con `source_object_not_readable`, conteggio, indice e motivo tipizzato.
 `--layer` seleziona l'indice mostrato dall'elenco, inclusi gli oggetti rifiutati.
 
 Gli indici sono a base zero: GPKG ordina i nomi con confronto binario SQLite;

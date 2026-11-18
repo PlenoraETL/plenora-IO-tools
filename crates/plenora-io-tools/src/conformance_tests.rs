@@ -2036,6 +2036,8 @@ fn limit_one_reaches_every_catalog_decoder() {
         let mut args = vec![
             "read".to_owned(),
             structural_fixture(id).to_string_lossy().into_owned(),
+            "--layer".to_owned(),
+            "0".to_owned(),
             "--limit".to_owned(),
             "1".to_owned(),
         ];
@@ -2231,7 +2233,12 @@ fn limit_stops_before_malformed_text_and_xml_tails() {
     for (id, content) in cases {
         let path = root.path().join(format!("tail.{}", extension(id)));
         std::fs::write(&path, content).unwrap();
-        let mut args = vec!["read".to_owned(), path.to_string_lossy().into_owned()];
+        let mut args = vec![
+            "read".to_owned(),
+            path.to_string_lossy().into_owned(),
+            "--layer".to_owned(),
+            "0".to_owned(),
+        ];
         if matches!(id, "csv" | "dxf") {
             args.extend(["--assume-crs".to_owned(), "EPSG:4326".to_owned()]);
         }

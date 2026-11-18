@@ -44,6 +44,9 @@ struct Esito {
 fn esegui(argomenti: &[&str]) -> Esito {
     let mut comando = Command::new(env!("CARGO_BIN_EXE_plenora-io"));
     comando.args(argomenti);
+    if argomenti.first() == Some(&"read") {
+        comando.args(["--layer", "0"]);
+    }
     esegui_comando(comando, argomenti)
 }
 

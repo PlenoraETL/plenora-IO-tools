@@ -70,7 +70,10 @@ fn read(path: &Path) -> Result<RecordBatch> {
     let dataset = ShpDriver.open(Source::Path(path.to_owned()), opzioni_lettura())?;
     let mut reader = dataset.open_layer_reader(&req())?;
     let batch = reader.next_batch()?.unwrap();
-    assert_eq!(reader.loss_report().counts["native_field_order_changed"], 1);
+    assert!(!reader
+        .loss_report()
+        .counts
+        .contains_key("native_field_order_changed"));
     assert!(reader.next_batch()?.is_none());
     Ok(batch)
 }

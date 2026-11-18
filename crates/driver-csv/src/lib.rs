@@ -86,7 +86,10 @@ fn native_read_loss(
         })? {
             opts.ensure_active()?;
             for index in [x, y] {
-                if row.get(index).is_some_and(|value| !value.is_empty()) {
+                if row
+                    .get(index)
+                    .is_some_and(driver_common::decimal_value_changes)
+                {
                     loss_table::observe_native(
                         &mut loss,
                         (NativeDriver::Csv, TransportDirection::Read),
@@ -493,7 +496,10 @@ impl FormatDriver for CsvDriver {
         let mut fields = Vec::new();
         if let Some(geometry) = &geometry_contract {
             fields.push(with_geometry_contract_metadata(
-                &Field::new(GEOMETRY, arrow_schema::DataType::Binary, true),
+                &driver_common::geometry_field(
+                    GEOMETRY,
+                    opts.assume_crs.as_deref().unwrap_or_default(),
+                ),
                 geometry,
             ));
         }

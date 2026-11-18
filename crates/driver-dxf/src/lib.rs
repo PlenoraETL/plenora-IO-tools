@@ -2441,12 +2441,16 @@ impl Walker {
         ));
         if let Some(block) = self.blocks.get(&insert.name).cloned() {
             if block.is_xref() || block.is_xref_overlay() {
-                return Err(PlenoraIoError::capability_redatta(
-                    "dxf",
+                observe_native(
+                    &mut self.loss,
+                    (NativeDriver::Dxf, TransportDirection::Read),
+                    NativeElement::ExternalReference,
+                    1,
+                    self.layer_index,
                     None,
-                    plenora_io_model::CapabilityReason::TypeNotRepresentable,
-                    &PublicMessage::Curated("riferimento DXF esterno non rappresentabile"),
-                ));
+                );
+                visiting.remove(&insert.name);
+                return Ok(());
             }
             self.loss.record("blocco INSERT esploso", 1);
             for entity in &block.entities {

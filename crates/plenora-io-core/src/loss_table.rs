@@ -522,7 +522,7 @@ native_elements! {
     Styles => [T(NativeChange::ForeignMembers), T(NativeChange::ArrowMetadata), T(NativeChange::Styles), T(NativeChange::ArrowMetadata), R, T(NativeChange::ArrowMetadata), T(NativeChange::NativeStyles), T(NativeChange::ArrowMetadata), R, T(NativeChange::ArrowMetadata), R, R, R, R, T(NativeChange::NativeStyles), T(NativeChange::ArrowMetadata), R, R, R, R];
     Hierarchy => [R, R, T(NativeChange::Hierarchy), T(NativeChange::ArrowMetadata), R, R, T(NativeChange::NativeHierarchy), T(NativeChange::ArrowMetadata), T(NativeChange::NativeHierarchy), T(NativeChange::ArrowMetadata), R, R, R, R, R, R, R, R, R, R];
     Extensions => [T(NativeChange::ForeignMembers), T(NativeChange::ArrowMetadata), T(NativeChange::ForeignMembers), T(NativeChange::ArrowMetadata), T(NativeChange::LayerMetadata), T(NativeChange::ArrowMetadata), T(NativeChange::LayerMetadata), T(NativeChange::ArrowMetadata), T(NativeChange::LayerMetadata), T(NativeChange::ArrowMetadata), R, R, R, R, T(NativeChange::LayerMetadata), T(NativeChange::ArrowMetadata), R, R, R, R];
-    ExternalReference => [T(NativeChange::ForeignMembers), T(NativeChange::ArrowMetadata), T(NativeChange::ExternalReference), T(NativeChange::ArrowMetadata), R, R, R, T(NativeChange::ArrowMetadata), T(NativeChange::ExternalReference), T(NativeChange::ArrowMetadata), R, R, R, R, R, R, R, R, R, R];
+    ExternalReference => [T(NativeChange::ForeignMembers), T(NativeChange::ArrowMetadata), T(NativeChange::ExternalReference), T(NativeChange::ArrowMetadata), R, R, T(NativeChange::ExternalReference), T(NativeChange::ArrowMetadata), T(NativeChange::ExternalReference), T(NativeChange::ArrowMetadata), R, R, R, R, R, R, R, R, R, R];
     ExtendedData => [R, R, T(NativeChange::ExtendedData), T(NativeChange::ExtendedData), R, R, T(NativeChange::LayerMetadata), T(NativeChange::ArrowMetadata), R, R, R, R, R, R, R, R, R, R, R, R];
     FeatureMetadata => [T(NativeChange::ForeignMembers), T(NativeChange::ArrowMetadata), T(NativeChange::FeatureMetadata), T(NativeChange::ArrowMetadata), R, R, T(NativeChange::LayerMetadata), T(NativeChange::ArrowMetadata), R, R, R, R, R, R, R, R, R, R, R, R];
     AltitudeMode => [R, R, T(NativeChange::AltitudeMode), P, R, R, R, R, R, R, R, R, R, R, R, R, R, R, R, R];
@@ -678,8 +678,8 @@ pub fn observe_native(
             NativeChange::AltitudeMode => "non-absolute or implicit altitude mode discarded; Z is unconverted, not absolute elevation",
             NativeChange::CoordinatePrecision if transport.0 == NativeDriver::Dxf => "coordinates rounded to twelve decimal places, including signed zero normalization",
             NativeChange::CoordinatePrecision => "coordinates quantized on the native grid, including signed zero normalization",
-            NativeChange::RingOrientation => "native ring orientation normalization; count is rings or polygonal geometries, not changed vertices",
-            NativeChange::NumberPrecision => "native numeric representation converted to binary64; decimal precision is not retained",
+            NativeChange::RingOrientation => "native ring orientation differs from the source",
+            NativeChange::NumberPrecision => "reconstructed numeric value differs from the source decimal",
             NativeChange::Dimensions => "dimension declaration reconstructed from native data; GeoJSON remains unknown",
             NativeChange::ExtendedData => "ExtendedData fields are emitted but not read, including SchemaData",
             _ => "native element transformed or omitted; structural indices only",
@@ -715,7 +715,7 @@ fn native_field_order(driver: NativeDriver, fields: &arrow_schema::Fields) -> Ve
     order
 }
 
-/// Counts native geometry normalization units, not measured coordinate errors.
+/// Counts geometry changes by comparing the native reconstruction with input values.
 pub fn observe_geometry_write(
     report: &mut crate::LossReport,
     driver: NativeDriver,
@@ -726,11 +726,49 @@ pub fn observe_geometry_write(
     use plenora_io_model::wkb::WkbValue;
     fn rings(value: &WkbValue) -> usize {
         match value {
-            WkbValue::Polygon(rings) => rings.len(),
+            WkbValue::Polygon(rings) => rings
+                .iter()
+                .enumerate()
+                .filter(|(index, ring)| {
+                    let area: f64 = ring
+                        .windows(2)
+                        .map(|pair| pair[1].x.mul_add(-pair[0].y, pair[0].x * pair[1].y))
+                        .sum();
+                    // Shapefile stores clockwise exteriors and counterclockwise holes.
+                    if *index == 0 {
+                        area > 0.0
+                    } else {
+                        area < 0.0
+                    }
+                })
+                .count(),
             WkbValue::MultiPolygon(children) | WkbValue::GeometryCollection(children) => {
                 children.iter().map(|child| rings(&child.value)).sum()
             }
             _ => 0,
+        }
+    }
+    fn rounded(value: &WkbValue) -> bool {
+        let coordinate = |c: &plenora_io_model::wkb::WkbCoordinate| {
+            [Some(c.x), Some(c.y), c.z].into_iter().flatten().any(|v| {
+                let reconstructed = format!("{v:.12}").parse::<f64>().unwrap_or(v);
+                let reconstructed = if reconstructed == 0.0 {
+                    0.0
+                } else {
+                    reconstructed
+                };
+                reconstructed.to_bits() != v.to_bits()
+            })
+        };
+        match value {
+            WkbValue::Point(c) => coordinate(c),
+            WkbValue::LineString(c) => c.iter().any(coordinate),
+            WkbValue::Polygon(rings) => rings.iter().flatten().any(coordinate),
+            WkbValue::MultiPoint(children)
+            | WkbValue::MultiLineString(children)
+            | WkbValue::MultiPolygon(children)
+            | WkbValue::GeometryCollection(children) => children.iter().any(|g| rounded(&g.value)),
+            _ => false,
         }
     }
     let transport = (driver, TransportDirection::Write);
@@ -760,7 +798,7 @@ pub fn observe_geometry_write(
         report,
         transport,
         NativeElement::CoordinatePrecision,
-        1,
+        u64::from(driver == NativeDriver::Dxf && rounded(&geometry.value)),
         layer,
         Some(field),
     );

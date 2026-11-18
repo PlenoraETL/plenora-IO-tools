@@ -1698,6 +1698,7 @@ where
     for (element, count) in [
         (NativeElement::Formula, styles.formulas),
         (NativeElement::NumericFormat, styles.numeric_formats),
+        (NativeElement::NumberPrecision, styles.changed_numbers),
     ] {
         loss_table::observe_native(
             &mut native_loss,
@@ -1740,12 +1741,12 @@ where
                 geom.ok_or_else(|| err(&PublicMessage::Curated("intestazione XLSX assente")))?;
             if matches!(resolved_geom, XlsxGeomSpec::Xy(_, _)) {
                 for &column in &geom_columns {
-                    if !matches!(row[(column - bounds.start.1) as usize], Data::Empty) {
+                    if let Data::String(text) = &row[(column - bounds.start.1) as usize] {
                         loss_table::observe_native(
                             &mut native_loss,
                             (NativeDriver::Xls, TransportDirection::Read),
                             NativeElement::CoordinatePrecision,
-                            1,
+                            u64::from(driver_common::decimal_value_changes(text)),
                             quote.layer,
                             Some(u64::from(column)),
                         );
@@ -1776,16 +1777,6 @@ where
                             "indice colonna XLSX fuori intervallo",
                         ))
                     })?;
-                if matches!(data, Data::Float(_) | Data::Int(_) | Data::DateTime(_)) {
-                    loss_table::observe_native(
-                        &mut native_loss,
-                        (NativeDriver::Xls, TransportDirection::Read),
-                        NativeElement::NumberPrecision,
-                        1,
-                        quote.layer,
-                        Some(u64::from(column)),
-                    );
-                }
                 if geom_columns.contains(&column) {
                     continue;
                 }

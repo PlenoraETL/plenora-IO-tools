@@ -1234,26 +1234,21 @@ impl FormatDriver for GeoParquetDriver {
         let visible_to_physical = mappa_campi_fisici(&out_schema, &parquet_schema)?;
         let (contract, altre_geometrie) =
             contract_from_footer(&out_schema, geom_name, crs, geo.as_ref())?;
-        let mut loss = loss_table::metadata_changes(
-            NativeDriver::GeoParquet,
-            TransportDirection::Read,
-            &parquet_schema,
-            &contract.schema,
-        );
-        if let Some(names) = &strip_names {
-            for (index, field) in parquet_schema.fields().iter().enumerate() {
-                if names.contains(field.name()) {
-                    loss_table::observe_native(
-                        &mut loss,
-                        (NativeDriver::GeoParquet, TransportDirection::Read),
-                        NativeElement::Covering,
-                        1,
-                        0,
-                        Some(index as u64),
-                    );
-                }
+        // Format metadata reconstructed without changing its meaning is not lost.
+        let mut comparable_metadata = parquet_schema.metadata().clone();
+        if let Some(raw) = comparable_metadata.get("geo") {
+            if reconstructed_geo_matches(raw, &contract)? {
+                comparable_metadata.remove("geo");
             }
         }
+        let comparable_schema =
+            Schema::new_with_metadata(parquet_schema.fields().clone(), comparable_metadata);
+        let loss = loss_table::metadata_changes(
+            NativeDriver::GeoParquet,
+            TransportDirection::Read,
+            &comparable_schema,
+            &contract.schema,
+        );
         let out_schema = contract.schema.clone();
         let name = path
             .file_stem()
@@ -2014,10 +2009,7 @@ impl OpenDatasetHandle for GeoParquetDataset {
         // lette. Ricalcolarla la' sarebbe una seconda verita' che diverge.
         let (builder, out_schema, layer, maschera) = match &request.projected_fields {
             None if self.bbox_covering.is_some() => {
-                let mask = ProjectionMask::roots(
-                    builder.parquet_schema(),
-                    self.visible_to_physical.iter().copied(),
-                );
+                let mask = ProjectionMask::all();
                 (
                     builder.with_projection(mask.clone()),
                     self.out_schema.clone(),
@@ -2110,6 +2102,13 @@ impl OpenDatasetHandle for GeoParquetDataset {
             reader,
             out_schema,
             layer,
+            covering: if request.projected_fields.is_none() {
+                self.bbox_covering.clone()
+            } else {
+                None
+            },
+            loss: LossReport::default(),
+            observed_covering: std::collections::BTreeSet::new(),
         });
         Ok(plenora_io_core::with_cancellation(
             loss_table::with_native_report(reader, self.loss.clone()),
@@ -2122,9 +2121,16 @@ struct GeoParquetReader {
     reader: ParquetRecordBatchReader,
     out_schema: SchemaRef,
     layer: LayerContract,
+    covering: Option<[Vec<String>; 4]>,
+    loss: LossReport,
+    observed_covering: std::collections::BTreeSet<usize>,
 }
 
 impl LayerReader for GeoParquetReader {
+    fn loss_report(&self) -> LossReport {
+        self.loss.clone()
+    }
+
     fn contract(&self) -> &LayerContract {
         &self.layer
     }
@@ -2149,12 +2155,65 @@ impl LayerReader for GeoParquetReader {
         match prossimo {
             None => Ok(None),
             Some(batch) => {
+                if let Some(paths) = &self.covering {
+                    if let Some(geometry) = &self.layer.contract.geometry {
+                        if let Some(column) = batch
+                            .column_by_name(&geometry.name)
+                            .and_then(|a| a.as_any().downcast_ref::<BinaryArray>())
+                        {
+                            let expected = build_bbox_columns(column, geometry.nullable)?;
+                            let expected = expected[0]
+                                .as_any()
+                                .downcast_ref::<arrow_array::StructArray>()
+                                .ok_or_else(|| {
+                                    fmt_err(&PublicMessage::Curated(
+                                        "covering ricostruito non strutturato",
+                                    ))
+                                })?;
+                            for (edge, path) in paths.iter().enumerate() {
+                                let root = batch.schema().index_of(&path[0]).map_err(|_| {
+                                    fmt_err(&PublicMessage::Curated("covering assente"))
+                                })?;
+                                let actual = batch
+                                    .column(root)
+                                    .as_any()
+                                    .downcast_ref::<arrow_array::StructArray>();
+                                if actual.is_none_or(|a| {
+                                    covering_edge_differs(a, &path[1], expected, edge)
+                                }) && self.observed_covering.insert(root)
+                                {
+                                    loss_table::observe_native(
+                                        &mut self.loss,
+                                        (NativeDriver::GeoParquet, TransportDirection::Read),
+                                        NativeElement::Covering,
+                                        1,
+                                        0,
+                                        Some(root as u64),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                let columns = if self.covering.is_some() {
+                    self.out_schema
+                        .fields()
+                        .iter()
+                        .map(|field| {
+                            batch.column_by_name(field.name()).cloned().ok_or_else(|| {
+                                fmt_err(&PublicMessage::Curated("colonna proiettata assente"))
+                            })
+                        })
+                        .collect::<Result<Vec<_>>>()?
+                } else {
+                    batch.columns().to_vec()
+                };
                 // Ri-etichetta lo schema (geometria -> geoarrow.wkb) senza toccare
                 // i buffer: pass-through delle colonne.
                 let options = RecordBatchOptions::new().with_row_count(Some(batch.num_rows()));
                 let retagged = RecordBatch::try_new_with_options(
                     self.out_schema.clone(),
-                    batch.columns().to_vec(),
+                    columns,
                     &options,
                 )
                 .map_err(|_| fmt_err(&PublicMessage::Curated("re-tag dello schema fallito")))?;
@@ -2162,6 +2221,38 @@ impl LayerReader for GeoParquetReader {
             }
         }
     }
+}
+
+fn covering_edge_differs(
+    actual: &arrow_array::StructArray,
+    name: &str,
+    expected: &arrow_array::StructArray,
+    edge: usize,
+) -> bool {
+    if actual.num_columns() != 4 {
+        return true;
+    }
+    let Some(column) = actual.column_by_name(name) else {
+        return true;
+    };
+    let value = |array: &ArrayRef, row: usize| {
+        if array.is_null(row) {
+            return None;
+        }
+        if let Some(array) = array.as_any().downcast_ref::<arrow_array::Float64Array>() {
+            return Some(array.value(row).to_bits());
+        }
+        array
+            .as_any()
+            .downcast_ref::<arrow_array::Float32Array>()
+            .map(|array| f64::from(array.value(row)).to_bits())
+    };
+    (0..actual.len()).any(|row| {
+        if actual.is_null(row) || expected.is_null(row) {
+            return actual.is_null(row) != expected.is_null(row);
+        }
+        value(column, row) != value(expected.column(edge), row)
+    })
 }
 
 struct GeoParquetWriter {
@@ -3531,6 +3622,35 @@ fn accumulate_geometry_types(
         }
     }
     Ok(())
+}
+
+fn reconstructed_geo_matches(raw: &str, contract: &DataContract) -> Result<bool> {
+    let Some(geometry) = &contract.geometry else {
+        return Ok(false);
+    };
+    let Some(version) = geometry.native_metadata.get("geoparquet.version") else {
+        return Ok(false);
+    };
+    let mut columns = serde_json::Map::new();
+    for field in contract.schema.fields() {
+        if let Some(column) = field
+            .metadata()
+            .get("plenora.geometry.native.geoparquet.column")
+        {
+            columns.insert(
+                field.name().clone(),
+                serde_json::from_str::<serde_json::Value>(column).map_err(|_| {
+                    fmt_err(&PublicMessage::Curated(
+                        "metadati geo ricostruiti non validi",
+                    ))
+                })?,
+            );
+        }
+    }
+    let value: serde_json::Value = serde_json::from_str(raw)
+        .map_err(|_| fmt_err(&PublicMessage::Curated("metadati geo non validi")))?;
+    let reconstructed = serde_json::json!({"version": version, "primary_column": geometry.name, "columns": columns});
+    Ok(value == reconstructed)
 }
 
 fn build_geo_metadata(

@@ -1116,7 +1116,7 @@ fn native_columns_names_order_and_xy_precision_are_reported() {
             "label,east,north\nkeep,1.1234567890123456789,2\n",
             vec![("x_column", "east"), ("y_column", "north")],
             2,
-            2,
+            1,
         ),
     ] {
         let path = dir.path().join("native.csv");
@@ -1142,6 +1142,7 @@ fn native_columns_names_order_and_xy_precision_are_reported() {
             .unwrap();
         let batch = reader.next_batch().unwrap().unwrap();
         assert_eq!(batch.schema().field(0).name(), "geometry");
+        assert_eq!(batch.schema().field(0).metadata()["crs"], "EPSG:4326");
         assert_eq!(batch.schema().field(1).name(), "label");
         assert_eq!(
             batch

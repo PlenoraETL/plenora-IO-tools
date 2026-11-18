@@ -7,7 +7,7 @@
 use super::*;
 
 #[test]
-fn native_xref_insert_is_a_local_typed_rejection() {
+fn native_xref_insert_is_reported_without_rejecting_valid_entities() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("xref.dxf");
     std::fs::write(&path, include_str!("../tests/fixtures/xref.dxf")).unwrap();
@@ -18,7 +18,20 @@ fn native_xref_insert_is_a_local_typed_rejection() {
         )
         .unwrap();
     assert_eq!(dataset.layers().len(), 2);
-    for layer in dataset.layers() {
+    let mut reader = dataset.open_layer_reader(&request()).unwrap();
+    let mut rows = 0;
+    while let Some(batch) = reader.next_batch().unwrap() {
+        rows += batch.num_rows();
+    }
+    assert_eq!(rows, 1);
+    assert_eq!(
+        reader
+            .loss_report()
+            .counts
+            .get("native_external_reference_not_followed"),
+        Some(&1)
+    );
+    for layer in &dataset.layers()[1..] {
         let error = dataset.rifiuto_del_layer(layer.id).unwrap();
         assert_eq!(error.category, plenora_io_model::ErrorCategory::Unsupported);
         assert!(!error.message.contains("ESTERNO"));

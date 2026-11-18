@@ -41,15 +41,6 @@ pub(crate) const FORMATI_AMMESSI: &str =
 
 pub(crate) const OPZIONI_AMMESSE: &str = "--assume-crs, --deadline-ms, --durable, --in-opt, --layer, --limit, --max-columns, --max-geometry-components, --max-input-bytes, --max-input-entries, --max-output-bytes, --max-rows, --max-vertices, --max-wkb-cell-bytes, --format, --max-wkb-components, --max-wkb-depth, --memory-bytes, --spill-bytes, --output-expansion-ratio, --decompression-ratio, --opt, --out-opt, --output, --from, --to";
 
-#[allow(clippy::cast_possible_truncation)]
-const fn saturating_u64(value: usize) -> u64 {
-    if usize::BITS > u64::BITS && value > u64::MAX as usize {
-        u64::MAX
-    } else {
-        value as u64
-    }
-}
-
 /// I tetti della diagnostica nella busta e il troncamento che li dichiara.
 pub mod busta;
 /// La superficie Rust pubblica: le sei operazioni del catalogo, per nome.
@@ -613,18 +604,27 @@ fn selected_layer_id(
     cli: &Cli,
     dataset: &dyn plenora_io_core::driver::OpenDatasetHandle,
 ) -> Result<u32, (i32, Value)> {
-    cli.layer
-        .or_else(|| dataset.default_layer().map(|id| id.0))
-        .ok_or_else(|| {
-            local_err_doc(
-                "NO_LAYER",
-                ErrorCategory::NotFound,
-                ErrorPhase::Prepare,
-                &PublicMessage::Curated(
-                    "nessun oggetto predefinito disponibile; scegliere --layer o sheet",
-                ),
-            )
-        })
+    if let Some(id) = cli.layer {
+        return Ok(id);
+    }
+    let readable: Vec<_> = dataset
+        .layers()
+        .iter()
+        .filter(|layer| dataset.rifiuto_del_layer(layer.id).is_none())
+        .collect();
+    if readable.len() == 1 {
+        return Ok(readable[0].id.0);
+    }
+    let mut error = local_err_doc(
+        "LAYER_SELECTION_REQUIRED",
+        ErrorCategory::InvalidPlan,
+        ErrorPhase::Prepare,
+        &PublicMessage::Curated("scegliere --layer: richiesto esattamente un oggetto leggibile"),
+    );
+    error.1["error"]["details"] = json!({"objects": dataset.layers().iter().map(|layer|
+        json!({"index": layer.id.0, "status": layer_status(dataset, layer.id)})
+    ).collect::<Vec<_>>()});
+    Err(error)
 }
 
 fn layer_status(
@@ -994,7 +994,8 @@ pub fn cmd_write(cli: &Cli) -> CliResult {
         .map_err(map_err)?;
     let fedelta_ingresso = ds.fidelity_assessment();
 
-    let selezionati = strati_da_pubblicare(ds.layers(), cli.layer)?;
+    let selezionati =
+        strati_da_pubblicare(ds.layers(), Some(selected_layer_id(cli, ds.as_ref())?))?;
     let plenora_io_core::ewkb::PreparedWrite {
         plan: piano,
         conversions: conversioni,
@@ -1392,39 +1393,20 @@ pub fn cmd_convert(cli: &Cli) -> CliResult {
     let ds = src.open(Source::Path(in_path), ropts).map_err(map_err)?;
     let initial_read_fidelity = ds.fidelity_assessment();
 
-    // La selezione predefinita coincide con quella di read.
-    let all: Vec<LayerContract> = ds.layers().to_vec();
-    let id = selected_layer_id(cli, ds.as_ref())?;
-    let selected = vec![all
-        .iter()
-        .find(|layer| layer.id.0 == id)
-        .cloned()
-        .ok_or_else(|| {
-            local_err_doc(
-                "NO_LAYER",
-                ErrorCategory::NotFound,
-                ErrorPhase::Prepare,
-                &PublicMessage::CuratedWith(
-                    "layer inesistente all'indice",
-                    NumeroStrutturale::Indice(u64::from(id)),
-                ),
-            )
-        })?];
-    // Multi-layer verso destinazione single-layer: vietato (fail-closed).
-    if selected.len() > 1 && !dst.descriptor().multi_layer() {
-        return Err(local_err_doc(
-                "SINGLE_LAYER_SINK",
-                ErrorCategory::InvalidPlan,
-                ErrorPhase::Validate,
-                &PublicMessage::CuratedWith(
-                    "destinazione single-layer ma la sorgente dichiara piu' layer; usare --layer per sceglierne uno. Layer nella sorgente:",
-                    NumeroStrutturale::Conteggio(saturating_u64(
-                        selected.len(),
-                    )),
-                ),
-            ),
-        );
-    }
+    let selected = if cli.layer.is_none() && dst.descriptor().multi_layer() {
+        let layers: Vec<_> = ds
+            .layers()
+            .iter()
+            .filter(|layer| ds.rifiuto_del_layer(layer.id).is_none())
+            .cloned()
+            .collect();
+        if layers.is_empty() {
+            selected_layer_id(cli, ds.as_ref())?;
+        }
+        layers
+    } else {
+        strati_da_pubblicare(ds.layers(), Some(selected_layer_id(cli, ds.as_ref())?))?
+    };
 
     // Un layer rifiutato si rifiuta prima di preparare il sink, come in
     // `io.read`: il rifiuto che esce e' il suo.
@@ -1451,6 +1433,22 @@ pub fn cmd_convert(cli: &Cli) -> CliResult {
     let mut layer_reports = Vec::new();
     let mut total_rows = 0usize;
     let mut read_loss = LossReport::default();
+    if cli.layer.is_none() && dst.descriptor().multi_layer() {
+        for layer in ds.layers() {
+            if let Some(reason) = ds.rifiuto_del_layer(layer.id) {
+                read_loss.record("source_object_not_readable", 1);
+                read_loss.add_example(plenora_io_core::loss::LossExample {
+                    category: "source_object_not_readable".to_owned(),
+                    posizione: plenora_io_core::loss::Posizione {
+                        layer_index: Some(u64::from(layer.id.0)),
+                        field_index: None,
+                        type_class: None,
+                    },
+                    context: format!("{:?}: {:?}", reason.code, reason.capability_reason),
+                });
+            }
+        }
+    }
     for (sink_idx, l) in selected.iter().enumerate() {
         let mut reader = ds
             .open_layer_reader(&read_request(cli, l.id.0, ReadScope::Complete))

@@ -137,6 +137,8 @@ fn un_assume_crs_che_contraddice_il_crs_dichiarato_e_rifiutato() {
         let letto = esegui(&[
             "read",
             &percorso,
+            "--layer",
+            "0",
             "--output",
             consegna.to_str().expect("UTF-8"),
             "--assume-crs",

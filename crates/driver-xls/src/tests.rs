@@ -4007,7 +4007,7 @@ fn native_xy_columns_and_decimal_precision_are_declared() {
     let loss = reader.loss_report();
     assert_eq!(loss.counts.get("native_fields_reconstructed"), Some(&2));
     assert_eq!(loss.counts.get("native_field_order_changed"), Some(&1));
-    assert_eq!(loss.counts.get("native_number_precision"), Some(&2));
+    assert_eq!(loss.counts.get("native_number_precision"), Some(&1));
 }
 
 #[test]
