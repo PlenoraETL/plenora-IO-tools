@@ -723,7 +723,13 @@ fn un_crs_ignoto_si_riscrive_in_geoparquet_come_null() {
     let secondo = dir.path().join("ancora.parquet");
     let esito = converti(&primo, &secondo, &[]);
     assert!(esito.riuscita, "{}", esito.busta);
-    assert_eq!(esito.livello(), "lossless");
+    assert_eq!(esito.livello(), "approximating");
+    assert!(esito.perdite().is_empty());
+    assert!(esito.busta["result"]["read_loss"]["counts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|entry| entry["categoria"] == "native_bbox_not_preserved"));
     let riletto = ispeziona(&secondo);
     assert!(riletto.riuscita, "{}", riletto.busta);
     let geometria = &riletto.busta["result"]["layers"][0]["geometry"];

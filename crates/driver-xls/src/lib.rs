@@ -35,6 +35,8 @@ use plenora_io_core::driver::{
     Published, ReadOptions, Sink, Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
+use plenora_io_core::loss_table::{self, NativeDriver, NativeElement, TransportDirection};
+
 use plenora_io_core::publish::{create_staged_file, publish_file_atomic_limited};
 use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
@@ -379,7 +381,10 @@ impl FormatDriver for XlsDriver {
                     &opts.format_options,
                     crs,
                     opts.cancellation(),
-                    XlsxQuote::from_read_options(&opts),
+                    XlsxQuote {
+                        layer: u64::from(id.0),
+                        ..XlsxQuote::from_read_options(&opts)
+                    },
                     &styles,
                     opts.budget(),
                 )
@@ -497,6 +502,7 @@ impl FormatDriver for XlsDriver {
         };
         with_write_validation(
             Box::new(XlsWriterState {
+                loss: loss_table::native_write_report(NativeDriver::Xls, plan),
                 path,
                 durable: opts.durable,
                 xy,
@@ -853,6 +859,7 @@ impl OpenDatasetHandle for XlsDataset {
         let (layout, spool) = self.contents[index]
             .as_ref()
             .ok_or_else(|| sheet_error(plenora_io_model::CapabilityReason::ObjectEmpty))?;
+        let loss = layout.loss.clone();
         let layout = layout.clone();
         let spool = Arc::clone(spool);
         let layer = self.layers[index].clone();
@@ -865,7 +872,7 @@ impl OpenDatasetHandle for XlsDataset {
             spawn_xlsx_reader(spool, layout, batch_sizer, layer, cancellation.clone())
         })?;
         Ok(plenora_io_core::with_cancellation(
-            reader,
+            loss_table::with_native_report(reader, loss),
             request.cancellation.clone(),
         ))
     }
@@ -880,6 +887,7 @@ enum XlsxGeomSpec {
 
 #[derive(Clone)]
 struct XlsxLayout {
+    loss: LossReport,
     attrs: Vec<(u32, ColType)>,
     schema: SchemaRef,
     data_rows: usize,
@@ -894,6 +902,7 @@ struct SheetBounds {
 // --- scrittura -------------------------------------------------------------
 
 struct XlsWriterState {
+    loss: LossReport,
     path: PathBuf,
     durable: bool,
     xy: bool,
@@ -1104,7 +1113,7 @@ impl FormatWriter for XlsWriterState {
         )?;
         Ok(Published {
             bytes,
-            loss: LossReport::default(),
+            loss: self.loss,
             fidelity: plenora_io_core::FidelityAssessment::lossless(),
             outcome,
         })
@@ -1598,6 +1607,7 @@ impl<'a> BoundedSpoolWriter<'a> {
 /// insieme evita anche di allungare la lista dei parametri oltre il tetto.
 #[derive(Clone, Copy)]
 struct XlsxQuote {
+    layer: u64,
     colonne: usize,
     righe: usize,
     byte_ingresso: u64,
@@ -1610,6 +1620,7 @@ struct XlsxQuote {
 impl XlsxQuote {
     fn from_read_options(opts: &ReadOptions) -> Self {
         Self {
+            layer: 0,
             colonne: opts.max_columns(),
             righe: opts.max_rows(),
             byte_ingresso: opts.max_input_bytes(),
@@ -1700,6 +1711,20 @@ where
         ));
     }
 
+    let mut native_loss = LossReport::default();
+    for (element, count) in [
+        (NativeElement::Formula, styles.formulas),
+        (NativeElement::NumericFormat, styles.numeric_formats),
+    ] {
+        loss_table::observe_native(
+            &mut native_loss,
+            (NativeDriver::Xls, TransportDirection::Read),
+            element,
+            count,
+            quote.layer,
+            None,
+        );
+    }
     let mut headers: Option<Vec<String>> = None;
     let mut geom = None;
     let mut geom_columns = BTreeSet::new();
@@ -1730,6 +1755,20 @@ where
             }
             let resolved_geom =
                 geom.ok_or_else(|| err(&PublicMessage::Curated("intestazione XLSX assente")))?;
+            if matches!(resolved_geom, XlsxGeomSpec::Xy(_, _)) {
+                for &column in &geom_columns {
+                    if !matches!(row[(column - bounds.start.1) as usize], Data::Empty) {
+                        loss_table::observe_native(
+                            &mut native_loss,
+                            (NativeDriver::Xls, TransportDirection::Read),
+                            NativeElement::CoordinatePrecision,
+                            1,
+                            quote.layer,
+                            Some(u64::from(column)),
+                        );
+                    }
+                }
+            }
             let has_geometry = encode_geometry_cell(
                 row,
                 bounds,
@@ -1754,6 +1793,16 @@ where
                             "indice colonna XLSX fuori intervallo",
                         ))
                     })?;
+                if matches!(data, Data::Float(_) | Data::Int(_) | Data::DateTime(_)) {
+                    loss_table::observe_native(
+                        &mut native_loss,
+                        (NativeDriver::Xls, TransportDirection::Read),
+                        NativeElement::NumberPrecision,
+                        1,
+                        quote.layer,
+                        Some(u64::from(column)),
+                    );
+                }
                 if geom_columns.contains(&column) {
                     continue;
                 }
@@ -1799,6 +1848,17 @@ where
     let geom =
         geom.ok_or_else(|| err(&PublicMessage::Curated("geometria XLSX non configurata")))?;
 
+    let columns: Vec<_> = geom_columns
+        .iter()
+        .map(|column| (column - bounds.start.1) as usize)
+        .collect();
+    native_loss.merge(&loss_table::tabular_geometry_report(
+        NativeDriver::Xls,
+        &headers,
+        &columns,
+        matches!(geom, XlsxGeomSpec::Xy(_, _)),
+        quote.layer,
+    ));
     if matches!(geom, XlsxGeomSpec::Xy(_, _)) {
         detected_dimensions.insert(CoordinateDimensions::Xy);
         detected_types.insert(GeometryType::Point);
@@ -1894,6 +1954,7 @@ where
     let schema = contract.schema.clone();
     Ok((
         XlsxLayout {
+            loss: native_loss,
             attrs,
             schema,
             data_rows: row_count,

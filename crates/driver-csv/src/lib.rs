@@ -41,6 +41,8 @@ use plenora_io_core::driver::{
     Published, ReadOptions, Sink, Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
+use plenora_io_core::loss_table::{self, NativeDriver, NativeElement, TransportDirection};
+
 use plenora_io_core::publish::StagedFile;
 use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
@@ -53,6 +55,64 @@ use plenora_io_model::contract::{
     LayerContract, LayerId,
 };
 use plenora_io_model::crs::ResolvedCrs;
+
+fn native_read_loss(
+    path: &Path,
+    delim: u8,
+    headers: &[String],
+    geom: Option<GeomSpec>,
+    opts: &ReadOptions,
+    attrs: &[(usize, ColType)],
+) -> Result<LossReport> {
+    let columns: Vec<_> = match geom {
+        Some(GeomSpec::Wkt(i)) => vec![i],
+        Some(GeomSpec::Xy(x, y)) => vec![x, y],
+        None => vec![],
+    };
+    let mut loss = loss_table::tabular_geometry_report(
+        NativeDriver::Csv,
+        headers,
+        &columns,
+        matches!(geom, Some(GeomSpec::Xy(_, _))),
+        0,
+    );
+    if let Some(GeomSpec::Xy(x, y)) = geom {
+        let mut reader = csv_reader(path, delim)?;
+        let mut row = csv::StringRecord::new();
+        while reader
+            .read_record(&mut row)
+            .map_err(|_| err(&PublicMessage::Curated("CSV non valido")))?
+        {
+            opts.ensure_active()?;
+            for index in [x, y] {
+                if row.get(index).is_some_and(|value| !value.is_empty()) {
+                    loss_table::observe_native(
+                        &mut loss,
+                        (NativeDriver::Csv, TransportDirection::Read),
+                        NativeElement::CoordinatePrecision,
+                        1,
+                        0,
+                        Some(index as u64),
+                    );
+                }
+            }
+        }
+    }
+    for (index, kind) in attrs {
+        if kind.arrow_data_type() != arrow_schema::DataType::Utf8 {
+            loss_table::observe_native(
+                &mut loss,
+                (NativeDriver::Csv, TransportDirection::Read),
+                NativeElement::Inference,
+                1,
+                0,
+                Some(*index as u64),
+            );
+        }
+    }
+    Ok(loss)
+}
+
 #[cfg(test)]
 use plenora_io_model::geometry::is_geometry_field;
 use plenora_io_model::geometry::with_geometry_contract_metadata;
@@ -428,6 +488,7 @@ impl FormatDriver for CsvDriver {
         for (ci, ct) in &attrs {
             fields.push(Field::new(&headers[*ci], ct.arrow_data_type(), true));
         }
+        let loss = native_read_loss(&path, delim, &headers, geom, &opts, &attrs)?;
         let schema: SchemaRef = Arc::new(Schema::new(fields));
         let contract = if let Some(geometry) = geometry_contract {
             DataContract::new(
@@ -444,6 +505,7 @@ impl FormatDriver for CsvDriver {
             .to_owned();
         plenora_io_core::with_read_budget(
             Box::new(CsvDataset {
+                loss,
                 path,
                 delim,
                 geom,
@@ -556,6 +618,7 @@ impl FormatDriver for CsvDriver {
         );
         with_write_validation(
             Box::new(CsvWriter {
+                loss: loss_table::native_write_report(NativeDriver::Csv, plan),
                 staging,
                 writer: Some(writer),
                 xy,
@@ -572,6 +635,7 @@ impl FormatDriver for CsvDriver {
 // --- lettura streaming -----------------------------------------------------
 
 struct CsvDataset {
+    loss: LossReport,
     path: PathBuf,
     delim: u8,
     geom: Option<GeomSpec>,
@@ -623,7 +687,7 @@ impl OpenDatasetHandle for CsvDataset {
             layer,
         )?;
         Ok(plenora_io_core::with_cancellation(
-            reader,
+            loss_table::with_native_report(reader, self.loss.clone()),
             request.cancellation.clone(),
         ))
     }
@@ -1014,6 +1078,7 @@ fn finish_batch(
 // --- scrittura streaming ---------------------------------------------------
 
 struct CsvWriter {
+    loss: LossReport,
     staging: StagedFile,
     writer: Option<wire::Writer<File>>,
     xy: bool,
@@ -1154,7 +1219,7 @@ impl FormatWriter for CsvWriter {
         let (bytes, outcome) = self.staging.publish()?;
         Ok(Published {
             bytes,
-            loss: LossReport::default(),
+            loss: self.loss,
             fidelity: plenora_io_core::FidelityAssessment::lossless(),
             outcome,
         })

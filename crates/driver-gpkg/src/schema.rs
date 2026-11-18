@@ -298,7 +298,7 @@ pub fn columns_ddl(schema: &Schema, geom_idx: usize) -> Vec<String> {
     let geom_name = schema.field(geom_idx).name();
     let mut cols_ddl = Vec::new();
     if let Some(generated) = super::contract_plan::generated_primary_name(schema) {
-        cols_ddl.push(format!("\"{generated}\" INTEGER PRIMARY KEY AUTOINCREMENT"));
+        cols_ddl.push(format!("\"{generated}\" INTEGER PRIMARY KEY"));
     }
     cols_ddl.push(format!(
         "\"{}\" BLOB{}",
@@ -328,4 +328,63 @@ pub fn columns_ddl(schema: &Schema, geom_idx: usize) -> Vec<String> {
         ));
     }
     cols_ddl
+}
+
+/// Layer accessories that do not travel in the Arrow contract.
+pub fn native_layer_loss(conn: &Connection, table: &str, layer: u64) -> Result<LossReport> {
+    use super::{loss_table, NativeDriver, NativeElement, TransportDirection};
+    let mut report = LossReport::default();
+    let mut observe = |element, count| {
+        loss_table::observe_native(
+            &mut report,
+            (NativeDriver::Gpkg, TransportDirection::Read),
+            element,
+            count,
+            layer,
+            None,
+        );
+    };
+    let mut contents = conn
+        .prepare("SELECT identifier, description FROM gpkg_contents WHERE table_name = ?1")
+        .map_err(sql_err)?;
+    let mut rows = contents.query([table]).map_err(sql_err)?;
+    while let Some(row) = rows.next().map_err(sql_err)? {
+        for (index, element) in [
+            (0, NativeElement::Identifier),
+            (1, NativeElement::Description),
+        ] {
+            let value: Option<String> = row.get(index).map_err(sql_err)?;
+            observe(element, u64::from(value.is_some_and(|v| !v.is_empty())));
+        }
+    }
+    for (accessory, column, element) in [
+        (
+            "gpkg_data_columns",
+            "table_name",
+            NativeElement::DataColumns,
+        ),
+        ("layer_styles", "f_table_name", NativeElement::Styles),
+        ("gpkg_extensions", "table_name", NativeElement::Extensions),
+        (
+            "gpkg_metadata_reference",
+            "table_name",
+            NativeElement::LayerMetadata,
+        ),
+    ] {
+        let exists: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",
+                [accessory],
+                |row| row.get(0),
+            )
+            .map_err(sql_err)?;
+        if exists {
+            let sql = format!("SELECT count(*) FROM \"{accessory}\" WHERE \"{column}\" = ?1 OR \"{column}\" IS NULL");
+            let count: i64 = conn
+                .query_row(&sql, [table], |row| row.get(0))
+                .map_err(sql_err)?;
+            observe(element, count.unsigned_abs());
+        }
+    }
+    Ok(report)
 }

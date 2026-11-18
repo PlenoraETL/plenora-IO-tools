@@ -2008,6 +2008,7 @@ fn n1_json_from_array_non_produce_ne_aggregati_ne_numeri_non_rappresentabili() {
 #[allow(clippy::unnecessary_box_returns)]
 fn scrittore(percorso: &std::path::Path, xy: bool, lotti: Vec<RecordBatch>) -> Box<XlsWriterState> {
     Box::new(XlsWriterState {
+        loss: LossReport::default(),
         path: percorso.to_owned(),
         durable: false,
         xy,
@@ -3671,6 +3672,7 @@ fn la_decodifica_difensiva_del_writer_dichiara_la_finalizzazione() {
     .unwrap();
 
     let mut sotto_prova = Box::new(XlsWriterState {
+        loss: LossReport::default(),
         path: output,
         durable: false,
         xy: false,
@@ -3890,4 +3892,122 @@ fn r2_damage_parts(path: &std::path::Path) {
         }
     }
     std::fs::write(path, output.finish().unwrap().into_inner()).unwrap();
+}
+
+#[test]
+fn native_formula_cache_and_numeric_format_are_declared() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("native.xlsx");
+    let mut workbook = rust_xlsxwriter::Workbook::new();
+    let sheet = workbook.add_worksheet();
+    sheet.write_string(0, 0, "number").unwrap();
+    sheet.write_string(0, 1, "formula").unwrap();
+    sheet
+        .write_number_with_format(
+            1,
+            0,
+            12.0,
+            &rust_xlsxwriter::Format::new().set_num_format("00000"),
+        )
+        .unwrap();
+    sheet
+        .write_formula(1, 1, rust_xlsxwriter::Formula::new("=6*7").set_result("42"))
+        .unwrap();
+    workbook.save(&path).unwrap();
+    let dataset = XlsDriver
+        .open(Source::Path(path), opzioni_lettura())
+        .unwrap();
+    let mut reader = dataset
+        .open_layer_reader(&ReadRequest {
+            layer: LayerId(0),
+            projected_fields: None,
+            projection_mode: ProjectionMode::BestEffort,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: ReadScope::Complete,
+            batch_target: BatchTarget::default(),
+            cancellation: CancellationToken::default(),
+        })
+        .unwrap();
+    let batch = reader.next_batch().unwrap().unwrap();
+    assert_eq!(
+        batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<arrow_array::Float64Array>()
+            .unwrap()
+            .value(0)
+            .to_bits(),
+        12.0_f64.to_bits()
+    );
+    assert_eq!(
+        batch
+            .column(1)
+            .as_any()
+            .downcast_ref::<arrow_array::Float64Array>()
+            .unwrap()
+            .value(0)
+            .to_bits(),
+        42.0_f64.to_bits()
+    );
+    assert!(reader.next_batch().unwrap().is_none());
+    let loss = reader.loss_report();
+    assert_eq!(loss.counts.get("native_styles_not_preserved"), Some(&1));
+    assert_eq!(
+        loss.counts.get("native_layer_metadata_not_preserved"),
+        Some(&1)
+    );
+    let examples = serde_json::to_string(&loss.esempi_canonici().collect::<Vec<_>>()).unwrap();
+    assert!(!examples.contains("6*7"));
+    assert!(!examples.contains("00000"));
+}
+
+#[test]
+fn native_xy_columns_and_decimal_precision_are_declared() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("xy.xlsx");
+    let mut workbook = rust_xlsxwriter::Workbook::new();
+    let sheet = workbook.add_worksheet();
+    for (col, name) in [(0, "label"), (1, "east"), (2, "north")] {
+        sheet.write_string(0, col, name).unwrap();
+    }
+    sheet.write_string(1, 0, "keep").unwrap();
+    sheet.write_string(1, 1, "1.1234567890123456789").unwrap();
+    sheet.write_string(1, 2, "2").unwrap();
+    workbook.save(&path).unwrap();
+    let mut opts = opzioni_lettura();
+    opts.assume_crs = Some("EPSG:4326".into());
+    opts.format_options.insert("x_column".into(), "east".into());
+    opts.format_options
+        .insert("y_column".into(), "north".into());
+    let dataset = XlsDriver.open(Source::Path(path), opts).unwrap();
+    let mut reader = dataset
+        .open_layer_reader(&ReadRequest {
+            layer: LayerId(0),
+            projected_fields: None,
+            projection_mode: ProjectionMode::BestEffort,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: ReadScope::Complete,
+            batch_target: BatchTarget::default(),
+            cancellation: CancellationToken::default(),
+        })
+        .unwrap();
+    let batch = reader.next_batch().unwrap().unwrap();
+    assert_eq!(batch.schema().field(0).name(), "geometry");
+    assert_eq!(batch.schema().field(1).name(), "label");
+    assert_eq!(
+        batch
+            .column(1)
+            .as_any()
+            .downcast_ref::<arrow_array::StringArray>()
+            .unwrap()
+            .value(0),
+        "keep"
+    );
+    assert!(reader.next_batch().unwrap().is_none());
+    let loss = reader.loss_report();
+    assert_eq!(loss.counts.get("native_fields_reconstructed"), Some(&2));
+    assert_eq!(loss.counts.get("native_field_order_changed"), Some(&1));
+    assert_eq!(loss.counts.get("native_number_precision"), Some(&2));
 }

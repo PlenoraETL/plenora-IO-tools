@@ -375,6 +375,7 @@ fn xls_a_csv_conserva_null_e_interi_larghi() {
     assert_eq!(
         esito.perdite(),
         perdite(&[
+            ("native_field_order_changed", 9),
             ("arrow_metadata_not_preserved", 15),
             ("crs_id_not_preserved_absent", 1)
         ]),
@@ -413,6 +414,7 @@ fn kml_a_xls_dichiara_geometria_e_crs_perduti() {
     assert_eq!(
         esito.perdite(),
         perdite(&[
+            ("native_field_order_changed", 3),
             ("arrow_metadata_not_preserved", 13),
             ("crs_id_not_preserved_absent", 1)
         ]),
@@ -449,6 +451,7 @@ fn geoparquet_a_csv_dichiara_la_perdita_del_crs() {
     assert_eq!(
         esito.perdite(),
         perdite(&[
+            ("native_not_null_not_preserved", 4),
             ("arrow_metadata_not_preserved", 20),
             ("coercion tipo attributo", 5),
             ("crs_definition_not_preserved_absent", 1),

@@ -176,15 +176,17 @@ fn real_values_in_an_integer_column_are_reported_as_loss_not_silently_coerced() 
     assert_eq!(loss.counts.get(INTEGER_COLUMN_REAL_TRUNCATED), Some(&1));
     assert_eq!(loss.counts.get(INTEGER_COLUMN_REAL_SATURATED), Some(&1));
     // Il 7.0 convertito dall'affinita' non e' una perdita.
-    assert_eq!(loss.counts.values().sum::<u64>(), 3);
+    assert_eq!(loss.counts.values().sum::<u64>(), 5);
     assert_eq!(loss.counts.get(SCHEMA_NORMALIZED), Some(&1));
     // Un esempio per coppia (campo, categoria), mai uno per riga.
-    assert_eq!(loss.esempi_trattenuti(), 3);
+    assert_eq!(loss.esempi_trattenuti(), 5);
     // Il nome della colonna non c'e' piu': al suo posto l'indice nello
     // schema, e i due esempi restano distinti per quello.
     assert!(loss.esempi_canonici().all(|example| {
         !example.context.contains("field=")
-            && (example.posizione.field_index.is_some() || example.category == SCHEMA_NORMALIZED)
+            && (example.posizione.field_index.is_some()
+                || example.category == SCHEMA_NORMALIZED
+                || example.category == "native_layer_metadata_not_preserved")
     }));
 }
 
@@ -2705,4 +2707,71 @@ fn r2_srs_obbligatori_non_sono_crs_risolti() {
         let error = crs_for(&conn, id).unwrap_err();
         assert_eq!(error.code, plenora_io_model::IoErrorCode::CrsUnresolved);
     }
+}
+
+#[test]
+fn native_layer_accessories_are_counted_without_payload() {
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch("CREATE TABLE gpkg_contents(table_name TEXT,identifier TEXT,description TEXT);
+        INSERT INTO gpkg_contents VALUES ('secret','private-id','private-description');
+        CREATE TABLE gpkg_data_columns(table_name TEXT); INSERT INTO gpkg_data_columns VALUES ('secret');
+        CREATE TABLE layer_styles(f_table_name TEXT); INSERT INTO layer_styles VALUES ('secret');
+        CREATE TABLE gpkg_extensions(table_name TEXT); INSERT INTO gpkg_extensions VALUES ('secret');
+        CREATE TABLE gpkg_metadata_reference(table_name TEXT); INSERT INTO gpkg_metadata_reference VALUES ('secret');").unwrap();
+    let report = schema::native_layer_loss(&conn, "secret", 3).unwrap();
+    assert_eq!(
+        report.counts.get("native_layer_metadata_not_preserved"),
+        Some(&5)
+    );
+    assert_eq!(report.counts.get("native_styles_not_preserved"), Some(&1));
+    let examples = serde_json::to_string(&report.esempi_canonici().collect::<Vec<_>>()).unwrap();
+    assert!(!examples.contains("secret"));
+    assert!(!examples.contains("private"));
+    assert!(report
+        .esempi_canonici()
+        .all(|e| e.posizione.layer_index == Some(3)));
+}
+
+#[test]
+fn generated_primary_key_does_not_emit_unrepresented_autoincrement() {
+    let schema = Schema::new(vec![Field::new("geometry", DataType::Binary, true)]);
+    let ddl = schema::columns_ddl(&schema, 0).join(",");
+    assert!(!ddl.contains("AUTOINCREMENT"));
+    assert!(ddl.contains("INTEGER PRIMARY KEY"));
+}
+
+#[test]
+fn generated_database_reads_without_sql_constraint_loss() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("generated.gpkg");
+    let schema = Arc::new(Schema::new(vec![geometry_field("geom", "EPSG:4326")]));
+    let plan = WritePlan {
+        layers: vec![WriteLayer {
+            name: "layer".into(),
+            contract: DataContract::from_schema(schema.clone()).unwrap(),
+        }],
+    };
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![Arc::new(BinaryArray::from(vec![None::<&[u8]>]))],
+    )
+    .unwrap();
+    let mut writer = GpkgDriver
+        .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
+        .unwrap();
+    writer.write(&batch).unwrap();
+    writer.finish().unwrap();
+    let dataset = GpkgDriver
+        .open(Source::Path(path), opzioni_lettura())
+        .unwrap();
+    assert!(dataset.layers()[0]
+        .contract
+        .schema
+        .metadata()
+        .get("gpkg.schema_normalized")
+        .is_none_or(|reasons| !reasons.split(',').any(|reason| reason == "constraints")));
+    let loss = read_all_and_loss(dataset.as_ref());
+    assert!(loss
+        .esempi_canonici()
+        .all(|example| !example.context.contains("vincoli SQL")));
 }

@@ -4186,7 +4186,8 @@ fn le_chiavi_del_formato_della_sorgente_non_entrano_nello_schema_incorporato() {
         .create(Sink::Path(percorso.clone()), &plan, &opzioni_scrittura())
         .expect("il writer si apre");
     writer.write(&batch).expect("scrittura");
-    writer.finish().expect("chiusura");
+    let published = writer.finish().expect("chiusura");
+    assert!(published.loss.counts["arrow_metadata_not_preserved"] >= 2);
 
     let (incorporato, geo) = schema_incorporato(&percorso);
     assert_eq!(geo.len(), 1, "il footer porta il solo `geo` del writer");
@@ -4201,6 +4202,37 @@ fn le_chiavi_del_formato_della_sorgente_non_entrano_nello_schema_incorporato() {
     assert!(!geometria
         .metadata()
         .contains_key("ARROW:extension:metadata"));
+    let dataset = GeoParquetDriver
+        .open(Source::Path(percorso), opzioni_lettura())
+        .unwrap();
+    let mut reader = dataset
+        .open_layer_reader(&ReadRequest {
+            layer: LayerId(0),
+            projected_fields: None,
+            projection_mode: ProjectionMode::BestEffort,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: ReadScope::Complete,
+            batch_target: BatchTarget::default(),
+            cancellation: CancellationToken::default(),
+        })
+        .unwrap();
+    let batch = reader.next_batch().unwrap().unwrap();
+    assert_eq!(batch.num_columns(), 2);
+    assert_eq!(
+        batch
+            .column(1)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap()
+            .value(0),
+        1
+    );
+    assert!(reader.next_batch().unwrap().is_none());
+    assert_eq!(
+        reader.loss_report().counts.get("native_bbox_not_preserved"),
+        Some(&1)
+    );
 }
 
 /// In lettura il `geo` e' consumato nel contratto: su 777c5a1 restava nei
@@ -4216,6 +4248,22 @@ fn il_geo_letto_non_resta_nei_metadati_del_contratto() {
     let contratto = &dataset.layers()[0].contract;
     assert!(!contratto.schema.metadata().contains_key("geo"));
     assert!(!contratto.schema.metadata().contains_key("ARROW:schema"));
+    let mut reader = dataset
+        .open_layer_reader(&ReadRequest {
+            layer: LayerId(0),
+            projected_fields: None,
+            projection_mode: ProjectionMode::BestEffort,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: ReadScope::Complete,
+            batch_target: BatchTarget::default(),
+            cancellation: CancellationToken::default(),
+        })
+        .unwrap();
+    while reader.next_batch().unwrap().is_some() {}
+    let report = reader.loss_report();
+    assert_eq!(report.counts.get("native_bbox_not_preserved"), None);
+    assert!(report.counts["arrow_metadata_not_preserved"] >= 1);
 }
 
 // --- rilettura 13: l'epoca delle coordinate e i `geo` discordi -------------

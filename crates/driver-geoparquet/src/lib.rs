@@ -32,6 +32,8 @@ use plenora_io_core::driver::{
     Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
+use plenora_io_core::loss_table::{self, NativeDriver, NativeElement, TransportDirection};
+
 use plenora_io_core::publish::StagedFile;
 use plenora_io_core::request::{
     Bbox, ProjectionMode, PruningComparison, PruningPredicate, PruningScalar, ReadRequest,
@@ -1126,6 +1128,7 @@ fn open_arrow_parquet(
         .to_owned();
     plenora_io_core::with_read_budget(
         Box::new(GeoParquetDataset {
+            loss: LossReport::default(),
             path,
             visible_to_physical: (0..out_schema.fields().len()).collect(),
             out_schema,
@@ -1217,6 +1220,26 @@ impl FormatDriver for GeoParquetDriver {
         let visible_to_physical = mappa_campi_fisici(&out_schema, &parquet_schema)?;
         let (contract, altre_geometrie) =
             contract_from_footer(&out_schema, geom_name, crs, geo.as_ref())?;
+        let mut loss = loss_table::metadata_changes(
+            NativeDriver::GeoParquet,
+            TransportDirection::Read,
+            &parquet_schema,
+            &contract.schema,
+        );
+        if let Some(names) = &strip_names {
+            for (index, field) in parquet_schema.fields().iter().enumerate() {
+                if names.contains(field.name()) {
+                    loss_table::observe_native(
+                        &mut loss,
+                        (NativeDriver::GeoParquet, TransportDirection::Read),
+                        NativeElement::Covering,
+                        1,
+                        0,
+                        Some(index as u64),
+                    );
+                }
+            }
+        }
         let out_schema = contract.schema.clone();
         let name = path
             .file_stem()
@@ -1230,6 +1253,7 @@ impl FormatDriver for GeoParquetDriver {
         };
         plenora_io_core::with_read_budget(
             Box::new(GeoParquetDataset {
+                loss,
                 path,
                 out_schema: out_schema.clone(),
                 bbox_covering,
@@ -1249,6 +1273,7 @@ impl FormatDriver for GeoParquetDriver {
         )
     }
 
+    #[allow(clippy::too_many_lines)] // Schema reconciliation and writer construction share the validated plan.
     fn create(
         &self,
         sink: Sink,
@@ -1377,6 +1402,7 @@ impl FormatDriver for GeoParquetDriver {
                 })?;
         with_write_validation(
             Box::new(GeoParquetWriter {
+                source_schema: schema,
                 staging,
                 writer: Some(writer),
                 write_schema,
@@ -1429,7 +1455,7 @@ fn senza_chiavi_del_formato(metadati: &arrow_schema::Metadata) -> arrow_schema::
 /// alla chiusura, con i tipi visti; `ArrowWriter` fissa lo schema
 /// all'apertura, quindi il writer salta il proprio e lo codifica qui, con la
 /// stessa funzione della libreria.
-fn schema_arrow_con_geo(schema: &Schema, geo: &str) -> Result<String> {
+fn completed_schema_with_geo(schema: &Schema, geo: &str) -> Result<Schema> {
     let mut metadati = schema.metadata().clone();
     metadati.insert(plenora_io_model::geometry::GEO_METADATA_KEY, geo);
     // Il footer finale e il campo incorporato descrivono gli stessi tipi osservati.
@@ -1473,7 +1499,11 @@ fn schema_arrow_con_geo(schema: &Schema, geo: &str) -> Result<String> {
             Ok(field.as_ref().clone().with_metadata(field_keys))
         })
         .collect::<Result<Vec<_>>>()?;
-    let con_geo = Schema::new_with_metadata(fields, metadati);
+    Ok(Schema::new_with_metadata(fields, metadati))
+}
+
+fn schema_arrow_con_geo(schema: &Schema, geo: &str) -> Result<String> {
+    let con_geo = completed_schema_with_geo(schema, geo)?;
     let mut proprieta = WriterProperties::builder().build();
     parquet::arrow::add_encoded_arrow_schema_to_metadata(&con_geo, &mut proprieta);
     proprieta
@@ -1834,6 +1864,7 @@ fn identificatore_del_documento(documento: &serde_json::Value) -> Option<String>
 }
 
 struct GeoParquetDataset {
+    loss: LossReport,
     path: PathBuf,
     out_schema: SchemaRef,
     /// Nomi delle colonne bbox del covering spaziale, se il file dichiara
@@ -2056,7 +2087,7 @@ impl OpenDatasetHandle for GeoParquetDataset {
             layer,
         });
         Ok(plenora_io_core::with_cancellation(
-            reader,
+            loss_table::with_native_report(reader, self.loss.clone()),
             request.cancellation.clone(),
         ))
     }
@@ -2109,6 +2140,7 @@ impl LayerReader for GeoParquetReader {
 }
 
 struct GeoParquetWriter {
+    source_schema: SchemaRef,
     staging: StagedFile,
     writer: Option<ArrowWriter<File>>,
     write_schema: SchemaRef,
@@ -2186,6 +2218,13 @@ impl FormatWriter for GeoParquetWriter {
         })?;
         schema_ufficiale::valida(&documento, VERSIONE_SCRITTA)?;
 
+        let final_schema = completed_schema_with_geo(&self.write_schema, &geo)?;
+        let loss = loss_table::metadata_changes(
+            NativeDriver::GeoParquet,
+            TransportDirection::Write,
+            &self.source_schema,
+            &final_schema,
+        );
         writer.append_key_value_metadata(KeyValue::new(
             "ARROW:schema".to_owned(),
             schema_arrow_con_geo(&self.write_schema, &geo)?,
@@ -2199,7 +2238,7 @@ impl FormatWriter for GeoParquetWriter {
         let (bytes, outcome) = self.staging.publish()?;
         Ok(Published {
             bytes,
-            loss: LossReport::default(),
+            loss,
             fidelity: plenora_io_core::FidelityAssessment::lossless(),
             outcome,
         })

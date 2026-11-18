@@ -1336,3 +1336,54 @@ normalizzazione degli anelli e una geometria vuota per `native_missing_as_null`.
 I conteggi dichiarano il processo nativo anche quando un valore è già esatto.
 NOT NULL e ordine sono dichiarati anche per layer senza righe. Tutti gli esempi
 usano indici di layer/campo; il limite degli esempi non cambia.
+
+
+### Perdite native CSV, XLSX, GeoPackage, GeoParquet e IPC
+
+La matrice `loss_table` comprende tutti i dieci driver e le due direzioni.
+L'inventario indipendente dei test richiede una riga per ogni elemento e un
+driver qualificato per ogni descrittore. Le classi `allowed_types` vengono
+calcolate dalle celle di scrittura; le dimensioni dalle celle M e dimensione
+sconosciuta. GeoParquet accetta XY/XYZ/unknown e rifiuta M.
+
+CSV e XLSX dichiarano il nome WKT ricostruito come `geometry`, il consumo
+delle colonne X/Y e il riordino. I writer collocano la geometria dopo gli
+attributi; i reader la espongono prima. In scrittura il conteggio è quello
+dei campi spostati; in lettura è una ricostruzione dell'ordine quando la
+prima colonna geometrica non era la prima colonna nativa. Il consumo X/Y
+conta due colonne, la rinomina WKT una colonna. Il report usa indici delle
+colonne sorgenti, senza nomi. La precisione X/Y dichiara ogni coordinata
+non vuota convertita a binary64; non misura le cifre effettivamente perse.
+CSV dichiara inoltre l'inferenza dei campi numerici e booleani.
+
+XLSX dichiara i formati numerici per cella con formato diverso da General e
+le formule per elemento formula. Restituisce il valore in cache senza
+ricalcolarlo: la dichiarazione non promette che la cache sia aggiornata.
+La rappresentazione numerica nativa viene dichiarata per cella numerica;
+stringhe, null e stringhe vuote seguono le regole di trasporto già descritte.
+Le osservazioni dei fogli conservano l'indice del foglio selezionato.
+
+GeoPackage dichiara identifier e description non vuoti, righe di
+`gpkg_data_columns`, `layer_styles`, `gpkg_extensions` e
+`gpkg_metadata_reference` riferite al layer (incluse le riferite all'intero
+contenitore). Sono conteggi di membri/contenitori omessi, non delle loro
+singole stringhe. Identifier viene ricostruito anche se coincide con il nome
+della tabella. Il writer genera `INTEGER PRIMARY KEY` senza AUTOINCREMENT:
+la politica AUTOINCREMENT di un file esterno resta una normalizzazione SQL
+dichiarata dal reader, mentre non viene introdotta dal writer.
+
+GeoParquet dichiara ogni colonna radice del covering eliminata dal contratto,
+con indice fisico della colonna. La colonna bbox generata in scrittura è un
+accessorio derivato, non un attributo sorgente perduto. La normalizzazione
+dei metadati viene confrontata con lo schema finale del footer, dopo il
+completamento dei tipi e delle dimensioni osservati nei batch.
+
+IPC e GeoParquet confrontano i metadati originali con quelli esposti o
+scritti: ogni chiave sorgente rimossa o cambiata produce
+`arrow_metadata_not_preserved`, con indice di campo quando pertinente.
+Versione del contratto, identità, dichiarazione dei tipi, encoding,
+semantica spaziale, precisione, SRID, risoluzione CRS, formato della
+definizione, ordine degli assi, primaria ed estensioni hanno celle esplicite.
+Una chiave invariata non genera una perdita; le annotazioni nuove del
+contratto non sono contate come rimozioni di dati sorgenti. Le chiavi opache
+conservate non vengono esposte nei dettagli del report.

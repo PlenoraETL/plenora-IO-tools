@@ -38,6 +38,8 @@ use plenora_io_core::driver::{
     Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
+use plenora_io_core::loss_table::{self, NativeDriver, NativeElement, TransportDirection};
+
 use plenora_io_core::publish::StagedFile;
 use plenora_io_core::request::{Bbox, ReadRequest};
 use plenora_io_core::{
@@ -793,6 +795,7 @@ impl OpenDatasetHandle for GpkgDataset {
                 None,
             ),
         };
+        let native_loss = schema::native_layer_loss(&conn, &m.table, u64::from(request.layer.0))?;
         let reader: Box<dyn LayerReader> = Box::new(GpkgReader {
             sqlite_path,
             conn,
@@ -810,6 +813,7 @@ impl OpenDatasetHandle for GpkgDataset {
             layer,
             loss: {
                 let mut report = schema_read_loss(&m.schema, request.layer.0);
+                report.merge(&native_loss);
                 if let Some(properties) = &m.properties {
                     report.merge(&properties.report(
                         u64::from(request.layer.0),

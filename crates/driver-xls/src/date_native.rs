@@ -170,6 +170,8 @@ pub struct NativeStyles {
     dates: BTreeSet<(u32, u32)>,
     times: BTreeSet<(u32, u32)>,
     pub epoch: bool,
+    pub formulas: u64,
+    pub numeric_formats: u64,
 }
 impl NativeStyles {
     pub fn date_only(&self, row: u32, col: u32) -> bool {
@@ -243,8 +245,15 @@ impl NativeStyles {
         }
         drop(member);
         super::valida_riferimenti_selezionati(&path.to_path_buf(), budget, Some(&part))?;
+        scan(&mut zip, &part, budget, |tag, _attrs| {
+            if tag == "worksheet/sheetData/row/c/f" {
+                result.formulas += 1;
+            }
+            Ok(())
+        })?;
         let mut formats = BTreeMap::new();
         let mut styles = Vec::new();
+        let mut numeric = Vec::new();
         if zip.index_for_name("xl/styles.xml").is_none() {
             return Ok(result);
         }
@@ -258,6 +267,7 @@ impl NativeStyles {
                 }
                 "styleSheet/cellXfs/xf" => {
                     let id = attrs.get("numFmtId").map_or("0", String::as_str);
+                    numeric.push(id != "0");
                     styles.push(formats.get(id).map_or_else(
                         || (builtin_date(id), builtin_time(id)),
                         |code| (only_date(code), only_time(code)),
@@ -269,6 +279,13 @@ impl NativeStyles {
         })?;
         scan(&mut zip, &part, budget, |tag, attrs| {
             if tag == "worksheet/sheetData/row/c" {
+                let style = attrs
+                    .get("s")
+                    .and_then(|value| value.parse::<usize>().ok())
+                    .unwrap_or(0);
+                if numeric.get(style) == Some(&true) {
+                    result.numeric_formats += 1;
+                }
                 let (date, time) = attrs
                     .get("s")
                     .and_then(|v| v.parse::<usize>().ok())

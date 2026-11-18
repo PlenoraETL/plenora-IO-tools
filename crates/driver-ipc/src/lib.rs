@@ -24,6 +24,8 @@ use plenora_io_core::driver::{
     Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
+use plenora_io_core::loss_table::{self, NativeDriver, TransportDirection};
+
 use plenora_io_core::publish::StagedFile;
 use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
@@ -394,6 +396,12 @@ impl FormatDriver for IpcDriver {
         };
         with_write_validation(
             Box::new(IpcWriter {
+                loss: loss_table::metadata_changes(
+                    NativeDriver::Ipc,
+                    TransportDirection::Write,
+                    &layer.schema,
+                    &schema,
+                ),
                 staging,
                 writer: Some(scrittore),
                 schema,
@@ -478,7 +486,15 @@ impl OpenDatasetHandle for IpcDataset {
             )));
         }
         Ok(plenora_io_core::with_batch_target(
-            Box::new(IpcReader { reader, layer }),
+            loss_table::with_native_report(
+                Box::new(IpcReader { reader, layer }),
+                loss_table::metadata_changes(
+                    NativeDriver::Ipc,
+                    TransportDirection::Read,
+                    &self.received_schema,
+                    &self.layers[0].contract.schema,
+                ),
+            ),
             request.batch_target,
             request.cancellation.clone(),
         ))
@@ -609,6 +625,7 @@ impl ScrittoreIpc {
 }
 
 struct IpcWriter {
+    loss: LossReport,
     staging: StagedFile,
     writer: Option<ScrittoreIpc>,
     schema: SchemaRef,
@@ -640,7 +657,7 @@ impl FormatWriter for IpcWriter {
         let (bytes, outcome) = self.staging.publish()?;
         Ok(Published {
             bytes,
-            loss: LossReport::default(),
+            loss: self.loss,
             fidelity: plenora_io_core::FidelityAssessment::lossless(),
             outcome,
         })
