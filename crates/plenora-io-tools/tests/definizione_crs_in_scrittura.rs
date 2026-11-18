@@ -631,15 +631,13 @@ fn un_crs_che_il_file_rilegge_non_risolto_non_si_scrive_in_silenzio() {
     );
     let uscita = dir.path().join("con_id.shp.d");
     let esito = converti(&con_id, &uscita, &[]);
-    assert!(esito.riuscita, "{}", esito.busta);
-    assert_eq!(esito.perdite(), ["crs_id_not_preserved_absent"]);
-    let riletto = cli(&[
-        "inspect",
-        uscita.to_str().expect("percorso"),
-        "--assume-crs",
-        "EPSG:3003",
-    ]);
-    assert!(riletto.riuscita, "{}", riletto.busta);
+    assert!(!esito.riuscita, "{}", esito.busta);
+    assert_eq!(esito.busta["error"]["category"], "crs");
+    assert_eq!(esito.busta["error"]["code"], "CRS_UNRESOLVED");
+    assert!(
+        !uscita.exists(),
+        "la rilettura obbligatoria rifiuta prima del publish"
+    );
 }
 
 /// F6: un `GeoPackage` in WGS 84 scritto da noi si converte in Shapefile e si
@@ -723,7 +721,7 @@ fn un_crs_ignoto_si_riscrive_in_geoparquet_come_null() {
     let secondo = dir.path().join("ancora.parquet");
     let esito = converti(&primo, &secondo, &[]);
     assert!(esito.riuscita, "{}", esito.busta);
-    assert_eq!(esito.livello(), "approximating");
+    assert_eq!(esito.livello(), "lossless");
     assert!(esito.perdite().is_empty());
     assert!(esito.busta["result"]["read_loss"]["counts"]
         .as_array()

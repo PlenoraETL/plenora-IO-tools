@@ -1038,6 +1038,7 @@ pub fn with_write_validation(
 
 mod perdita_pianificata;
 use perdita_pianificata::assess_write_contract;
+pub(crate) use perdita_pianificata::observed_geometry_metadata_loss;
 pub use perdita_pianificata::planned_write_loss;
 
 mod scrittura_limitata;

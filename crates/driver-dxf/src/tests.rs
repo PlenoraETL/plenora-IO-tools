@@ -2075,6 +2075,10 @@ fn la_decodifica_difensiva_del_writer_dichiara_la_fase_di_scrittura() {
     .unwrap();
 
     let mut sotto_prova = DxfWriterState {
+        metadata_check: plenora_io_core::property_plan::NativeMetadataCheck::new(
+            &WritePlan { layers: Vec::new() },
+            &opzioni_scrittura(),
+        ),
         drawing: Drawing::new(),
         path: output,
         durable: false,

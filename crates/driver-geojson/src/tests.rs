@@ -1164,7 +1164,7 @@ fn native_inventory_cases_and_roundtrips() {
         if let Some(category) = expected {
             assert!(loss.counts[category] > 0, "{name}");
         }
-        assert_eq!(loss.counts["native_dimensions_not_declared"], 1);
+        assert!(!loss.counts.contains_key("native_dimensions_not_declared"));
         let out = dir.path().join("out.geojson");
         let plan = WritePlan {
             layers: vec![WriteLayer {
@@ -1177,7 +1177,10 @@ fn native_inventory_cases_and_roundtrips() {
             .unwrap();
         writer.write(&batch).unwrap();
         let published = writer.finish().unwrap();
-        assert_eq!(published.loss.counts["native_dimensions_not_declared"], 1);
+        assert!(!published
+            .loss
+            .counts
+            .contains_key("native_dimensions_not_declared"));
         let (back, _) = read_all(&GeoJsonDriver, &out);
         assert_eq!(batch.columns(), back.columns(), "{name}");
     }

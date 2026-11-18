@@ -325,6 +325,80 @@ impl<'a> Feature<'a> {
         Ok(Some(value))
     }
 
+    /// Read binary bytes without a text conversion. Null and unset fields return None.
+    /// The owned copy remains valid after this feature is changed or destroyed.
+    pub fn field_as_binary(&self, field_idx: usize) -> Result<Option<Vec<u8>>> {
+        let idx = self.checked_field_index(field_idx, "field_as_binary")?;
+        if unsafe { gdal_sys::OGR_F_IsFieldSetAndNotNull(self.c_feature, idx) } == 0 {
+            return Ok(None);
+        }
+        let mut length = 0;
+        let bytes = unsafe { gdal_sys::OGR_F_GetFieldAsBinary(self.c_feature, idx, &mut length) };
+        let length = usize::try_from(length)?;
+        if length == 0 {
+            return Ok(Some(Vec::new()));
+        }
+        if bytes.is_null() || length > isize::MAX as usize {
+            return Err(_last_null_pointer_err("OGR_F_GetFieldAsBinary"));
+        }
+        Ok(Some(
+            unsafe { slice::from_raw_parts(bytes, length) }.to_vec(),
+        ))
+    }
+
+    /// Read year, month, day, hour, minute, fractional seconds and the raw OGR
+    /// timezone flag, without assigning a timezone to unknown/local values.
+    /// Null and unset fields return None. Seconds retain OGR's f32 precision.
+    pub fn field_as_datetime_components(
+        &self,
+        field_idx: usize,
+    ) -> Result<Option<(i32, i32, i32, i32, i32, f32, i32)>> {
+        let idx = self.checked_field_index(field_idx, "field_as_datetime_components")?;
+        if unsafe { gdal_sys::OGR_F_IsFieldSetAndNotNull(self.c_feature, idx) } == 0 {
+            return Ok(None);
+        }
+        let (mut y, mut m, mut d, mut h, mut min, mut sec, mut tz) = (0, 0, 0, 0, 0, 0.0, 0);
+        let success = unsafe {
+            gdal_sys::OGR_F_GetFieldAsDateTimeEx(
+                self.c_feature,
+                idx,
+                &mut y,
+                &mut m,
+                &mut d,
+                &mut h,
+                &mut min,
+                &mut sec,
+                &mut tz,
+            )
+        };
+        if success == 0 {
+            return Err(GdalError::OgrError {
+                err: OGRErr::OGRERR_FAILURE,
+                method_name: "OGR_F_GetFieldAsDateTimeEx",
+            });
+        }
+        Ok(Some((y, m, d, h, min, sec, tz)))
+    }
+
+    /// Raw timezone flag from the field definition, even on an empty feature.
+    /// Available since GDAL 3.8. No interpretation of unknown/local/mixed flags.
+    #[cfg(any(major_ge_4, all(major_is_3, minor_ge_8)))]
+    pub fn field_datetime_timezone_flag(&self, field_idx: usize) -> Result<i32> {
+        let idx = self.checked_field_index(field_idx, "field_datetime_timezone_flag")?;
+        let defn = unsafe { gdal_sys::OGR_F_GetFieldDefnRef(self.c_feature, idx) };
+        if defn.is_null() {
+            return Err(_last_null_pointer_err("OGR_F_GetFieldDefnRef"));
+        }
+        Ok(unsafe { gdal_sys::OGR_Fld_GetTZFlag(defn) })
+    }
+
+    fn checked_field_index(&self, index: usize, method_name: &'static str) -> Result<c_int> {
+        if index >= self.field_count() {
+            return Err(GdalError::InvalidFieldIndex { index, method_name });
+        }
+        Ok(index.try_into()?)
+    }
+
     fn _field_as_datetime(&self, field_id: c_int) -> Result<DateTime<FixedOffset>> {
         let mut year: c_int = 0;
         let mut month: c_int = 0;

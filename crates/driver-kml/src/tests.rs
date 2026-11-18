@@ -611,10 +611,7 @@ fn write_then_read_round_trip() {
         .unwrap();
     w.write(&batch).unwrap();
     let published = w.finish().unwrap();
-    assert_eq!(
-        published.loss.counts.get("coercion tipo attributo"),
-        Some(&1)
-    );
+    assert_eq!(published.loss.counts.get("coercion tipo attributo"), None);
     assert_eq!(
         published.fidelity.level,
         plenora_io_core::Fidelity::Approximating

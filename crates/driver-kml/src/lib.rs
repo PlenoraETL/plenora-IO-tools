@@ -504,6 +504,9 @@ impl FormatDriver for KmlDriver {
         )?;
         with_write_validation(
             Box::new(KmlWriterState {
+                metadata_check: plenora_io_core::property_plan::NativeMetadataCheck::new(
+                    plan, opts,
+                ),
                 staging,
                 output,
                 rows: 0,
@@ -528,14 +531,6 @@ fn native_layer_losses(
         .enumerate()
         .map(|(index, (start, length))| {
             let mut loss = native.entry(index).or_default().clone();
-            observe_native(
-                &mut loss,
-                NATIVE_READ,
-                NativeElement::Dimensions,
-                1,
-                index as u64,
-                Some(0),
-            );
             let count = unsupported_prefix[start + length] - unsupported_prefix[*start];
             if count > 0 {
                 loss.record("kml.unsupported_geometry", count);
@@ -1492,6 +1487,7 @@ impl KmlContractStats {
 // --- scrittura -------------------------------------------------------------
 
 struct KmlWriterState {
+    metadata_check: plenora_io_core::property_plan::NativeMetadataCheck,
     loss: LossReport,
     staging: StagedFile,
     output: BufWriter<File>,
@@ -1626,6 +1622,11 @@ impl FormatWriter for KmlWriterState {
         self.output.write_all(b"</Document></kml>")?;
         self.output.flush()?;
         drop(self.output);
+        self.loss.merge(&self.metadata_check.compare(
+            &KmlDriver,
+            plenora_io_core::loss_table::NativeDriver::Kml,
+            self.staging.path()?,
+        )?);
         let (bytes, outcome) = self.staging.publish()?;
         Ok(Published {
             bytes,

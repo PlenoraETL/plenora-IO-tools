@@ -19,7 +19,11 @@ fn convert(src: &Path, dst: &Path, from: &str, to: &str) -> Value {
         .args(["--from", from, "--to", to, "--layer", "0"])
         .output()
         .unwrap();
-    assert!(output.stderr.is_empty());
+    assert!(
+        output.stderr.is_empty(),
+        "{from} -> {to}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let result: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert!(output.status.success(), "{from} -> {to}: {result}");
     result
@@ -90,11 +94,11 @@ fn shp_dxf_filegdb_native_roundtrip_declares_schema_and_coordinate_changes() {
         let written = convert(&source, &native, "ipc", driver);
         assert_eq!(
             count(&written, "write_loss", "native_field_order_changed"),
-            2
+            if driver == "dxf" { 1 } else { 2 }
         );
         assert_eq!(
             count(&written, "write_loss", "native_not_null_not_preserved"),
-            2
+            if driver == "dxf" { 1 } else { 2 }
         );
         assert!(!written["result"]["write_loss"]
             .to_string()
@@ -272,7 +276,7 @@ fn native_geometry_promotions_rings_empty_and_signed_zero() {
                 } else {
                     assert_eq!(
                         count(&written, "write_loss", "native_coordinate_precision"),
-                        u64::from(driver == "filegdb" || kind == GeometryType::LineString)
+                        u64::from(kind == GeometryType::LineString)
                     );
                 }
                 if kind == GeometryType::Polygon && driver != "dxf" {
@@ -417,7 +421,7 @@ fn check_roundtrip(
     let write = convert(source, native, "ipc", driver);
     assert_eq!(
         count(&write, "write_loss", "native_not_null_not_preserved"),
-        1
+        u64::from(driver != "kml")
     );
     assert!(count(&write, "write_loss", "native_field_order_changed") > 0);
     assert_eq!(
@@ -426,7 +430,7 @@ fn check_roundtrip(
     );
     assert!(count(&write, "write_loss", "arrow_metadata_not_preserved") > 0);
     assert!(!write["result"]["write_loss"].to_string().contains("secret"));
-    if plenora_io_core::loss_table::normalizes_type(driver, array.data_type()) {
+    if driver != "kml" && plenora_io_core::loss_table::normalizes_type(driver, array.data_type()) {
         assert_eq!(count(&write, "write_loss", "coercion tipo attributo"), 1);
     }
     let read = convert(native, back, driver, "ipc");
@@ -445,7 +449,7 @@ fn check_roundtrip(
         .all(|field| field.is_nullable()));
     assert_eq!(
         count(&read, "read_loss", "native_dimensions_not_declared"),
-        1
+        0
     );
     if driver == "kml" {
         assert_eq!(actual.num_columns(), 3);
@@ -531,4 +535,158 @@ fn kml_declares_standard_fields_added_on_readback() {
     assert_eq!(actual.schema().fields()[2].name(), "description");
     assert_eq!(actual.column(1).null_count(), 2);
     assert_eq!(actual.column(2).null_count(), 2);
+}
+
+#[test]
+#[allow(clippy::too_many_lines)] // Independent source, native output and report oracle for all drivers.
+fn metadata_counts_equal_independent_roundtrip_comparison() {
+    fn save(batch: &RecordBatch, path: &Path) {
+        let mut writer =
+            arrow_ipc::writer::FileWriter::try_new(File::create(path).unwrap(), &batch.schema())
+                .unwrap();
+        writer.write(batch).unwrap();
+        writer.finish().unwrap();
+    }
+    fn back(native: &Path, output: &Path, driver: &str) {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_plenora-io"));
+        command
+            .arg("read")
+            .arg(native)
+            .args(["--layer", "0", "--output"])
+            .arg(output);
+        let result = command.output().unwrap();
+        assert!(
+            result.status.success(),
+            "{driver}: {}",
+            String::from_utf8_lossy(&result.stdout)
+        );
+    }
+    let mut drivers = vec![
+        ("geojson", "json"),
+        ("kml", "kml"),
+        ("csv", "csv"),
+        ("xls", "xlsx"),
+        ("shp", "shp.d"),
+        ("dxf", "dxf"),
+        ("ipc", "arrow"),
+        ("geoparquet", "parquet"),
+        ("gpkg", "gpkg"),
+    ];
+    if cfg!(feature = "gdal-backend") {
+        drivers.push(("filegdb", "gdb"));
+    }
+    for (driver, extension) in drivers {
+        let dir = tempfile::tempdir().unwrap();
+        let mut crs = ResolvedCrs::wgs84();
+        if driver == "gpkg" {
+            crs.id = Some("EPSG:4326".into());
+        }
+        let mut geometry = GeometryColumnContract::wkb_xy(FieldId(1), "geometry", crs, true);
+        geometry.set_exact_geometry_types(vec![GeometryType::Point]);
+        let field = plenora_io_model::geometry::with_geometry_contract_metadata(
+            &Field::new("geometry", DataType::Binary, true).with_metadata(HashMap::from([(
+                "ARROW:extension:name".into(),
+                "geoarrow.wkb".into(),
+            )])),
+            &geometry,
+        );
+        let schema =
+            plenora_io_model::geometry::with_contract_version(Arc::new(Schema::new(vec![field])));
+        let point = [
+            vec![1, 1, 0, 0, 0],
+            1.5_f64.to_le_bytes().to_vec(),
+            2.5_f64.to_le_bytes().to_vec(),
+        ]
+        .concat();
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![Arc::new(BinaryArray::from(vec![point.as_slice()]))],
+        )
+        .unwrap();
+        let seed = dir.path().join("seed.arrow");
+        save(&batch, &seed);
+        let first = dir.path().join(format!("first.{extension}"));
+        convert(&seed, &first, "ipc", driver);
+        let normalized = dir.path().join("normalized.arrow");
+        back(&first, &normalized, driver);
+        let batch = load(&normalized);
+        for changed in [false, true] {
+            let mut metadata = batch.schema().metadata().clone();
+            let mut fields: Vec<_> = batch
+                .schema()
+                .fields()
+                .iter()
+                .map(|f| f.as_ref().clone())
+                .collect();
+            if changed {
+                metadata.insert("private.schema", "private-value");
+                let mut values = fields[0].metadata().clone();
+                values.insert("private.field", "private-value");
+                fields[0] = fields[0].clone().with_metadata(values);
+            }
+            let before = Arc::new(Schema::new_with_metadata(fields, metadata));
+            let source_batch =
+                RecordBatch::try_new(before.clone(), batch.columns().to_vec()).unwrap();
+            let source = dir.path().join(format!("source_{changed}.arrow"));
+            save(&source_batch, &source);
+            let native = dir.path().join(format!("out-{changed}.{extension}"));
+            let written = convert(&source, &native, "ipc", driver);
+            let output = dir.path().join(format!("back-{changed}.arrow"));
+            back(&native, &output, driver);
+            let actual = load(&output);
+            // Compare the native reader, before IPC publication can reconstruct field IDs.
+            let reader_driver: Box<dyn plenora_io_core::FormatDriver> = match driver {
+                "geojson" => Box::new(driver_geojson::GeoJsonDriver),
+                "kml" => Box::new(driver_kml::KmlDriver),
+                "csv" => Box::new(driver_csv::CsvDriver),
+                "xls" => Box::new(driver_xls::XlsDriver),
+                "shp" => Box::new(driver_shp::ShpDriver),
+                "dxf" => Box::new(driver_dxf::DxfDriver),
+                "filegdb" => Box::new(driver_filegdb::FileGdbDriver),
+                "ipc" => Box::new(driver_ipc::IpcDriver),
+                "gpkg" => Box::new(driver_gpkg::GpkgDriver),
+                "geoparquet" => Box::new(driver_geoparquet::GeoParquetDriver),
+                _ => unreachable!(),
+            };
+            let dataset = reader_driver
+                .open(
+                    plenora_io_core::Source::Path(native.clone()),
+                    plenora_io_core::ReadOptions::from_read_parts(
+                        plenora_io_model::budget::PipelineBudget::builder()
+                            .build()
+                            .unwrap()
+                            .into_read_parts(),
+                    ),
+                )
+                .unwrap();
+            let after = &dataset.layers()[0].contract.schema;
+            let mut expected = before
+                .metadata()
+                .iter()
+                .filter(|(k, v)| after.metadata().get(k) != Some(*v))
+                .count();
+            for field in before.fields() {
+                let output_field = after.fields().iter().find(|f| f.name() == field.name());
+                expected += field
+                    .metadata()
+                    .iter()
+                    .filter(|(k, v)| output_field.and_then(|f| f.metadata().get(k)) != Some(*v))
+                    .count();
+            }
+            assert_eq!(
+                count(
+                    &written,
+                    "write_loss",
+                    if driver == "gpkg" {
+                        "gpkg_metadata_not_preserved"
+                    } else {
+                        "arrow_metadata_not_preserved"
+                    }
+                ),
+                expected as u64,
+                "{driver} changed={changed}: {written}"
+            );
+            assert_eq!(actual.column(0), source_batch.column(0), "{driver}");
+        }
+    }
 }

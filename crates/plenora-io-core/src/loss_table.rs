@@ -106,6 +106,8 @@ pub const PROPERTIES: &[(&str, &str, Rule, Rule)] = &[
     ),
     ("", "gpkg.declared_type", Rule::Preserved, Rule::Preserved),
     ("", "gpkg.primary_key", Rule::Preserved, Rule::Preserved),
+    ("", "gpkg.identifier", Rule::Preserved, Rule::Preserved),
+    ("", "gpkg.description", Rule::Preserved, Rule::Preserved),
     (
         "",
         "ARROW:extension:name",
@@ -328,9 +330,6 @@ pub fn metadata_rule(
                 TransportDirection::Read => entry.3,
                 TransportDirection::Write => entry.2,
             }),
-        Some(MetadataTransport::Native) if direction == TransportDirection::Write => {
-            Rule::ArrowMetadataRemoved
-        }
         Some(MetadataTransport::Native | MetadataTransport::Arrow) | None => Rule::Preserved,
     }
 }
@@ -496,9 +495,9 @@ native_elements! {
     UnsignedInteger => [T(NativeChange::Inference), T(NativeChange::ArrowCoercion), R, T(NativeChange::ArrowCoercion), R, T(NativeChange::ArrowCoercion), R, T(NativeChange::DxfAttribute), R, R, T(NativeChange::Inference), T(NativeChange::ArrowCoercion), T(NativeChange::Inference), T(NativeChange::ArrowCoercion), P, T(NativeChange::ArrowCoercion), P, P, P, P];
     Floating => [T(NativeChange::NumberPrecision), T(NativeChange::ArrowCoercion), R, T(NativeChange::ArrowCoercion), P, T(NativeChange::ArrowCoercion), R, T(NativeChange::DxfAttribute), P, T(NativeChange::ArrowCoercion), T(NativeChange::Inference), T(NativeChange::ArrowCoercion), T(NativeChange::Inference), T(NativeChange::ArrowCoercion), P, T(NativeChange::ArrowCoercion), P, P, P, P];
     Boolean => [P, P, R, T(NativeChange::ArrowCoercion), P, P, R, T(NativeChange::DxfAttribute), R, R, P, T(NativeChange::ArrowCoercion), P, P, P, T(NativeChange::ArrowCoercion), P, P, P, P];
-    Binary => [R, R, R, R, R, T(NativeChange::ArrowCoercion), R, T(NativeChange::DxfAttribute), R, R, R, R, R, R, P, P, P, P, P, P];
+    Binary => [R, R, R, R, R, T(NativeChange::ArrowCoercion), R, T(NativeChange::DxfAttribute), P, R, R, R, R, R, P, P, P, P, P, P];
     Decimal => [R, R, R, R, R, T(NativeChange::ArrowCoercion), R, T(NativeChange::DxfAttribute), R, R, R, R, R, R, R, R, P, P, P, P];
-    Temporal => [R, T(NativeChange::ArrowCoercion), R, T(NativeChange::ArrowCoercion), T(NativeChange::ArrowCoercion), T(NativeChange::ArrowCoercion), R, T(NativeChange::DxfAttribute), R, R, T(NativeChange::Inference), T(NativeChange::ArrowCoercion), T(NativeChange::Inference), T(NativeChange::ArrowCoercion), T(NativeChange::ArrowCoercion), R, P, P, P, P];
+    Temporal => [R, T(NativeChange::ArrowCoercion), R, T(NativeChange::ArrowCoercion), T(NativeChange::ArrowCoercion), T(NativeChange::ArrowCoercion), R, T(NativeChange::DxfAttribute), T(NativeChange::NumberPrecision), R, T(NativeChange::Inference), T(NativeChange::ArrowCoercion), T(NativeChange::Inference), T(NativeChange::ArrowCoercion), T(NativeChange::ArrowCoercion), R, P, P, P, P];
     NestedDictionary => [T(NativeChange::StructuredValue), R, R, R, R, R, R, R, R, R, R, R, R, R, R, R, P, P, P, P];
     FieldNames => [P, T(NativeChange::FieldNames), T(NativeChange::ExtendedData), T(NativeChange::FieldNames), P, T(NativeChange::FieldNames), T(NativeChange::FieldNames), T(NativeChange::FieldNames), P, T(NativeChange::FieldNames), T(NativeChange::FieldNames), T(NativeChange::FieldNames), T(NativeChange::FieldNames), T(NativeChange::FieldNames), P, P, P, P, P, P];
     NotNull => [P, T(NativeChange::NotNull), P, T(NativeChange::NotNull), P, T(NativeChange::NotNull), P, T(NativeChange::NotNull), T(NativeChange::NotNull), T(NativeChange::NotNull), P, T(NativeChange::NotNull), P, T(NativeChange::NotNull), P, P, P, P, P, P];
@@ -534,8 +533,8 @@ native_elements! {
     NumericFormat => [R, R, R, R, R, R, R, R, R, R, R, R, T(NativeChange::NativeStyles), T(NativeChange::ArrowMetadata), R, R, R, R, R, R];
     Formula => [R, R, R, R, R, R, R, R, R, R, R, R, T(NativeChange::LayerMetadata), T(NativeChange::ArrowMetadata), R, R, R, R, R, R];
     FormulaCache => [R, R, R, R, R, R, R, R, R, R, R, R, P, P, R, R, R, R, R, R];
-    Identifier => [R, R, R, R, R, R, R, R, R, R, R, R, R, R, T(NativeChange::LayerMetadata), T(NativeChange::ArrowMetadata), R, R, R, R];
-    Description => [R, R, R, R, R, R, R, R, R, R, R, R, R, R, T(NativeChange::LayerMetadata), T(NativeChange::ArrowMetadata), R, R, R, R];
+    Identifier => [R, R, R, R, R, R, R, R, R, R, R, R, R, R, P, P, R, R, R, R];
+    Description => [R, R, R, R, R, R, R, R, R, R, R, R, R, R, P, P, R, R, R, R];
     DataColumns => [R, R, R, R, R, R, R, R, R, R, R, R, R, R, T(NativeChange::LayerMetadata), T(NativeChange::ArrowMetadata), R, R, R, R];
     SqlConstraints => [R, R, R, R, R, R, R, R, R, R, R, R, R, R, T(NativeChange::SqlSchema), T(NativeChange::SqlSchema), R, R, R, R];
     ContractVersion => [P, T(NativeChange::ArrowMetadata), P, T(NativeChange::ArrowMetadata), P, T(NativeChange::ArrowMetadata), P, T(NativeChange::ArrowMetadata), P, T(NativeChange::ArrowMetadata), P, T(NativeChange::ArrowMetadata), P, T(NativeChange::ArrowMetadata), P, P, T(NativeChange::ArrowMetadata), T(NativeChange::ArrowMetadata), T(NativeChange::ArrowMetadata), T(NativeChange::ArrowMetadata)];
@@ -687,34 +686,6 @@ pub fn observe_native(
     });
 }
 
-fn native_field_order(driver: NativeDriver, fields: &arrow_schema::Fields) -> Vec<usize> {
-    let mut order: Vec<usize> = (0..fields.len()).collect();
-    order.sort_by(|&a, &b| {
-        let geometry_a = plenora_io_model::geometry::is_geometry_field(&fields[a]);
-        let geometry_b = plenora_io_model::geometry::is_geometry_field(&fields[b]);
-        let geometry_order = if matches!(driver, NativeDriver::Csv | NativeDriver::Xls) {
-            geometry_a.cmp(&geometry_b)
-        } else {
-            geometry_b.cmp(&geometry_a)
-        };
-        geometry_order.then_with(|| {
-            if driver == NativeDriver::GeoJson {
-                fields[a].name().cmp(fields[b].name())
-            } else if driver == NativeDriver::Kml {
-                let rank = |i: usize| match fields[i].name().as_str() {
-                    "name" => 0,
-                    "description" => 1,
-                    _ => 2,
-                };
-                rank(a).cmp(&rank(b))
-            } else {
-                std::cmp::Ordering::Equal
-            }
-        })
-    });
-    order
-}
-
 /// Counts geometry changes by comparing the native reconstruction with input values.
 pub fn observe_geometry_write(
     report: &mut crate::LossReport,
@@ -804,101 +775,11 @@ pub fn observe_geometry_write(
     );
 }
 
-/// Losses of the native schema that are known before the first batch.
+/// Empty initial report; native schema losses require completed-output evidence.
 #[must_use]
-pub fn native_write_report(driver: NativeDriver, plan: &crate::WritePlan) -> crate::LossReport {
-    let mut report = crate::LossReport::default();
-    let transport = (driver, TransportDirection::Write);
-    for (layer_index, layer) in plan.layers.iter().enumerate() {
-        let fields = layer.contract.schema.fields();
-        if driver == NativeDriver::Kml {
-            for standard in ["name", "description"] {
-                if !fields.iter().any(|field| field.name() == standard) {
-                    observe_native(
-                        &mut report,
-                        transport,
-                        NativeElement::FieldNames,
-                        1,
-                        layer_index as u64,
-                        None,
-                    );
-                }
-            }
-        }
-        let order = native_field_order(driver, fields);
-        for (new_index, old_index) in order.iter().enumerate() {
-            if new_index != *old_index {
-                observe_native(
-                    &mut report,
-                    transport,
-                    NativeElement::FieldOrder,
-                    1,
-                    layer_index as u64,
-                    Some(*old_index as u64),
-                );
-            }
-        }
-        for (index, field) in fields.iter().enumerate() {
-            let geometry = plenora_io_model::geometry::is_geometry_field(field);
-            if !field.is_nullable() {
-                observe_native(
-                    &mut report,
-                    transport,
-                    NativeElement::NotNull,
-                    1,
-                    layer_index as u64,
-                    Some(index as u64),
-                );
-            }
-            if geometry {
-                if field.name() != "geometry" {
-                    observe_native(
-                        &mut report,
-                        transport,
-                        NativeElement::FieldNames,
-                        1,
-                        layer_index as u64,
-                        Some(index as u64),
-                    );
-                }
-                if driver == NativeDriver::Kml
-                    && layer.contract.geometry.as_ref().is_some_and(|g| {
-                        g.geometry_types
-                            .contains(&plenora_io_model::contract::GeometryType::GeometryCollection)
-                    })
-                {
-                    observe_native(
-                        &mut report,
-                        transport,
-                        NativeElement::GeometryType,
-                        1,
-                        layer_index as u64,
-                        Some(index as u64),
-                    );
-                }
-                observe_native(
-                    &mut report,
-                    transport,
-                    NativeElement::Dimensions,
-                    1,
-                    layer_index as u64,
-                    Some(index as u64),
-                );
-            } else if driver == NativeDriver::Kml
-                && !matches!(field.name().as_str(), "name" | "description")
-            {
-                observe_native(
-                    &mut report,
-                    transport,
-                    NativeElement::ExtendedData,
-                    1,
-                    layer_index as u64,
-                    Some(index as u64),
-                );
-            }
-        }
-    }
-    report
+pub fn native_write_report(_driver: NativeDriver, _plan: &crate::WritePlan) -> crate::LossReport {
+    // Initialization only. The native reader supplies evidence at finalization.
+    crate::LossReport::default()
 }
 
 /// Attach observations from a complete native inference pass to its reader.
@@ -993,9 +874,23 @@ pub fn metadata_changes(
     };
     compare(before.metadata(), after.metadata(), None);
     for (index, field) in before.fields().iter().enumerate() {
-        if let Ok(output) = after.field_with_name(field.name()) {
-            compare(field.metadata(), output.metadata(), Some(index as u64));
-        }
+        let output = after.field_with_name(field.name()).ok().or_else(|| {
+            plenora_io_model::geometry::is_geometry_field(field)
+                .then(|| {
+                    after
+                        .fields()
+                        .iter()
+                        .find(|f| plenora_io_model::geometry::is_geometry_field(f))
+                        .map(AsRef::as_ref)
+                })
+                .flatten()
+        });
+        let empty = arrow_schema::Metadata::new();
+        compare(
+            field.metadata(),
+            output.map_or(&empty, arrow_schema::Field::metadata),
+            Some(index as u64),
+        );
     }
     report
 }
@@ -1311,11 +1206,23 @@ mod tests {
             let plan = crate::property_plan::PropertyPlan::new(&schema, driver, None);
             plan.validate_schema(driver, &schema).unwrap();
             let report = plan.report(3, crate::property_plan::Phase::Write).unwrap();
+            assert!(report.counts.is_empty());
+            let native = DRIVERS
+                .iter()
+                .find(|row| row.driver == driver)
+                .unwrap()
+                .qualified_native
+                .unwrap();
+            let report = metadata_changes(
+                native,
+                TransportDirection::Write,
+                &schema,
+                &arrow_schema::Schema::empty(),
+            );
             assert_eq!(report.counts.get("arrow_metadata_not_preserved"), Some(&2));
             let json =
                 serde_json::to_string(&report.esempi_canonici().collect::<Vec<_>>()).unwrap();
             assert!(!json.contains("secret"));
-            assert!(json.contains("key_index=0"));
         }
         let plan = crate::property_plan::PropertyPlan::new(&schema, "ipc", None);
         assert!(plan

@@ -1411,7 +1411,9 @@ impl FormatDriver for GeoParquetDriver {
                 })?;
         with_write_validation(
             Box::new(GeoParquetWriter {
-                source_schema: schema,
+                metadata_check: plenora_io_core::property_plan::NativeMetadataCheck::new(
+                    plan, opts,
+                ),
                 staging,
                 writer: Some(writer),
                 write_schema,
@@ -2256,7 +2258,7 @@ fn covering_edge_differs(
 }
 
 struct GeoParquetWriter {
-    source_schema: SchemaRef,
+    metadata_check: plenora_io_core::property_plan::NativeMetadataCheck,
     staging: StagedFile,
     writer: Option<ArrowWriter<File>>,
     write_schema: SchemaRef,
@@ -2334,13 +2336,6 @@ impl FormatWriter for GeoParquetWriter {
         })?;
         schema_ufficiale::valida(&documento, VERSIONE_SCRITTA)?;
 
-        let final_schema = completed_schema_with_geo(&self.write_schema, &geo)?;
-        let loss = loss_table::metadata_changes(
-            NativeDriver::GeoParquet,
-            TransportDirection::Write,
-            &self.source_schema,
-            &final_schema,
-        );
         writer.append_key_value_metadata(KeyValue::new(
             "ARROW:schema".to_owned(),
             schema_arrow_con_geo(&self.write_schema, &geo)?,
@@ -2351,6 +2346,11 @@ impl FormatWriter for GeoParquetWriter {
                 "chiusura del writer Parquet fallita",
             ))
         })?;
+        let loss = self.metadata_check.compare(
+            &GeoParquetDriver,
+            NativeDriver::GeoParquet,
+            self.staging.path()?,
+        )?;
         let (bytes, outcome) = self.staging.publish()?;
         Ok(Published {
             bytes,

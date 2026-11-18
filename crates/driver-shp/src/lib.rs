@@ -800,6 +800,9 @@ impl FormatDriver for ShpDriver {
 
         with_write_validation(
             Box::new(ShpWriter {
+                metadata_check: plenora_io_core::property_plan::NativeMetadataCheck::new(
+                    plan, opts,
+                ),
                 loss: native_write_report(NativeDriver::Shp, plan),
                 staging: Some(staging),
                 writer: Some(writer),
@@ -922,6 +925,7 @@ impl DbfKind {
 }
 
 struct ShpWriter {
+    metadata_check: plenora_io_core::property_plan::NativeMetadataCheck,
     loss: LossReport,
     staging: Option<tempfile::TempDir>,
     writer: Option<Writer<BufWriter<File>>>,
@@ -1097,6 +1101,11 @@ impl FormatWriter for ShpWriter {
             ));
         }
 
+        self.loss.merge(&self.metadata_check.compare(
+            &ShpDriver,
+            plenora_io_core::loss_table::NativeDriver::Shp,
+            &staging.path().join("data.shp"),
+        )?);
         let (bytes, outcome) = match self.publish_mode {
             ShapefilePublishMode::DirectoryDataset => {
                 let outcome =

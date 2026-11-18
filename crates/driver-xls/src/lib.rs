@@ -37,7 +37,7 @@ use plenora_io_core::driver::{
 use plenora_io_core::loss::LossReport;
 use plenora_io_core::loss_table::{self, NativeDriver, NativeElement, TransportDirection};
 
-use plenora_io_core::publish::{create_staged_file, publish_file_atomic_limited};
+use plenora_io_core::publish::publish_file_atomic_limited;
 use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
     check_cancelled, check_cancelled_periodically, validate_write, with_write_validation,
@@ -512,6 +512,9 @@ impl FormatDriver for XlsDriver {
         };
         with_write_validation(
             Box::new(XlsWriterState {
+                metadata_check: plenora_io_core::property_plan::NativeMetadataCheck::new(
+                    plan, opts,
+                ),
                 loss: loss_table::native_write_report(NativeDriver::Xls, plan),
                 path,
                 durable: opts.durable,
@@ -904,6 +907,7 @@ struct SheetBounds {
 // --- scrittura -------------------------------------------------------------
 
 struct XlsWriterState {
+    metadata_check: plenora_io_core::property_plan::NativeMetadataCheck,
     loss: LossReport,
     path: PathBuf,
     durable: bool,
@@ -1017,7 +1021,8 @@ impl FormatWriter for XlsWriterState {
         Ok(())
     }
 
-    fn finish(self: Box<Self>) -> Result<Published> {
+    #[allow(clippy::too_many_lines)] // Serialization and verification precede the single publish point.
+    fn finish(mut self: Box<Self>) -> Result<Published> {
         let mut wb = Workbook::new();
         let sheet = wb.add_worksheet();
         let limits = self.wkb_limits;
@@ -1103,9 +1108,19 @@ impl FormatWriter for XlsWriterState {
         }
 
         let buf = empty_strings::encode(wb.save_to_buffer().map_err(xls_err)?, &empty_cells)?;
-        let mut temp = create_staged_file(&self.path)?;
+        let mut temp = tempfile::Builder::new().suffix(".xlsx").tempfile_in(
+            self.path
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .unwrap_or_else(|| std::path::Path::new(".")),
+        )?;
         temp.as_file_mut().write_all(&buf)?;
         temp.as_file_mut().flush()?;
+        self.loss.merge(&self.metadata_check.compare(
+            &XlsDriver,
+            plenora_io_core::loss_table::NativeDriver::Xls,
+            temp.path(),
+        )?);
         let (bytes, outcome) = publish_file_atomic_limited(
             temp,
             &self.path,

@@ -640,6 +640,9 @@ impl FormatDriver for CsvDriver {
         );
         with_write_validation(
             Box::new(CsvWriter {
+                metadata_check: plenora_io_core::property_plan::NativeMetadataCheck::new(
+                    plan, opts,
+                ),
                 loss: loss_table::native_write_report(NativeDriver::Csv, plan),
                 staging,
                 writer: Some(writer),
@@ -1122,6 +1125,7 @@ fn finish_batch(
 // --- scrittura streaming ---------------------------------------------------
 
 struct CsvWriter {
+    metadata_check: plenora_io_core::property_plan::NativeMetadataCheck,
     loss: LossReport,
     staging: StagedFile,
     writer: Option<wire::Writer<File>>,
@@ -1260,6 +1264,11 @@ impl FormatWriter for CsvWriter {
         w.flush()
             .map_err(|_| err(&PublicMessage::Curated("flush del CSV fallito")))?;
         drop(w);
+        self.loss.merge(&self.metadata_check.compare(
+            &CsvDriver,
+            plenora_io_core::loss_table::NativeDriver::Csv,
+            self.staging.path()?,
+        )?);
         let (bytes, outcome) = self.staging.publish()?;
         Ok(Published {
             bytes,

@@ -163,3 +163,113 @@ fn numeric_declarations_match_observed_reconstructed_values_in_both_directions()
         }
     }
 }
+
+#[cfg(feature = "gdal-backend")]
+#[test]
+fn filegdb_cli_multilayer_selection_is_explicit() {
+    let dir = tempfile::tempdir().unwrap();
+    use plenora_io_core::driver::{FormatDriver, ReadOptions, Sink, Source, WriteOptions};
+    use plenora_io_core::{WriteLayer, WritePlan};
+    use plenora_io_model::{budget::PipelineBudget, contract::LayerId};
+    let driver = driver_filegdb::FileGdbDriver;
+    let dataset = driver
+        .open(
+            Source::Path(
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/canoniche/canonico.gdb"),
+            ),
+            ReadOptions::from_read_parts(
+                PipelineBudget::builder().build().unwrap().into_read_parts(),
+            ),
+        )
+        .unwrap();
+    let layer = &dataset.layers()[0];
+    let mut contract = layer.contract.clone();
+    contract.schema = std::sync::Arc::new(arrow_schema::Schema::new_with_metadata(
+        vec![contract.schema.field(0).clone()],
+        contract.schema.metadata().clone(),
+    ));
+    let plan = WritePlan {
+        layers: ["first", "second"]
+            .into_iter()
+            .map(|name| WriteLayer {
+                name: name.to_owned(),
+                contract: contract.clone(),
+            })
+            .collect(),
+    };
+    let native = dir.path().join("multi.gdb");
+    let mut writer = driver
+        .create(
+            Sink::Path(native.clone()),
+            &plan,
+            &WriteOptions::from_write_parts(
+                PipelineBudget::builder()
+                    .build()
+                    .unwrap()
+                    .into_write_parts(),
+            ),
+        )
+        .unwrap();
+    let request = plenora_io_core::ReadRequest {
+        layer: layer.id,
+        projected_fields: None,
+        projection_mode: plenora_io_core::ProjectionMode::BestEffort,
+        pruning_predicate: None,
+        spatial_pruning_hint: None,
+        scope: plenora_io_core::ReadScope::default(),
+        batch_target: plenora_io_core::BatchTarget::default(),
+        cancellation: Default::default(),
+    };
+    let mut reader = dataset.open_layer_reader(&request).unwrap();
+    let mut rows = 0;
+    while let Some(batch) = reader.next_batch().unwrap() {
+        rows += batch.num_rows();
+        let batch = arrow_array::RecordBatch::try_new(
+            contract.schema.clone(),
+            vec![batch.column(0).clone()],
+        )
+        .unwrap();
+        writer.write_to_layer(LayerId(0), &batch).unwrap();
+        writer.write_to_layer(LayerId(1), &batch).unwrap();
+    }
+    writer.finish().unwrap();
+    let (ok, doc) = run(&["read", native.to_str().unwrap()]);
+    assert!(!ok, "{doc}");
+    assert_eq!(doc["error"]["code"], "LAYER_SELECTION_REQUIRED");
+    assert_eq!(
+        doc["error"]["details"]["objects"].as_array().unwrap().len(),
+        2
+    );
+    let single = dir.path().join("single.arrow");
+    let (ok, doc) = run(&[
+        "convert",
+        native.to_str().unwrap(),
+        single.to_str().unwrap(),
+        "--from",
+        "filegdb",
+        "--to",
+        "ipc",
+    ]);
+    assert!(!ok, "{doc}");
+    assert_eq!(doc["error"]["code"], "LAYER_SELECTION_REQUIRED");
+    assert!(!single.exists());
+    for index in ["0", "1"] {
+        let (ok, doc) = run(&["read", native.to_str().unwrap(), "--layer", index]);
+        assert!(ok, "{doc}");
+        assert_eq!(doc["result"]["rows_read"], rows);
+    }
+    let both = dir.path().join("both.gpkg");
+    let (ok, doc) = run(&[
+        "convert",
+        native.to_str().unwrap(),
+        both.to_str().unwrap(),
+        "--from",
+        "filegdb",
+        "--to",
+        "gpkg",
+    ]);
+    assert!(ok, "{doc}");
+    assert_eq!(doc["result"]["layers"].as_array().unwrap().len(), 2);
+    assert_eq!(doc["result"]["total_rows"], rows * 2);
+    assert_eq!(count(&doc, "read_loss", "source_object_not_readable"), 0);
+}

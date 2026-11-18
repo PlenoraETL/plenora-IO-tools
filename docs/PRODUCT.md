@@ -219,6 +219,13 @@ deve indicizzare tutti i record in ordine, con lunghezze coerenti. Il conteggio
 SHP/DBF viene verificato anche senza SHX. Un `.prj` vuoto va ripristinato oppure
 rimosso fornendo `--assume-crs`; un `.cpg` vuoto va sostituito con una codepage
 supportata oppure rimosso per usare LDID. L'assenza non equivale a un file vuoto.
+I nomi CPG non distinguono maiuscole e spazi ASCII: `ANSI 1250`–`ANSI 1258`,
+`CP1250`–`CP1258` e `WINDOWS-1250`–`WINDOWS-1258` indicano le rispettive
+Windows codepage già supportate; restano UTF-8, ASCII e ISO-8859-1 con gli
+alias numerici. `System` e `ANSI` senza numero non identificano una codifica
+portabile e sono rifiutati: indicare la codepage originale nel `.cpg`, oppure
+rimuoverlo soltanto quando LDID identifica correttamente quella codifica.
+
 
 FileGDB comprende l'intero albero, inclusi indici e lock. Gli staging adiacenti
 `<stem>.plenora-tmp-*.gdb` e i corrispondenti `.lock`, anche maiuscoli, impediscono
@@ -311,12 +318,13 @@ stringa presente, distinta dalla cella assente che rappresenta null.
 
 La tabella `loss_table` del core governa le classi di attributi e le dimensioni
 del catalogo, la normalizzazione dei tipi in scrittura e il trasporto dei
-metadati Arrow. I formati nativi che ricostruiscono lo schema dichiarano
-`arrow_metadata_not_preserved`, con conteggi e indici di layer, campo e chiave;
+metadati Arrow. `arrow_metadata_not_preserved` conta soltanto le chiavi sorgenti
+che differiscono dallo schema effettivamente riletto, con conteggi e indici
+strutturali. La ricostruzione identica non costituisce una perdita;
 i valori e i nomi delle chiavi opache non entrano nella diagnostica. GPKG
-mantiene le categorie specifiche del proprio piano. La dichiarazione del
-trasporto dei metadati non attesta ancora la copertura delle perdite dei membri
-nativi ignorati dai parser.
+mantiene le categorie specifiche del proprio piano. Il confronto copre anche tipi, nomi, ordine e nullabilit? dei campi consegnati.
+La verifica dello schema non sostituisce la qualifica dei singoli membri nativi
+ignorati dai parser.
 
 Una geometria con `shp.measure_no_data` nei metadati nativi è rifiutata con
 `unsupported` verso destinazioni diverse da SHP, IPC e GeoParquet: il controllo
@@ -1282,9 +1290,8 @@ un blocco esterno o non rappresentabile ha un rifiuto locale.
 
 GPKG `srs_id` 0 e -1 sono righe obbligatorie e valide della specifica OGC
 (requisito 11), rispettivamente geografico e cartesiano indefiniti. Non sono
-identificatori risolti: il driver GPKG supporta in lettura solo un CRS risolto e la lettura
-del relativo layer resta `crs_unresolved`. La presenza delle righe non impedisce
-di enumerare o leggere gli altri layer. Non si assegna implicitamente EPSG:4326.
+identificatori risolti: il driver legge questi layer con CRS assente;
+`--assume-crs` permette di nominarlo. Non si assegna implicitamente EPSG:4326.
 
 ### Trasporto nativo GeoJSON e KML
 
@@ -1321,8 +1328,9 @@ I conteggi sono strutturali, non misure dell'errore numerico:
 
 - `native_number_precision`: valori numerici il cui decimale ricostruito
   differisce dal testo sorgente; numeri esatti e grafie equivalenti non contano.
-- `native_dimensions_not_declared`: una colonna geometrica la cui dichiarazione
-  viene ricostruita; GeoJSON espone unknown, KML inferisce dalle coordinate.
+- `native_dimensions_not_declared`: una dichiarazione dimensionale sorgente
+  presente che differisce da quella riletta. Una sorgente senza dichiarazione
+  non perde una dichiarazione; una ricostruzione identica non produce perdita.
 - `native_type_inference`: valori scalari convertiti al tipo comune;
   `native_structured_value_rewritten`: valori oggetto/array riscritti;
   `native_missing_as_null`: celle assenti, oppure elementi testuali KML
@@ -1338,6 +1346,16 @@ I conteggi sono strutturali, non misure dell'errore numerico:
 Gli esempi riportano indici di layer/campo, mai nomi, ID, URI o valori del file.
 Gli esempi restano limitati; i conteggi sono aggregati. I metadati Arrow e le
 rappresentazioni CRS continuano a seguire i piani comuni per chiave.
+
+GeoPackage conserva `gpkg_contents.identifier` e `description` nelle chiavi
+Arrow `gpkg.identifier` e `gpkg.description` e le riscrive. Il writer dispone
+le colonne nell'ordine del reader (geometria, attributi, chiave primaria):
+una permutazione dell'ingresso è dichiarata in scrittura; la rilettura non
+segnala una nuova perdita. Il documento interno di identità validato e
+consumato dal reader non è metadato scartato; gli altri metadati restano
+soggetti alla tabella comune. SRS 0 e -1 indicano CRS assente, senza SRID Arrow
+e senza assumere EPSG:4326; `--assume-crs` permette di dichiarare il CRS
+quando richiesto dalla destinazione.
 
 ### Perdite native Shapefile, DXF e FileGDB
 
@@ -1375,7 +1393,20 @@ per campo. La lettura esamina anche la definizione XML nativa ottenuta da GDAL:
 alias e riferimenti a domini non vuoti, e sottotipi, sono contati come
 `native_layer_metadata_not_preserved`. Le definizioni non diventano metadati
 Arrow; i loro nomi e contenuti non entrano nel report. Le categorie restano
-separate dai rifiuti locali dei tipi Date/DateTime/Binary non supportati.
+separate dalla lettura degli attributi Binary, Date e DateTime: Binary diventa
+Arrow Binary; OFTDate diventa Date32; OFTDateTime diventa Timestamp in microsecondi.
+Conta il tipo effettivo restituito da OGR: un Date FileGDB esposto da GDAL come
+DateTime resta un timestamp. Il fuso UTC o l'offset esplicito fornito da OGR
+entra nel tipo Arrow; sconosciuto e locale non diventano UTC. Per GDAL 3.9,
+che lascia sconosciuto il flag di schema, viene letta la dichiarazione nativa
+IsTimeInUTC. Il flag originale di schema e' conservato nei metadati del campo.
+Fusi misti non rappresentabili in un singolo tipo Arrow sono rifiutati.
+I secondi frazionari restituiti da OGR sono arrotondati ai microsecondi:
+`native_number_precision` conta solo le celle effettivamente modificate.
+Non si ricostruiscono frazioni che il driver GDAL non fornisce. Null e Binary
+non passano attraverso conversioni testuali. In scrittura Binary e tipi
+temporali restano rifiutati prima della creazione, coerentemente con il catalogo.
+Le geometrie lette usano ISO WKB anche per Z, M e ZM.
 
 `native_coordinate_precision` conta una geometria non null sottoposta al
 renderer DXF o alla griglia FileGDB, non cifre perse o errore misurato; comprende
@@ -1747,8 +1778,8 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | gpkg | NumericFormat | Rejected | Rejected |
 | gpkg | Formula | Rejected | Rejected |
 | gpkg | FormulaCache | Rejected | Rejected |
-| gpkg | Identifier | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
-| gpkg | Description | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
+| gpkg | Identifier | Preserved | Preserved |
+| gpkg | Description | Preserved | Preserved |
 | gpkg | DataColumns | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
 | gpkg | SqlConstraints | Transformed(SqlSchema) | Transformed(SqlSchema) |
 | gpkg | ContractVersion | Preserved | Preserved |
@@ -1789,9 +1820,9 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | filegdb | UnsignedInteger | Rejected | Rejected |
 | filegdb | Floating | Preserved | Transformed(ArrowCoercion) |
 | filegdb | Boolean | Rejected | Rejected |
-| filegdb | Binary | Rejected | Rejected |
+| filegdb | Binary | Preserved | Rejected |
 | filegdb | Decimal | Rejected | Rejected |
-| filegdb | Temporal | Rejected | Rejected |
+| filegdb | Temporal | Transformed(NumberPrecision) | Rejected |
 | filegdb | NestedDictionary | Rejected | Rejected |
 | filegdb | FieldNames | Preserved | Transformed(FieldNames) |
 | filegdb | NotNull | Transformed(NotNull) | Transformed(NotNull) |

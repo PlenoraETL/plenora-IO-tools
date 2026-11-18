@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{err, sql_err, Connection, PublicMessage, Result, PRIMARY_KEY};
 
-const URI: &str = "urn:plenora:gpkg:field-identity:1";
+pub const URI: &str = "urn:plenora:gpkg:field-identity:1";
 const MAX_DOCUMENT: usize = 1_048_576;
 
 #[derive(Debug, Serialize, Deserialize)]

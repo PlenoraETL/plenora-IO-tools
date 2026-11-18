@@ -260,6 +260,10 @@ impl PropertyPlan {
                 });
             }
             let rule = effect.rule;
+            // The complete transport inventory remains available; loss counts need observation.
+            if matches!(rule, Rule::Removed | Rule::ArrowMetadataRemoved) {
+                continue;
+            }
             let Some(category) = rule.loss_category() else {
                 continue;
             };
@@ -375,4 +379,145 @@ pub fn validate_gpkg_read_schema(schema: &Schema) -> plenora_io_model::Result<()
         }
     }
     Ok(())
+}
+
+/// Metadata evidence collected from the completed native file before publication.
+/// A plan alone cannot establish whether reconstruction changed a source key.
+pub struct NativeMetadataCheck {
+    contracts: Vec<plenora_io_model::contract::DataContract>,
+    names: Vec<String>,
+    context: plenora_io_model::budget::PipelineContext,
+    options: std::collections::BTreeMap<String, String>,
+}
+
+impl NativeMetadataCheck {
+    #[must_use]
+    pub fn new(plan: &crate::WritePlan, opts: &crate::WriteOptions) -> Self {
+        Self {
+            contracts: plan.layers.iter().map(|l| l.contract.clone()).collect(),
+            names: plan.layers.iter().map(|l| l.name.clone()).collect(),
+            context: opts.budget().context().clone(),
+            options: opts.format_options.clone(),
+        }
+    }
+
+    /// # Errors
+    /// Propagates failure to inspect the completed output; no success is published.
+    #[allow(clippy::too_many_lines)] // Decode options and source-layer matching are part of the comparison boundary.
+    pub fn compare(
+        &self,
+        driver: &dyn crate::FormatDriver,
+        native: crate::loss_table::NativeDriver,
+        path: &std::path::Path,
+    ) -> plenora_io_model::Result<crate::LossReport> {
+        use crate::loss_table::{metadata_changes, TransportDirection};
+        self.context.ensure_active()?;
+        let mut builder = plenora_io_model::budget::PipelineBudget::builder()
+            .limits((*self.context.limits()).with_duration_ms(
+                self.context.remaining_duration().map_or(1, |d| {
+                    u64::try_from(d.as_millis()).unwrap_or(u64::MAX).max(1)
+                }),
+            ))
+            .cancellation(self.context.cancellation().clone());
+        if let Some(pool) = self.context.resource_pool() {
+            builder = builder.resource_pool(pool.clone());
+        }
+        let mut options = crate::ReadOptions::from_read_parts(builder.build()?.into_read_parts());
+        if matches!(driver.descriptor().id(), "csv" | "xls") {
+            if self
+                .options
+                .get("geometry_encoding")
+                .is_some_and(|s| s == "xy")
+            {
+                options.assume_crs = Some("EPSG:4326".to_owned());
+                options.format_options.insert("x_column".into(), "x".into());
+                options.format_options.insert("y_column".into(), "y".into());
+            }
+            if driver.descriptor().id() == "csv" {
+                if let Some(delimiter) = self.options.get("delimiter") {
+                    options
+                        .format_options
+                        .insert("delimiter".into(), delimiter.clone());
+                }
+            }
+        }
+        let assumed_for_decoding = (matches!(driver.descriptor().id(), "csv" | "xls")
+            && options_xy(&self.options))
+            || (driver.descriptor().id() == "shp" && !path.with_extension("prj").exists());
+        if assumed_for_decoding {
+            options.assume_crs = Some("EPSG:4326".to_owned());
+        }
+        let dataset = driver.open(crate::Source::Path(path.to_owned()), options)?;
+        let mut report = crate::LossReport::default();
+        for (index, source) in self.contracts.iter().enumerate() {
+            let before = &source.schema;
+            let after = (if self.contracts.len() > 1 {
+                dataset
+                    .layers()
+                    .iter()
+                    .find(|layer| layer.name == self.names[index])
+            } else {
+                dataset.layers().first()
+            })
+            .ok_or_else(|| {
+                plenora_io_model::PlenoraIoError::contratto_redatto(
+                    &plenora_io_model::PublicMessage::Curated(
+                        "layer scritto assente alla rilettura",
+                    ),
+                )
+            })?;
+            let mut actual = after.contract.clone();
+            if assumed_for_decoding {
+                if let Some(geometry) = &mut actual.geometry {
+                    geometry.crs = plenora_io_model::crs::CrsResolution::Missing;
+                    geometry.srid = None;
+                    let fields = actual
+                        .schema
+                        .fields()
+                        .iter()
+                        .map(|field| {
+                            if field.name() == &geometry.name {
+                                let mut field =
+                                    plenora_io_model::geometry::with_geometry_contract_metadata(
+                                        field, geometry,
+                                    );
+                                let mut metadata = field.metadata().clone();
+                                metadata.remove("crs");
+                                field = field.with_metadata(metadata);
+                                field
+                            } else {
+                                field.as_ref().clone()
+                            }
+                        })
+                        .collect::<Vec<_>>();
+                    actual.schema = std::sync::Arc::new(arrow_schema::Schema::new_with_metadata(
+                        fields,
+                        actual.schema.metadata().clone(),
+                    ));
+                }
+            }
+            report.merge(&crate::driver::observed_geometry_metadata_loss(
+                source,
+                &actual,
+                driver.descriptor(),
+                index as u64,
+            )?);
+            let changes =
+                metadata_changes(native, TransportDirection::Write, before, &actual.schema);
+            for (category, count) in &changes.counts {
+                report.record(category, *count);
+            }
+            for example in changes.esempi_canonici() {
+                let mut example = example.clone();
+                example.posizione.layer_index = Some(index as u64);
+                report.add_example(example);
+            }
+        }
+        self.context.ensure_active()?;
+        Ok(report)
+    }
+}
+
+fn options_xy(options: &std::collections::BTreeMap<String, String>) -> bool {
+    options.get("geometry_encoding").is_some_and(|s| s == "xy")
 }

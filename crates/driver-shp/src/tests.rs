@@ -4171,6 +4171,10 @@ fn n1_il_contatore_che_trabocca_ferma_il_lotto_prima_di_scriverlo() {
     let writer = Writer::from_path(&percorso_shp, TableWriterBuilder::new())
         .expect("il writer dello staging si apre");
     let mut stato = ShpWriter {
+        metadata_check: plenora_io_core::property_plan::NativeMetadataCheck::new(
+            &WritePlan { layers: Vec::new() },
+            &opzioni_scrittura(),
+        ),
         loss: LossReport::default(),
         staging: Some(staging),
         writer: Some(writer),
@@ -5785,6 +5789,10 @@ fn una_scadenza_prima_del_controllo_dimensionale_e_un_timeout_e_ripulisce() {
         Err(errore) => unreachable!("budget di prova non costruibile: {errore:?}"),
     };
     let mut stato = Box::new(ShpWriter {
+        metadata_check: plenora_io_core::property_plan::NativeMetadataCheck::new(
+            &WritePlan { layers: Vec::new() },
+            &opzioni_scrittura(),
+        ),
         loss: LossReport::default(),
         staging: Some(staging),
         writer: Some(writer),

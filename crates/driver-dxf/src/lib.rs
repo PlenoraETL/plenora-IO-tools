@@ -720,6 +720,9 @@ impl FormatDriver for DxfDriver {
         embed_dxf_crs(&mut drawing, geometry)?;
         with_write_validation(
             Box::new(DxfWriterState {
+                metadata_check: plenora_io_core::property_plan::NativeMetadataCheck::new(
+                    plan, opts,
+                ),
                 drawing,
                 path,
                 durable: opts.durable,
@@ -742,6 +745,7 @@ impl FormatDriver for DxfDriver {
 // --- scrittura (fedeltà Approximating: solo geometria + layer) -------------
 
 struct DxfWriterState {
+    metadata_check: plenora_io_core::property_plan::NativeMetadataCheck,
     drawing: Drawing,
     path: PathBuf,
     durable: bool,
@@ -930,6 +934,11 @@ impl FormatWriter for DxfWriterState {
         let mut buffered = output.into_inner();
         buffered.flush()?;
         drop(buffered);
+        self.loss.merge(&self.metadata_check.compare(
+            &DxfDriver,
+            plenora_io_core::loss_table::NativeDriver::Dxf,
+            temp.path(),
+        )?);
         let (bytes, outcome) = publish_file_atomic_limited(
             temp,
             &self.path,

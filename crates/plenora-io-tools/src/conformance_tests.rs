@@ -1163,30 +1163,20 @@ fn conditional_writers_report_planned_loss_instead_of_empty_reports() {
         let published = writer
             .finish()
             .unwrap_or_else(|error| panic!("{}: finish: {error}", descriptor.id()));
+        assert!(matches!(
+            preventive,
+            Fidelity::Conditional | Fidelity::Approximating
+        ));
         assert_eq!(
             published.fidelity.level,
-            preventive,
-            "{}: assessment finale divergente",
+            if published.loss.is_empty() {
+                Fidelity::Conditional
+            } else {
+                Fidelity::Approximating
+            },
+            "{}: final assessment follows observed loss",
             descriptor.id()
         );
-        match preventive {
-            Fidelity::Conditional => assert!(
-                published.loss.is_empty(),
-                "{}: loss inattesa",
-                descriptor.id()
-            ),
-            Fidelity::Approximating => assert!(
-                !published.loss.is_empty(),
-                "{}: perdita pianificata senza LossReport",
-                descriptor.id()
-            ),
-            Fidelity::Lossless => {
-                panic!(
-                    "{}: classe Conditional degradata a Lossless",
-                    descriptor.id()
-                )
-            }
-        }
         checked += 1;
     }
     // 6 dopo il fix #8 della review 2026-08-15: GeoJSON e' passato da

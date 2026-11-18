@@ -955,6 +955,10 @@ fn la_decodifica_difensiva_del_writer_dichiara_la_fase_di_scrittura() {
     .expect("lo staging si crea");
     let writer = wire::Writer::new(staging.reopen().expect("lo staging si riapre"), b',');
     let mut sotto_prova = CsvWriter {
+        metadata_check: plenora_io_core::property_plan::NativeMetadataCheck::new(
+            &WritePlan { layers: Vec::new() },
+            &opzioni_scrittura(),
+        ),
         loss: LossReport::default(),
         staging,
         writer: Some(writer),
@@ -1021,6 +1025,10 @@ fn una_scadenza_durante_la_finalizzazione_non_pubblica() {
     let mut writer = wire::Writer::new(staging.reopen().expect("lo staging si riapre"), b',');
     writer.write_record(["id"]).expect("intestazione");
     let sotto_prova = Box::new(CsvWriter {
+        metadata_check: plenora_io_core::property_plan::NativeMetadataCheck::new(
+            &WritePlan { layers: Vec::new() },
+            &opzioni_scrittura(),
+        ),
         loss: LossReport::default(),
         staging,
         writer: Some(writer),

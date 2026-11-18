@@ -852,13 +852,41 @@ struct Crs {
     epoca: Option<String>,
 }
 
-/// L'SRID di un Arrow IPC, dal campo geometria: `io.inspect` non lo rende.
+/// SRID effettivamente consegnato dal lettore, anche quando ricostruito dal catalogo.
 fn srid_ipc(percorso: &Path) -> Option<String> {
+    let driver: Option<Box<dyn plenora_io_core::FormatDriver>> =
+        match percorso.extension().and_then(|s| s.to_str()) {
+            Some("gpkg") => Some(Box::new(driver_gpkg::GpkgDriver)),
+            Some("parquet") => Some(Box::new(driver_geoparquet::GeoParquetDriver)),
+            _ => None,
+        };
+    if let Some(driver) = driver {
+        let dataset = driver
+            .open(
+                plenora_io_core::Source::Path(percorso.to_owned()),
+                plenora_io_core::ReadOptions::from_read_parts(
+                    plenora_io_model::budget::PipelineBudget::builder()
+                        .build()
+                        .unwrap()
+                        .into_read_parts(),
+                ),
+            )
+            .unwrap();
+        return dataset.layers()[0]
+            .contract
+            .geometry
+            .as_ref()
+            .and_then(|g| g.srid)
+            .map(|s| s.to_string());
+    }
     let file = std::fs::File::open(percorso).ok()?;
     let lettore = arrow_ipc::reader::FileReader::try_new(file, None).ok()?;
     let schema = lettore.schema();
-    let campo = schema.field_with_name("geometry").ok()?;
-    campo.metadata().get("plenora.geometry.srid").cloned()
+    schema
+        .fields()
+        .iter()
+        .find_map(|campo| campo.metadata().get("plenora.geometry.srid"))
+        .cloned()
 }
 
 fn crs_letto(percorso: &Path, opzioni: &[&str]) -> Result<Crs, String> {
@@ -1173,11 +1201,11 @@ fn violazioni_della_definizione(
     }
     if let Some(srid) = &sorgente.srid {
         let dichiarato = dichiara("srid_not_preserved");
-        if !dichiarato && verso != "ipc" {
-            errori.push("SRID non scritto e non dichiarato perduto".to_owned());
-        }
-        if !dichiarato && verso == "ipc" && riletto.srid.as_ref() != Some(srid) {
+        if !dichiarato && riletto.srid.as_ref() != Some(srid) {
             errori.push(format!("SRID conservato e riletto {:?}", riletto.srid));
+        }
+        if dichiarato && riletto.srid.as_ref() == Some(srid) {
+            errori.push("SRID riletto identico ma dichiarato perduto".to_owned());
         }
     }
     errori

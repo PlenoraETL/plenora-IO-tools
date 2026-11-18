@@ -267,6 +267,9 @@ impl FormatDriver for GeoJsonDriver {
         writer.write_all(b"{\"type\":\"FeatureCollection\",\"features\":[")?;
         with_write_validation(
             Box::new(GeoJsonWriter {
+                metadata_check: plenora_io_core::property_plan::NativeMetadataCheck::new(
+                    plan, opts,
+                ),
                 staging,
                 writer: Some(writer),
                 first: true,
@@ -460,14 +463,6 @@ struct SchemaAccumulators {
 impl SchemaAccumulators {
     fn native_report(&self) -> LossReport {
         let mut loss = self.loss.clone();
-        observe_native(
-            &mut loss,
-            NATIVE_READ,
-            NativeElement::Dimensions,
-            1,
-            0,
-            Some(0),
-        );
         let mut fields: Vec<_> = self.indices.iter().collect();
         fields.sort_by(|a, b| a.0.cmp(b.0));
         if fields
@@ -1884,6 +1879,7 @@ pub fn __fuzz_read_geojson(bytes: &[u8]) -> std::result::Result<usize, String> {
 // --- scrittura (bufferizzante nella v1) -----------------------------------
 
 struct GeoJsonWriter {
+    metadata_check: plenora_io_core::property_plan::NativeMetadataCheck,
     loss: LossReport,
     staging: StagedFile,
     writer: Option<BufWriter<File>>,
@@ -1929,6 +1925,11 @@ impl FormatWriter for GeoJsonWriter {
         w.write_all(b"]}")?;
         w.flush()?;
         drop(w);
+        self.loss.merge(&self.metadata_check.compare(
+            &GeoJsonDriver,
+            plenora_io_core::loss_table::NativeDriver::GeoJson,
+            self.staging.path()?,
+        )?);
         let (bytes, outcome) = self.staging.publish()?;
         Ok(Published {
             bytes,

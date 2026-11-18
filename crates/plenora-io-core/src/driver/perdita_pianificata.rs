@@ -39,6 +39,10 @@ pub fn planned_write_loss(
         loss.merge(&properties.report(indice_layer as u64, crate::property_plan::Phase::Write)?);
         let geometries = layer.contract.geometries()?;
         crate::loss_table::validate_native_measures(descriptor.id(), &geometries)?;
+        if descriptor.id() != "ipc" && crate::loss_table::rules(descriptor.id()).is_some() {
+            // Native writers compare the completed output before publication.
+            continue;
+        }
         for geometry in geometries.iter().filter(|g| {
             layer.contract.geometry.is_some()
                 || geometries.len() > 1
@@ -507,4 +511,206 @@ pub fn assess_write_contract(
         }
     }
     assessment
+}
+
+#[allow(clippy::too_many_lines)] // One explicit comparison for each schema and geometry representation.
+pub fn observed_geometry_metadata_loss(
+    before: &plenora_io_model::contract::DataContract,
+    after: &plenora_io_model::contract::DataContract,
+    driver: &FormatDescriptor,
+    layer_index: u64,
+) -> plenora_io_model::Result<LossReport> {
+    use crate::loss_table::{observe_native, NativeDriver, NativeElement, TransportDirection};
+    let mut loss = LossReport::default();
+    let native = crate::loss_table::rules(driver.id()).and_then(|r| r.qualified_native);
+    let mut matched = std::collections::BTreeSet::new();
+    let mut changed_order = false;
+    for (index, field) in before.schema.fields().iter().enumerate() {
+        let geometry = is_geometry_field(field);
+        let output = after
+            .schema
+            .fields()
+            .iter()
+            .enumerate()
+            .find(|(_, f)| f.name() == field.name())
+            .or_else(|| {
+                geometry
+                    .then(|| {
+                        after
+                            .schema
+                            .fields()
+                            .iter()
+                            .enumerate()
+                            .find(|(_, f)| is_geometry_field(f))
+                    })
+                    .flatten()
+            });
+        let Some((output_index, actual)) = output else {
+            if let Some(native) = native.filter(|n| *n == NativeDriver::Kml) {
+                observe_native(
+                    &mut loss,
+                    (native, TransportDirection::Write),
+                    NativeElement::ExtendedData,
+                    1,
+                    layer_index,
+                    Some(index as u64),
+                );
+            }
+            continue;
+        };
+        matched.insert(output_index);
+        if let Some(native) = native {
+            for (element, changed) in [
+                (NativeElement::FieldNames, field.name() != actual.name()),
+                (
+                    NativeElement::NotNull,
+                    !field.is_nullable() && actual.is_nullable(),
+                ),
+                (
+                    NativeElement::FieldOrder,
+                    native != NativeDriver::Gpkg && index != output_index,
+                ),
+            ] {
+                observe_native(
+                    &mut loss,
+                    (native, TransportDirection::Write),
+                    element,
+                    u64::from(changed),
+                    layer_index,
+                    Some(index as u64),
+                );
+            }
+            changed_order |= index != output_index;
+        }
+        if !geometry && actual.data_type() != field.data_type() {
+            loss.record("coercion tipo attributo", 1);
+            loss.add_example(LossExample {
+                category: "coercion tipo attributo".to_owned(),
+                posizione: Posizione {
+                    layer_index: Some(layer_index),
+                    field_index: Some(index as u64),
+                    type_class: Some(crate::capabilities::arrow_type_class(field.data_type())),
+                },
+                context: "tipo dell'attributo diverso alla rilettura".to_owned(),
+            });
+        }
+    }
+    if let Some(native) = native {
+        if native == NativeDriver::Gpkg {
+            observe_native(
+                &mut loss,
+                (native, TransportDirection::Write),
+                NativeElement::FieldOrder,
+                u64::from(changed_order),
+                layer_index,
+                None,
+            );
+        } else {
+            let added = after
+                .schema
+                .fields()
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| !matched.contains(i))
+                .count();
+            observe_native(
+                &mut loss,
+                (native, TransportDirection::Write),
+                NativeElement::FieldNames,
+                added as u64,
+                layer_index,
+                None,
+            );
+        }
+    }
+    let outputs = after.geometries()?;
+    for geometry in before.geometries()? {
+        let actual = outputs
+            .iter()
+            .find(|g| g.name == geometry.name)
+            .or_else(|| (outputs.len() == 1).then(|| &outputs[0]));
+        if native == Some(NativeDriver::Kml)
+            && geometry
+                .geometry_types
+                .contains(&GeometryType::GeometryCollection)
+            && actual.is_some_and(|g| g.geometry_types != geometry.geometry_types)
+        {
+            observe_native(
+                &mut loss,
+                (NativeDriver::Kml, TransportDirection::Write),
+                NativeElement::GeometryType,
+                1,
+                layer_index,
+                None,
+            );
+        }
+        let position = Posizione {
+            layer_index: Some(layer_index),
+            field_index: before
+                .schema
+                .fields()
+                .iter()
+                .position(|f| f.name() == &geometry.name)
+                .map(|i| i as u64),
+            type_class: None,
+        };
+        let representations = |g: &plenora_io_model::contract::GeometryColumnContract| {
+            let (id, definition) = match &g.crs {
+                CrsResolution::Resolved(crs) => (crs.id.clone(), crs.definition.clone()),
+                CrsResolution::DeclaredButUnresolved(crs) => {
+                    (crs.authority_hint.clone(), crs.definition.clone())
+                }
+                CrsResolution::Missing => (None, None),
+            };
+            [id, g.srid.map(|v| v.to_string()), definition]
+        };
+        let source = representations(&geometry);
+        let target = actual.map_or([None, None, None], representations);
+        for ((kind, source), target) in [
+            RappresentazioneDelCrs::CrsId,
+            RappresentazioneDelCrs::Srid,
+            RappresentazioneDelCrs::CrsDefinition,
+        ]
+        .into_iter()
+        .zip(source)
+        .zip(target)
+        {
+            if source != target {
+                record_crs_representation_loss(
+                    &mut loss,
+                    position,
+                    kind,
+                    source.as_ref().map(String::len),
+                    if target.is_some() && matches!(kind, RappresentazioneDelCrs::CrsDefinition) {
+                        CrsRepresentationState::Derived(CrsDerivation::FixedByFormat)
+                    } else {
+                        CrsRepresentationState::Absent
+                    },
+                );
+            }
+        }
+        if geometry.dimensions != plenora_io_model::contract::CoordinateDimensions::Unknown
+            && actual.is_none_or(|g| g.dimensions != geometry.dimensions)
+        {
+            if let Some(native) =
+                crate::loss_table::rules(driver.id()).and_then(|r| r.qualified_native)
+            {
+                crate::loss_table::observe_native(
+                    &mut loss,
+                    (native, crate::loss_table::TransportDirection::Write),
+                    crate::loss_table::NativeElement::Dimensions,
+                    1,
+                    layer_index,
+                    position.field_index,
+                );
+            }
+        }
+        let mut changed = geometry.clone();
+        changed
+            .native_metadata
+            .retain(|key, value| actual.is_none_or(|g| g.native_metadata.get(key) != Some(value)));
+        record_coordinate_epoch_loss(&mut loss, driver.id(), &changed, position);
+        record_geometry_metadata_loss(&mut loss, driver.id(), &changed, position);
+    }
+    Ok(loss)
 }

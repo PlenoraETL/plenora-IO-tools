@@ -553,6 +553,7 @@ version = "10.0.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
+ "chrono",
  "driver-common",
  "plenora-fork-gdal",
  "plenora-io-core",

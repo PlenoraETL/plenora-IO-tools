@@ -2004,6 +2004,10 @@ fn n1_json_from_array_non_produce_ne_aggregati_ne_numeri_non_rappresentabili() {
 #[allow(clippy::unnecessary_box_returns)]
 fn scrittore(percorso: &std::path::Path, xy: bool, lotti: Vec<RecordBatch>) -> Box<XlsWriterState> {
     Box::new(XlsWriterState {
+        metadata_check: plenora_io_core::property_plan::NativeMetadataCheck::new(
+            &WritePlan { layers: Vec::new() },
+            &opzioni_scrittura(),
+        ),
         loss: LossReport::default(),
         path: percorso.to_owned(),
         durable: false,
@@ -3670,6 +3674,10 @@ fn la_decodifica_difensiva_del_writer_dichiara_la_finalizzazione() {
     .unwrap();
 
     let mut sotto_prova = Box::new(XlsWriterState {
+        metadata_check: plenora_io_core::property_plan::NativeMetadataCheck::new(
+            &WritePlan { layers: Vec::new() },
+            &opzioni_scrittura(),
+        ),
         loss: LossReport::default(),
         path: output,
         durable: false,

@@ -176,10 +176,10 @@ fn real_values_in_an_integer_column_are_reported_as_loss_not_silently_coerced() 
     assert_eq!(loss.counts.get(INTEGER_COLUMN_REAL_TRUNCATED), Some(&1));
     assert_eq!(loss.counts.get(INTEGER_COLUMN_REAL_SATURATED), Some(&1));
     // Il 7.0 convertito dall'affinita' non e' una perdita.
-    assert_eq!(loss.counts.values().sum::<u64>(), 3);
-    assert_eq!(loss.counts.get(SCHEMA_NORMALIZED), Some(&1));
+    assert_eq!(loss.counts.values().sum::<u64>(), 2);
+    assert!(!loss.counts.contains_key(SCHEMA_NORMALIZED));
     // Un esempio per coppia (campo, categoria), mai uno per riga.
-    assert_eq!(loss.esempi_trattenuti(), 3);
+    assert_eq!(loss.esempi_trattenuti(), 2);
     // Il nome della colonna non c'e' piu': al suo posto l'indice nello
     // schema, e i due esempi restano distinti per quello.
     assert!(loss.esempi_canonici().all(|example| {
@@ -840,11 +840,9 @@ fn undefined_and_dangling_srs_ids_fail_closed_with_raw_crs() {
     let conn = Connection::open_in_memory().unwrap();
     init_gpkg(&conn).unwrap();
 
-    for srs_id in [0, -1, 999_999] {
-        let error = crs_for(&conn, srs_id).unwrap_err();
-        assert_eq!(error.code, plenora_io_model::IoErrorCode::CrsUnresolved);
-        assert_eq!(error.driver.as_deref(), Some("gpkg"));
-    }
+    let error = crs_for(&conn, 999_999).unwrap_err();
+    assert_eq!(error.code, plenora_io_model::IoErrorCode::CrsUnresolved);
+    assert_eq!(error.driver.as_deref(), Some("gpkg"));
 
     conn.execute("DELETE FROM gpkg_spatial_ref_sys WHERE srs_id = 4326", [])
         .unwrap();
@@ -2705,8 +2703,9 @@ fn r2_srs_obbligatori_non_sono_crs_risolti() {
     let conn = Connection::open_in_memory().unwrap();
     init_gpkg(&conn).unwrap();
     for id in [-1, 0] {
-        let error = crs_for(&conn, id).unwrap_err();
-        assert_eq!(error.code, plenora_io_model::IoErrorCode::CrsUnresolved);
+        let crs = crs_for(&conn, id).unwrap();
+        assert!(crs.id.is_none());
+        assert!(crs.definition.is_none());
     }
 }
 
@@ -2722,7 +2721,7 @@ fn native_layer_accessories_are_counted_without_payload() {
     let report = schema::native_layer_loss(&conn, "secret", 3, false).unwrap();
     assert_eq!(
         report.counts.get("native_layer_metadata_not_preserved"),
-        Some(&5)
+        Some(&3)
     );
     assert_eq!(report.counts.get("native_styles_not_preserved"), Some(&1));
     let examples = serde_json::to_string(&report.esempi_canonici().collect::<Vec<_>>()).unwrap();
@@ -2772,7 +2771,156 @@ fn generated_database_reads_without_sql_constraint_loss() {
         .get("gpkg.schema_normalized")
         .is_none_or(|reasons| !reasons.split(',').any(|reason| reason == "constraints")));
     let loss = read_all_and_loss(dataset.as_ref());
-    assert!(loss
-        .esempi_canonici()
-        .all(|example| !example.context.contains("vincoli SQL")));
+    assert!(!loss.counts.contains_key(SCHEMA_NORMALIZED), "{loss:?}");
+    assert!(
+        !loss
+            .counts
+            .contains_key("native_layer_metadata_not_preserved"),
+        "{loss:?}"
+    );
+}
+
+#[test]
+fn undefined_srs_layers_read_with_missing_crs_and_preserve_coordinates() {
+    for id in [0_i32, -1] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("undefined.gpkg");
+        gpkg_con_un_layer_features(&path);
+        let conn = Connection::open(&path).unwrap();
+        conn.execute("UPDATE gpkg_geometry_columns SET srs_id=?1", [id])
+            .unwrap();
+        conn.execute("UPDATE gpkg_contents SET srs_id=?1", [id])
+            .unwrap();
+        let mut blob: Vec<u8> = conn
+            .query_row("SELECT geom FROM features", [], |r| r.get(0))
+            .unwrap();
+        blob[4..8].copy_from_slice(&id.to_le_bytes());
+        conn.execute("UPDATE features SET geom=?1", [blob]).unwrap();
+        drop(conn);
+        let dataset = GpkgDriver
+            .open(Source::Path(path.clone()), opzioni_lettura())
+            .unwrap();
+        let layer = &dataset.layers()[0];
+        assert!(
+            dataset.rifiuto_del_layer(layer.id).is_none(),
+            "{:?}",
+            dataset.rifiuto_del_layer(layer.id)
+        );
+        assert_eq!(
+            layer.contract.geometry.as_ref().unwrap().crs,
+            plenora_io_model::crs::CrsResolution::Missing
+        );
+        let mut reader = dataset.open_layer_reader(&richiesta(layer.id)).unwrap();
+        let batch = reader.next_batch().unwrap().unwrap();
+        assert_eq!(batch.num_rows(), 1);
+        assert!(!batch.column(0).is_null(0));
+        let assumed = GpkgDriver
+            .open(
+                Source::Path(path),
+                opzioni_lettura().with_assume_crs("EPSG:3857"),
+            )
+            .unwrap();
+        let layer = &assumed.layers()[0];
+        assert!(assumed.rifiuto_del_layer(layer.id).is_none());
+        assert_eq!(
+            layer.contract.geometry.as_ref().unwrap().crs.id(),
+            Some("EPSG:3857")
+        );
+        let mut reader = assumed.open_layer_reader(&richiesta(layer.id)).unwrap();
+        assert_eq!(reader.next_batch().unwrap().unwrap().num_rows(), 1);
+    }
+}
+
+#[test]
+fn native_identifier_description_and_io_metadata_survive_two_roundtrips() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut path = dir.path().join("original.gpkg");
+    gpkg_con_un_layer_features(&path);
+    let conn = Connection::open(&path).unwrap();
+    conn.execute("UPDATE gpkg_contents SET identifier='Identità distinta', description='Descrizione è completa'", []).unwrap();
+    drop(conn);
+    for iteration in 0..2 {
+        let dataset = GpkgDriver
+            .open(Source::Path(path.clone()), opzioni_lettura())
+            .unwrap();
+        let layer = &dataset.layers()[0];
+        assert_eq!(
+            layer.contract.schema.metadata()["gpkg.identifier"],
+            "Identità distinta"
+        );
+        assert_eq!(
+            layer.contract.schema.metadata()["gpkg.description"],
+            "Descrizione è completa"
+        );
+        let loss = read_all_and_loss(dataset.as_ref());
+        assert!(!loss.counts.contains_key(SCHEMA_NORMALIZED), "{loss:?}");
+        assert!(
+            !loss
+                .counts
+                .contains_key("native_layer_metadata_not_preserved"),
+            "{loss:?}"
+        );
+        path = dir.path().join(format!("copy-{iteration}.gpkg"));
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: layer.name.clone(),
+                contract: layer.contract.clone(),
+            }],
+        };
+        let mut writer = GpkgDriver
+            .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
+            .unwrap();
+        let mut reader = dataset.open_layer_reader(&richiesta(layer.id)).unwrap();
+        while let Some(batch) = reader.next_batch().unwrap() {
+            writer.write(&batch).unwrap();
+        }
+        writer.finish().unwrap();
+    }
+}
+
+#[test]
+fn column_permutation_is_reported_at_write_not_on_reopen() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("reordered.gpkg");
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("value", DataType::Int64, false),
+        geometry_field("geom", "EPSG:4326"),
+    ]));
+    let plan = WritePlan {
+        layers: vec![WriteLayer {
+            name: "features".into(),
+            contract: DataContract::from_schema(schema.clone()).unwrap(),
+        }],
+    };
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(Int64Array::from(vec![17])),
+            Arc::new(BinaryArray::from(vec![None::<&[u8]>])),
+        ],
+    )
+    .unwrap();
+    let mut writer = GpkgDriver
+        .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
+        .unwrap();
+    writer.write(&batch).unwrap();
+    let published = writer.finish().unwrap();
+    assert_eq!(published.loss.counts.get(SCHEMA_NORMALIZED), Some(&1));
+    let dataset = GpkgDriver
+        .open(Source::Path(path), opzioni_lettura())
+        .unwrap();
+    assert!(!read_all_and_loss(dataset.as_ref())
+        .counts
+        .contains_key(SCHEMA_NORMALIZED));
+    let mut reader = dataset.open_layer_reader(&richiesta(LayerId(0))).unwrap();
+    let batch = reader.next_batch().unwrap().unwrap();
+    assert_eq!(
+        batch
+            .column(1)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap()
+            .value(0),
+        17
+    );
 }

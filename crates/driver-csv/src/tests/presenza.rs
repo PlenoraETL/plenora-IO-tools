@@ -115,7 +115,7 @@ fn inferenza_e_reader_pubblico_conservano_il_testo() {
 }
 
 #[test]
-fn tutti_i_tipi_scrivibili_hanno_un_oracolo_e_una_perdita_di_schema() {
+fn tutti_i_tipi_scrivibili_dichiarano_solo_il_cambio_di_tipo_osservato() {
     let cases: Vec<(ArrayRef, &str)> = vec![
         (
             Arc::new(BooleanArray::from(vec![true, false])),
@@ -169,14 +169,20 @@ fn tutti_i_tipi_scrivibili_hanno_un_oracolo_e_una_perdita_di_schema() {
     for (array, expected) in cases {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("output.csv");
+        let source_type = array.data_type().clone();
         let published = write_attribute(&path, array).unwrap();
         assert_eq!(
-            std::fs::read_to_string(path).unwrap(),
+            std::fs::read_to_string(&path).unwrap(),
             format!("value\r\n{expected}")
         );
+        let mut options = read_opts(&[]);
+        options.assume_crs = None;
+        let dataset = CsvDriver.open(Source::Path(path), options).unwrap();
+        let target_type = dataset.layers()[0].contract.schema.field(0).data_type();
         assert_eq!(
             published.loss.counts.get("coercion tipo attributo"),
-            Some(&1)
+            (source_type != *target_type).then_some(&1),
+            "{source_type:?} -> {target_type:?}"
         );
     }
 }
