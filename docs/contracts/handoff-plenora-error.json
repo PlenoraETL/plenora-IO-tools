@@ -1,76 +1,7 @@
 {
-  "campi": [
-    {
-      "next": "category",
-      "nota": "asse stabile: e' con questi quattro che si correlano gli errori",
-      "v1": "error.category"
-    },
-    {
-      "next": "phase",
-      "nota": "asse stabile",
-      "v1": "error.phase"
-    },
-    {
-      "next": "code",
-      "nota": "asse stabile; vocabolario chiuso, sotto `vocabolari.code`",
-      "v1": "error.code"
-    },
-    {
-      "next": "retry",
-      "nota": "asse stabile",
-      "v1": "error.retry"
-    },
-    {
-      "next": "remote_effect",
-      "nota": "invariato",
-      "v1": "error.remote_effect"
-    },
-    {
-      "next": "message",
-      "nota": "testo curato, deterministico, <= 2048 byte. **Non** e' un identificatore: il testo cambia con S9 e cambiera' ancora",
-      "v1": "error.message"
-    },
-    {
-      "next": "details.row_diagnostics",
-      "nota": "scende di un livello; contratto interno invariato",
-      "v1": "error.row_diagnostics"
-    },
-    {
-      "da": "PlenoraIoError::driver",
-      "next": "provider",
-      "nota": "il driver esiste nel tipo Rust ma **non e' emesso** da v1: e' un campo nuovo per la destinazione, non una rinomina",
-      "stato": "da decidere",
-      "v1": null
-    },
-    {
-      "da": "PlenoraIoError::field, capability_reason",
-      "next": "details",
-      "nota": "il contesto strutturato non e' emesso da v1; confluisce in `details` nella destinazione",
-      "v1": null
-    }
-  ],
-  "contract": "plenora-io-handoff-v1",
-  "destinazione": {
-    "contract": "plenora-error-v1",
-    "nota": "l'adozione e' uno step breaking separato dopo S9, insieme a CLI v2, exit code e capabilities",
-    "stato": "mappatura preparata, conformita' NON dichiarata"
-  },
-  "domande_aperte": [
-    {
-      "bloccante_per_s9": false,
-      "campo": "provider",
-      "contesto": "«provider» suggerisce un servizio o un backend remoto; qui e' il formato del file — csv, geoparquet, shapefile — scelto dal chiamante e senza effetto remoto. Se la destinazione intende `provider` nel primo senso, `details.format_id` descrive meglio cio' che il valore e'.",
-      "domanda": "un driver di formato IO e' davvero un `provider`, oppure appartiene a un `details` component-owned come `format_id`?",
-      "id": "driver-e-un-provider",
-      "nota": "S9 prosegue senza attendere: la mappatura e' preparata, la conformita' non e' dichiarata, e il DTO e' l unico punto che dovra' cambiare quando la risposta arrivera'."
-    }
-  ],
+  "contract": "plenora-error-v1",
   "generato_da": "plenora-io-tools, test la_matrice_di_handoff_e_aggiornata",
-  "sorgente": {
-    "contract": "plenora-error-v1",
-    "protocol_version": 1,
-    "stato": "invariato da S9: struttura, ordine e tipi identici alla baseline"
-  },
+  "protocol_version": 2,
   "vincoli": {
     "assi_stabili": [
       "category",
@@ -78,14 +9,9 @@
       "code",
       "retry"
     ],
-    "message_max_bytes_serializzato": null,
-    "message_max_bytes_serializzato_nota": "non promesso: l'escaping JSON espande (una virgoletta -> 2 byte, un controllo -> 6); se servira', va dichiarato a parte e misurato dopo la serializzazione",
     "message_max_bytes_valore_decodificato": 2048,
-    "message_non_e_chiave_di_compatibilita": true,
-    "message_testo_runtime": "vietato, salvo il token bounded di un'opzione rifiutata prodotto dal validatore centrale",
-    "stderr_su_errore": "esattamente un documento JSON, e nient'altro",
-    "stderr_su_successo": "vuoto, salvo l'avviso del protocollo legacy quando e' stato scelto esplicitamente e la consegna e' riuscita",
-    "stdout_su_successo": "il documento del comando; l'avviso del legacy non ci entra, perche' il v1 e' congelato byte per byte"
+    "stderr_su_successo": "vuoto",
+    "stdout_su_errore": "esattamente una busta JSON"
   },
   "vocabolari": {
     "code": [

@@ -878,7 +878,7 @@ per i nuovi rifiuti e la migrazione dalla 7.x. La matrice interop e le campagne
 | GeoParquet | dalla 4.2.0 il decoder del footer (`parquet` 60 più il fork `vendor/parquet`) lega ai byte residui ogni elenco Thrift e i row group, rifiuta uno schema più profondo di 64 livelli prima di convertirlo, e addebita ogni prenotazione -- elenchi, column chunk, percorsi delle foglie, il footer stesso -- al tetto delle pagine (metà della capacità effettiva) **prima** di farla; un footer più lungo di metà del tetto si rifiuta dalla coda. Il caso della 4.1.1 (3966 byte, `malloc(2315255472)`) è un errore. Restano fuori dal tetto le espansioni vere dei dati (un dizionario ripetuto su molte righe), che governa il budget delle pagine, e il page index, che il driver non legge. Anche i decoder delle pagine non si fidano piu' dei valori del file: lunghezze, indici di dizionario, prefissi e suffissi delta, corse RLE e livelli v2 o `BIT_PACKED` oltre i byte della pagina sono un errore invece di un panico, e i quattro casi che prima si leggevano in silenzio con un valore sbagliato (un prefisso delta oltre il valore precedente, il resto di una pagina `BYTE_STREAM_SPLIT` o FLBA `PLAIN`, una corsa RLE oltre `u32`) si rifiutano. Il delta e' lo stesso del fork di plenora-data-tools2 (`vendor/parquet`, registro `vendor-parquet-fork.json`) |
 | Runtime `io.read`: vettore di richiesta | Deviazione, regola 4, da RUNTIME-VECTORS-1.0 §5 (`io-read-request`), limitata al payload illustrativo: `artifact_source`, `format` e `layer` stringa non rispettano `plenora-io-read-input-v1`, che richiede `source` e `layer` intero. Il binding rifiuta con `RUNTIME_PAYLOAD_INVALID` prima del risolutore. Conseguenza per il consumatore e hazard: copiare la fixture impedisce l'invocazione, anche con metadati validi; usare il payload dello schema IO sullo stesso riferimento consente la lettura. Rientro: allineare la fixture in plenora-contracts oppure pubblicare una v2 dello schema di ingresso. Registro: `contracts/adozione-4.0.0.json`; prove: `runtime_vettori` |
 | Runtime `io.read`: vettore di cancellazione | Deviazione, regola 4, da RUNTIME-VECTORS-1.0 §3 (`io-read-cancelled-error`), per la lettura con token gia' cancellato: `CANCELLED`, fase `probe`, retry `never`, contro `READ_CANCELLED`, `read`, `safe` della fixture. Categoria `cancelled` ed effetto `none` coincidono. Il binding conserva gli assi delle operazioni comuni a CLI e Rust (SURFACE-BINDINGS-1.0 §1). Conseguenza per il consumatore: nessun retry automatico. Hazard: chi instrada per codice/fase della fixture puo' non riconoscere l'errore; chi presume `safe` puo' ritentare contro l'indicazione effettiva. Rientro: allineare la fixture in plenora-contracts oppure cambiare gli assi su tutte le superfici in una release dichiarata. Registro: `contracts/adozione-4.0.0.json`; prove: `runtime_vettori` |
-| GeoParquet: compatibilita' di lettura | Il fork comune con data-tools2 `6492733` rifiuta anche file validi prima leggibili: `DELTA_BINARY_PACKED`, `DELTA_LENGTH_BYTE_ARRAY`, `DELTA_BYTE_ARRAY`, `BYTE_STREAM_SPLIT` e `BIT_PACKED` per valori e livelli non sono qualificati. Sono rifiutati anche la rappresentazione Arrow `Dictionary` di `FIXED_LEN_BYTE_ARRAY` (distinta dalla codifica Parquet a dizionario) e gli `INTERVAL` validi non rappresentabili nell'unita' Arrow scelta, anche in `PLAIN`: mesi non nulli con `DayTime` (default senza schema Arrow incorporato), giorni o millisecondi non nulli con `YearMonth`, componenti conservate unsigned oltre `i32::MAX`. Il delta esclude inoltre dizionari Arrow binari su colonne testuali (`STRING`/`UTF8`, `JSON`, `ENUM`) e tipi Arrow testuali su byte senza annotazione testuale; rifiuta hint Arrow discordanti (fuso su timestamp locale, precisione/scala decimale diversa, risoluzione diversa su timestamp locale non INT96, reinterpretazione temporale di interi annotati). Questi vincoli sulla rappresentazione si applicano anche a pagine PLAIN valide. Restano inoltre i limiti di rappresentazione del fork: FLBA di larghezza zero rifiutato; DECIMAL in BYTE_ARRAY limitato a 16/32 byte per Decimal128/256, anche con estensione del segno ridondante; statistiche FLBA piu' corte della larghezza ammesse solo con flag di esattezza esplicitamente falso (l'assenza del flag e' trattata come esatta). Il controllo di fine stream ammette solo il padding RLE/bit-packed qualificato, incluse le forme DuckDB e fastparquet, e richiede varint minimi. Questi vincoli non equivalgono al supporto di ogni rappresentazione permessa dal formato Parquet. Sono rifiutati anche `INDEX_PAGE`, lettura di page index (`ColumnIndex`/`OffsetIndex`), bloom filter e salti non qualificati (selezioni/filtri di righe, offset, salto di record/pagine). IO non usa questi ultimi percorsi; usa `with_row_groups` per il pruning. Indici/bloom presenti ma non richiesti non causano da soli il rifiuto. Per Dictionary FLBA: messaggio statico `lettura Parquet fallita`; per INTERVAL non rappresentabili e codifiche escluse nei batch: errore tipizzato `DataMapping`, fase `Read`, retry `Never`, effetto `None`, messaggio statico `batch Parquet non leggibile`, senza dati; nessun panico o risultato vuoto. Rientro: qualificare ogni percorso nel fork condiviso (fuzz e regressioni), adottare la base qualificata e verificarla al confine IO. Vedi le [note della 6.0.0](https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/v6.0.0) e il [registro del fork](../assurance/registries/vendor-parquet-fork.json) |
+| GeoParquet: compatibilita' di lettura | Il fork comune con data-tools2 `6492733` rifiuta anche file validi prima leggibili: `DELTA_BINARY_PACKED`, `DELTA_LENGTH_BYTE_ARRAY`, `DELTA_BYTE_ARRAY`, `BYTE_STREAM_SPLIT` e `BIT_PACKED` per valori e livelli non sono qualificati. Sono rifiutati anche la rappresentazione Arrow `Dictionary` di `FIXED_LEN_BYTE_ARRAY` (distinta dalla codifica Parquet a dizionario) e gli `INTERVAL` validi non rappresentabili nell'unita' Arrow scelta, anche in `PLAIN`: mesi non nulli con `DayTime` (default senza schema Arrow incorporato), giorni o millisecondi non nulli con `YearMonth`, componenti conservate unsigned oltre `i32::MAX`. Il delta esclude inoltre dizionari Arrow binari su colonne testuali (`STRING`/`UTF8`, `JSON`, `ENUM`) e tipi Arrow testuali su byte senza annotazione testuale; rifiuta hint Arrow discordanti (fuso su timestamp locale, precisione/scala decimale diversa, risoluzione diversa su timestamp locale non INT96, reinterpretazione temporale di interi annotati). Questi vincoli sulla rappresentazione si applicano anche a pagine PLAIN valide. Restano inoltre i limiti di rappresentazione del fork: FLBA di larghezza zero rifiutato; DECIMAL in BYTE_ARRAY limitato a 16/32 byte per Decimal128/256, anche con estensione del segno ridondante; statistiche FLBA piu' corte della larghezza ammesse solo con flag di esattezza esplicitamente falso (l'assenza del flag e' trattata come esatta). Il controllo di fine stream ammette solo il padding RLE/bit-packed qualificato, incluse le forme DuckDB e fastparquet, e richiede varint minimi. Questi vincoli non equivalgono al supporto di ogni rappresentazione permessa dal formato Parquet. Sono rifiutati anche `INDEX_PAGE`, lettura di page index (`ColumnIndex`/`OffsetIndex`), bloom filter e salti non qualificati (selezioni/filtri di righe, offset, salto di record/pagine). IO non usa questi ultimi percorsi; usa `with_row_groups` per il pruning. Indici/bloom presenti ma non richiesti non causano da soli il rifiuto. Per Dictionary FLBA: messaggio statico `lettura Parquet fallita`; per INTERVAL non rappresentabili e codifiche escluse nei batch: errore tipizzato `DataMapping`, fase `Read`, retry `Never`, effetto `None`, messaggio statico `batch Parquet non leggibile`, senza dati; nessun panico o risultato vuoto. Rientro: qualificare ogni percorso nel fork condiviso (fuzz e regressioni), adottare la base qualificata e verificarla al confine IO. Vedi il [registro del fork](../assurance/registries/vendor-parquet-fork.json) |
 | IPC | Piu colonne `geoarrow.wkb`, con o senza primaria, file e stream. Stato e forma canonica sono governati da Arrow Primary Geometry 1.0. GEO-012 resta per i sink singoli. |
 | IPC | **un `geo` di schema passa tale e quale.** Un Arrow IPC può portare nei metadati dello schema un documento `geo` (geopandas lo scrive con `to_feather`). IO non lo legge né lo confronta con il contratto della colonna, che resta l'unica fonte del CRS; da IPC a IPC la chiave passa byte per byte, come ogni chiave che IO non possiede (ARROW-010), anche quando contraddice il campo (prova `rilettura_dei_crs.rs`, caso `32632_pj_geo_stantio`). Non arriva mai a un GeoParquet scritto da IO, né a un IPC scritto da un'altra sorgente: il writer GeoParquet non copia `geo` nello schema, e il lettore GeoParquet lo consuma nel contratto. Hazard: un consumatore che legge il `geo` di un IPC (geopandas `read_feather`) da un IPC→IPC vede il CRS stantio della sorgente. Rientra quando il lettore IPC confronta un `geo` di schema con il contratto e rifiuta la contraddizione (ARROW-006) |
 | IPC, GeoParquet | Il CRS per campo usa un unico lettore per primaria e secondarie: blocco canonico, chiave legacy `crs`, estensione `ARROW:extension:metadata`. Nell'estensione sono letti `authority_code`, PROJJSON (anche senza `crs_type`) e `wkt2:2019`; forme non interpretabili e dichiarazioni discordanti sono errori `crs`, mai `missing`. Due definizioni testualmente diverse sono rifiutate anche quando potrebbero essere equivalenti: il bordo non offre un resolver di equivalenze. Un CRS noto che GeoParquet non può esprimere senza PROJJSON è un rifiuto esplicito; `crs: null` resta riservato a un CRS realmente mancante. Prove `crs_only_in_geoarrow_extension_metadata_is_preserved` e `crs_legacy_secondario_senza_projjson_non_diventa_null`. |
@@ -1091,35 +1091,10 @@ sezione che tace.
 `omesse_esatte` qualifica i quattro contatori: vale `false` quando una perdita
 di esattezza interna li rende limiti inferiori.
 
-### Il v1 resta quello che era
+### Canali della CLI
 
-`--legacy-protocol-v1-unsafe` seleziona il protocollo congelato, difetti
-compresi, e lo dice nel nome. I suoi `detail` sono conservati **alla lettera** —
-non ricostruiti — in un campo privato che un solo adattatore legge, e a
-pretendere che il lettore resti uno solo è un gate: la visibilità di Rust non sa
-dire «questo modulo e nessun altro».
-
-### Che cosa esce su stdout e che cosa su stderr
-
-Tre righe, e valgono insieme:
-
-* in caso di **errore**, `stderr` contiene sempre e soltanto la busta JSON. Un
-  consumatore la legge con un parser sull'intero flusso, e non trova mai nulla
-  che la preceda;
-* in caso di **successo con il protocollo legacy**, `stdout` conserva il
-  documento v1 byte per byte e `stderr` porta l'avviso che quel protocollo è
-  stato scelto;
-* con il protocollo predefinito e successo, `stderr` resta **vuoto**.
-
-L'avviso accompagna una consegna riuscita, e solo quella. Sul percorso d'errore
-non c'è niente da avvertire: una busta v1 non è stata consegnata, quindi la
-diagnostica illimitata di cui l'avviso parla non esiste. Su `stdout` non va
-perché il v1 è congelato byte per byte, e aggiungere un avviso al documento
-sarebbe cambiarlo.
-
-Il gestore dei segnali segue la stessa regola: se non si installa, il comando
-**non parte** e `stderr` porta un rifiuto tipizzato — non un avviso testuale che
-finirebbe davanti alla busta.
+La CLI usa il protocollo 2. La risposta JSON, anche in caso di errore,
+va su stdout; stderr resta vuoto. Il payload di un panico non viene esposto.
 
 ### Adozione locale contracts 7f82263
 
@@ -1181,73 +1156,6 @@ tipi SQL riconosciuti e sei rappresentanti delle famiglie esterne normalizzate:
 l'affinita' puo' cambiare la classe prima della lettura. Un layer che ammette
 Point e LineString dichiara GEOMETRY nel catalogo; il limite sulle colonne
 geometriche multiple resta distinto.
-
-### Evidenza della correzione 3
-
-La riconciliazione GeoParquet confronta le proprieta dichiarate sia nel footer
-sia nel campo Arrow, su ogni colonna, prima di completare lo schema: tipi,
-encoding, dimensioni, precisione, semantica, SRID, CRS e metadati nativi.
-Un conflitto e `schema`; non si ampliano i tipi per unione. Le dichiarazioni
-non risolte non sostituiscono vincoli conosciuti. Le prove CLI includono il
-caso Polygon nel campo e nei valori contro Point nel footer, su primaria e
-secondaria, vuoto e popolato, in lettura e conversione.
-
-La compatibilita storica e misurata da `scripts/compare_historical_readers.py`
-contro 7.0.3 (`50f9357`), per IPC file/stream e GeoParquet. Il referto distingue
-byte identici, rifiuti concordi, differenze spiegate e backend mancanti.
-La differenza C3-GP-DIM e descritta nel [CHANGELOG](../CHANGELOG.md): riguarda
-le dimensioni risolte nello schema Arrow incorporato del GeoParquet prodotto.
-Non si rivendica identita universale dei byte ne esecuzione locale FileGDB
-senza GDAL. Il comando Linux con `--require-filegdb` fallisce se quel reader
-non produce confronti riusciti. Queste prove del sorgente non qualificano la
-release 8.0.0, gli handoff data/DB o la matrice interop esterna.
-
-
-### Correzione 5: precedenza delle dichiarazioni risolte
-
-Nel confronto tra campo Arrow e footer GeoParquet l'assenza non dichiara un
-vincolo. Per ogni proprieta la tabella `GEOMETRY_PROPERTIES` in `primary.rs`
-registra anche i token non risolti: `unknown` per dimensioni, tipi e assi;
-`unresolved` per la dichiarazione dei tipi; `missing` e `declared_unresolved`
-per lo stato CRS. Le restanti proprieta non hanno token non risolti aggiuntivi.
-Precisione `native`, tipi `mixed` e assi `other` sono dichiarazioni esplicite.
-Le componenti CRS risolte si riconciliano semanticamente; un valore risolto
-prevale su una fonte non risolta e viene conservato nel contratto emesso.
-La validazione del vocabolario e delle dichiarazioni interne al singolo campo
-rimane rigorosa. Non si accettano metadati malformati perche non risolti.
-
-Lo SRID dichiarato ha precedenza sulla derivazione dall'ID EPSG; quest'ultima
-si applica soltanto se nessuna fonte dichiara lo SRID. Il footer GeoParquet non
-ha una proprieta SRID separata: un ID EPSG del CRS non e una seconda dichiarazione
-SRID. Due SRID esplicitamente dichiarati diversi sono invece rifiutati.
-Le regressioni controllano il contratto completato di primaria e secondarie,
-non soltanto il successo del confronto preliminare. Il retag del reader
-conserva anche le proprieta native dichiarate solo dal campo (per esempio
-l'epoca) quando il footer non dichiara un valore concorrente.
-
-La matrice storica ora riapre come ingressi tutte le uscite riuscite IPC e
-GeoParquet della 7.0.3. La fixture `historical-7.0.3-geojson-point.parquet` e
-la copia esatta di `target/historical-readers/5-geoparquet-False-old.out`
-(SHA-256 `ba4f871acc239bbe946a205ada66f53737ae65d5c4645fa20d3238e2210b7265`),
-con dimensioni ignote nel campo e Point nel footer.
-
-Stato FileGDB Linux dopo il quarto giro, fornito dal titolare: 37 test passati,
-0 falliti; workspace 67 suite verdi; storico 1.825 identici, 815 rifiuti
-concordi, 30 spiegate e 0 inspiegate. Sono evidenze Linux precedenti al quinto
-giro, distinte dalla misura Windows e dalla riesecuzione Linux a cura del
-titolare. Resta esclusa la qualifica di release e degli handoff esterni.
-
-
-Le differenze storiche ammesse dal quinto giro sono documentate nel CHANGELOG:
-C5-GP-SRID ripristina solo lo SRID della sorgente, senza cambiare il payload
-codificato; C5-GP-EMPTY-TYPES riguarda il rifiuto storico esatto dei tipi per
-footer vuoto con campo exact, su righe nulle o assenti. In questo secondo caso
-il GeoParquet nuovo deve coincidere byte per byte con l'ingresso, mentre per
-IPC l'oracolo confronta i valori e l'intero schema atteso dopo rimozione del
-covering e completamento dei soli metadati nativi enumerati. Questa differenza
-di accettazione esisteva gia fra 7.0.3 e 8.0.0 ed e ora misurata dalla nuova
-fase; non e un nuovo rifiuto introdotto dal quinto giro. Nessun errore generico
-o differenza estranea viene trasformato in esito positivo.
 
 ### Domini temporali dei lettori
 

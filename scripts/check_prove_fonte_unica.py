@@ -40,7 +40,7 @@ STATIC = [
     ["check_capability_input_ostile.py"],
     ["check_metadati_geoparquet.py"], ["check_schemi_geoparquet.py"],
     ["check_categorie_di_perdita.py"], ["check_protocollo_v2.py"],
-    ["check_dettaglio_congelato.py"], ["check-conversioni.py"],
+    ["check-conversioni.py"],
     ["check-fixture-canoniche.py"], ["generate_shared_wkb_corpus.py", "--check"],
     ["genera_semi_shp.py", "--verifica"],
     ["genera_fixture_filegdb.py", "--verifica"],
@@ -264,7 +264,6 @@ def verify(root: Path, data: dict) -> list[str]:
         errors.append("prove native senza discovery indipendente nel job Rust su PR")
     # I runner di sonde non possono tornare a vivere soltanto nei registri.
     for script, job_id in (("check_footer_field_conflicts.py", "profilo-pubblico"),
-                           ("compare_historical_readers.py", "historical-readers"),
                            ("check_fixture_generators.py", "prove-fonte-unica")):
         target = ci.get("jobs", {}).get(job_id, {})
         if "if" in target or not any("scripts/" + script in s.get("run", "")

@@ -22,7 +22,7 @@ gambe, e questo gate le controlla tutte e tre:
 # Che cosa questo gate **non** fa
 
 Non valida documenti. Le prove che validano -- il metadato scritto da un
-Parquet vero, la forma fisica della colonna `bbox`, la via di compatibilita' --
+Parquet vero, la forma fisica della colonna `bbox`, il rifiuto dei metadati non conformi --
 sono test Rust, e questo gate le **esegue** nominandole: sono li' perche' li'
 c'e' il validatore vero, e un riferimento testuale non e' una prova.
 
@@ -106,13 +106,10 @@ PROVE_DI_CONFORMITA = (
     "tests::un_covering_con_uno_spigolo_annidato_ferma_l_apertura",
 )
 
-# La compatibilita' storica sta **fuori** dalla prova di conformita': non e' una
-# via conforme, e mescolarla direbbe che lo e'. E' una prova sua.
-PROVE_DI_COMPATIBILITA = (
+# I metadati privati non conformi sono rifiutati: nessuna via di opt-in.
+PROVE_DI_RIFIUTO = (
     "tests::un_file_storico_senza_opt_in_e_rifiutato",
-    "tests::un_file_storico_con_opt_in_si_apre_e_conserva_il_crs",
     "metadati::sonde::crs_storico_senza_opt_in_e_non_conforme",
-    "metadati::sonde::crs_storico_con_opt_in_conserva_l_identificatore_ed_e_accettato",
     "metadati::sonde::crs_storico_di_forma_diversa_e_non_conforme",
     "metadati::sonde::crs_storico_con_altri_difetti_e_non_conforme",
     "metadati::sonde::crs_storico_in_un_documento_1_1_0_e_non_conforme",
@@ -658,7 +655,7 @@ def main() -> int:
             esegui_i_test(CRATE, PROVE_DI_CONFORMITA, "la prova di conformita'")
         )
         errori.extend(
-            esegui_i_test(CRATE, PROVE_DI_COMPATIBILITA, "la prova di compatibilita'")
+            esegui_i_test(CRATE, PROVE_DI_RIFIUTO, "la prova di rifiuto")
         )
 
     for messaggio in errori:
@@ -678,8 +675,8 @@ def main() -> int:
         f"«{versione_dichiarata()}», la massima che gli schemi definiscono. "
         f"{len(PROVE_DI_CONFORMITA)} prove di conformita' eseguite -- fra cui il "
         "metadato di un Parquet realmente scritto e la forma fisica della "
-        f"colonna `bbox` -- e {len(PROVE_DI_COMPATIBILITA)} prove della sola via "
-        "storica, tenute separate perche' quella via conforme non e'."
+        f"colonna `bbox` -- e {len(PROVE_DI_RIFIUTO)} prove di rifiuto "
+        "dei metadati non conformi."
     )
     return 0
 

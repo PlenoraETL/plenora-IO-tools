@@ -362,26 +362,6 @@ class CiLocaleTests(unittest.TestCase):
             _, receipt = ci.execute(ci.derive(self.root), self.root, offline=True)
         self.assertEqual(receipt["steps"][0]["status"], "FAIL")
 
-    def test_declarative_environment_preconditions(self):
-        import subprocess
-        for command in ("pwsh script.ps1", "docker info", "cargo build --features gdal-backend"):
-            self.workflow([{"run": command}])
-            job = ci.derive(self.root)["jobs"][0]
-            with patch.object(ci.shutil, "which", return_value=None):
-                self.assertIn("assente", ci.preconditions(job, job["steps"][0], self.root, command, False))
-        source = self.root / "scripts/compare_historical_readers.py"
-        source.parent.mkdir()
-        source.write_text("BASELINE_REVISION = 'historical-tag'")
-        command = "python scripts/compare_historical_readers.py --old old --new new"
-        self.workflow([{"run": command}])
-        job = ci.derive(self.root)["jobs"][0]
-        with patch.object(ci, "git", side_effect=subprocess.CalledProcessError(1, "git")):
-            self.assertIn("storia/tag", ci.preconditions(job, job["steps"][0], self.root, command, False))
-        with patch.object(ci, "git", return_value="commit"):
-            self.assertIn("binario", ci.preconditions(job, job["steps"][0], self.root, command, False))
-            for name in ("old", "new"):
-                (self.root / name).touch()
-            self.assertEqual(ci.preconditions(job, job["steps"][0], self.root, command, False), "")
 
     def test_setup_history_services_and_receipt_contract(self):
         self.workflow([{"uses": "actions/checkout@pin", "with": {"fetch-depth": 0}}])

@@ -344,7 +344,7 @@ perché una garanzia che non è dichiarata è una garanzia che nessuno può usar
 
 Il campo entra nel catalogo come additivo opzionale, che la regola del
 protocollo consente **con un record d'impatto**: il record è in
-`release/cli-protocol-v1.json`, e il gate del contratto lo pretende.
+`release/cli-protocol-v2.json`, e il gate del contratto lo pretende.
 
 #### L'unica incompatibilità osservabile di S12
 
@@ -762,18 +762,16 @@ invarianti ancora applicabili sono nel registro del contratto corrente.
 ## Misure di prestazione
 
 `plenora-bench` misura throughput, picco RSS, allocazioni e codifica/decodifica
-WKB per driver, e archivia una baseline sotto `baseline/`.
+WKB per driver, e registra la misura corrente sotto `target/`.
 
 **Non è un gate di rilascio**, ed è escluso dai gate di CI insieme a
 `plenora-fuzz`: è attrezzaggio, non componente distribuibile. Una regressione
 prestazionale non blocca oggi nulla automaticamente — va confrontata a mano
-contro la baseline archiviata.
+su misure esplicitamente identificate.
 
-Dal contratto 9.0.0 il benchmark Windows/FileGDB contro v0.1.0-rc.3
-non e piu nel cancello CI. Nessuna soglia di velocita e richiesta per la
-release; rimangono le prove semantiche native di proiezione, valori e null.
-Lo script storico resta disponibile per leggere le campagne precedenti,
-non come prescrizione per la release corrente.
+Il benchmark Windows/FileGDB misura il binario corrente, senza tag o binari
+precedenti. Righe e checksum sono verificati contro la fixture sintetica;
+la velocita non ha una soglia di release.
 
 ## Distribuzione
 
@@ -958,7 +956,7 @@ Nessun documento è un database. I gate leggono file strutturati:
 | `assurance/campagne-copertura.json` | il verbale della dimostrazione di riproducibilità della copertura | nessuno: è un fatto passato, non una fonte |
 | `assurance/registries/quartetto-siti.json` | quartetto per sito di costruzione | `check_quartetto_sito.py` |
 | `assurance/registries/distribuzione-matrice.json` | piattaforme, profili, layout e contratto del runtime GDAL | nessuno ancora: il gate nasce con il primo artefatto |
-| `release/cli-protocol-v1.json` | le sei buste della CLI | `check_release_contract.py` |
+| `release/cli-protocol-v2.json` | le sei buste della CLI | `check_release_contract.py` |
 | `release/system-rc-gate.json` | qualifica cross-component | esterno |
 | `assurance/evidence/checkpoint-<sha>.json` | la corsa che ha prodotto i numeri dello stato — **una sola**, la corrente | `check_release_contract.py` |
 
@@ -1201,40 +1199,6 @@ file/stream, GeoParquet prodotto da PyArrow senza chiave primaria incorporata,
 proiezione con oracolo di valori/null, spill su batch non vuoti, runtime con
 artefatto e SDK Table/reader/C stream/C array. Non costituiscono una misura
 fuzz/ASan o la qualifica della distribuzione 8.0.0.
-
-### Gate storico 7.0.3 e riconciliazione GeoParquet
-
-`primary::reconcile_geometry_properties` e condiviso dal riconciliatore del
-piano Rust e dal controllo footer/campo prima del retag GeoParquet. La tabella
-include tutte le chiavi del contratto geometrico; il test ne confronta
-l'inventario con le costanti wire e destruttura il contratto senza `..`.
-CRS usa il confronto semantico, nativi il confronto di ogni chiave comune.
-Un disaccordo fra dichiarazioni risolte e `schema` su qualsiasi colonna.
-
-Il confronto storico e ripetibile su Linux dalla radice del worktree:
-
-```sh
-mkdir -p target/historical-50f9357
-git archive 50f9357 | tar -x -C target/historical-50f9357
-CARGO_BUILD_JOBS=4 cargo build --locked --manifest-path target/historical-50f9357/Cargo.toml --target-dir target/historical-build -p plenora-io-tools --features gdal-backend
-CARGO_BUILD_JOBS=4 cargo build --locked -p plenora-io-tools --features gdal-backend
-python3 scripts/compare_historical_readers.py --old target/historical-build/debug/plenora-io --new target/debug/plenora-io --require-filegdb
-```
-
-Prerequisiti Python: PyArrow e openpyxl; GDAL nativo secondo il profilo Linux
-esistente. Lo script ha shebang Python 3 ed e invocabile anche direttamente
-quando il checkout conserva il bit eseguibile. Tutti gli output stanno sotto
-`target/historical-readers`. Il referto include SHA-256 dei binari, versioni,
-esiti per cella e diagnostiche delle generazioni non supportate. Le fixture
-native generate dal writer 7.0.3 sono distinte da quelle indipendenti
-committate e dai GeoPackage costruiti direttamente con SQLite/ISO WKB.
-I 15 tipi WKB sono enumerati nelle quattro dimensionalita, ciascuno con
-valore, vuoto, null e zero righe. CSV/XLSX storici espongono WKT e X-Y, non WKB; WKB e provato tramite
-i reader binari. I rifiuti concordi non sono successi binari. Il gate fallisce
-per una differenza non spiegata o un reader base senza confronti identici;
-`--require-filegdb` rende obbligatorio anche il reader GDAL. L'unica eccezione
-C3-GP-DIM ha un oracolo indipendente e un test che rifiuta mutazioni di valori,
-metadati estranei e dimensionalita errata. Gli esiti Linux non sono anticipati.
 
 ### Conversioni temporali da file esterni
 

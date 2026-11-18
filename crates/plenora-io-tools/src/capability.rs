@@ -330,10 +330,7 @@ pub fn catalog_document_con(filegdb_available: bool) -> Value {
 
 /// `catalog` accetta soltanto il selettore esplicito del modo macchina.
 ///
-/// Fino alla 3.0.0 accettava anche `--legacy-protocol-v1-unsafe`, che sceglieva
-/// il protocollo congelato. Il profilo pubblico vieta a un artefatto di servire
-/// due versioni del protocollo JSON, e il flag e' stato tolto: ora e' un flag
-/// sconosciuto, e un flag sconosciuto fallisce chiuso come gli altri.
+/// Ogni altro argomento e sconosciuto e viene rifiutato.
 pub fn parse_catalog(argomenti: &[String]) -> Result<(), (i32, Value)> {
     match argomenti {
         [] => Ok(()),

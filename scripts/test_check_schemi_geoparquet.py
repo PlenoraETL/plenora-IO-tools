@@ -395,18 +395,12 @@ class SondeDelGate(unittest.TestCase):
         for voce in registro["crate"]:
             self.assertTrue(voce["licenza"], voce["crate"])
 
-    # --- conformita' e compatibilita' restano separate -----------------
-
-    def test_la_via_storica_non_entra_nella_prova_di_conformita(self) -> None:
-        """Mescolarle direbbe che la via di compatibilita' e' conforme, e non lo
-        e'. Sono due elenchi, e nessuna prova sta in tutti e due."""
+    def test_le_prove_di_rifiuto_sono_distinte_e_non_vuote(self) -> None:
+        """I rifiuti dei metadati privati restano verificati dal driver."""
         conformita = set(gate.PROVE_DI_CONFORMITA)
-        compatibilita = set(gate.PROVE_DI_COMPATIBILITA)
-        self.assertEqual(conformita & compatibilita, set())
-        self.assertTrue(conformita and compatibilita)
-        for prova in conformita:
-            self.assertNotIn("storic", prova)
-            self.assertNotIn("opt_in", prova)
+        rifiuto = set(gate.PROVE_DI_RIFIUTO)
+        self.assertEqual(conformita & rifiuto, set())
+        self.assertTrue(conformita and rifiuto)
 
 
 if __name__ == "__main__":

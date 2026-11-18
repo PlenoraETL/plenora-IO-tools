@@ -4,7 +4,7 @@
 # Che cosa protegge
 
 Le chiavi di `LossReport::counts` finiscono nella busta JSON della CLI, che e'
-un'interfaccia esterna con un ICD congelato (`release/cli-protocol-v1.json`).
+un'interfaccia esterna descritta da `release/cli-protocol-v2.json`.
 Una chiave costruita a runtime e' una chiave che nessuno puo' enumerare
 leggendo il codice; se la costruisce con un nome preso dal file, allora **la
 cardinalita' e i byte della busta li decide chi fornisce il file**.

@@ -975,38 +975,21 @@ use plenora_io_model::format_options::{
 /// `uncompressed` e `none` sono due nomi dello stesso esito e restano
 /// entrambi: erano gia' accettati, toglierne uno sarebbe una rottura di
 /// contratto travestita da pulizia dello schema.
-const SCHEMA_OPZIONI: SchemaOpzioniFormato = SchemaOpzioniFormato::nuovo(&[
-    OpzioneFormato {
-        chiave: "accept_legacy_crs_id_only",
-        fase: FaseOpzione::Lettura,
-        valore: ValoreAmmesso::Booleano,
-        predefinito: Some("false"),
-        descrizione:
-            "opt-in alla lettura del `crs` storico non conforme scritto da plenora fino a S10",
-    },
-    OpzioneFormato {
-        chiave: "bbox_legacy_by_name",
-        fase: FaseOpzione::Lettura,
-        valore: ValoreAmmesso::Booleano,
-        predefinito: Some("false"),
-        descrizione: "opt-in al riconoscimento per nome delle colonne bbox legacy",
-    },
-    OpzioneFormato {
-        chiave: "compression",
-        fase: FaseOpzione::Scrittura,
-        valore: ValoreAmmesso::Enumerato(&[
-            "brotli",
-            "gzip",
-            "lz4",
-            "none",
-            "snappy",
-            "uncompressed",
-            "zstd",
-        ]),
-        predefinito: Some("snappy"),
-        descrizione: "codec di compressione delle pagine",
-    },
-]);
+const SCHEMA_OPZIONI: SchemaOpzioniFormato = SchemaOpzioniFormato::nuovo(&[OpzioneFormato {
+    chiave: "compression",
+    fase: FaseOpzione::Scrittura,
+    valore: ValoreAmmesso::Enumerato(&[
+        "brotli",
+        "gzip",
+        "lz4",
+        "none",
+        "snappy",
+        "uncompressed",
+        "zstd",
+    ]),
+    predefinito: Some("snappy"),
+    descrizione: "codec di compressione delle pagine",
+}]);
 
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     "geoparquet",
@@ -1094,42 +1077,6 @@ pub struct GeoParquetDriver;
 /// S4.d il cambio semantico del preflight — enumerazione via il modello
 /// unificato e rimozione dei controlli legacy — dovra' avvenire in un punto
 /// solo per driver, non sparso nel corpo di `open`.
-/// L'opt-in al riconoscimento per nome delle colonne bbox legacy.
-///
-/// La forma booleana e' quella dello schema, non una lista scritta a mano qui:
-/// prima "false" e "pippo" erano indistinguibili — entrambi "non vero" — e un
-/// opt-in scritto male taceva invece di correggersi.
-/// L'opt-in alla lettura del `crs` storico, non conforme.
-///
-/// Spento per default, e deve restarlo: ogni `GeoParquet` che questo repository
-/// ha scritto fino a S10 dichiara `crs: {"id": {...}}`, che **non e'** un
-/// documento PROJJSON e che lo schema ufficiale rifiuta in entrambe le
-/// versioni. Quei file non sono conformi, e accettarli in silenzio vorrebbe
-/// dire chiamare conforme cio' che non lo e'.
-///
-/// Chi ha quei dati accende l'opzione e sa che cosa sta accettando: il
-/// contratto lo dichiara, e la via non entra nel supporto `GeoParquet` dichiarato
-/// conforme.
-fn opt_in_crs_storico(format_options: &std::collections::BTreeMap<String, String>) -> Result<bool> {
-    format_options
-        .get("accept_legacy_crs_id_only")
-        .map_or(Ok(false), |valore| {
-            plenora_io_model::format_options::booleano(
-                "geoparquet",
-                "accept_legacy_crs_id_only",
-                valore,
-            )
-        })
-}
-
-fn opt_in_bbox_legacy(format_options: &std::collections::BTreeMap<String, String>) -> Result<bool> {
-    format_options
-        .get("bbox_legacy_by_name")
-        .map_or(Ok(false), |valore| {
-            plenora_io_model::format_options::booleano("geoparquet", "bbox_legacy_by_name", valore)
-        })
-}
-
 fn percorso_verificato(source: Source, opts: &mut ReadOptions) -> Result<PathBuf> {
     plenora_io_core::preflight_source(&DESCRIPTOR, source, opts)
 }
@@ -1220,7 +1167,7 @@ impl FormatDriver for GeoParquetDriver {
         })?;
         let parquet_schema = builder.schema().clone();
         validate_primary_before_retag(&parquet_schema)?;
-        let geo = read_geo_meta(&builder, opt_in_crs_storico(&opts.format_options)?)?;
+        let geo = read_geo_meta(&builder)?;
         if geo.is_none()
             && parquet_schema.fields().iter().any(|f| {
                 f.metadata()
@@ -1240,38 +1187,8 @@ impl FormatDriver for GeoParquetDriver {
             riconcilia_con_lo_schema_fisico(&parquet_schema, builder.parquet_schema(), geo)?;
             multigeometria::verifica_crs(&parquet_schema, geo)?;
         }
-        // Finding #4 follow-up follow-up review 2026-08-15: il fallback
-        // legacy per-nome (accettare `_bbox_minx/miny/maxx/maxy` come
-        // covering anche in assenza di metadata `covering.bbox`) e' stato
-        // rimosso dal percorso predefinito perche' un GeoParquet esterno
-        // con attributi utente omonimi veniva silenziosamente trattato
-        // come covering — perdendo colonne o applicando pruning
-        // sbagliato. Il fallback e' ora un opt-in esplicito via
-        // `format_options["bbox_legacy_by_name"] = "true"`: chi ha file
-        // scritti prima del covering GeoParquet 1.1 lo abilita
-        // esplicitamente, prendendosi responsabilita' del comportamento
-        // documentato.
-        let legacy_by_name_opt_in = opt_in_bbox_legacy(&opts.format_options)?;
-        // Il covering dichiarato -- quattro **percorsi**, gia' validati nella
-        // forma dello schema 1.1.0 -- oppure, su richiesta esplicita, le
-        // quattro colonne piatte storiche.
-        //
-        // I due casi non si mescolano e l'ordine e' quello: un covering
-        // dichiarato vale, e il riconoscimento per nome resta cio' che era, un
-        // opt-in per i file scritti prima che il covering avesse una forma.
-        let covering: Option<[Vec<String>; 4]> = covering_bbox_paths(geo.as_ref()).or_else(|| {
-            legacy_by_name_opt_in
-                .then(|| BBOX_COLS.map(|nome| vec![nome.to_owned()]))
-                .filter(|percorsi| {
-                    percorsi
-                        .iter()
-                        .all(|p| percorso_presente(&parquet_schema, p))
-                })
-        });
-        // Retag toglie dallo schema esposto **solo** le colonne radice che il
-        // covering occupa: con la forma conforme e' la colonna struct, con
-        // quella storica sono le quattro piatte. Un file senza covering e senza
-        // opt-in conserva tutte le colonne utente esattamente come sono.
+        // Soltanto il covering dichiarato identifica colonne interne.
+        let covering = covering_bbox_paths(geo.as_ref());
         let strip_names: Option<Vec<String>> = covering.as_ref().map(radici_del_covering);
         let out_schema = retag_schema(&parquet_schema, &geom_name, &crs, strip_names.as_deref());
         let out_schema = multigeometria::completa_schema(out_schema, geo.as_ref())?;
@@ -1502,7 +1419,7 @@ fn schema_arrow_con_geo(schema: &Schema, geo: &str) -> Result<String> {
     let mut metadati = schema.metadata().clone();
     metadati.insert(plenora_io_model::geometry::GEO_METADATA_KEY, geo);
     // Il footer finale e il campo incorporato descrivono gli stessi tipi osservati.
-    let parsed = metadati::analizza(geo, false)?;
+    let parsed = metadati::analizza(geo)?;
     let fields = schema
         .fields()
         .iter()
@@ -2551,10 +2468,7 @@ fn compression_from(opts: &WriteOptions) -> Result<Compression> {
 /// veniva letto come Parquet semplice -- con la colonna indovinata per nome,
 /// che poteva non essere quella dichiarata da `primary_column`. Ora un
 /// documento presente viene validato, e se non regge il file e' rifiutato.
-fn read_geo_meta(
-    builder: &ParquetRecordBatchReaderBuilder<File>,
-    accetta_crs_storico: bool,
-) -> Result<Option<MetadatiGeo>> {
+fn read_geo_meta(builder: &ParquetRecordBatchReaderBuilder<File>) -> Result<Option<MetadatiGeo>> {
     let Some(kv) = builder.metadata().file_metadata().key_value_metadata() else {
         return Ok(None);
     };
@@ -2568,7 +2482,7 @@ fn read_geo_meta(
             "metadato `geo` GeoParquet dichiarato e vuoto",
         )));
     };
-    metadati::analizza(grezzo, accetta_crs_storico).map(Some)
+    metadati::analizza(grezzo).map(Some)
 }
 
 /// Nome colonna geometria + CRS risolto dai metadati `geo`.
@@ -2690,15 +2604,6 @@ fn crs_della_colonna(colonna: &metadati::ColonnaGeo) -> Result<CrsResolution> {
         // senza nessuno dei due: `io.read` lo emetteva, e la conversione in
         // IPC lo rifiutava come metadato CRS non valido.
         metadati::Crs::Nullo => Ok(CrsResolution::Missing),
-        // Accettato per compatibilita': l'identificatore e' cio' che quel file
-        // dichiarava, e si conserva. Il contratto dice altrove che il file non
-        // era conforme, cosi' chi legge non scambia la cortesia per conformita'.
-        metadati::Crs::StoricoSoloIdentificatore(id) => {
-            let genere = crs_kind_for_authority_id(id);
-            Ok(ResolvedCrs::new(Some(id.clone()), genere, None)
-                .stored_east_first()
-                .into())
-        }
         metadati::Crs::Documento { valore: v, testo } => {
             let id = identificatore_del_documento(v);
             // Il testo del documento com'e' nel file, non la sua riscrittura:
@@ -2759,14 +2664,6 @@ fn apply_geo_column_metadata(
     contract
         .native_metadata
         .insert("geoparquet.version".to_owned(), geo.versione.to_owned());
-    // Se il file e' entrato dalla via di compatibilita', il contratto lo dice.
-    // Una deroga che non si vede diventa il comportamento normale.
-    if geo.conformita == metadati::Conformita::CrsStoricoSoloIdentificatore {
-        contract.native_metadata.insert(
-            "geoparquet.compatibilita".to_owned(),
-            "crs_storico_solo_identificatore_non_conforme".to_owned(),
-        );
-    }
     // Le altre colonne geometriche del file non si nominano qui: questa
     // funzione vede solo il documento `geo`, e un campo che lo schema Arrow
     // incorporato marca come geometria ne resterebbe fuori. Vedi
@@ -3138,32 +3035,10 @@ fn covering_riconciliato(
     Ok(())
 }
 
-/// Quel percorso esiste nello schema Parquet?
-fn percorso_presente(schema: &Schema, percorso: &[String]) -> bool {
-    let Some((radice, resto)) = percorso.split_first() else {
-        return false;
-    };
-    let Ok(indice) = schema.index_of(radice) else {
-        return false;
-    };
-    let mut campo = schema.field(indice).clone();
-    for segmento in resto {
-        let DataType::Struct(figli) = campo.data_type() else {
-            return false;
-        };
-        let Some(trovato) = figli.iter().find(|f| f.name() == segmento) else {
-            return false;
-        };
-        campo = (**trovato).clone();
-    }
-    true
-}
-
 /// Le quattro colonne piatte che questo writer emetteva **prima** di S10.
 ///
-/// Restano qui perche' i file scritti allora esistono, e perche'
-/// `bbox_legacy_by_name` -- l'opt-in che gia' c'era -- serve a riconoscerle. Il
-/// writer non le produce piu': non erano un covering `GeoParquet` 1.1 valido.
+/// Nomi riservati per evitare collisioni nel writer; in lettura restano dati
+/// utente se il covering non li dichiara.
 const BBOX_COLS: [&str; 4] = ["_bbox_minx", "_bbox_miny", "_bbox_maxx", "_bbox_maxy"];
 
 /// Il nome della colonna struct che porta il covering conforme.
@@ -3424,12 +3299,7 @@ fn radici_del_covering(percorsi: &[Vec<String>; 4]) -> Vec<String> {
 /// Ricostruisce lo schema marcando la geometria come `geoarrow.wkb`+`crs` ed
 /// ESCLUDENDO le colonne dichiarate come covering in `covering_names`.
 ///
-/// Finding #4 follow-up follow-up review 2026-08-15: la funzione non ha
-/// piu' un fallback per-nome implicito. Il caller (`open()`) decide se
-/// includere i nomi convenzionali `BBOX_COLS` sulla base di
-/// `format_options["bbox_legacy_by_name"]`. `None` significa "non
-/// strippare nulla" — cosi' un file esterno con colonne omonime NON
-/// perde dati.
+/// Senza covering dichiarato tutte le colonne restano dati utente.
 fn retag_schema(
     schema: &Schema,
     geom_name: &str,

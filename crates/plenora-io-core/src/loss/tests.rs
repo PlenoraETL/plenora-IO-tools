@@ -36,10 +36,9 @@ fn observed_loss_promotes_assessment_and_stays_bounded() {
     let assessment =
         FidelityAssessment::for_format("test", Fidelity::Conditional).with_loss_report(&report);
     assert_eq!(assessment.level, Fidelity::Approximating);
-    assert_eq!(assessment.ragioni_v1().len(), MAX_FIDELITY_REASONS);
+    assert_eq!(assessment.ragioni_trattenute(), MAX_FIDELITY_REASONS + 11);
     assert!(assessment
-        .ragioni_v1()
-        .iter()
+        .ragioni_canoniche()
         .any(|reason| reason.code == FidelityReasonCode::LossReported));
 }
 

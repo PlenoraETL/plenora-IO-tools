@@ -4,20 +4,15 @@
   "protocol_version": 2,
   "status": "ratificato",
   "compatibility_scope": "cli_json_only",
-  "perche_una_versione_nuova": "il v1 e' congelato (`status: frozen_for_1_0`) e le sue regole dicono che cambiare il tipo o il significato di un campo obbligatorio richiede una versione nuova. Il v2 fa esattamente questo su `counts` e su `reasons[].detail`: il primo acquista un tetto e una forma diversa, il secondo perde gli identificatori che vengono dal file. Chiamarlo v1 con qualche correzione avrebbe prodotto un protocollo che si presenta come v1 e ne cambia il significato, cioe' la rottura che l'ICD esiste per impedire.",
-  "che_cosa_risolve": "nel v1 la cardinalita' e la dimensione della diagnostica le decide chi fornisce il file: `counts` non ha tetto, nessuna stringa ha un limite in byte, e `reasons[].detail` porta nomi di layer e di attributo piu' la forma `Debug` di tipi di una dipendenza -- che puo' cambiare sotto di noi senza che nessuno tocchi il protocollo.",
   "rust_api": {
     "status": "internal_unstable",
     "semver_guarantee": false,
     "crates_publish": false,
-    "reason": "invariato rispetto al v1: R15.4.1 prevede l'estrazione dei tipi di confine da plenora-io-model."
+    "reason": "API interna dei crate non pubblicati."
   },
   "selezione": {
     "predefinito": "v2",
-    "v1_come": "--legacy-protocol-v1-unsafe",
-    "perche_quel_nome": "il nome dichiara che cosa si sta scegliendo. `--protocol 1` sarebbe stato piu' corto e avrebbe fatto sembrare le due versioni due opzioni pari: non lo sono.",
-    "avviso": "chi sceglie il v1 riceve su **stderr** un avviso che nomina i due difetti: identificatori controllati dal file e fino a 4096 chiavi. Su stdout non ci va niente, perche' il v1 e' congelato byte per byte e aggiungere un avviso al documento sarebbe cambiarlo.",
-    "gate_di_release": "usano il v2 e soltanto il v2. La qualifica cross-component riguarda il v2."
+    "gate_di_release": "Il solo protocollo corrente e 2."
   },
   "limiti_della_diagnostica": {
     "categorie_per_sezione": 64,
@@ -36,7 +31,6 @@
     "payload_stringhe_v2_trattenute_ragioni": 131072,
     "payload_stringhe_v2_trattenute_esempi": 163840,
     "che_cosa_misura_il_payload": "la somma massima delle **lunghezze** delle stringhe che il v2 trattiene: `ragioni_trattenute * byte_per_dettaglio_curato` per le ragioni, e `esempi_trattenuti * (byte_per_identificatore_di_categoria + byte_per_dettaglio_curato)` per gli esempi. E' esatta perche' il filtro sta alla porta e nessuna stringa entra oltre il proprio tetto, ed e' indipendente dall'allocatore. **Non e' un tetto sulla RAM del processo**: non conta la capacita' delle stringhe -- che puo' superarne la lunghezza -- ne' i nodi e le allocazioni delle strutture, ne' i campi di lunghezza fissa. Un tetto sulla memoria sarebbe una garanzia di natura diversa, dipendente da allocatore e piattaforma, e andrebbe misurata invece che calcolata.",
-    "che_cosa_non_conta_il_payload": "le stringhe del v1. `prime_v1` conserva fino a sessantaquattro frasi congelate di lunghezza **non delimitata**, perche' portano nomi presi dal file: e' l'impronta che il v1 aveva gia' e che il suo congelamento impone di conservare. Il nome del campo dice `v2` proprio per questo -- `256 * 512` non descriverebbe tutte le stringhe residenti.",
     "che_cosa_sono_i_trattenuti": "quante voci **distinte** si conservano in memoria, oltre le sessantaquattro che la sezione pubblica. Non sono un tetto sul filo: servono a rendere il taglio indipendente dall'ordine di inserimento. Conservandone esattamente sessantaquattro, la sessantacinquesima veniva scartata prima che l'adattatore ordinasse, quindi l'insieme pubblicato dipendeva da quali adattatori fossero stati composti -- cioe' da qualcosa che ne' chi fornisce il file ne' chi lo legge controlla. A saturazione l'insieme conserva sempre le **minori** per chiave canonica e sfratta la maggiore: rifiutare le successive rimetterebbe il contenuto in mano all'inserimento, che e' cio' da cui il trattenimento lo toglie.",
     "unita": "byte UTF-8 della serializzazione JSON **effettiva**, escaping e chiavi compresi. Misurare la lunghezza delle stringhe di partenza misurerebbe un'altra cosa: un dettaglio con virgolette o accenti occupa piu' byte di quanti caratteri abbia.",
     "ripartizione": "fissa. Dodici KiB a ciascuna delle cinque sezioni -- `read_fidelity`, `write_fidelity`, `conversion_fidelity`, `read_loss`, `write_loss` -- e quattro KiB alla struttura aggregata e alle dichiarazioni.",
@@ -107,11 +101,10 @@
   "redazione": {
     "stato": "implementata",
     "implementata_il": "2026-08-27",
-    "che_cosa_e_cambiato": "i quattro siti di `assess_write_contract` e i cinque produttori di esempi non mettono piu' nomi presi dal file nel testo che il v2 pubblica: al loro posto ci sono `layer_index`, `field_index` e `type_class`, e il testo e' curato. La frase congelata del v1 e' conservata alla lettera in un campo privato e `#[serde(skip)]`, letto da un solo adattatore -- e a pretendere che il lettore resti uno solo e' `check_confine_v1.py`, perche' la visibilita' di Rust non sa dire «questo modulo e nessun altro». Lo stato cambia **insieme** a quel gate e non prima: una regola dichiarata implementata senza cio' che la verifica e' una promessa, non un fatto.",
+    "che_cosa_e_cambiato": "I dettagli sono curati e le posizioni strutturate; nessun nome del file viene conservato nelle ragioni.",
     "regola": "nessun nome proveniente dal file compare in `detail` o negli esempi. Le posizioni si dichiarano con indici numerici -- `layer_index`, `field_index` -- e non con i nomi ne' con un loro hash: un hash e' ancora un identificatore controllato da chi fornisce il file, e correlarlo e' banale.",
-    "tipi_di_dipendenza": "il tipo di un attributo passa da un vocabolario **nostro** chiuso, mai dalla forma `Debug` di un tipo di dipendenza. Nel v2 quella forma non e' piu' sul filo: `type_class` porta una classe del nostro vocabolario chiuso, e un aggiornamento della dipendenza non puo' piu' cambiare la busta senza che nessuno tocchi il protocollo. Nel v1 resta, perche' il v1 e' congelato e i suoi `detail` sono conservati alla lettera: e' uno dei difetti che si sceglie esplicitamente selezionandolo.",
-    "autorita": "il codice strutturato e' autorevole. L'eventuale testo e' descrittivo e stabile, e non e' un campo su cui costruire un parser.",
-    "come_convive_col_v1": "il v1 e' congelato e i suoi `detail` restano quelli che erano, **alla lettera**: la frase non si ricostruisce dai pezzi, si conserva. Vive in un campo privato e `#[serde(skip)]` di `FidelityReason`, popolato solo nelle sessantaquattro copie che il v1 pubblica e mai in quelle che il v2 trattiene -- quella stringa porta nomi presi dal file, quindi la sua lunghezza la decide chi fornisce il file, e la struttura che serve il v2 non la contiene affatto. A leggerla e' il solo `mod legacy_v1`, e `check_confine_v1.py` pretende che i lettori restino quelli. E' lo stesso disegno della chiave dinamica di DXF."
+    "tipi_di_dipendenza": "type_class usa il vocabolario chiuso del prodotto, non la rappresentazione Debug delle dipendenze.",
+    "autorita": "il codice strutturato e' autorevole. L'eventuale testo e' descrittivo e stabile, e non e' un campo su cui costruire un parser."
   },
   "envelopes": {
     "capabilities": {
@@ -1760,8 +1753,7 @@
         "contract": "plenora-row-diagnostics-v1",
         "present_when": "read_row_scoped_rejections_are_observed_or_write_row_scoped_rejections_are_observed_after_exact_input_total_declaration",
         "missing_write_input_total": "contract_precondition_error_without_row_diagnostics",
-        "absent_for_other_errors": true,
-        "posizione_da_allineare": "il contratto comune delle diagnostiche di riga le vuole in `details.row_diagnostics`; qui stanno accanto agli assi. Spostarle vuole prima lo schema `plenora-io-error-details-v1`, che il profilo pretende per qualunque `details` e che non esiste ancora: e' la riga BB3 del piano 4.0.0."
+        "absent_for_other_errors": true
       },
       "emitted_error_codes": [
         "CANCELLED",
@@ -1965,13 +1957,12 @@
       },
       "stato": "contratto separato, riutilizzato dal v2 senza modifiche",
       "perche_non_si_versiona": "non e' una decisione lasciata aperta: e' su stderr, non contiene diagnostica di perdita, e ne' la sua struttura ne' il suo significato cambiano con il v2. Creare un `plenora-io-error-v2` identico moltiplicherebbe i nomi senza aggiungere un'affermazione, e un consumatore dovrebbe imparare due contratti per leggere lo stesso documento.",
-      "come_leggerlo": "una busta d'errore dichiara `protocol_version: 1` e `contract: plenora-error-v1` qualunque sia il protocollo scelto per stdout. Non e' un'incoerenza: sono due superfici, e la versione che il v2 governa e' quella delle buste JSON su stdout.",
+      "come_leggerlo": "La busta di errore usa protocol_version=2, contract=plenora-error-v1 e viene emessa su stdout.",
       "verificata_da": "`scripts/check_buste_v2.py`, che esegue il binario, piu' le sonde di forma in `plenora-io-tools`.",
       "struttura_nota": "ogni percorso che la busta emette, con i tipi JSON osservati e se compaia in **ogni** busta di questo contratto **in cui c'e' il suo contenitore** (l'oggetto che lo contiene, o l'array per un elemento `[]`). Un campo dentro un oggetto annullabile -- `layers[].geometry`, `null` per un layer senza geometria -- e' `sempre` se c'e' ogni volta che l'oggetto c'e'; un array vuoto conta invece come contenitore presente, quindi un elemento che puo' mancare resta `sempre: false`. Fino alla 4.1.1 la condizione non c'era, e la matrice non raggiungeva un oggetto annullabile: il manifesto dichiarava `geometry` sempre un oggetto e l'SDK Python rifiutava buste valide. `[]` sta per l'elemento di un array: il contratto parla del tipo dell'elemento, non della sua posizione. Confrontata col binario da `scripts/check_buste_v2.py`, che esegue la CLI e legge cio' che esce dai due flussi.",
-      "quante_chiavi": "**sei o sette**. Le sei di `required_error_fields` -- `category`, `phase`, `remote_effect`, `retry`, `code`, `message` -- ci sono sempre; `row_diagnostics` e' la settima, e c'e' quando l'errore porta la diagnostica row-scoped. Fino alla ratifica del 2026-09-04 questo campo diceva «esattamente sei chiavi e nessuna in piu'»: era falso, e il v1 -- che la dichiara in `optional_error_fields` -- era piu' preciso del v2. Le sonde che contano sei chiavi esistono e sono corrette: guardano errori che quella diagnostica non la portano, e nessuna di loro afferma il caso in cui c'e'. Il gate delle buste raggiunge entrambi.",
-      "row_diagnostics": "porta un contratto proprio, `plenora-row-diagnostics-v1`, con la struttura che il v1 descrive in `envelopes.error.row_diagnostics_semantics`. Il v2 non la ridefinisce: la censisce nella propria `struttura` perche' esce dalla CLI, e per il significato rimanda al v1.",
-      "retry": "un oggetto, non una stringa: `{kind}` sempre, piu' `delay_ms` quando `kind` e' `after`. La forma con il ritardo la prova una sonda della CLI; la matrice del gate delle buste non la raggiunge, perche' nessun percorso della CLI produce oggi un errore ritentabile con ritardo, e la `struttura` dichiara cio' che la matrice osserva.",
-      "perche_non_sta_piu_a_parte": "il v2 la riusava dal v1 senza modifiche, e il manifesto la descriveva in una sezione propria per non ripeterla dove non le competeva. Dalla 4.0.0 non e' piu' una busta riusata: porta i sei campi d'identita', esce su stdout e il suo codice d'uscita proietta la categoria. E' una busta del v2 come le altre, e sta dove stanno le altre."
+      "quante_chiavi": "Le sei required_error_fields sono sempre presenti; row_diagnostics e opzionale.",
+      "row_diagnostics": "Contratto corrente plenora-row-diagnostics-v1; semantica dichiarata in row_diagnostics_semantics.",
+      "retry": "un oggetto, non una stringa: `{kind}` sempre, piu' `delay_ms` quando `kind` e' `after`. La forma con il ritardo la prova una sonda della CLI; la matrice del gate delle buste non la raggiunge, perche' nessun percorso della CLI produce oggi un errore ritentabile con ritardo, e la `struttura` dichiara cio' che la matrice osserva."
     },
     "inspect": {
       "contract": "plenora-io-inspect-v1",
@@ -4185,7 +4176,7 @@
     "il_tetto_complessivo_e_verificato_sull_insieme",
     "il_trattenimento_degli_esempi_sfratta_il_maggiore_e_lo_dichiara",
     "il_trattenimento_sfratta_la_maggiore_e_lo_dichiara",
-    "il_v1_deduplica_sulla_chiave_vecchia_e_il_v2_sulla_canonica",
+    "le_posizioni_distinguono_ragioni_con_lo_stesso_dettaglio",
     "l_ordine_canonico_degli_esempi_e_quello_dei_tre_campi",
     "l_ordine_canonico_e_una_relazione_e_non_solo_un_taglio",
     "la_forma_di_un_esempio_coincide_col_derive",
@@ -4213,10 +4204,10 @@
     "una_voce_fuori_misura_non_sfratta_una_voce_valida"
   ],
   "sonde_della_redazione": [
-    "i_nomi_del_file_restano_nel_v1_e_spariscono_dal_v2",
-    "la_fusione_non_perde_la_frase_congelata"
+    "i_nomi_del_file_non_entrano_nelle_ragioni",
+    "la_fusione_conserva_ragioni_e_posizioni"
   ],
-  "sonde_della_redazione_nota": "stanno in `plenora-io-core/src/driver.rs`, dove vivono i quattro siti che portavano nomi presi dal file. Il gate ne pretende l'esistenza e **non** l'esaustivita': quel file ha decine di sonde che col protocollo non c'entrano, e promettere i due versi su un perimetro che non delimita direbbe piu' di quanto si guarda. La prima usa nomi canary con accenti e apostrofo -- l'apostrofo perche' e' il carattere che le frasi congelate mettono fra virgolette -- e pretende che nessuno compaia in cio' che il v2 trattiene; la seconda che la fusione non butti via la frase congelata, che e' cio' che `add_reason(code, detail)` faceva.",
+  "sonde_della_redazione_nota": "Test del core con nomi canary, posizioni e fusione delle ragioni canoniche.",
   "sonde_che_lo_provano_nota": "l'elenco e' **esaustivo** e il gate lo verifica nei due versi: ogni nome deve esistere in `busta.rs`, e ogni sonda di `busta.rs` deve essere nominata qui. Una sonda che il contratto non cita si puo' cancellare senza che il checkpoint se ne accorga; una che il contratto cita e non esiste e' una prova promessa e mai eseguita, che si legge come verificata. Cio' che le sonde provano e' il comportamento descritto qui sopra -- limiti, ordine, troncamento, determinismo -- non la coerenza fra questo manifesto e il codice, che e' cio' che il gate stesso confronta.",
   "compatibility_rules": {
     "remove_or_rename_required_field": "requires_new_protocol_version",
@@ -4285,8 +4276,7 @@
       "la busta di bootstrap e' dichiarata e il suo schema esatto e' verificato -- lo stesso gate."
     ],
     "cosa_non_afferma": "l'accettazione **esterna**. `qualifica.esterna` resta quella che era: plenora-contracts/conformance non ha accettato questo protocollo, e il bloccante `sistema.qualifica-cross-component` e' ancora aperto con un owner fuori da questo repository. «Ratificato» dice che il manifesto non contiene piu' affermazioni che nessuno confronta -- non che qualcun altro lo abbia approvato.",
-    "come_si_torna_indietro": "aggiungendo al manifesto un'affermazione di comportamento che nessun gate confronta. Non e' un'operazione da fare in silenzio: lo stato torna `in_qualifica`, e la clausola nuova dice che cosa manca.",
-    "il_v1_non_e_toccato": "`release/cli-protocol-v1.json` resta `frozen_for_1_0` e byte per byte quello che era. La ratifica riguarda il v2; il v1 e' congelato, e restare congelato e' la sua sola promessa."
+    "come_si_torna_indietro": "aggiungendo al manifesto un'affermazione di comportamento che nessun gate confronta. Non e' un'operazione da fare in silenzio: lo stato torna `in_qualifica`, e la clausola nuova dice che cosa manca."
   },
   "campi_della_busta": {
     "elenco": [

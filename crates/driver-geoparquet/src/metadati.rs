@@ -121,21 +121,6 @@ pub enum Orientamento {
     Antiorario,
 }
 
-/// Come il documento e' stato accettato.
-///
-/// Esiste perche' una via di compatibilita' che non si vede diventa il
-/// comportamento normale: chi legge il contratto deve poter sapere che quel
-/// file **non** e' conforme, anche quando lo abbiamo letto lo stesso.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Conformita {
-    /// Il documento rispetta lo schema ufficiale della versione che dichiara.
-    Conforme,
-    /// Il documento e' conforme **tranne** che nel `crs`, che porta la forma
-    /// storica `{"id": {...}}` prodotta da questo repository prima del lotto
-    /// S10. Accettato solo su richiesta esplicita.
-    CrsStoricoSoloIdentificatore,
-}
-
 /// Il sistema di riferimento dichiarato da una colonna.
 ///
 /// Sono **tre** stati, e la specifica li distingue: il campo assente vuol dire
@@ -160,13 +145,6 @@ pub enum Crs {
         valore: serde_json::Value,
         testo: String,
     },
-    /// La forma storica `{"id": {"authority": ..., "code": ...}}`, che PROJJSON
-    /// non e' e che questo repository ha scritto fino a S10.
-    ///
-    /// Porta l'identificatore composto -- `EPSG:4326` -- perche' e' cio' che
-    /// quel file dichiarava: ignorarlo vorrebbe dire dichiarare CRS84 un dato
-    /// che CRS84 non e'.
-    StoricoSoloIdentificatore(String),
 }
 
 /// I metadati `geo` di un file, validati.
@@ -179,8 +157,6 @@ pub enum Crs {
 pub struct MetadatiGeo {
     /// La versione dichiarata, gia' ristretta a `VERSIONI_SUPPORTATE`.
     pub versione: &'static str,
-    /// Se il documento e' conforme, o accettato per compatibilita'.
-    pub conformita: Conformita,
     pub nome_primaria: String,
     pub primaria: ColonnaGeo,
     /// Le altre colonne geometriche, validate come la prima.
@@ -229,7 +205,7 @@ pub struct ColonnaGeo {
 ///
 /// `Format` se il documento non rispetta la specifica, `Unsupported` se chiede
 /// una versione o una semantica che questa libreria non implementa.
-pub fn analizza(grezzo: &str, accetta_crs_storico: bool) -> Result<MetadatiGeo> {
+pub fn analizza(grezzo: &str) -> Result<MetadatiGeo> {
     let documento: serde_json::Value = serde_json::from_str(grezzo).map_err(|_| {
         non_conforme(&PublicMessage::Curated(
             "metadato `geo` GeoParquet che non e' JSON",
@@ -266,26 +242,10 @@ pub fn analizza(grezzo: &str, accetta_crs_storico: bool) -> Result<MetadatiGeo> 
     //                                        non sappiamo costruire la struttura,
     //                                        e il messaggio lo dice;
     //   accettano entrambi                -> si legge.
-    let mut esito_schema = crate::schema_ufficiale::valida(&documento, versione);
-    let mut conformita = Conformita::Conforme;
-
-    // La via di compatibilita', **stretta e spenta per default**.
-    //
-    // Vale solo per 1.0.0 -- la versione che questo repository scriveva -- e
-    // solo se, tolti quei `crs`, il documento e' conforme: cosi' l'opzione
-    // tollera esattamente cio' che dichiara di tollerare, e un file con altri
-    // difetti non passa perche' qualcuno l'ha accesa.
-    if esito_schema.is_err() && accetta_crs_storico && versione == "1.0.0" {
-        if let Some(senza) = senza_crs_storici(&documento) {
-            if crate::schema_ufficiale::valida(&senza, versione).is_ok() {
-                esito_schema = Ok(());
-                conformita = Conformita::CrsStoricoSoloIdentificatore;
-            }
-        }
-    }
+    let esito_schema = crate::schema_ufficiale::valida(&documento, versione);
 
     let testi = testi_dei_crs(grezzo);
-    match (esito_schema, leggi(oggetto, versione, conformita, &testi)) {
+    match (esito_schema, leggi(oggetto, versione, &testi)) {
         (Ok(()), letto) => letto,
         (Err(dello_schema), Err(preciso)) => {
             // Il verdetto e' dello schema, la ragione e' la nostra: e' il caso
@@ -301,7 +261,6 @@ pub fn analizza(grezzo: &str, accetta_crs_storico: bool) -> Result<MetadatiGeo> 
 fn leggi(
     oggetto: &serde_json::Map<String, serde_json::Value>,
     versione: &'static str,
-    conformita: Conformita,
     testi: &BTreeMap<String, TestiGrezzi>,
 ) -> Result<MetadatiGeo> {
     let colonna_primaria = stringa_obbligatoria(oggetto, "primary_column")?;
@@ -327,27 +286,18 @@ fn leggi(
             "metadato `geo` GeoParquet in cui `primary_column` non compare fra `columns`",
         ))
     })?;
-    let primaria = colonna(
-        grezza_primaria,
-        versione,
-        conformita,
-        testi.get(&colonna_primaria),
-    )?;
+    let primaria = colonna(grezza_primaria, versione, testi.get(&colonna_primaria))?;
 
     let mut secondarie = BTreeMap::new();
     for (nome, grezza) in colonne_grezze {
         if nome == &colonna_primaria {
             continue;
         }
-        secondarie.insert(
-            nome.clone(),
-            colonna(grezza, versione, conformita, testi.get(nome))?,
-        );
+        secondarie.insert(nome.clone(), colonna(grezza, versione, testi.get(nome))?);
     }
 
     Ok(MetadatiGeo {
         versione,
-        conformita,
         nome_primaria: colonna_primaria,
         primaria,
         secondarie,
@@ -412,56 +362,6 @@ pub fn crs_della_primaria(grezzo: &str) -> Option<String> {
     Some(testi.get(&primaria)?.crs.clone().unwrap_or_default())
 }
 
-/// La forma storica **esatta** che questo repository scriveva nel campo `crs`.
-///
-/// `{"id": {"authority": <stringa non vuota>, "code": <stringa o intero>}}`, e
-/// nient'altro: nessuna chiave in piu' al primo livello ne' dentro `id`. E' una
-/// via di compatibilita', non un modo di accettare PROJJSON invalidi in
-/// generale -- se fosse larga, sarebbe un buco travestito da cortesia.
-fn identificatore_storico(crs: &serde_json::Value) -> Option<String> {
-    let oggetto = crs.as_object()?;
-    if oggetto.len() != 1 {
-        return None;
-    }
-    let id = oggetto.get("id")?.as_object()?;
-    if id.len() != 2 {
-        return None;
-    }
-    let autorita = id.get("authority")?.as_str().filter(|s| !s.is_empty())?;
-    let codice = match id.get("code")? {
-        serde_json::Value::String(s) if !s.is_empty() => s.clone(),
-        serde_json::Value::Number(n) if n.is_i64() || n.is_u64() => n.to_string(),
-        _ => return None,
-    };
-    Some(format!("{autorita}:{codice}"))
-}
-
-/// Il documento con i `crs` storici sostituiti da `null`, se ce n'e' almeno uno.
-///
-/// Serve a chiedere all'autorita' una domanda precisa: «a parte quei `crs`,
-/// questo documento e' conforme?». Se la risposta e' si', l'unica non
-/// conformita' e' quella che l'opzione dichiara di tollerare; se e' no, il file
-/// ha altro che non va e l'opzione non lo salva.
-fn senza_crs_storici(documento: &serde_json::Value) -> Option<serde_json::Value> {
-    let mut copia = documento.clone();
-    let colonne = copia.get_mut("columns")?.as_object_mut()?;
-    let mut trovato = false;
-    for (_, colonna) in colonne.iter_mut() {
-        let Some(oggetto) = colonna.as_object_mut() else {
-            continue;
-        };
-        let storico = oggetto
-            .get("crs")
-            .and_then(identificatore_storico)
-            .is_some();
-        if storico {
-            oggetto.insert("crs".to_owned(), serde_json::Value::Null);
-            trovato = true;
-        }
-    }
-    trovato.then_some(copia)
-}
-
 /// La versione dichiarata, ristretta ai due valori degli schemi ufficiali.
 fn versione(oggetto: &serde_json::Map<String, serde_json::Value>) -> Result<&'static str> {
     let dichiarata = stringa_obbligatoria(oggetto, "version")?;
@@ -506,7 +406,6 @@ fn stringa_obbligatoria(
 fn colonna(
     grezza: &serde_json::Value,
     versione: &'static str,
-    conformita: Conformita,
     testi: Option<&TestiGrezzi>,
 ) -> Result<ColonnaGeo> {
     let oggetto = grezza.as_object().ok_or_else(|| {
@@ -517,11 +416,7 @@ fn colonna(
 
     encoding(oggetto, versione)?;
     let tipi = geometry_types(oggetto)?;
-    let crs = crs(
-        oggetto,
-        conformita,
-        testi.and_then(|testi| testi.crs.as_deref()),
-    )?;
+    let crs = crs(oggetto, testi.and_then(|testi| testi.crs.as_deref()))?;
     let bordi = bordi(oggetto)?;
     let orientamento = orientamento(oggetto)?;
     let bbox = bbox(oggetto)?;
@@ -640,26 +535,12 @@ pub fn etichetta_di_tipo(etichetta: &str) -> Option<(GeometryType, CoordinateDim
 /// Lo schema dice `oneOf: [PROJJSON, null]`, e il campo e' opzionale: assente,
 /// `null` e documento sono tre cose diverse, e la differenza fra le prime due
 /// e' quella che il driver sbagliava.
-fn crs(
-    oggetto: &serde_json::Map<String, serde_json::Value>,
-    conformita: Conformita,
-    testo: Option<&str>,
-) -> Result<Crs> {
+fn crs(oggetto: &serde_json::Map<String, serde_json::Value>, testo: Option<&str>) -> Result<Crs> {
     let Some(valore) = oggetto.get("crs") else {
         return Ok(Crs::Assente);
     };
     if valore.is_null() {
         return Ok(Crs::Nullo);
-    }
-    // La forma storica si riconosce **solo** se il documento e' stato accettato
-    // per compatibilita': altrimenti non e' mai arrivato fin qui. Si legge una
-    // volta e si usa quella -- rileggerla dopo una guardia `is_some()` avrebbe
-    // richiesto un ripiego per un caso che la guardia ha gia' escluso, e un
-    // ripiego che non puo' scattare non e' una difesa.
-    if conformita == Conformita::CrsStoricoSoloIdentificatore {
-        if let Some(id) = identificatore_storico(valore) {
-            return Ok(Crs::StoricoSoloIdentificatore(id));
-        }
     }
     if valore.is_object() {
         let testo = testo.ok_or_else(|| {
@@ -821,9 +702,7 @@ fn epoch(
 /// percio' ignorato, e nemmeno validato nella forma, perche' non c'e' una forma
 /// che quella versione gli imponga.
 ///
-/// Chi ha file scritti con le quattro colonne piatte ha l'opzione che gia'
-/// esisteva, `bbox_legacy_by_name`: e' li' che quel riconoscimento vive, ed e'
-/// esplicito.
+/// Le colonne senza covering dichiarato restano dati utente.
 fn covering(
     oggetto: &serde_json::Map<String, serde_json::Value>,
     versione: &'static str,

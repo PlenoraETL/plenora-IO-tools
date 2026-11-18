@@ -106,7 +106,6 @@ CAMPI_RICHIESTI = (
     "candidate, tag sulla candidate",
     "candidate, assurance entro l'allowlist",
     "candidate, release_action consentita",
-    "release pubblicate",
     "release_authorized",
 )
 
@@ -207,9 +206,6 @@ def campi(stato: dict, registro: dict) -> dict[str, str]:
         ),
         "candidate, release_action consentita": _booleano(
             candidate["release_action_allowed"]
-        ),
-        "release pubblicate": _intero(
-            len(stato.get("chiuso", {}).get("release_pubblicate", []))
         ),
         "release_authorized": _letterale(stato["release_authorized"]),
     }

@@ -39,12 +39,12 @@ fn con_campo(campo: &str, valore: serde_json::Value) -> String {
 
 #[track_caller]
 fn accettato(testo: &str) -> MetadatiGeo {
-    analizza(testo, false).expect("il documento e' conforme e supportato")
+    analizza(testo).expect("il documento e' conforme e supportato")
 }
 
 #[track_caller]
 fn non_conforme_con(testo: &str) -> PlenoraIoError {
-    let errore = analizza(testo, false).expect_err("il documento non e' conforme");
+    let errore = analizza(testo).expect_err("il documento non e' conforme");
     assert_eq!(
         errore.code,
         IoErrorCode::Format,
@@ -57,7 +57,7 @@ fn non_conforme_con(testo: &str) -> PlenoraIoError {
 
 #[track_caller]
 fn non_supportato_con(testo: &str) -> PlenoraIoError {
-    let errore = analizza(testo, false).expect_err("la funzionalita' non e' supportata");
+    let errore = analizza(testo).expect_err("la funzionalita' non e' supportata");
     assert_eq!(
         errore.code,
         IoErrorCode::Unsupported,
@@ -706,7 +706,7 @@ fn covering_in_un_documento_1_0_0_ignorato_e_accettato() {
     // Non ha pero' significato, e attribuirglielo lo attribuiremmo noi:
     // viene ignorato, e nemmeno validato nella forma -- non c'e' una forma
     // che quella versione gli imponga. Chi ha file scritti con le quattro
-    // colonne piatte usa `bbox_legacy_by_name`, che e' esplicito.
+    // colonne piatte restano dati utente senza covering dichiarato.
     for forma in [covering_conforme(), covering_piatto(), json!({"bbox": {}})] {
         let mut colonna = colonna_minima();
         colonna["covering"] = forma;
@@ -734,29 +734,8 @@ fn crs_storico_senza_opt_in_e_non_conforme() {
     // Senza opzione resta `Format`, ed e' il default: la via di
     // compatibilita' che si accende da sola non e' una via, e' il
     // comportamento normale.
-    let errore = analizza(&documento_storico(), false).expect_err("non conforme");
+    let errore = analizza(&documento_storico()).expect_err("non conforme");
     assert_eq!(errore.code, plenora_io_model::IoErrorCode::Format);
-}
-
-#[test]
-fn crs_storico_con_opt_in_conserva_l_identificatore_ed_e_accettato() {
-    let letti = analizza(&documento_storico(), true).expect("accettato per compatibilita'");
-    assert_eq!(letti.conformita, Conformita::CrsStoricoSoloIdentificatore);
-    assert_eq!(
-        letti.primaria.crs,
-        Crs::StoricoSoloIdentificatore("EPSG:4326".to_owned())
-    );
-
-    // Il `code` puo' essere una stringa: e' una delle due forme che la
-    // versione storica emetteva, a seconda di come l'identificatore era
-    // stato scritto.
-    let mut colonna = colonna_minima();
-    colonna["crs"] = json!({"id": {"authority": "EPSG", "code": "4326"}});
-    let con_stringa = analizza(&con_versione("1.0.0", &colonna), true).expect("accettato");
-    assert_eq!(
-        con_stringa.primaria.crs,
-        Crs::StoricoSoloIdentificatore("EPSG:4326".to_owned())
-    );
 }
 
 #[test]
@@ -766,7 +745,7 @@ fn crs_storico_in_un_documento_1_1_0_e_non_conforme() {
     // non c'e' ragione di tollerarlo.
     let mut colonna = colonna_minima();
     colonna["crs"] = crs_storico();
-    let errore = analizza(&con_versione("1.1.0", &colonna), true).expect_err("non conforme");
+    let errore = analizza(&con_versione("1.1.0", &colonna)).expect_err("non conforme");
     assert_eq!(errore.code, plenora_io_model::IoErrorCode::Format);
 }
 
@@ -786,7 +765,7 @@ fn crs_storico_di_forma_diversa_e_non_conforme() {
     ] {
         let mut colonna = colonna_minima();
         colonna["crs"] = finto.clone();
-        let esito = analizza(&con_versione("1.0.0", &colonna), true);
+        let esito = analizza(&con_versione("1.0.0", &colonna));
         let errore = esito.expect_err("una forma diversa da quella storica non passa");
         assert_eq!(
             errore.code,
@@ -803,15 +782,8 @@ fn crs_storico_con_altri_difetti_e_non_conforme() {
     let mut colonna = colonna_minima();
     colonna["crs"] = crs_storico();
     colonna["geometry_types"] = json!(["Point M"]);
-    let errore = analizza(&con_versione("1.0.0", &colonna), true).expect_err("non conforme");
+    let errore = analizza(&con_versione("1.0.0", &colonna)).expect_err("non conforme");
     assert_eq!(errore.code, plenora_io_model::IoErrorCode::Format);
-}
-
-#[test]
-fn documento_conforme_con_opt_in_acceso_e_accettato() {
-    // L'opzione non cambia il giudizio su cio' che e' gia' conforme.
-    let letti = analizza(&documento(&colonna_minima()), true).expect("conforme");
-    assert_eq!(letti.conformita, Conformita::Conforme);
 }
 
 // --- l'insieme chiuso, letto da fuori --------------------------------
