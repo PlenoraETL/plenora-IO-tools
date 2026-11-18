@@ -1,0 +1,1228 @@
+{
+  "schema_version": 1,
+  "status": "satisfied",
+  "release_authorized": false,
+  "non_significa": "Nessuna autorizzazione di release o riattribuzione delle misure al commit di registrazione; nessuna verifica dopo la pubblicazione.",
+  "descrizione": "Qualifica L2 e replay finito della candidate 10.0.0 edb482d892da11ecb421d5441079209a65d61fa0, attempt-1; misure derivate esclusivamente dai log forniti.",
+  "components": [
+    {
+      "name": "plenora-IO-tools",
+      "revision": "edb482d892da11ecb421d5441079209a65d61fa0"
+    }
+  ],
+  "evidence": {
+    "status": "passed",
+    "scope": "Qualifica L2 e replay finito della candidate 10.0.0 edb482d892da11ecb421d5441079209a65d61fa0, attempt-1; misure derivate esclusivamente dai log forniti."
+  },
+  "cosa_chiude": {
+    "invarianti": [],
+    "invarianti_nota": "Nessun invariante chiuso automaticamente.",
+    "candidate": "edb482d892da11ecb421d5441079209a65d61fa0",
+    "che_cosa_e_provato": "Qualifica L2 e replay finito della candidate 10.0.0 edb482d892da11ecb421d5441079209a65d61fa0, attempt-1; misure derivate esclusivamente dai log forniti."
+  },
+  "resta_aperto": "Attestazioni del profilo pubblico e manifesto di adozione della stessa corsa, draft e verifica dei byte riscaricati, decisione del titolare, tag, gate finale e verifica dopo la pubblicazione. Nessuna autorizzazione implicita.",
+  "contesto_operatore": "VM Ubuntu 24.04, 192.168.2.140; clone pulito della candidate; .plenora-contracts al pin 38d68b402389855edbcecb7ce57c31e91282cb4e; Python 3.14.6, pyarrow 25.0.1, PyYAML 6.0.3, openpyxl 3.1.5, jsonschema 4.26.0. S9_CHECKPOINT_BASE=7314ca25b62788a3a9d2af0ec638d0d7f3bdffea; S9_CI_FUZZ_RECEIPT indica la ricevuta esterna. Ambiente e precheck verdi dichiarati dall operatore.",
+  "registro_dei_tentativi": [
+    {
+      "tentativo": "attempt-1",
+      "stato": "qualifica",
+      "nota": "Unico tentativo, nessuno scartato, secondo l operatore."
+    }
+  ],
+  "provenienza_della_corsa": {
+    "copia_locale": "target/rel1000/io/target/rel1000/l2-edb482d892da11ecb421d5441079209a65d61fa0-attempt-1",
+    "nota": "Originali immutati; riuso.source_sha256 verificato contro la ricevuta esterna, tutti gli altri campi identici. Copia byte per byte dei file di passo; console.log conservato separatamente, non appartiene a un passo secondo il gate congelato.",
+    "fonti_esterne_al_manifest": {
+      "replay.log": {
+        "percorso": "target/rel1000/replay.log",
+        "sha256": "0d4fb5af220d6efd35f29af9a9ed1f3b03590496923b67d71c6263cd585cbe24"
+      },
+      "esiti.txt": {
+        "percorso": "target/rel1000/esiti.txt",
+        "sha256": "4ec8943350af460e03c80e99933e7935b9acd7c17f11f14ce90f4d4e7bb9996c"
+      },
+      "fuzz-smoke-ultima.json": {
+        "percorso": "target/rel1000/io/target/rel1000/replay-edb482d892da11ecb421d5441079209a65d61fa0/fuzz-smoke-ultima.json",
+        "sha256": "bad53f725572b5d766c555c2c3f6d4f3ab26636c855702cf571473c0cf8826a5"
+      },
+      "console.log": {
+        "percorso": "target/rel1000/io/target/rel1000/l2-edb482d892da11ecb421d5441079209a65d61fa0-attempt-1/console.log",
+        "sha256": "847d4f5956ed66a00c057b6324b16f60dc3bdc4206e44608d2ea865d49c6419b"
+      }
+    },
+    "copia_per_il_registratore": "target/rel1000/registrazione/corsa-contratto"
+  },
+  "corsa": {
+    "revisione_iniziale": "edb482d892da11ecb421d5441079209a65d61fa0",
+    "revisione_finale": "edb482d892da11ecb421d5441079209a65d61fa0",
+    "impronta_iniziale": "3ef0f10e2187fe1b3c7c91224f4abb3fefe51dbf442ad7f67918f74118e91bbd",
+    "impronta_finale": "3ef0f10e2187fe1b3c7c91224f4abb3fefe51dbf442ad7f67918f74118e91bbd",
+    "albero_all_avvio": "pulito: 0 file sporchi.",
+    "registro_dei_passi": "assurance/registries/passi-del-checkpoint.json",
+    "percorso_dei_log": "target\\rel1000\\registrazione\\corsa-contratto"
+  },
+  "riconciliazione": {
+    "identificatori_distinti": 110,
+    "eseguiti": 110,
+    "eseguiti_dichiarati_dalla_corsa": 110,
+    "verdi": 110,
+    "omessi": 0,
+    "falliti": 0,
+    "duplicati": 0,
+    "metodo": "i conteggi sono **derivati** dall'elenco dei passi che la corsa ha registrato in `risultato.json`, non contati a mano dal sommario a schermo",
+    "insieme_dichiarato": "assurance/registries/passi-del-checkpoint.json",
+    "passi": [
+      {
+        "id": "sonde_checkpoint",
+        "esito": "verde",
+        "log": "sonde_checkpoint.log"
+      },
+      {
+        "id": "fmt",
+        "esito": "verde",
+        "log": "fmt.log"
+      },
+      {
+        "id": "clippy",
+        "esito": "verde",
+        "log": "clippy.log"
+      },
+      {
+        "id": "clippy_vendor",
+        "esito": "verde",
+        "log": "clippy_vendor.log"
+      },
+      {
+        "id": "clippy_sicurezza",
+        "esito": "verde",
+        "log": "clippy_sicurezza.log"
+      },
+      {
+        "id": "clippy_default",
+        "esito": "verde",
+        "log": "clippy_default.log"
+      },
+      {
+        "id": "test",
+        "esito": "verde",
+        "log": "test.log"
+      },
+      {
+        "id": "test_default",
+        "esito": "verde",
+        "log": "test_default.log"
+      },
+      {
+        "id": "sonde_quartetto",
+        "esito": "verde",
+        "log": "sonde_quartetto.log"
+      },
+      {
+        "id": "check_quartetto",
+        "esito": "verde",
+        "log": "check_quartetto.log"
+      },
+      {
+        "id": "sonde_errori_redatti",
+        "esito": "verde",
+        "log": "sonde_errori_redatti.log"
+      },
+      {
+        "id": "check_errori_redatti",
+        "esito": "verde",
+        "log": "check_errori_redatti.log"
+      },
+      {
+        "id": "sonde_niente_leak",
+        "esito": "verde",
+        "log": "sonde_niente_leak.log"
+      },
+      {
+        "id": "check_niente_leak",
+        "esito": "verde",
+        "log": "check_niente_leak.log"
+      },
+      {
+        "id": "sonde_wkb_limits",
+        "esito": "verde",
+        "log": "sonde_wkb_limits.log"
+      },
+      {
+        "id": "check_wkb_limits",
+        "esito": "verde",
+        "log": "check_wkb_limits.log"
+      },
+      {
+        "id": "sonde_capability_ostile",
+        "esito": "verde",
+        "log": "sonde_capability_ostile.log"
+      },
+      {
+        "id": "check_capability_ostile",
+        "esito": "verde",
+        "log": "check_capability_ostile.log"
+      },
+      {
+        "id": "prove_di_confine",
+        "esito": "verde",
+        "log": "prove_di_confine.log"
+      },
+      {
+        "id": "sonde_semi_s12",
+        "esito": "verde",
+        "log": "sonde_semi_s12.log"
+      },
+      {
+        "id": "semi_s12",
+        "esito": "verde",
+        "log": "semi_s12.log"
+      },
+      {
+        "id": "sonde_metadati_geoparquet",
+        "esito": "verde",
+        "log": "sonde_metadati_geoparquet.log"
+      },
+      {
+        "id": "check_metadati_geoparquet",
+        "esito": "verde",
+        "log": "check_metadati_geoparquet.log"
+      },
+      {
+        "id": "sonde_schemi_geoparquet",
+        "esito": "verde",
+        "log": "sonde_schemi_geoparquet.log"
+      },
+      {
+        "id": "check_schemi_geoparquet",
+        "esito": "verde",
+        "log": "check_schemi_geoparquet.log"
+      },
+      {
+        "id": "sonde_conversioni",
+        "esito": "verde",
+        "log": "sonde_conversioni.log"
+      },
+      {
+        "id": "check_conversioni",
+        "esito": "verde",
+        "log": "check_conversioni.log"
+      },
+      {
+        "id": "sonde_fixture_canoniche",
+        "esito": "verde",
+        "log": "sonde_fixture_canoniche.log"
+      },
+      {
+        "id": "check_fixture_canoniche",
+        "esito": "verde",
+        "log": "check_fixture_canoniche.log"
+      },
+      {
+        "id": "sonde_categorie_di_perdita",
+        "esito": "verde",
+        "log": "sonde_categorie_di_perdita.log"
+      },
+      {
+        "id": "check_categorie_di_perdita",
+        "esito": "verde",
+        "log": "check_categorie_di_perdita.log"
+      },
+      {
+        "id": "sonde_protocollo_v2",
+        "esito": "verde",
+        "log": "sonde_protocollo_v2.log"
+      },
+      {
+        "id": "check_protocollo_v2",
+        "esito": "verde",
+        "log": "check_protocollo_v2.log"
+      },
+      {
+        "id": "sonde_buste_v2",
+        "esito": "verde",
+        "log": "sonde_buste_v2.log"
+      },
+      {
+        "id": "check_buste_v2",
+        "esito": "verde",
+        "log": "check_buste_v2.log"
+      },
+      {
+        "id": "sonde_sdk_python",
+        "esito": "verde",
+        "log": "sonde_sdk_python.log"
+      },
+      {
+        "id": "check_sdk_python",
+        "esito": "verde",
+        "log": "check_sdk_python.log"
+      },
+      {
+        "id": "costruisci_pacchetto_python",
+        "esito": "verde",
+        "log": "costruisci_pacchetto_python.log"
+      },
+      {
+        "id": "pacchetto_python_riproducibile",
+        "esito": "verde",
+        "log": "pacchetto_python_riproducibile.log"
+      },
+      {
+        "id": "smoke_pacchetto_python",
+        "esito": "verde",
+        "log": "smoke_pacchetto_python.log"
+      },
+      {
+        "id": "canale_privato",
+        "esito": "verde",
+        "log": "canale_privato.log"
+      },
+      {
+        "id": "check_requires_python",
+        "esito": "verde",
+        "log": "check_requires_python.log"
+      },
+      {
+        "id": "sonde_quarantena",
+        "esito": "verde",
+        "log": "sonde_quarantena.log"
+      },
+      {
+        "id": "check_quarantena",
+        "esito": "verde",
+        "log": "check_quarantena.log"
+      },
+      {
+        "id": "sonde_finding_noti",
+        "esito": "verde",
+        "log": "sonde_finding_noti.log"
+      },
+      {
+        "id": "sonde_wrapper_campagna",
+        "esito": "verde",
+        "log": "sonde_wrapper_campagna.log"
+      },
+      {
+        "id": "sonde_riuso_evidenze",
+        "esito": "verde",
+        "log": "sonde_riuso_evidenze.log"
+      },
+      {
+        "id": "check_riuso_evidenze",
+        "esito": "verde",
+        "log": "check_riuso_evidenze.log"
+      },
+      {
+        "id": "sonde_registra_evidenza",
+        "esito": "verde",
+        "log": "sonde_registra_evidenza.log"
+      },
+      {
+        "id": "sonde_soak",
+        "esito": "verde",
+        "log": "sonde_soak.log"
+      },
+      {
+        "id": "sonde_fuzz_release",
+        "esito": "verde",
+        "log": "sonde_fuzz_release.log"
+      },
+      {
+        "id": "sonde_prevalidazione",
+        "esito": "verde",
+        "log": "sonde_prevalidazione.log"
+      },
+      {
+        "id": "check_prevalidazione",
+        "esito": "verde",
+        "log": "check_prevalidazione.log"
+      },
+      {
+        "id": "sonde_identita",
+        "esito": "verde",
+        "log": "sonde_identita.log"
+      },
+      {
+        "id": "check_identita",
+        "esito": "verde",
+        "log": "check_identita.log"
+      },
+      {
+        "id": "sonde_release",
+        "esito": "verde",
+        "log": "sonde_release.log"
+      },
+      {
+        "id": "check_release",
+        "esito": "verde",
+        "log": "check_release.log"
+      },
+      {
+        "id": "sonde_distribuzione",
+        "esito": "verde",
+        "log": "sonde_distribuzione.log"
+      },
+      {
+        "id": "sonde_licenze",
+        "esito": "verde",
+        "log": "sonde_licenze.log"
+      },
+      {
+        "id": "sonde_dist_completa",
+        "esito": "verde",
+        "log": "sonde_dist_completa.log"
+      },
+      {
+        "id": "sonde_verificatori_nativi",
+        "esito": "verde",
+        "log": "sonde_verificatori_nativi.log"
+      },
+      {
+        "id": "sonde_sbom",
+        "esito": "verde",
+        "log": "sonde_sbom.log"
+      },
+      {
+        "id": "sonde_action_pins",
+        "esito": "verde",
+        "log": "sonde_action_pins.log"
+      },
+      {
+        "id": "check_action_pins",
+        "esito": "verde",
+        "log": "check_action_pins.log"
+      },
+      {
+        "id": "sonde_toolchain",
+        "esito": "verde",
+        "log": "sonde_toolchain.log"
+      },
+      {
+        "id": "check_toolchain",
+        "esito": "verde",
+        "log": "check_toolchain.log"
+      },
+      {
+        "id": "sonde_coverage_excl",
+        "esito": "verde",
+        "log": "sonde_coverage_excl.log"
+      },
+      {
+        "id": "sonde_filegdb",
+        "esito": "verde",
+        "log": "sonde_filegdb.log"
+      },
+      {
+        "id": "sonde_wkb_condiviso",
+        "esito": "verde",
+        "log": "sonde_wkb_condiviso.log"
+      },
+      {
+        "id": "corpus_condiviso",
+        "esito": "verde",
+        "log": "corpus_condiviso.log"
+      },
+      {
+        "id": "sonde_audit_ignores",
+        "esito": "verde",
+        "log": "sonde_audit_ignores.log"
+      },
+      {
+        "id": "sonde_dependency_pins",
+        "esito": "verde",
+        "log": "sonde_dependency_pins.log"
+      },
+      {
+        "id": "check_dependency_pins",
+        "esito": "verde",
+        "log": "check_dependency_pins.log"
+      },
+      {
+        "id": "check_gdal_fork",
+        "esito": "verde",
+        "log": "check_gdal_fork.log"
+      },
+      {
+        "id": "sonde_fork",
+        "esito": "verde",
+        "log": "sonde_fork.log"
+      },
+      {
+        "id": "check_dxf_fork",
+        "esito": "verde",
+        "log": "check_dxf_fork.log"
+      },
+      {
+        "id": "check_shapefile_fork",
+        "esito": "verde",
+        "log": "check_shapefile_fork.log"
+      },
+      {
+        "id": "check_no_legacy_budget",
+        "esito": "verde",
+        "log": "check_no_legacy_budget.log"
+      },
+      {
+        "id": "check_permit_boundary",
+        "esito": "verde",
+        "log": "check_permit_boundary.log"
+      },
+      {
+        "id": "sonde_fallback",
+        "esito": "verde",
+        "log": "sonde_fallback.log"
+      },
+      {
+        "id": "assurance_fallbacks",
+        "esito": "verde",
+        "log": "assurance_fallbacks.log"
+      },
+      {
+        "id": "sonde_docset",
+        "esito": "verde",
+        "log": "sonde_docset.log"
+      },
+      {
+        "id": "check_docset",
+        "esito": "verde",
+        "log": "check_docset.log"
+      },
+      {
+        "id": "sonde_manifesto_adozione",
+        "esito": "verde",
+        "log": "sonde_manifesto_adozione.log"
+      },
+      {
+        "id": "check_manifesto_adozione",
+        "esito": "verde",
+        "log": "check_manifesto_adozione.log"
+      },
+      {
+        "id": "sonde_commenti",
+        "esito": "verde",
+        "log": "sonde_commenti.log"
+      },
+      {
+        "id": "check_commenti",
+        "esito": "verde",
+        "log": "check_commenti.log"
+      },
+      {
+        "id": "sonde_disposizione_prove",
+        "esito": "verde",
+        "log": "sonde_disposizione_prove.log"
+      },
+      {
+        "id": "check_disposizione_prove",
+        "esito": "verde",
+        "log": "check_disposizione_prove.log"
+      },
+      {
+        "id": "sonde_dimensione",
+        "esito": "verde",
+        "log": "sonde_dimensione.log"
+      },
+      {
+        "id": "check_dimensione",
+        "esito": "verde",
+        "log": "check_dimensione.log"
+      },
+      {
+        "id": "sonde_assurance_n1",
+        "esito": "verde",
+        "log": "sonde_assurance_n1.log"
+      },
+      {
+        "id": "assurance_n1_integrita",
+        "esito": "verde",
+        "log": "assurance_n1_integrita.log"
+      },
+      {
+        "id": "sonde_assurance_n1_prove",
+        "esito": "verde",
+        "log": "sonde_assurance_n1_prove.log"
+      },
+      {
+        "id": "assurance_n1_prove",
+        "esito": "verde",
+        "log": "assurance_n1_prove.log"
+      },
+      {
+        "id": "check_filegdb_catalog",
+        "esito": "verde",
+        "log": "check_filegdb_catalog.log"
+      },
+      {
+        "id": "fuzz_replay",
+        "esito": "verde",
+        "log": "fuzz_replay.log"
+      },
+      {
+        "id": "fuzz_smoke",
+        "esito": "verde",
+        "log": "fuzz_smoke.log"
+      },
+      {
+        "id": "fuzz_campagna_completa",
+        "esito": "verde",
+        "log": "fuzz_campagna_completa.log"
+      },
+      {
+        "id": "coverage_pulizia",
+        "esito": "verde",
+        "log": "coverage_pulizia.log"
+      },
+      {
+        "id": "coverage_misura",
+        "esito": "verde",
+        "log": "coverage_misura.log"
+      },
+      {
+        "id": "coverage_export",
+        "esito": "verde",
+        "log": "coverage_export.log"
+      },
+      {
+        "id": "coverage_report_non_vuoto",
+        "esito": "verde",
+        "log": "coverage_report_non_vuoto.log"
+      },
+      {
+        "id": "check_coverage_exclusions",
+        "esito": "verde",
+        "log": "check_coverage_exclusions.log"
+      },
+      {
+        "id": "coverage_export_cli",
+        "esito": "verde",
+        "log": "coverage_export_cli.log"
+      },
+      {
+        "id": "coverage_report_cli_non_vuoto",
+        "esito": "verde",
+        "log": "coverage_report_cli_non_vuoto.log"
+      },
+      {
+        "id": "coverage_soglia_dal_report",
+        "esito": "verde",
+        "log": "coverage_soglia_dal_report.log"
+      },
+      {
+        "id": "coverage_soglia_controprova",
+        "esito": "verde",
+        "log": "coverage_soglia_controprova.log"
+      },
+      {
+        "id": "revisione_invariata",
+        "esito": "verde",
+        "log": null
+      },
+      {
+        "id": "albero_invariato",
+        "esito": "verde",
+        "log": null
+      }
+    ]
+  },
+  "misure": {
+    "fuzz_replay": {
+      "input": 207,
+      "target": 15,
+      "crash": 0,
+      "quando": "dentro il checkpoint, passo `fuzz_replay`",
+      "target_totali": 15
+    },
+    "fuzz_smoke": {
+      "target_eseguiti": 15,
+      "finding": 0,
+      "quarantena": 0,
+      "quando": "verifica della ricevuta fuzz_replay; nessuna seconda campagna",
+      "target_totali": 15,
+      "policy": "io-9-replay-v1"
+    },
+    "copertura": {
+      "lcov_percentuale": 88.9,
+      "lcov_righe_coperte": 32224,
+      "lcov_righe_strumentate": 36247,
+      "cargo_lines_percentuale": 86.81,
+      "soglia": 80.0,
+      "misurata_con": "cargo llvm-cov --workspace --all-targets --all-features --locked --no-report; proiezione di libreria con esclusioni dello script congelato.",
+      "nota": "LCOV e sommario cargo contano insiemi diversi dello stesso profdata."
+    },
+    "diagnostica_differenziale": {
+      "base": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea",
+      "esito": "100.00%",
+      "righe_cambiate_eseguibili": 29,
+      "coperte": 29,
+      "scoperte": 0,
+      "cambiate_non_eseguibili": 146,
+      "righe_scoperte": [],
+      "ragione": "Confronto di libreria fra 7314ca2 e candidate edb482d.",
+      "che_cosa_sono_le_scoperte": "Righe cambiate ed eseguibili non esercitate dai test; non una misura del fuzzing."
+    }
+  },
+  "artefatti": {
+    "percorso_di_corsa": "target\\rel1000\\registrazione\\corsa-contratto",
+    "file": 115,
+    "digest_manifest": "98a7e29ff03cdba7fc151dc4fc9185a85e0e1ec582ef7c57421ca1aebce5e998",
+    "forma_del_manifest": "percorso relativo alla directory di corsa -> sha256 del contenuto; il digest e' `percorso NUL sha256 LF` concatenati in ordine di percorso, la stessa forma che il gate del contratto ricalcola",
+    "manifest": {
+      "assurance_fallbacks.log": "da6f474790deec9e195bf0ed72413f25b306ddb0a4770a53bb4f889d91cb88b3",
+      "assurance_n1_integrita.log": "38a2c5bc508cb3ab3189eaaf9145f317b8edbba191ef96110e2986ddffff8fce",
+      "assurance_n1_prove.log": "cc40a4307d568dceb9a897e456058870a9c78c142ec15f86ca99d1a31a0cbe14",
+      "canale_privato.log": "c9b04065a76f44d1fd8285af75f3135b3b6d17594a96bf7b752bedd86c1da1f5",
+      "catalog.json": "51717842090447ae27eb8faee97ccb7100b3488ee7ee08632dfc6c78957ef7b7",
+      "check_action_pins.log": "47452ce4a242bae349cecb1ccbb37146a5dd7dcaa41ea43534b780d3f16c595b",
+      "check_buste_v2.log": "69ff500af966fdd2ca9317b152d218f75781f11208edba69f91a08d912745e75",
+      "check_capability_ostile.log": "7fc1807b9dd03f681f5129090a626d0fad33fc13264a9988a55dfae5403b9d34",
+      "check_categorie_di_perdita.log": "cc8865e3018edf6c21463850676e0ba97ca41219dc074800d12fb30bc654514a",
+      "check_commenti.log": "22af1fa161af8f671d5277ff12a0b15074cf2529561923c891154d6acf73ca52",
+      "check_conversioni.log": "724de969e2f07aa222ed26b6af99b21314717d34a3abd83ae0c3ef3c4f4d42da",
+      "check_coverage_exclusions.log": "e517f61dcf572472fc310d70917190ba24a1ee2222e86c205e14d5d48a3d6104",
+      "check_dependency_pins.log": "a49fe9259cf69de163d6df380a20c92667ab5e393a7cbae4ad328cf7a4725180",
+      "check_dimensione.log": "b52fc811d9767fa5770158b91cbb18cc65bd1fe4b8acdcba4378a7140ab203ff",
+      "check_disposizione_prove.log": "edc2aa7bc7706ebf87dff85bee332a6f68239cfe9db3cc8a98f65f9fda538785",
+      "check_docset.log": "40553d480794053fe09168e3bb508ceead80296aa7c58f20394943249d796454",
+      "check_dxf_fork.log": "ef3621908e09146a767c0c6fdcd3a5ac806748a028590a3bfa8c78518c1e1e2a",
+      "check_errori_redatti.log": "89406aac6d31bdd30a87358fd057c14961bd8003ad5fb0bc41f6bf97a74dc7a4",
+      "check_filegdb_catalog.log": "48734bc0b3f577658b80445e60d070149f4f1655cb4105fa2dda4d6552a35b10",
+      "check_fixture_canoniche.log": "f7a0e50394e1ab92b1adf856b161aae88ab196c77c658bbfea2c3c8b4e91a483",
+      "check_gdal_fork.log": "9ace2644ef075f48cfdf62f55968d51bd8c43504657de2df920b33783fe622cb",
+      "check_identita.log": "a64b79c4cf3ae527278a5ffe229cc58257ee05fca97d3e13232ca888c118e49a",
+      "check_manifesto_adozione.log": "50139a4a1457b3af458f1145df02a26c5a529d6b5bfecbb7f38c312b93e78e6b",
+      "check_metadati_geoparquet.log": "dad01d50c3fbd320de2ffc146db92fa370f0076cfaf58a67f9cbaa8bafc9e553",
+      "check_niente_leak.log": "0be5cf08693152c3b7c8644c3c89d10f0ff74c54d5cab13313dacdff44e11dae",
+      "check_no_legacy_budget.log": "c1ae5980ff49d62559f6e9fd6ed93cb6d7790ce160209ef328ecb6712ff2b447",
+      "check_permit_boundary.log": "727ffdcc7cc91e422d38d5e91811ffa1dc2b56b914e3e99c91c1ca4ed97c846f",
+      "check_prevalidazione.log": "6b6ea64bdd4ea8f95708652b434bf6125f1d1b877223a75f91160c38b9fe1450",
+      "check_protocollo_v2.log": "e272abdc95be285e318a16d1939c7d53da747233949069a34737666783eacf70",
+      "check_quarantena.log": "625468389385490627ba011d3c87d7bcb048626e5a7ed8b0c47d0afb7a10a4d9",
+      "check_quartetto.log": "a16b9dca8ce21c16a23250f3ec479f78316d2ebad6c647fef063ad4d00d254e4",
+      "check_release.log": "9c9d3a6f52c744ea9d1b35fc78fe721eb2cb7e3f4263bdc9378b0febbc4b6a7c",
+      "check_requires_python.log": "2bcac650e0f92163e921fd3266db4a640e253c8e71208cac7dda9bf029bd8abb",
+      "check_riuso_evidenze.log": "f900115626775206de65635dc53478069bf026bab300ddbf4400c239ea1a3f08",
+      "check_schemi_geoparquet.log": "5983cb1bfa82f4ad180a69acd7c3085979196069ecb9036fcb949c12e5848654",
+      "check_sdk_python.log": "f6b645722d6df5165958e31cd75fd9305b24ad52a4c77e5f5369dd69b9e95cef",
+      "check_shapefile_fork.log": "9383ceb425f47515941aa29a239249bafd127ac5ea896bdea5561ee220b7200d",
+      "check_toolchain.log": "69a688d270e58a8472becd834c429b7a4f81b94b7495256ae2ec4bcad3048e28",
+      "check_wkb_limits.log": "7286a25d513f90acb0ed5d0d6058fdf619c3c58362b03aab27d4eed74b588938",
+      "clippy.log": "277ab7d9ee2799f2c7e919e538cd5816ea14d2cc910843d5823274ca8f5df65a",
+      "clippy_default.log": "87930ec1e70c7b30a47d823c671d219c949075a6fa93d11dd27b04b37e00d076",
+      "clippy_sicurezza.log": "3d965e9813bc628bb0d3193be7538567b64b2952b70d39d319dac8e260aa4f8e",
+      "clippy_vendor.log": "144906a1abf1220c00fea26511f206db2254753fd27189e567ef6779ff49fc28",
+      "corpus_condiviso.log": "4b5a030a25e38be08662283c99d3fafe40bc48e4401f24f9861a8be47b153c13",
+      "costruisci_pacchetto_python.log": "41249cf2290e778d2ceb29d0136b4c1501bbf1c28fca7fbf291a6395b5edcc46",
+      "coverage_diff.log": "c7e3e0fad26d5ff5cba8262630d5fbd78c3616a5c23f4d5019e8aaa81c214fab",
+      "coverage_diff_cli.log": "71b0a22923a920d689cee0edfa7961cb63ac5d11a2d4361a8f58371949384b2d",
+      "coverage_export.log": "ff3381d44d22a87cfccdeb0e3034711514175f2ea27acb60e699e08ca46a715b",
+      "coverage_export_cli.log": "176183ae9aa0c889558bc2ebd54b5165090ea5c4f5631daacbab9a3dfc9623a0",
+      "coverage_misura.log": "f3e68003debd740057452dbafd4dec41ddfb55373ac5ca86973c54a71fb9a9a0",
+      "coverage_pulizia.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "coverage_report_cli_non_vuoto.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "coverage_report_non_vuoto.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "coverage_soglia_controprova.log": "610cef5fabd8a384518046bf74112167419c1dedc7872a0bf3fda3bba82f28dd",
+      "coverage_soglia_dal_report.log": "1ab29110fa6f751036b0d5c43073cb3bc997758b96c6046b0c3e4bb1830dda5d",
+      "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "fuzz-smoke-ultima.json": "4f0fd98539a951858a2370d4ffabb87b627e8d8663661940494088870e69fdb5",
+      "fuzz_campagna_completa.log": "0e4f0b57a7ac96114a18c4f270deb2fd70044f3953a5a2c49ccb449473b5e2ee",
+      "fuzz_replay.log": "8bea2dc70c4b71c8f393e2d0edf1334c451a7d9944d88c02f3675ebae71bb8c8",
+      "fuzz_smoke.log": "0e4f0b57a7ac96114a18c4f270deb2fd70044f3953a5a2c49ccb449473b5e2ee",
+      "lcov-completo.info": "af22bef848243fe8055553e0b0c682d178ef38ddc35411fcedf87323ee69b1cc",
+      "lcov.info": "a979c9d8819fe236a1bfec1957ac20c9dfa2c9271d3187830907ad0c4fc3b0da",
+      "pacchetto_python_riproducibile.log": "7e11c641428744fc4868503b6cfef8f918cc9601ef7a18069d6e9669bb9b6825",
+      "prove_di_confine.log": "c5940c13705c898c82789e260d4f53ebf0d2a303c64a620307e4b2dbbe2160c8",
+      "risultato.json": "8dd14596e13f6732596211898dc010922ec03c1390a60d7af160416688fae4c5",
+      "semi_s12.log": "8d9c6ecbbcd5cb0251408811adda76ad9a8c52720c08a9ed4c2c89c25680ebfb",
+      "smoke_pacchetto_python.log": "bdf34582cd12b7e97e67cc1b2fb0e585ed040777e7b8f55914635f64f85a45fc",
+      "sonde_action_pins.log": "bf1d8186df2d63ab6beb6c5dbd7841764bfe6ec831b9b94b3acbe5cbc71d83a5",
+      "sonde_assurance_n1.log": "806c8d9ed3afc478e11dfb5d66f0d6b71b2a43b736f05c20a6ed6fbfcfee2e3b",
+      "sonde_assurance_n1_prove.log": "7b7dc7b80a1526f8fbd83449d2a67622138309015a7ab0ae6c04e5a3b61eb1a8",
+      "sonde_audit_ignores.log": "b6b7c0e573230813f60ba9e8b13cfa0055d93f4c9c1a8593b23aaaaae6de50dd",
+      "sonde_buste_v2.log": "b6fe3d0160ed8eaf108d40f143026b5506010d049c34d7024e5e5f4a4594c975",
+      "sonde_capability_ostile.log": "f892396964f3b74b28bb391247c43b70bcbb798cef7de2bd2b473d15e53a6878",
+      "sonde_categorie_di_perdita.log": "b568403446e66f8c62e671adcb300b4339aa52558c1598c1bafd82252740aede",
+      "sonde_checkpoint.log": "79cae44f3a62cfb3abbcaca06e3af75977937e3948c1430ed7c18eab12bfe690",
+      "sonde_commenti.log": "88d6f78df946052b1215bc6e24c37d90fe3fd08b79cdd81fec4b81ba587ef252",
+      "sonde_conversioni.log": "cac5b565578e1b31f6787112c1d12a0e79d4751c7f652d4b10f39d4362432419",
+      "sonde_coverage_excl.log": "c50886b66b717bed8f63511fbf18194b76b8f37b467fe504fbee0465b474da7a",
+      "sonde_dependency_pins.log": "ff3b1438544d9aa2c552401f0123d54eac06b91b0295f3773671c14161e22544",
+      "sonde_dimensione.log": "9f5feabf00c355faff762b01185552700349f4f56a1b988e8e70179941e17a94",
+      "sonde_disposizione_prove.log": "afdde88707f3d031dafbcbf8b5c3bdd80bd1152bb54c53c30b5004cd813faed1",
+      "sonde_dist_completa.log": "232ab620297e254d9718b3b614c5fa393118405b03ed81a200cac3ccdad49177",
+      "sonde_distribuzione.log": "bb52f142045a7eb5acea004c8a7ff8638b5d4dc3b03360a83846e3e598d8c070",
+      "sonde_docset.log": "5add54c68275870f17dbdba777e1ab9e6b38de6976ff3de049bc9c5ab9874c7d",
+      "sonde_errori_redatti.log": "f196bef0973ff999dcbcf679ca035393cbb4be84e582dd7f9d09005e1f656ac4",
+      "sonde_fallback.log": "55df81c03b1fc09a739803668e8b10b1a1cd87ac7e716666dddb1c968f87bb76",
+      "sonde_filegdb.log": "006ac55040db8bd82eeb2e5abab682d80dc719e313b23af3bbac2921bafb69a1",
+      "sonde_finding_noti.log": "e22aeeced3db262c25f57d97d5025a427a5592fe7728fb4a379827073496f13f",
+      "sonde_fixture_canoniche.log": "86957db5acea453befd84038ccd284de12918f41b981b0ffd1b398a8e6e3eb5c",
+      "sonde_fork.log": "a07b4c62c3386dad89e8629e0cd680fa667a6f218a692fb615e88d9938f3478e",
+      "sonde_fuzz_release.log": "221c75d304e249b9e19dec674022d756d9e614471f073e2fe1d7d64ffad79547",
+      "sonde_identita.log": "d094b1bd2c8318c96097f80c50da282add5b2972970a77046de8db6c8935f6ca",
+      "sonde_licenze.log": "541a6cee469c9b995efafa73f449946e4b49acb95d131afa4c0bdba12ba0c50f",
+      "sonde_manifesto_adozione.log": "1ee2e1fe5178fcf580c486ddf69279744e595d54c6e2126af028d003491a0c53",
+      "sonde_metadati_geoparquet.log": "5f0635b83af38a6c5d516fcb60dc3fa63c9c6ca4854e51a6a29ca33c92ccef16",
+      "sonde_niente_leak.log": "c9811dcd7d51683ba5e61910b5aa26e91e8766a287b6a6f52a04bac8ac9f3a3d",
+      "sonde_prevalidazione.log": "6084b874a4258c3fb3f96b54c3338739f7c443689cfd7f35262327e858ed5d80",
+      "sonde_protocollo_v2.log": "b8937f0ef8e27d17c5ff17f50e8e032af371555cffb08f3d024efce40cda1435",
+      "sonde_quarantena.log": "83166b089fbcb82fac63f22522fa6ae99bb5e46368cd35d756277fd463dd6346",
+      "sonde_quartetto.log": "2f7b850c977121d8774a5cdcc47ed550746f0edb17a5b087b7ace1ccd82a6307",
+      "sonde_registra_evidenza.log": "73e11a6c4bac538eae66f4bb616dd0a401e3ec41b18114f7780d0c11475268c4",
+      "sonde_release.log": "f850eaa193cd37d5e5991edcf798c2893473f0d6c44bb16b0fbf6b8b7bb3fdf4",
+      "sonde_riuso_evidenze.log": "603db52fd0016ca5cdcf83b2588160ae92bde08c66ba4c61dfc8a2a74cdb95c9",
+      "sonde_sbom.log": "e96772991abe78d77a4db5a72603661a1148041005dd5869003ec69543ffa568",
+      "sonde_schemi_geoparquet.log": "00ff8480598abf1d7e83e0e8cce15163ee7ce5283f4350348b060aae35ee8f08",
+      "sonde_sdk_python.log": "3e0fefc85ece95dbf262e108e2584fbec574c699f9046b64395b6a0bc19474d8",
+      "sonde_semi_s12.log": "416bf32537d4ffc17e47fc9001e09449b734d88682763b59741e1f5b52a25f02",
+      "sonde_soak.log": "ddbc5bf15c26bf2c15a86c04aa1c4eb9dbb31a4d245c800b95a5282be426a476",
+      "sonde_toolchain.log": "cec8806e24af4311cc4923143096493c92c663a9bb9d416a56143bce4abb75bb",
+      "sonde_verificatori_nativi.log": "8777898f3af18b66b74834afb92c4bdddf77b911f5d385cad56c4a75c064ee6a",
+      "sonde_wkb_condiviso.log": "a6707d4eff38012da33ddc34bc6dc076a3b17151cfc9aef223c8790cbe64c3da",
+      "sonde_wkb_limits.log": "5f0635b83af38a6c5d516fcb60dc3fa63c9c6ca4854e51a6a29ca33c92ccef16",
+      "sonde_wrapper_campagna.log": "93dfd2d04efa5dcd3f0e64d85890df457130cbe1ec2100da167a689a7a37b45c",
+      "test.log": "518208a29cc5f106421b20cee30cc9fe46feac0e627aa5ac7ce77c26d979c9d8",
+      "test_default.log": "e44cb02aee2aee2487f3fb96093011d5594b2f44cd29a65e56b4fad84e7f1629"
+    }
+  },
+  "esito": "S9 checkpoint level 2 passed",
+  "distribuzione_candidate": {
+    "fonte": "target/rel1000/distribuzione-44222062212",
+    "corsa": 44222062212,
+    "canale": "candidate",
+    "esito_comunicato": "success",
+    "revisione": "edb482d892da11ecb421d5441079209a65d61fa0",
+    "limite": "Run, esito e provenienza GitHub comunicati dall operatore; nessuna consultazione API. Verificati byte locali, non bozza o release pubblicata. Referti distinti dalle attestazioni del profilo pubblico ancora da verificare.",
+    "artefatti_congelati": [
+      {
+        "nome": "plenora-io-10.0.0-linux-x86_64-base.tar.gz",
+        "sha256": "553bf256d03d8c7c8fa64d1be68627c0f5d83dc099cce7c2a8e63f4294478a88",
+        "dimensione": 9256444,
+        "revisione": "edb482d892da11ecb421d5441079209a65d61fa0"
+      },
+      {
+        "nome": "plenora-io-10.0.0-linux-x86_64-filegdb.tar.gz",
+        "sha256": "5e5111bc1693f000ed2c0e01b9f1b75e8e2750b6546a716b56860a35ba53f6aa",
+        "dimensione": 65104744,
+        "revisione": "edb482d892da11ecb421d5441079209a65d61fa0"
+      },
+      {
+        "nome": "plenora-io-10.0.0-src.tar.gz",
+        "sha256": "4d0874bbbb5263b7727d8ba0e9504ef78edf6f055ad9a41fd433b910667710a4",
+        "dimensione": 21328035,
+        "revisione": "edb482d892da11ecb421d5441079209a65d61fa0"
+      },
+      {
+        "nome": "plenora-io-10.0.0-windows-x86_64-base.zip",
+        "sha256": "d5544982d8abbe21ec60419d9f74e921f07a2430e0e23ed7560710617759eafe",
+        "dimensione": 10506497,
+        "revisione": "edb482d892da11ecb421d5441079209a65d61fa0"
+      },
+      {
+        "nome": "plenora-io-10.0.0-windows-x86_64-filegdb.zip",
+        "sha256": "40e3f354c725d77d2b0f299ef3ef932e1bf184e48a13029edc660afd6b627be8",
+        "dimensione": 50898733,
+        "revisione": "edb482d892da11ecb421d5441079209a65d61fa0"
+      },
+      {
+        "nome": "plenora_io-10.0.0-py3-none-any.whl",
+        "sha256": "3d014313c848bd266ae289b96494833094d80f5a188edb18142683ceb990db72",
+        "dimensione": 117972,
+        "revisione": "edb482d892da11ecb421d5441079209a65d61fa0"
+      },
+      {
+        "nome": "plenora_io-10.0.0.tar.gz",
+        "sha256": "f5d7e030bcbec97d31d401e0bceca393cb9e71d8148504827ceb67df9b5619f5",
+        "dimensione": 227168,
+        "revisione": "edb482d892da11ecb421d5441079209a65d61fa0"
+      }
+    ],
+    "fonti": {
+      "deliverable-linux-base-10.0.0/plenora-io-10.0.0-linux-x86_64-base.tar.gz": {
+        "sha256": "553bf256d03d8c7c8fa64d1be68627c0f5d83dc099cce7c2a8e63f4294478a88",
+        "dimensione": 9256444
+      },
+      "deliverable-linux-base-10.0.0/plenora-io-10.0.0-linux-x86_64-base.tar.gz.provenance.json": {
+        "sha256": "41099af10fa4e42754a6613d5cb666d9edee2f728d507053f16a5a8c1db69af5",
+        "dimensione": 2583
+      },
+      "deliverable-linux-base-10.0.0/plenora-io-10.0.0-linux-x86_64-base.tar.gz.sha256": {
+        "sha256": "2b91f279b26f68e0ca1faa90997d20c80613ea0cace7234d17d49274f397a6e9",
+        "dimensione": 109
+      },
+      "deliverable-linux-filegdb-10.0.0/plenora-io-10.0.0-linux-x86_64-filegdb.tar.gz": {
+        "sha256": "5e5111bc1693f000ed2c0e01b9f1b75e8e2750b6546a716b56860a35ba53f6aa",
+        "dimensione": 65104744
+      },
+      "deliverable-linux-filegdb-10.0.0/plenora-io-10.0.0-linux-x86_64-filegdb.tar.gz.provenance.json": {
+        "sha256": "7bfc36544aae2433954a329c6a028a88867d7b62acc1f59d9bb5b32ae27370f2",
+        "dimensione": 2590
+      },
+      "deliverable-linux-filegdb-10.0.0/plenora-io-10.0.0-linux-x86_64-filegdb.tar.gz.sha256": {
+        "sha256": "21ff3a89d5eb70db92a1119e35af93844d444ba8c6c1a1f80fe8b983e22d4507",
+        "dimensione": 112
+      },
+      "deliverable-python-10.0.0/licenze.json": {
+        "sha256": "3d13dba0b746a53f4e7d186658967aa6b93da2b0c2a300649b756008630547c4",
+        "dimensione": 1399
+      },
+      "deliverable-python-10.0.0/MANIFEST.json": {
+        "sha256": "565c8759d2b5c56caaa6515a9c8849e359c9bd9056b9b60a325e261149a50de3",
+        "dimensione": 1397
+      },
+      "deliverable-python-10.0.0/plenora_io-10.0.0-py3-none-any.whl": {
+        "sha256": "3d014313c848bd266ae289b96494833094d80f5a188edb18142683ceb990db72",
+        "dimensione": 117972
+      },
+      "deliverable-python-10.0.0/plenora_io-10.0.0-py3-none-any.whl.sha256": {
+        "sha256": "c0b75273ca6f5fd3662a7c5699be9ccc2f8e8fe8529dcafd0040f37eda13f095",
+        "dimensione": 101
+      },
+      "deliverable-python-10.0.0/plenora_io-10.0.0.tar.gz": {
+        "sha256": "f5d7e030bcbec97d31d401e0bceca393cb9e71d8148504827ceb67df9b5619f5",
+        "dimensione": 227168
+      },
+      "deliverable-python-10.0.0/plenora_io-10.0.0.tar.gz.sha256": {
+        "sha256": "ebeda46504444024566d5b1cc90a012535224306dc3ac712f255c6b4202c6b34",
+        "dimensione": 91
+      },
+      "deliverable-python-10.0.0/provenance.json": {
+        "sha256": "7bb60a7f5741c6397bdf587e535466815c88a9783899073ea8f212d11c9cffe1",
+        "dimensione": 772
+      },
+      "deliverable-python-10.0.0/sbom.json": {
+        "sha256": "19b1bacd3c39e6b569d3095f7000b597fc0c02c0e8f23b3063b201633eafa903",
+        "dimensione": 1106
+      },
+      "deliverable-sorgente-10.0.0/MANIFEST-sorgente.json": {
+        "sha256": "bd4b7d0cb28e1f78415f575d7addfba06a4296a3541b12f34cd5f7751be4e2c1",
+        "dimensione": 755
+      },
+      "deliverable-sorgente-10.0.0/plenora-io-10.0.0-src.tar.gz": {
+        "sha256": "4d0874bbbb5263b7727d8ba0e9504ef78edf6f055ad9a41fd433b910667710a4",
+        "dimensione": 21328035
+      },
+      "deliverable-sorgente-10.0.0/plenora-io-10.0.0-src.tar.gz.sha256": {
+        "sha256": "bf536ce1826eddb29a16bceadda2b6b3ff0483217dd52879e1b2924a5252fa47",
+        "dimensione": 95
+      },
+      "deliverable-windows-base-10.0.0/plenora-io-10.0.0-windows-x86_64-base.zip": {
+        "sha256": "d5544982d8abbe21ec60419d9f74e921f07a2430e0e23ed7560710617759eafe",
+        "dimensione": 10506497
+      },
+      "deliverable-windows-base-10.0.0/plenora-io-10.0.0-windows-x86_64-base.zip.provenance.json": {
+        "sha256": "b9bb0f9d99ced49a816ea4e2e650ee4e374914f6913d3e0e6c43c2e952dec126",
+        "dimensione": 2437
+      },
+      "deliverable-windows-base-10.0.0/plenora-io-10.0.0-windows-x86_64-base.zip.sha256": {
+        "sha256": "2482df75360a18d40b2912f6cb7170534b463cb29e06a6a9f7966b78aa3ce016",
+        "dimensione": 109
+      },
+      "deliverable-windows-filegdb-10.0.0/plenora-io-10.0.0-windows-x86_64-filegdb.zip": {
+        "sha256": "40e3f354c725d77d2b0f299ef3ef932e1bf184e48a13029edc660afd6b627be8",
+        "dimensione": 50898733
+      },
+      "deliverable-windows-filegdb-10.0.0/plenora-io-10.0.0-windows-x86_64-filegdb.zip.provenance.json": {
+        "sha256": "6d9c9e4f89066ef83d73f841a1cc986c3005c76e4e3ff540fd686766b08c9e9d",
+        "dimensione": 2443
+      },
+      "deliverable-windows-filegdb-10.0.0/plenora-io-10.0.0-windows-x86_64-filegdb.zip.sha256": {
+        "sha256": "ffd51902c8b2c1143c33f93f4caa498601cffa3adae2184686cab74d041dab42",
+        "dimensione": 112
+      },
+      "discovery-windows-base/install-windows-gdal-base.log": {
+        "sha256": "50dec17383a551ea0b2e3a8202146ef1fb8a77a33ffc6e6eacf6d3020f737066",
+        "dimensione": 2243
+      },
+      "discovery-windows-base/windows-base-discovery.json": {
+        "sha256": "520026d5f14ec53acda27ae573c92dfc716a859baedd55332a6b3bdbb7be955e",
+        "dimensione": 3086
+      },
+      "discovery-windows-base/windows-base-MANIFEST.json": {
+        "sha256": "c206972d5776c281f620558a377a5efe52fd275770f534b802e2a131f3e9ccd9",
+        "dimensione": 74694
+      },
+      "discovery-windows-filegdb/install-windows-gdal-filegdb.log": {
+        "sha256": "995a828acda4d052e4ca8cd6f4aae49137bc4230a4751e6495f8546d214eb5d7",
+        "dimensione": 2243
+      },
+      "discovery-windows-filegdb/windows-filegdb-discovery.json": {
+        "sha256": "4e1c9189285d530aa74ea0ba8982bac3e8d144de6eb6b8e729a76cdf3f5db1e2",
+        "dimensione": 6775
+      },
+      "discovery-windows-filegdb/windows-filegdb-MANIFEST.json": {
+        "sha256": "adce8a40130287387164ee2cb8c09f946d385acfb6b600e0067621070ebcf3b7",
+        "dimensione": 104403
+      },
+      "referti-di-tutta-la-distribuzione/referti-linux-base/linux-base-digest-manifesto.json": {
+        "sha256": "1b3fdccabdbd88fb8306df129ebff7b83122d41a06b390fbbfcaddb016f0abf8",
+        "dimensione": 544
+      },
+      "referti-di-tutta-la-distribuzione/referti-linux-base/linux-base-licenze.json": {
+        "sha256": "d3f1e1a4dd30a98f351ee532cbe7f555359f1818f38a56caf7749280e9074d0e",
+        "dimensione": 1444
+      },
+      "referti-di-tutta-la-distribuzione/referti-linux-base/linux-base-provenance.json": {
+        "sha256": "74ac55dc23c93dcc6cf3da097808637300b27b2767fa15fa79af75f5360bc5bd",
+        "dimensione": 646
+      },
+      "referti-di-tutta-la-distribuzione/referti-linux-base/linux-base-relocation.json": {
+        "sha256": "2d65b4446a7cae81ca7d2b86e9d8f6e4ab588f7cddce31be058eb63f46dce29c",
+        "dimensione": 506
+      },
+      "referti-di-tutta-la-distribuzione/referti-linux-base/linux-base-runtime.json": {
+        "sha256": "e4821d3c5dee11ddfb39415f0af7a0f13ee08c260794854d2b115bef749ad61b",
+        "dimensione": 578
+      },
+      "referti-di-tutta-la-distribuzione/referti-linux-base/linux-base-smoke.json": {
+        "sha256": "5cbdec01a42b334e1481a2435986004977c39a342b8b96ce0977d669c8d15b2e",
+        "dimensione": 1747
+      },
+      "referti-di-tutta-la-distribuzione/referti-linux-filegdb/linux-filegdb-digest-manifesto.json": {
+        "sha256": "757fa836296bdfd4a2a176056e1a14789b98fc89bb79d71401f6ac74c5f8b639",
+        "dimensione": 547
+      },
+      "referti-di-tutta-la-distribuzione/referti-linux-filegdb/linux-filegdb-licenze.json": {
+        "sha256": "3e4635f7e2c8256b2aaf0837f40d82546374e4b40715b94f187fb2737f01dfa6",
+        "dimensione": 1449
+      },
+      "referti-di-tutta-la-distribuzione/referti-linux-filegdb/linux-filegdb-provenance.json": {
+        "sha256": "e38e29bad1044d37e6c9ecbdbbe6cc07fee22345ff7467795031665b92248eca",
+        "dimensione": 650
+      },
+      "referti-di-tutta-la-distribuzione/referti-linux-filegdb/linux-filegdb-relocation.json": {
+        "sha256": "fd4ba21a936a85010c46548db89382992451142b2a51efc8214aa8d5896ec0d8",
+        "dimensione": 511
+      },
+      "referti-di-tutta-la-distribuzione/referti-linux-filegdb/linux-filegdb-runtime.json": {
+        "sha256": "81d40bcefcf1864cfff84500862a67ad933e29d6d948f64afa7e6d646f4c3457",
+        "dimensione": 632
+      },
+      "referti-di-tutta-la-distribuzione/referti-linux-filegdb/linux-filegdb-smoke.json": {
+        "sha256": "9c90d6745369b1c783c31cff91ea3bab40da817d6954857fd1008a4253b2f145",
+        "dimensione": 1658
+      },
+      "referti-di-tutta-la-distribuzione/referti-python/python-sdist-licenze.json": {
+        "sha256": "79ced3e6fb3e7b8b12208ddde7b157e67dddcf3d9dfbc1973b1e6f84960d52f4",
+        "dimensione": 1258
+      },
+      "referti-di-tutta-la-distribuzione/referti-python/python-sdist-provenance.json": {
+        "sha256": "57bb35b9f7b11f2f7aca87cc073998d502f6be6dfb64afd48f39cc8d1bb96006",
+        "dimensione": 434
+      },
+      "referti-di-tutta-la-distribuzione/referti-python/python-sdist-sbom.json": {
+        "sha256": "6fda75c8ffc6ad2d80a771fbbaa1bd7f5e0bdce4e6cc34f90381f0055ab3ef03",
+        "dimensione": 270
+      },
+      "referti-di-tutta-la-distribuzione/referti-python/python-sdist-smoke-installato.json": {
+        "sha256": "2792490f7789d1b1e2a5f2008ada8dccb869773dd3afa6ea211d1bb5f3ee04d7",
+        "dimensione": 940
+      },
+      "referti-di-tutta-la-distribuzione/referti-python/python-wheel-licenze.json": {
+        "sha256": "75bfae4ee3032c89da9c7a31f67b8f91aedb32f781fad2fe708ef71b8b3aad8a",
+        "dimensione": 1258
+      },
+      "referti-di-tutta-la-distribuzione/referti-python/python-wheel-provenance.json": {
+        "sha256": "f8a8fb138e6669eba0a7d8f3a6f7c116dd4c52f40679e2e2084c5af27dbfcbc4",
+        "dimensione": 434
+      },
+      "referti-di-tutta-la-distribuzione/referti-python/python-wheel-sbom.json": {
+        "sha256": "b9bf13a9307e4bf51eb07af0b3f257549ae9d952ecfdcea6a31d71c3ed48c166",
+        "dimensione": 270
+      },
+      "referti-di-tutta-la-distribuzione/referti-python/python-wheel-smoke-installato.json": {
+        "sha256": "e042c7b23bc5dfffa5e67df7a8d26f8fd3f7fc6ef3a9ef73dedd1c056d84ecee",
+        "dimensione": 952
+      },
+      "referti-di-tutta-la-distribuzione/referti-windows-base/windows-base-digest-manifesto.json": {
+        "sha256": "9fafaa54516b3d5d8cc8552c7c10c55eddbff8244143ad6373a89b2991690433",
+        "dimensione": 562
+      },
+      "referti-di-tutta-la-distribuzione/referti-windows-base/windows-base-licenze.json": {
+        "sha256": "e00cea8c64d5c20ca37e73d014bd1299bea8b4c74aac7c9752875302fc923471",
+        "dimensione": 1245
+      },
+      "referti-di-tutta-la-distribuzione/referti-windows-base/windows-base-provenance.json": {
+        "sha256": "ae966c7fd5520d45b846bcada692af38d2d871794d5ef3b7886ac3c58639cd60",
+        "dimensione": 488
+      },
+      "referti-di-tutta-la-distribuzione/referti-windows-base/windows-base-relocation.json": {
+        "sha256": "1faedd0749cab989385b3e3d0d06b879e6ffd1c00bb6eb16f5c1afa9d7aef85b",
+        "dimensione": 564
+      },
+      "referti-di-tutta-la-distribuzione/referti-windows-base/windows-base-runtime.json": {
+        "sha256": "72ca8b4420320e441741a12493eca57c65683a4f7cc02fbae7e5cc65dc74d387",
+        "dimensione": 2267
+      },
+      "referti-di-tutta-la-distribuzione/referti-windows-base/windows-base-smoke.json": {
+        "sha256": "ca687c3d8376927cafcfb4cbc2465aa487231a950a223a9f84d2e30903439212",
+        "dimensione": 1846
+      },
+      "referti-di-tutta-la-distribuzione/referti-windows-filegdb/windows-filegdb-digest-manifesto.json": {
+        "sha256": "38bf03e40fd6a05578b96b7da5e8b28118a63e9b98db4b49fb18aa553664c3dc",
+        "dimensione": 565
+      },
+      "referti-di-tutta-la-distribuzione/referti-windows-filegdb/windows-filegdb-licenze.json": {
+        "sha256": "fe187cb174787b9cef9585cbe7cee12705bc5864854678c98b536f1119057c0b",
+        "dimensione": 1250
+      },
+      "referti-di-tutta-la-distribuzione/referti-windows-filegdb/windows-filegdb-provenance.json": {
+        "sha256": "bbbec4ae5979eec4416112d118c359d28f1eb0e79c28ed19285d458c572e6656",
+        "dimensione": 491
+      },
+      "referti-di-tutta-la-distribuzione/referti-windows-filegdb/windows-filegdb-relocation.json": {
+        "sha256": "b83e11cae8a1da62dcf803f0d1490f848edb00049fe9011db8a6772d7b941667",
+        "dimensione": 568
+      },
+      "referti-di-tutta-la-distribuzione/referti-windows-filegdb/windows-filegdb-runtime.json": {
+        "sha256": "930c0159942257a8254db5145be90abebd46feb93bcfdb78fc11b46d93799cea",
+        "dimensione": 4305
+      },
+      "referti-di-tutta-la-distribuzione/referti-windows-filegdb/windows-filegdb-smoke.json": {
+        "sha256": "4249b5375a339adc1f0cdbae4c337e459236763c40711f377f3c7a17471f2dc2",
+        "dimensione": 1755
+      },
+      "referti-linux-base/linux-base-digest-manifesto.json": {
+        "sha256": "1b3fdccabdbd88fb8306df129ebff7b83122d41a06b390fbbfcaddb016f0abf8",
+        "dimensione": 544
+      },
+      "referti-linux-base/linux-base-licenze.json": {
+        "sha256": "d3f1e1a4dd30a98f351ee532cbe7f555359f1818f38a56caf7749280e9074d0e",
+        "dimensione": 1444
+      },
+      "referti-linux-base/linux-base-provenance.json": {
+        "sha256": "74ac55dc23c93dcc6cf3da097808637300b27b2767fa15fa79af75f5360bc5bd",
+        "dimensione": 646
+      },
+      "referti-linux-base/linux-base-relocation.json": {
+        "sha256": "2d65b4446a7cae81ca7d2b86e9d8f6e4ab588f7cddce31be058eb63f46dce29c",
+        "dimensione": 506
+      },
+      "referti-linux-base/linux-base-runtime.json": {
+        "sha256": "e4821d3c5dee11ddfb39415f0af7a0f13ee08c260794854d2b115bef749ad61b",
+        "dimensione": 578
+      },
+      "referti-linux-base/linux-base-smoke.json": {
+        "sha256": "5cbdec01a42b334e1481a2435986004977c39a342b8b96ce0977d669c8d15b2e",
+        "dimensione": 1747
+      },
+      "referti-linux-filegdb/linux-filegdb-digest-manifesto.json": {
+        "sha256": "757fa836296bdfd4a2a176056e1a14789b98fc89bb79d71401f6ac74c5f8b639",
+        "dimensione": 547
+      },
+      "referti-linux-filegdb/linux-filegdb-licenze.json": {
+        "sha256": "3e4635f7e2c8256b2aaf0837f40d82546374e4b40715b94f187fb2737f01dfa6",
+        "dimensione": 1449
+      },
+      "referti-linux-filegdb/linux-filegdb-provenance.json": {
+        "sha256": "e38e29bad1044d37e6c9ecbdbbe6cc07fee22345ff7467795031665b92248eca",
+        "dimensione": 650
+      },
+      "referti-linux-filegdb/linux-filegdb-relocation.json": {
+        "sha256": "fd4ba21a936a85010c46548db89382992451142b2a51efc8214aa8d5896ec0d8",
+        "dimensione": 511
+      },
+      "referti-linux-filegdb/linux-filegdb-runtime.json": {
+        "sha256": "81d40bcefcf1864cfff84500862a67ad933e29d6d948f64afa7e6d646f4c3457",
+        "dimensione": 632
+      },
+      "referti-linux-filegdb/linux-filegdb-smoke.json": {
+        "sha256": "9c90d6745369b1c783c31cff91ea3bab40da817d6954857fd1008a4253b2f145",
+        "dimensione": 1658
+      },
+      "referti-python/python-sdist-licenze.json": {
+        "sha256": "79ced3e6fb3e7b8b12208ddde7b157e67dddcf3d9dfbc1973b1e6f84960d52f4",
+        "dimensione": 1258
+      },
+      "referti-python/python-sdist-provenance.json": {
+        "sha256": "57bb35b9f7b11f2f7aca87cc073998d502f6be6dfb64afd48f39cc8d1bb96006",
+        "dimensione": 434
+      },
+      "referti-python/python-sdist-sbom.json": {
+        "sha256": "6fda75c8ffc6ad2d80a771fbbaa1bd7f5e0bdce4e6cc34f90381f0055ab3ef03",
+        "dimensione": 270
+      },
+      "referti-python/python-sdist-smoke-installato.json": {
+        "sha256": "2792490f7789d1b1e2a5f2008ada8dccb869773dd3afa6ea211d1bb5f3ee04d7",
+        "dimensione": 940
+      },
+      "referti-python/python-wheel-licenze.json": {
+        "sha256": "75bfae4ee3032c89da9c7a31f67b8f91aedb32f781fad2fe708ef71b8b3aad8a",
+        "dimensione": 1258
+      },
+      "referti-python/python-wheel-provenance.json": {
+        "sha256": "f8a8fb138e6669eba0a7d8f3a6f7c116dd4c52f40679e2e2084c5af27dbfcbc4",
+        "dimensione": 434
+      },
+      "referti-python/python-wheel-sbom.json": {
+        "sha256": "b9bf13a9307e4bf51eb07af0b3f257549ae9d952ecfdcea6a31d71c3ed48c166",
+        "dimensione": 270
+      },
+      "referti-python/python-wheel-smoke-installato.json": {
+        "sha256": "e042c7b23bc5dfffa5e67df7a8d26f8fd3f7fc6ef3a9ef73dedd1c056d84ecee",
+        "dimensione": 952
+      },
+      "referti-windows-base/windows-base-digest-manifesto.json": {
+        "sha256": "9fafaa54516b3d5d8cc8552c7c10c55eddbff8244143ad6373a89b2991690433",
+        "dimensione": 562
+      },
+      "referti-windows-base/windows-base-licenze.json": {
+        "sha256": "e00cea8c64d5c20ca37e73d014bd1299bea8b4c74aac7c9752875302fc923471",
+        "dimensione": 1245
+      },
+      "referti-windows-base/windows-base-provenance.json": {
+        "sha256": "ae966c7fd5520d45b846bcada692af38d2d871794d5ef3b7886ac3c58639cd60",
+        "dimensione": 488
+      },
+      "referti-windows-base/windows-base-relocation.json": {
+        "sha256": "1faedd0749cab989385b3e3d0d06b879e6ffd1c00bb6eb16f5c1afa9d7aef85b",
+        "dimensione": 564
+      },
+      "referti-windows-base/windows-base-runtime.json": {
+        "sha256": "72ca8b4420320e441741a12493eca57c65683a4f7cc02fbae7e5cc65dc74d387",
+        "dimensione": 2267
+      },
+      "referti-windows-base/windows-base-smoke.json": {
+        "sha256": "ca687c3d8376927cafcfb4cbc2465aa487231a950a223a9f84d2e30903439212",
+        "dimensione": 1846
+      },
+      "referti-windows-filegdb/windows-filegdb-digest-manifesto.json": {
+        "sha256": "38bf03e40fd6a05578b96b7da5e8b28118a63e9b98db4b49fb18aa553664c3dc",
+        "dimensione": 565
+      },
+      "referti-windows-filegdb/windows-filegdb-licenze.json": {
+        "sha256": "fe187cb174787b9cef9585cbe7cee12705bc5864854678c98b536f1119057c0b",
+        "dimensione": 1250
+      },
+      "referti-windows-filegdb/windows-filegdb-provenance.json": {
+        "sha256": "bbbec4ae5979eec4416112d118c359d28f1eb0e79c28ed19285d458c572e6656",
+        "dimensione": 491
+      },
+      "referti-windows-filegdb/windows-filegdb-relocation.json": {
+        "sha256": "b83e11cae8a1da62dcf803f0d1490f848edb00049fe9011db8a6772d7b941667",
+        "dimensione": 568
+      },
+      "referti-windows-filegdb/windows-filegdb-runtime.json": {
+        "sha256": "930c0159942257a8254db5145be90abebd46feb93bcfdb78fc11b46d93799cea",
+        "dimensione": 4305
+      },
+      "referti-windows-filegdb/windows-filegdb-smoke.json": {
+        "sha256": "4249b5375a339adc1f0cdbae4c337e459236763c40711f377f3c7a17471f2dc2",
+        "dimensione": 1755
+      }
+    },
+    "verifiche": {
+      "deliverable": {
+        "comando": "python scripts/check-deliverable.py --directory target/rel1000/registrazione/deliverable --versione 10.0.0 --canale candidate --revisione edb482d892da11ecb421d5441079209a65d61fa0",
+        "exit_code": 0,
+        "archivi": 7,
+        "python": 2
+      },
+      "referti": {
+        "comando": "python scripts/check-distribuzione-completa.py --referti target/rel1000/distribuzione-44222062212/referti-di-tutta-la-distribuzione --canale candidate",
+        "exit_code": 0,
+        "attesi": 32,
+        "trovati": 32
+      }
+    }
+  }
+}

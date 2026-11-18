@@ -1,12 +1,11 @@
 # Rilascio — stato corrente
 
-La candidate 10.0.0 e aperta, non congelata e non autorizzata.
+La candidate 10.0.0 e congelata su
+`edb482d892da11ecb421d5441079209a65d61fa0`, distribuita e qualificata con
+replay finito e L2. Non e autorizzata alla pubblicazione.
 La decisione del titolare del 15 e 17 novembre 2026 elimina la compatibilita
-con release Plenora precedenti. Le cinque rimisure di profondita fuzz e confine
-ASan FileGDB, fornite dalla VM di qualifica sul perimetro di d196f7a621b76b91b4d19b85ea7ca6abc7b31f68, sono valide
-per il perimetro corrente. Checkpoint e replay sotto conservano gli SHA originali
-e non qualificano la 10.0.0. Il congelamento avverra sul commit di merge della PR
-di preparazione; distribuzione, replay completo e L2 restano da eseguire.
+con release Plenora precedenti. La registrazione seguente riguarda soltanto
+la candidate congelata; non trasferisce la misura al commit di assurance.
 
 ## Stato
 
@@ -19,10 +18,10 @@ di preparazione; distribuzione, replay completo e L2 restano da eseguire.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `7314ca2` |
-| revisione misurata | `7314ca2` |
-| passi del checkpoint | 112 |
-| passi verdi | 112 |
+| ultima qualificata | `edb482d` |
+| revisione misurata | `edb482d` |
+| passi del checkpoint | 110 |
+| passi verdi | 110 |
 | passi omessi | 0 |
 | passi falliti | 0 |
 | input di replay | 207 |
@@ -32,28 +31,28 @@ di preparazione; distribuzione, replay completo e L2 restano da eseguire.
 | target di smoke totali | 15 |
 | finding di smoke | 0 |
 | target in quarantena | 0 |
-| copertura LCOV | 88,87% |
-| righe coperte LCOV | 32 418 |
-| righe strumentate LCOV | 36 480 |
-| copertura cargo | 86,79% |
+| copertura LCOV | 88,90% |
+| righe coperte LCOV | 32 224 |
+| righe strumentate LCOV | 36 247 |
+| copertura cargo | 86,81% |
 | soglia di copertura | 80,00% |
-| baseline differenziale | `6e494a6ff7c31bfb0f9abd664d08b9f8fe2a97c0` |
-| esito differenziale | 96.42% |
+| baseline differenziale | `7314ca25b62788a3a9d2af0ec638d0d7f3bdffea` |
+| esito differenziale | 100.00% |
 | gruppi ASSURANCE-N1 | 50 |
 | gruppi ASSURANCE-N1 aperti | 0 |
-| blocchi | 1 |
+| blocchi | 2 |
 | capacità differite | 2 |
-| S9, qualificato su | `7314ca2` |
+| S9, qualificato su | `edb482d` |
 | candidate, versione del manifesto | `10.0.0` |
-| candidate, stato | iniziale |
-| candidate, revisione congelata | non congelata |
+| candidate, stato | attiva |
+| candidate, revisione congelata | `edb482d892da11ecb421d5441079209a65d61fa0` |
 | candidate, versione del workspace | `10.0.0` |
-| candidate, artefatti congelati | non congelati |
+| candidate, artefatti congelati | 7 |
 | candidate, tag previsto | `v10.0.0` |
 | candidate, tag creato | no |
 | candidate, revisione del tag | nessun tag |
 | candidate, tag sulla candidate | no |
-| candidate, assurance entro l'allowlist | non derivabile senza congelamento |
+| candidate, assurance entro l'allowlist | sì |
 | candidate, release_action consentita | no |
 | release_authorized | `false` |
 
@@ -63,7 +62,8 @@ I blocchi sono l'elenco esatto dei `release_blocking` del
 
 | Blocco | Sintesi |
 |---|---|
-| `distribuzione.artefatti-qualificati` | Candidate 10.0.0 iniziale: distribuzione, artefatti congelati e confronto dei byte della bozza ancora da eseguire. |
+| `release.candidate-non-valida-per-head` | 10.0.0: candidate e sette artefatti congelati, replay finito e L2 registrati; draft, decisione e tag da completare. |
+| `distribuzione.artefatti-qualificati` | Sette archivi 10.0.0 congelati su edb482d e 32 referti verificati; confronto con la draft ancora da eseguire. |
 
 Le capacità **differite** non sono blocchi chiusi: non sono richieste
 da questa release e **non sono verificate**. Ciascuna dichiara che cosa
@@ -201,3 +201,75 @@ dopo la terminazione forzata.
 ### 6. Decisione finale di rilascio
 
 La decisione esplicita del titolare riguarda soltanto gli artefatti qualificati della candidate corrente.
+
+
+### Registrazione distribuzione, replay finito e L2 della 10.0.0 - 2026-11-18
+
+La candidate congelata e distribuita e
+`edb482d892da11ecb421d5441079209a65d61fa0`. La qualifica riguarda questo SHA,
+non il futuro commit di registrazione. Nessun tag o permesso di pubblicazione
+viene creato. Precedente applicato: `a6a334d`, registrazione della 9.0.0.
+
+L'[evidenza](../assurance/evidence/checkpoint-edb482d.json) e generata da
+`scripts/registra-evidenza-s9.py` sui 116 file originali in
+`target/rel1000/io/target/rel1000/l2-edb482d892da11ecb421d5441079209a65d61fa0-attempt-1/`.
+Il registratore usa la copia byte per byte dei 115 file di passo in
+`target/rel1000/registrazione/corsa-contratto/`. Il manifesto ne conserva gli
+SHA-256; `console.log` resta fra le fonti esterne, per il gate congelato.
+`replay.log`, `esiti.txt` e la
+ricevuta esterna hanno digest separati in `provenienza_della_corsa`.
+Unico tentativo, nessuno scartato, secondo l'operatore.
+
+| Misura | Valore | Fonte nella directory L2 |
+|---|---|---|
+| Passi distinti/verdi | 110/110; 0 omessi, falliti, duplicati | `risultato.json`; riscontro `console.log` |
+| Albero | 0 file sporchi; revisione e impronta invariate | `risultato.json` |
+| Replay | 207 input, 15 target, 0 crash | `fuzz_replay.log` |
+| Verifica ricevuta | 15/15 target, 0 finding, 0 quarantena | `fuzz_smoke.log`, `fuzz-smoke-ultima.json` |
+| LCOV | 32 224/36 247 righe, 88,90% | `coverage_soglia_dal_report.log` |
+| Cargo | 86,81%; soglia 80% | `coverage_soglia_controprova.log` |
+| Differenziale | 29/29 coperte, 0 scoperte, 100,00%; 146 non eseguibili | `coverage_diff.log` |
+
+Impronta iniziale e finale:
+`3ef0f10e2187fe1b3c7c91224f4abb3fefe51dbf442ad7f67918f74118e91bbd`.
+Baseline differenziale: `7314ca25b62788a3a9d2af0ec638d0d7f3bdffea`, ultimo
+checkpoint superato (9.0.0). LCOV e cargo contano proiezioni diverse dello
+stesso profdata; il differenziale riguarda solo le righe cambiate di libreria.
+
+Ambiente dichiarato dall'operatore: VM Ubuntu 24.04, 192.168.2.140, clone
+pulito della candidate, `.plenora-contracts` al pin
+`38d68b402389855edbcecb7ce57c31e91282cb4e`; Python 3.14.6, pyarrow 25.0.1,
+PyYAML 6.0.3, openpyxl 3.1.5, jsonschema 4.26.0, come nei workflow.
+`S9_CHECKPOINT_BASE` indica la baseline sopra; `S9_CI_FUZZ_RECEIPT` la ricevuta
+in `target/rel1000/io/target/rel1000/replay-edb482d892da11ecb421d5441079209a65d61fa0/`.
+La ricevuta L2 aggiunge solo `riuso`: `source_sha256` verificato sui byte della
+ricevuta esterna, tutti gli altri campi identici. Policy `io-9-replay-v1`:
+`fuzz_smoke` verifica la ricevuta, non esegue una seconda campagna; nessun soak.
+Prima del replay l'operatore dichiara verdi `check_profondita_fuzz.py --qualifica`
+e `check_asan_filegdb.py --qualifica`: quattro profondita valide; i 181833
+contatori ASan hanno riscontro in `target/rel1000/replay.log`.
+Profondita e confine ASan restano prove separate: il replay Rust non qualifica
+l'interno del GDAL di sistema non strumentato.
+
+Distribuzione GitHub Actions `44222062212`, canale `candidate`, esito `success`
+e revisione sopra comunicati dall'operatore; nessuna consultazione GitHub.
+I download originali in `target/rel1000/distribuzione-44222062212/` sono immutati.
+I sette artefatti in `candidate_release.artefatti` riportano nome, dimensione
+e SHA-256 ricalcolati dai download, con revisione verificata da provenance e
+manifesto sorgente. `check-deliverable.py` passa sui sette archivi, inclusi i
+due Python; `check-distribuzione-completa.py` passa sui 32 referti attesi e trovati.
+Fonti, dimensioni, digest e comandi sono in `distribuzione_candidate` dell'evidenza.
+Questa verifica non e il confronto dei byte della bozza o della release pubblicata.
+
+Restano, nell'ordine: manifesto di adozione e attestazioni del profilo pubblico
+della stessa corsa, bozza e confronto completo degli asset riscaricati, decisione
+del titolare e tag sulla candidate, registrazione dell'autorizzazione e gate
+finale, pubblicazione immutata e confronto dei byte pubblicati.
+I due blocchi restano espliciti; `release_authorized` e
+`release_action_allowed` restano `false`. La qualifica cross-component e la
+conferma esterna della licenza first-party restano differite e non verificate.
+Comandi operativi e resoconto: `target/REGISTRA-1000.md`.
+
+Il checkpoint storico 9.0.0 resta nella storia Git e nella copia locale
+`target/rel1000/registrazione/checkpoint-7314ca2.json`; viene rimosso dalla
+directory corrente secondo il vincolo di insieme esatto del gate congelato.
