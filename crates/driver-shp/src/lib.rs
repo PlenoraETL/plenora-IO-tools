@@ -3450,7 +3450,7 @@ fn infer_shp_schema(path: &Path, row_limit: Option<u64>) -> Result<ShpInference>
                 accumulator.observe(ObservedValueClass::Integer);
             } else {
                 accumulator.observe(match field.field_type {
-                    b'N' | b'F' => ObservedValueClass::Number,
+                    b'N' | b'F' | b'B' => ObservedValueClass::Number,
                     b'L' => ObservedValueClass::Boolean,
                     _ => ObservedValueClass::Text,
                 });

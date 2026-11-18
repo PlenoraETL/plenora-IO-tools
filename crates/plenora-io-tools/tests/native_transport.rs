@@ -120,7 +120,7 @@ fn shp_dxf_filegdb_native_roundtrip_declares_schema_and_coordinate_changes() {
             assert_eq!(actual.column(1), batch.column(0));
             assert_eq!(
                 count(&read, "read_loss", "native_field_order_changed"),
-                u64::from(driver != "shp")
+                0 // The native file already has geometry first; reading preserves that order.
             );
         }
         if driver == "shp" {
@@ -296,8 +296,11 @@ fn native_geometry_promotions_rings_empty_and_signed_zero() {
                     let offset = if driver == "filegdb" { 18 } else { 9 };
                     let x = f64::from_le_bytes(got[offset..offset + 8].try_into().unwrap());
                     let y = f64::from_le_bytes(got[offset + 8..offset + 16].try_into().unwrap());
+                    // DXF's identity WCS mapping preserves the source -0;
+                    // FileGDB's native quantization still reconstructs +0.
+                    let expected_y = if driver == "dxf" { -0.0_f64 } else { 0.0_f64 };
                     assert_eq!(x.to_bits(), 0.0_f64.to_bits());
-                    assert_eq!(y.to_bits(), 0.0_f64.to_bits());
+                    assert_eq!(y.to_bits(), expected_y.to_bits());
                 }
             }
         }

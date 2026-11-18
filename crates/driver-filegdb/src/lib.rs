@@ -1835,7 +1835,8 @@ mod backend {
                     }
                     None => None,
                 };
-                let (mut loss, time_in_utc) = native_definition_report(&ds, &name, i as u64)?;
+                let (mut loss, time_in_utc, native_order) =
+                    native_definition_report(&ds, &name, i as u64)?;
                 let empty_feature = Feature::new(layer.defn()).map_err(|_| {
                     err(&PublicMessage::Curated(
                         "lettura schema temporale FileGDB fallita",
@@ -1914,6 +1915,26 @@ mod backend {
                     // reader lo rilegge da `ha_geometria`.
                     None => (attribute_arrow_fields, None),
                 };
+                let delivered_names = arrow_fields
+                    .iter()
+                    .map(|f| f.name().as_str())
+                    .collect::<Vec<_>>();
+                // OID is GDAL's separate feature identity, not an attribute.
+                // Compare the relative order of the fields actually delivered.
+                let native_geometry_name =
+                    layer.defn().geom_fields().next().map(|field| field.name());
+                let order_changed = native_order
+                    .iter()
+                    .map(String::as_str)
+                    .map(|name| {
+                        if Some(name) == native_geometry_name.as_deref() {
+                            GEOMETRY
+                        } else {
+                            name
+                        }
+                    })
+                    .filter(|name| delivered_names.contains(name))
+                    .ne(delivered_names.iter().copied());
                 let schema: SchemaRef = Arc::new(Schema::new(arrow_fields));
                 let ha_geometria = geometry.is_some();
                 let contract = DataContract::new(
@@ -1934,7 +1955,7 @@ mod backend {
                     &mut loss,
                     (NativeDriver::FileGdb, TransportDirection::Read),
                     NativeElement::FieldOrder,
-                    u64::from(ha_geometria),
+                    u64::from(order_changed),
                     i as u64,
                     Some(0),
                 );
@@ -1987,9 +2008,10 @@ mod backend {
         ds: &Dataset,
         name: &str,
         layer: u64,
-    ) -> Result<(LossReport, Option<bool>)> {
+    ) -> Result<(LossReport, Option<bool>, Vec<String>)> {
         let mut report = LossReport::default();
         let mut time_in_utc = None;
+        let mut field_order = Vec::new();
         let query = format!("GetLayerDefinition {name}");
         let mut result = ds
             .execute_sql(&query, None, gdal::vector::sql::Dialect::DEFAULT)
@@ -2012,9 +2034,45 @@ mod backend {
             if let Some(definition) = definition {
                 observe_definition_xml(&mut report, &definition, layer)?;
                 time_in_utc = definition_time_in_utc(&definition)?;
+                field_order = definition_field_order(&definition)?;
             }
         }
-        Ok((report, time_in_utc))
+        Ok((report, time_in_utc, field_order))
+    }
+
+    fn definition_field_order(xml: &str) -> Result<Vec<String>> {
+        use quick_xml::events::Event;
+        let mut reader = quick_xml::Reader::from_str(xml);
+        let mut stack = Vec::new();
+        let mut names = Vec::new();
+        loop {
+            match reader.read_event() {
+                Ok(Event::Start(tag))
+                    if tag.local_name().as_ref() == "Name"
+                        && stack.last().is_some_and(|name: &String| {
+                            matches!(name.as_str(), "Field" | "GPFieldInfoEx")
+                        }) =>
+                {
+                    let text = reader.read_text(tag.name()).map_err(|_| temporal_error())?;
+                    names.push(
+                        quick_xml::escape::unescape(&text)
+                            .map_err(|_| temporal_error())?
+                            .into_owned(),
+                    );
+                }
+                Ok(Event::Start(tag)) => stack.push(tag.local_name().as_ref().to_owned()),
+                Ok(Event::End(_)) => {
+                    stack.pop();
+                }
+                Ok(Event::Eof) => return Ok(names),
+                Err(_) => {
+                    return Err(err(&PublicMessage::Curated(
+                        "XML nativo FileGDB non valido",
+                    )))
+                }
+                _ => {}
+            }
+        }
     }
 
     fn definition_time_in_utc(xml: &str) -> Result<Option<bool>> {

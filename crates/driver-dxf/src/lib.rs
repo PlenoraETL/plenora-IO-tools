@@ -887,12 +887,13 @@ impl FormatWriter for DxfWriterState {
             let g = geometry
                 .as_ref()
                 .ok_or_else(|| err(&PublicMessage::Curated("geometria DXF validata ma assente")))?;
-            plenora_io_core::loss_table::observe_geometry_write(
+            observe_native(
                 &mut self.loss,
-                NativeDriver::Dxf,
-                g,
+                (NativeDriver::Dxf, TransportDirection::Write),
+                NativeElement::CoordinatePrecision,
+                u64::from(dxf_decimal_changes(&g.value)),
                 0,
-                geom_idx as u64,
+                Some(geom_idx as u64),
             );
             add_geometry(&mut self.drawing, g, layer.as_deref(), &mut self.loss)?;
         }
@@ -1051,6 +1052,29 @@ fn add_polyline(
         }
     }
     Ok(())
+}
+
+// The DXF serializer emits twelve decimal places. Identity WCS mappings now
+// preserve signed zero, so compare the parsed token without canonicalizing it.
+fn dxf_decimal_changes(value: &WkbValue) -> bool {
+    let changed = |c: &WkbCoordinate| {
+        [Some(c.x), Some(c.y), c.z]
+            .into_iter()
+            .flatten()
+            .any(|v| format!("{v:.12}").parse::<f64>().unwrap_or(v).to_bits() != v.to_bits())
+    };
+    match value {
+        WkbValue::Point(c) => changed(c),
+        WkbValue::LineString(points) => points.iter().any(changed),
+        WkbValue::Polygon(rings) => rings.iter().flatten().any(changed),
+        WkbValue::MultiPoint(children)
+        | WkbValue::MultiLineString(children)
+        | WkbValue::MultiPolygon(children)
+        | WkbValue::GeometryCollection(children) => {
+            children.iter().any(|g| dxf_decimal_changes(&g.value))
+        }
+        _ => false, // Other types are rejected before this observer.
+    }
 }
 
 fn dxf_geometry_rejection_cause(value: &WkbValue) -> Option<&'static str> {

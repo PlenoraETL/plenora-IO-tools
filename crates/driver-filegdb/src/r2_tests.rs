@@ -1,5 +1,13 @@
 use super::*;
 
+#[test]
+fn native_field_order_reads_both_definition_vocabularies() {
+    for tag in ["Field", "GPFieldInfoEx"] {
+        let xml = format!("<Definition><Name>layer</Name><Fields><{tag}><Name>geometry</Name></{tag}><{tag}><Name>a&amp;b</Name></{tag}></Fields></Definition>");
+        assert_eq!(definition_field_order(&xml).unwrap(), ["geometry", "a&b"]);
+    }
+}
+
 fn assert_native_alias(reader: &dyn LayerReader, index: usize) {
     let loss = reader.loss_report();
     assert!(loss.counts["native_layer_metadata_not_preserved"] > 0);

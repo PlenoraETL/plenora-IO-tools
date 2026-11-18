@@ -4,6 +4,8 @@
 mod constraints;
 #[path = "geometry.rs"]
 mod geometry;
+#[path = "group_b.rs"]
+mod group_b;
 #[path = "native.rs"]
 mod native;
 #[path = "values.rs"]
@@ -715,9 +717,15 @@ fn without_external_crs(batch: RecordBatch, driver: &str) -> RecordBatch {
 #[allow(clippy::too_many_lines)] // Collect all failures before enforcing the product.
 fn generated_product_requires_operational_evidence() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/s1f-generated");
+    let root = std::env::var_os("PLENORA_ENUM_OUTPUT").map_or(root, std::path::PathBuf::from);
     std::fs::create_dir_all(&root).unwrap();
     let mut rows = Vec::new();
     for driver in DRIVERS {
+        if std::env::var("PLENORA_ENUM_DRIVERS")
+            .is_ok_and(|filter| !filter.split(',').any(|name| name == driver.driver))
+        {
+            continue;
+        }
         let native = driver.qualified_native.unwrap();
         for element in NATIVE_ELEMENTS {
             for direction in [D::Read, D::Write] {
@@ -729,7 +737,9 @@ fn generated_product_requires_operational_evidence() {
                 } else if direction == D::Read && driver.driver != "ipc" {
                     native::exercise(driver.driver, native, *element, &root, &mut row);
                 } else {
-                    match generate(*element) {
+                    match generate(*element).or_else(|reason| {
+                        group_b::generate_additional(driver.driver, *element).ok_or(reason)
+                    }) {
                         Err(reason) => {
                             row["status"] = json!("missing-generator");
                             row["reason"] = json!(reason);
@@ -840,6 +850,13 @@ fn generated_product_requires_operational_evidence() {
                                         "write_loss"
                                     },
                                 );
+                                group_b::observe_additional(
+                                    driver.driver,
+                                    direction,
+                                    &before,
+                                    &after,
+                                    &mut observed,
+                                );
                                 if observed != declared {
                                     failures.push(json!({"variant":variant,"observed":observed,"declared":declared,"differences":format!("{differences:?}")}));
                                 }
@@ -862,6 +879,7 @@ fn generated_product_requires_operational_evidence() {
         serde_json::to_vec_pretty(&rows).unwrap(),
     )
     .unwrap();
+    assert!(!rows.is_empty(), "driver filter selected no matrix cells");
     let remaining = rows
         .iter()
         .filter(|r| r["status"] != "passed")
@@ -878,6 +896,7 @@ fn generated_product_requires_operational_evidence() {
         .collect::<Vec<_>>();
     std::fs::write(root.join("remaining.tsv"), remaining.join("\n")).unwrap();
     let failed = remaining.len();
+    eprintln!("Enumeration artifacts: {}", root.display());
     assert_eq!(
         failed,
         0,

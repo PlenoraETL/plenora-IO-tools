@@ -65,6 +65,11 @@ impl Transform3 {
     // il determinismo bit-esatto delle coordinate trasformate.
     #[allow(clippy::suboptimal_flops)]
     pub fn apply(&self, point: Point3) -> Point3 {
+        // An identity mapping must preserve every received ordinate, including
+        // the sign of zero. Summing zero matrix terms would turn -0 into +0.
+        if *self == Self::IDENTITY {
+            return point;
+        }
         [
             self.matrix[0][0] * point[0]
                 + self.matrix[0][1] * point[1]
