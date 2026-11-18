@@ -2,8 +2,11 @@
 
 La candidate 10.0.0 e aperta, non congelata e non autorizzata.
 La decisione del titolare del 15 e 17 novembre 2026 elimina la compatibilita
-con release Plenora precedenti. Le misure sotto conservano data e SHA originali:
-non qualificano la 10.0.0. La qualifica finale resta da eseguire sul perimetro completo.
+con release Plenora precedenti. Le cinque rimisure di profondita fuzz e confine
+ASan FileGDB, fornite dalla VM di qualifica sul perimetro di d196f7a621b76b91b4d19b85ea7ca6abc7b31f68, sono valide
+per il perimetro corrente. Checkpoint e replay sotto conservano gli SHA originali
+e non qualificano la 10.0.0. Il congelamento avverra sul commit di merge della PR
+di preparazione; distribuzione, replay completo e L2 restano da eseguire.
 
 ## Stato
 
@@ -38,7 +41,7 @@ non qualificano la 10.0.0. La qualifica finale resta da eseguire sul perimetro c
 | esito differenziale | 96.42% |
 | gruppi ASSURANCE-N1 | 50 |
 | gruppi ASSURANCE-N1 aperti | 0 |
-| blocchi | 0 |
+| blocchi | 1 |
 | capacità differite | 2 |
 | S9, qualificato su | `7314ca2` |
 | candidate, versione del manifesto | `10.0.0` |
@@ -60,6 +63,7 @@ I blocchi sono l'elenco esatto dei `release_blocking` del
 
 | Blocco | Sintesi |
 |---|---|
+| `distribuzione.artefatti-qualificati` | Candidate 10.0.0 iniziale: distribuzione, artefatti congelati e confronto dei byte della bozza ancora da eseguire. |
 
 Le capacità **differite** non sono blocchi chiusi: non sono richieste
 da questa release e **non sono verificate**. Ciascuna dichiara che cosa

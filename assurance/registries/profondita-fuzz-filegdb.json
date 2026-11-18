@@ -137,21 +137,5 @@
     "entry_point_del_target": "`__fuzz_leggi_gdb` e `__fuzz_parti_della_fixture` non compaiono fra i requisiti perche' non compaiono fra i simboli: il compilatore le incorpora nella chiusura del target. Cio' che fanno e' provato dalle righe qui sopra e dalle sonde di `driver-filegdb`, che le chiamano per nome.",
     "semantica": "che un ramo sia raggiunto non dice che il suo contratto sia verificato. Questo registro separa Â«non raggiuntoÂ» da Â«raggiuntoÂ»; la seconda meta' la verificano le sonde del driver."
   },
-  "regola_release_9": "Il replay finito non sostituisce questa misura: requisiti, impronta e confine GDAL restano obbligatori. Nessuna nuova misura attestata dalla modifica di policy.",
-  "rimisurazione_dovuta": {
-    "perche": "Avvio 10.0.0: il bump dei pacchetti locali nei Cargo.lock modifica il perimetro. Impronta corrente ricalcolata dal gate sui file LF; misura storica invariata. Aggiornata il 17/11/2026: zip 9.0.5 nei lock (RUSTSEC-2026-0548) cambia di nuovo il perimetro.",
-    "impronta_della_misura": "1b813d06cbbc871147bf1d88d0a5d7351d12239887fe915751d4ca614938c209",
-    "impronta_attesa": "82eb1f0b271feaf4f38feb6aa32c148df32db934554cfd5189df2595f6a52efa",
-    "non_promette": "La misura storica non qualifica la 10.0.0. Nessuna nuova misura fuzz/ASan eseguita.",
-    "quando": "Sul perimetro finale della 10.0.0, prima della qualifica e del rilascio, nel previsto ambiente Linux/ASan/GDAL.",
-    "comando": "scripts/fuzz-profondita.sh filegdb_reader"
-  },
-  "rimisurazione_asan_dovuta": {
-    "perche": "Avvio 10.0.0: il bump dei pacchetti locali nei Cargo.lock modifica il perimetro. Impronta corrente ricalcolata dal gate sui file LF; misura storica invariata. Aggiornata il 17/11/2026: zip 9.0.5 nei lock (RUSTSEC-2026-0548) cambia di nuovo il perimetro.",
-    "impronta_della_misura": "1b813d06cbbc871147bf1d88d0a5d7351d12239887fe915751d4ca614938c209",
-    "impronta_attesa": "82eb1f0b271feaf4f38feb6aa32c148df32db934554cfd5189df2595f6a52efa",
-    "non_promette": "La misura storica non qualifica la 10.0.0. Nessuna nuova misura fuzz/ASan eseguita.",
-    "quando": "Sul perimetro finale della 10.0.0, prima della qualifica e del rilascio, nel previsto ambiente Linux/ASan/GDAL.",
-    "comando": "bash scripts/asan-filegdb.sh"
-  }
+  "regola_release_9": "Il replay finito non sostituisce questa misura: requisiti, impronta e confine GDAL restano obbligatori. Nessuna nuova misura attestata dalla modifica di policy."
 }
