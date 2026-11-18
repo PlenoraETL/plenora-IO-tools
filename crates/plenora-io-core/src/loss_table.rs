@@ -473,7 +473,7 @@ macro_rules! native_elements {
 use NativeRule::{Preserved as P, Rejected as R, Transformed as T};
 native_elements! {
     NullGeometry => [P, P, P, P, P, P, R, R, P, P, P, P, P, P, P, P, P, P, P, P];
-    EmptyPoint => [R, R, R, R, P, P, R, R, T(NativeChange::MissingValue), T(NativeChange::MissingValue), P, P, P, P, P, P, P, P, P, P];
+    EmptyPoint => [R, R, R, R, P, P, R, R, T(NativeChange::MissingValue), T(NativeChange::MissingValue), R, R, R, R, P, P, P, P, P, P];
     SignedZero => [P, P, P, P, P, P, P, T(NativeChange::CoordinatePrecision), P, T(NativeChange::CoordinatePrecision), P, P, P, P, P, P, P, P, P, P];
     Subtypes => [R, R, R, R, R, R, R, R, T(NativeChange::LayerMetadata), T(NativeChange::ArrowMetadata), R, R, R, R, R, R, R, R, R, R];
     Aliases => [R, R, R, R, R, R, R, R, T(NativeChange::LayerMetadata), T(NativeChange::ArrowMetadata), R, R, R, R, R, R, R, R, R, R];
@@ -511,7 +511,7 @@ native_elements! {
     GeometryType => [P, P, T(NativeChange::GeometryType), T(NativeChange::GeometryType), T(NativeChange::GeometryType), T(NativeChange::GeometryType), T(NativeChange::GeometryType), T(NativeChange::GeometryType), P, P, P, P, P, P, P, P, P, P, P, P];
     RingOrientation => [P, P, P, P, P, T(NativeChange::RingOrientation), P, P, P, T(NativeChange::RingOrientation), P, P, P, P, P, P, P, P, P, P];
     EmptyGeometry => [R, R, R, R, R, R, R, R, T(NativeChange::MissingValue), T(NativeChange::MissingValue), P, P, P, P, P, P, P, P, P, P];
-    CoordinatePrecision => [T(NativeChange::NumberPrecision), P, T(NativeChange::NumberPrecision), P, P, P, P, T(NativeChange::CoordinatePrecision), P, T(NativeChange::CoordinatePrecision), T(NativeChange::NumberPrecision), P, T(NativeChange::NumberPrecision), P, R, R, P, P, P, P];
+    CoordinatePrecision => [T(NativeChange::NumberPrecision), P, T(NativeChange::NumberPrecision), P, P, P, P, T(NativeChange::CoordinatePrecision), P, T(NativeChange::CoordinatePrecision), T(NativeChange::NumberPrecision), P, T(NativeChange::NumberPrecision), P, P, P, P, P, P, P];
     CrsId => [P, T(NativeChange::CrsId), P, T(NativeChange::CrsId), P, T(NativeChange::CrsId), P, T(NativeChange::CrsId), P, T(NativeChange::CrsId), P, T(NativeChange::CrsIdAbsent), P, T(NativeChange::CrsIdAbsent), P, P, P, P, P, P];
     CrsDefinition => [P, T(NativeChange::CrsDefinition), P, T(NativeChange::CrsDefinition), P, T(NativeChange::CrsDefinition), P, T(NativeChange::CrsDefinition), P, T(NativeChange::CrsDefinition), P, T(NativeChange::CrsDefinition), P, T(NativeChange::CrsDefinition), P, P, P, P, P, P];
     FeatureId => [T(NativeChange::FeatureId), T(NativeChange::ArrowMetadata), T(NativeChange::FeatureId), T(NativeChange::ArrowMetadata), T(NativeChange::FeatureId), T(NativeChange::ArrowMetadata), T(NativeChange::FeatureId), T(NativeChange::ArrowMetadata), T(NativeChange::FeatureId), T(NativeChange::ArrowMetadata), P, P, P, P, P, P, P, P, P, P];
@@ -526,7 +526,7 @@ native_elements! {
     FeatureMetadata => [T(NativeChange::ForeignMembers), T(NativeChange::ArrowMetadata), T(NativeChange::FeatureMetadata), T(NativeChange::ArrowMetadata), R, R, T(NativeChange::LayerMetadata), T(NativeChange::ArrowMetadata), R, R, R, R, R, R, R, R, R, R, R, R];
     AltitudeMode => [R, R, T(NativeChange::AltitudeMode), P, R, R, R, R, R, R, R, R, R, R, R, R, R, R, R, R];
     Inference => [T(NativeChange::Inference), T(NativeChange::Inference), R, T(NativeChange::Inference), T(NativeChange::Inference), P, R, R, R, R, T(NativeChange::Inference), T(NativeChange::Inference), T(NativeChange::Inference), T(NativeChange::Inference), R, R, R, R, R, R];
-    NumberPrecision => [T(NativeChange::NumberPrecision), P, T(NativeChange::NumberPrecision), P, P, P, P, T(NativeChange::CoordinatePrecision), P, T(NativeChange::CoordinatePrecision), T(NativeChange::NumberPrecision), P, T(NativeChange::NumberPrecision), P, R, R, P, P, P, P];
+    NumberPrecision => [T(NativeChange::NumberPrecision), P, T(NativeChange::NumberPrecision), P, P, P, P, T(NativeChange::CoordinatePrecision), P, T(NativeChange::CoordinatePrecision), T(NativeChange::NumberPrecision), P, T(NativeChange::NumberPrecision), P, P, P, P, P, P, P];
     StructuredValue => [T(NativeChange::StructuredValue), R, T(NativeChange::ExtendedData), R, R, R, R, R, R, R, R, R, R, R, R, R, R, R, R, R];
     MissingValue => [T(NativeChange::MissingValue), P, T(NativeChange::MissingValue), P, P, P, P, P, P, P, R, R, R, R, R, R, R, R, R, R];
     CoordinateColumns => [R, R, R, R, R, R, R, R, R, R, T(NativeChange::FieldNames), T(NativeChange::FieldNames), T(NativeChange::FieldNames), T(NativeChange::FieldNames), R, R, R, R, R, R];

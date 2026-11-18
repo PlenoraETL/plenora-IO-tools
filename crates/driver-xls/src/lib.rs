@@ -1073,6 +1073,12 @@ impl FormatWriter for XlsWriterState {
                         col += 1;
                     }
                 }
+                // A null geometry still occupies a row. An omitted trailing
+                // cell disappears from the workbook range on read; whitespace
+                // is an explicit null WKT/XY token and keeps the row present.
+                if geom_col.is_some_and(|column| column.is_null(row)) {
+                    sheet.write_string(r, col, " ").map_err(xls_err)?;
+                }
                 if let Some(geom_col) = geom_col.filter(|column| !column.is_null(row)) {
                     // `Finalize` e non `Write`: il writer XLSX accumula i batch e
                     // materializza il foglio in `finish`, che e' dove siamo. E'

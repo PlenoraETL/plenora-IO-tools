@@ -40,6 +40,7 @@ rules! {
     (ContradictedCrs, Crs, Validate, Generic, "CRS_CONFLICT", "il CRS assunto contraddice quello dichiarato"),
     (MissingGeometry, Unsupported, Write, Capability, "UNSUPPORTED", "il formato di destinazione richiede una geometria"),
     (UnrepresentableWriteType, Unsupported, Write, Capability, "UNSUPPORTED", "tipo non rappresentabile nel formato di destinazione"),
+    (UnrepresentableWriteValue, DataMapping, Write, Format, "FORMAT_ERROR", "valore non rappresentabile nel formato di destinazione"),
     (NonFiniteWriteValue, DataMapping, Write, Format, "FORMAT_ERROR", "valore non finito non rappresentabile in scrittura"),
     (ReadMemoryExceeded, ResourceLimit, Read, LimitExceeded, "LIMIT_EXCEEDED", crate::quota::Quota::MemoryBytes.rule().message),
     (IneffectiveCrsAssumption, InvalidConfiguration, Validate, Generic, "CLI_USAGE", "--assume-crs senza effetto: il layer non contiene geometrie"),

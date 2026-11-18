@@ -1580,6 +1580,7 @@ classe, senza riportare valori della cella.
 | UnrepresentableWriteType | geojson | attributo Duration | unsupported | write | UNSUPPORTED | 3 | tipo non rappresentabile nel formato di destinazione |
 | UnrepresentableWriteType | gpkg | attributo Duration | unsupported | write | UNSUPPORTED | 3 | tipo non rappresentabile nel formato di destinazione |
 | UnrepresentableWriteType | xls | attributo Duration | unsupported | write | UNSUPPORTED | 3 | tipo non rappresentabile nel formato di destinazione |
+| UnrepresentableWriteValue | gpkg | UInt64 oltre INTEGER | data_mapping | write | FORMAT_ERROR | 3 | UInt64 oltre i64::MAX non rappresentabile come INTEGER GeoPackage |
 | NonFiniteWriteValue | geojson | attributo NaN | data_mapping | write | FORMAT_ERROR | 3 | Float64 non finito non rappresentabile in GeoJSON |
 | ReadMemoryExceeded | ipc | memoria 1 byte | resource_limit | read | LIMIT_EXCEEDED | 4 | memory_bytes quota superata |
 | IneffectiveCrsAssumption | ipc | assunzione senza geometria | invalid_configuration | validate | CLI_USAGE | 2 | --assume-crs senza effetto: il layer non contiene geometrie |
@@ -1622,7 +1623,7 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | Driver | Elemento | Lettura | Scrittura |
 | --- | --- | --- | --- |
 | csv | NullGeometry | Preserved | Preserved |
-| csv | EmptyPoint | Preserved | Preserved |
+| csv | EmptyPoint | Rejected | Rejected |
 | csv | SignedZero | Preserved | Preserved |
 | csv | Subtypes | Rejected | Rejected |
 | csv | Aliases | Rejected | Rejected |
@@ -1820,7 +1821,7 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | gpkg | GeometryType | Preserved | Preserved |
 | gpkg | RingOrientation | Preserved | Preserved |
 | gpkg | EmptyGeometry | Preserved | Preserved |
-| gpkg | CoordinatePrecision | Rejected | Rejected |
+| gpkg | CoordinatePrecision | Preserved | Preserved |
 | gpkg | CrsId | Preserved | Preserved |
 | gpkg | CrsDefinition | Preserved | Preserved |
 | gpkg | FeatureId | Preserved | Preserved |
@@ -1835,7 +1836,7 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | gpkg | FeatureMetadata | Rejected | Rejected |
 | gpkg | AltitudeMode | Rejected | Rejected |
 | gpkg | Inference | Rejected | Rejected |
-| gpkg | NumberPrecision | Rejected | Rejected |
+| gpkg | NumberPrecision | Preserved | Preserved |
 | gpkg | StructuredValue | Rejected | Rejected |
 | gpkg | MissingValue | Rejected | Rejected |
 | gpkg | CoordinateColumns | Rejected | Rejected |
@@ -2182,7 +2183,7 @@ Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara 
 | dxf | UnknownDimensions | Preserved | Preserved |
 | dxf | Covering | Rejected | Rejected |
 | xls | NullGeometry | Preserved | Preserved |
-| xls | EmptyPoint | Preserved | Preserved |
+| xls | EmptyPoint | Rejected | Rejected |
 | xls | SignedZero | Preserved | Preserved |
 | xls | Subtypes | Rejected | Rejected |
 | xls | Aliases | Rejected | Rejected |

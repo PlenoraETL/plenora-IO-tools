@@ -37,6 +37,7 @@ def cases(tables):
     add('ContradictedCrs', ['geojson', 'kml', 'shp', 'dxf', 'gpkg', 'geoparquet', 'ipc'], 'assunzione EPSG:3857 su WGS84')
     add('MissingGeometry', ['shp', 'kml', 'dxf'], 'schema senza geometria')
     add('UnrepresentableWriteType', ['csv', 'shp', 'kml', 'geojson', 'gpkg', 'xls'], 'attributo Duration')
+    add('UnrepresentableWriteValue', ['gpkg'], 'UInt64 oltre INTEGER', 'UInt64 oltre i64::MAX non rappresentabile come INTEGER GeoPackage')
     add('NonFiniteWriteValue', ['geojson'], 'attributo NaN', 'Float64 non finito non rappresentabile in GeoJSON')
     add('ReadMemoryExceeded', ['ipc'], 'memoria 1 byte')
     add('IneffectiveCrsAssumption', ['ipc'], 'assunzione senza geometria')
@@ -100,6 +101,7 @@ def verify(binary, tables):
                 geom, pa.field('value', array.type, metadata={b'plenora.field_id': b'1'})], metadata={b'plenora.contract.version': b'1'})))
         duration = attribute('duration', pa.array([1], type=pa.duration('ms')))
         duration_ogc = attribute('duration-ogc', pa.array([1], type=pa.duration('ms')), True)
+        oversized_integer = attribute('oversized-integer', pa.array([2**64 - 1], type=pa.uint64()))
         nan = attribute('nan', pa.array([float('nan')]), True)
         paths = {'geojson': source, 'ipc': ipc}
         for driver in FORMATS:
@@ -132,9 +134,9 @@ def verify(binary, tables):
                 args += ['--opt', 'wkt_column=absent']
             elif situation == 'ContradictedCrs':
                 args += ['--layer', '0', '--assume-crs', 'EPSG:3857']
-            elif situation in ('MissingGeometry', 'UnrepresentableWriteType', 'NonFiniteWriteValue', 'MissingWriteBackend'):
+            elif situation in ('MissingGeometry', 'UnrepresentableWriteType', 'UnrepresentableWriteValue', 'NonFiniteWriteValue', 'MissingWriteBackend'):
                 input_path = {'MissingGeometry': no_geometry, 'UnrepresentableWriteType': duration,
-                              'NonFiniteWriteValue': nan, 'MissingWriteBackend': ipc}[situation]
+                              'UnrepresentableWriteValue': oversized_integer, 'NonFiniteWriteValue': nan, 'MissingWriteBackend': ipc}[situation]
                 if situation == 'UnrepresentableWriteType' and driver in ('kml', 'geojson'):
                     input_path = duration_ogc
                 args = ['write', input_path, work / (f'out-{i}.' + ext), '--to', driver]
