@@ -10,6 +10,15 @@ pub type Result<T> = std::result::Result<T, PlenoraIoError>;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CapabilityReason {
+    ObjectView,
+    ObjectAttributes,
+    ObjectTiles,
+    ObjectMissing,
+    ObjectGeometryColumnMissing,
+    ObjectPrimaryKey,
+    ObjectEmpty,
+    ObjectChartSheet,
+    ObjectCatalogConflict,
     EmptyWritePlan,
     MultipleLayers,
     DuplicateLayerName,

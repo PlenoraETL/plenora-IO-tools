@@ -415,125 +415,119 @@ impl FormatDriver for GpkgDriver {
         let path = plenora_io_core::preflight_source(self.descriptor(), source, &mut opts)?;
         let conn = apri_in_lettura(&path)?;
         let tables = feature_tables(&conn)?;
-        if tables.is_empty() {
-            return Err(err(&PublicMessage::Curated(
-                "nessuna feature table (gpkg_contents data_type='features')",
-            )));
-        }
         let mut layers = Vec::new();
         let mut metas = Vec::new();
         let mut rifiuti = BTreeMap::new();
         for (i, table_meta) in tables.into_iter().enumerate() {
-            // `i` indicizza le feature table di `gpkg_contents`: il loro numero
-            // e' limitato dalle righe di `sqlite_master`, molti ordini di
-            // grandezza sotto 2^32. Nessun troncamento possibile.
-            #[allow(clippy::cast_possible_truncation)]
-            let layer_id = LayerId(i as u32);
-            // Il CRS che non si risolve e' un rifiuto **del layer**: fino al
-            // 24/10 chiudeva il `GeoPackage` intero, e un layer sano diventava
-            // illeggibile per una riga di `gpkg_spatial_ref_sys` di un altro.
-            // Il layer resta nell'elenco con un contratto vuoto che nessuno
-            // emette: `rifiuto_del_layer` lo dice rifiutato a chi lo legge e a
-            // chi descrive tutti i layer, e se i rifiutati sono tutti
-            // l'apertura fallisce con il primo (`with_read_budget`).
-            let crs = match crs_for(&conn, table_meta.srs_id) {
-                Ok(crs) => crs,
-                Err(errore) => {
-                    rifiuti.insert(layer_id.0, errore);
-                    let (layer, meta) = layer_rifiutato(layer_id, table_meta);
-                    layers.push(layer);
-                    metas.push(meta);
-                    continue;
+            let layer_id = LayerId(u32::try_from(i).map_err(|_| {
+                PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppi oggetti GeoPackage"))
+            })?);
+            let result = (|| -> Result<(LayerContract, LayerRead)> {
+                validate_object(&conn, &table_meta)?;
+                let crs = crs_for(&conn, table_meta.srs_id)?;
+                let rtree_table = registered_rtree(&conn, &table_meta.table, &table_meta.geom_col)?;
+                let schema::ReadSchema {
+                    schema,
+                    attrs,
+                    properties,
+                } = build_schema(&conn, &table_meta.table, &table_meta.geom_col, &crs)?;
+                let mut geometry = GeometryColumnContract::wkb_passthrough(
+                    FieldId(0),
+                    table_meta.geom_col.clone(),
+                    crs,
+                    schema.field(0).is_nullable(),
+                );
+                geometry.identita_dichiarata = schema
+                    .field(0)
+                    .metadata()
+                    .get(plenora_io_model::geometry::PLENORA_FIELD_ID_KEY)
+                    .and_then(|id| id.parse().ok());
+                geometry.dimensions = gpkg_dimensions(table_meta.z, table_meta.m);
+                geometry.srid = i32::try_from(table_meta.srs_id).ok();
+                if let Some(geometry_type) = gpkg_geometry_type(&table_meta.geometry_type_name) {
+                    geometry.set_exact_geometry_types(vec![geometry_type]);
+                } else {
+                    // Il tipo dichiarato e' generico: quali tipi ci siano lo dicono
+                    // le geometrie, non l'intestazione della tabella.
+                    let osservati = tipi_geometrici_osservati(
+                        &conn,
+                        &table_meta.table,
+                        &table_meta.geom_col,
+                        opts.max_rows(),
+                        &opts.wkb_limits(),
+                    )?;
+                    if !osservati.is_empty() {
+                        geometry.set_exact_geometry_types(osservati);
+                    }
+                }
+                geometry.native_metadata.insert(
+                    "gpkg.geometry_type_name".to_owned(),
+                    table_meta.geometry_type_name.clone(),
+                );
+                geometry
+                    .native_metadata
+                    .insert("gpkg.z".to_owned(), table_meta.z.to_string());
+                geometry
+                    .native_metadata
+                    .insert("gpkg.m".to_owned(), table_meta.m.to_string());
+                geometry.native_metadata.insert(
+                    "gpkg.rtree_index".to_owned(),
+                    rtree_table.is_some().to_string(),
+                );
+                let contract = DataContract::new(
+                    plenora_io_model::geometry::schema_from_native_fields(&schema, &geometry),
+                    Some(geometry),
+                );
+                plenora_io_model::primary::validate_contract(&contract)?;
+                plenora_io_core::property_plan::validate_gpkg_read_schema(&contract.schema)?;
+                let runtime_schema = contract.schema.clone();
+                let layer = LayerContract {
+                    id: layer_id,
+                    name: table_meta.table.clone(),
+                    contract,
+                };
+                // `srs_id` di tabella e' i64 in `gpkg_geometry_columns`; l'header
+                // per-feature codifica un i32 (finding #7). Se la tabella
+                // dichiara un valore fuori range i32 il file e' gia'
+                // non-conforme: fallire chiuso qui evita di normalizzarlo
+                // silenziosamente prima ancora di leggere una feature.
+                let layer_srs_id = i32::try_from(table_meta.srs_id).map_err(|_| {
+                    // Lo `srs_id` non esce: e' un valore letto dal file, e chi
+                    // legge l'errore ha il file.
+                    err(&PublicMessage::Curated(
+                        "gpkg_geometry_columns.srs_id fuori dal range i32; GeoPackage non conforme",
+                    ))
+                })?;
+                let meta = LayerRead {
+                    rtree_table,
+                    table: table_meta.table.clone(),
+                    geom_col: table_meta.geom_col.clone(),
+                    schema: runtime_schema,
+                    properties,
+                    attrs,
+                    layer_srs_id,
+                };
+                Ok((layer, meta))
+            })();
+            let (layer, meta) = match result {
+                Ok(value) => value,
+                Err(error)
+                    if matches!(
+                        error.category,
+                        plenora_io_model::ErrorCategory::ResourceLimit
+                            | plenora_io_model::ErrorCategory::Cancelled
+                            | plenora_io_model::ErrorCategory::Timeout
+                    ) =>
+                {
+                    return Err(error)
+                }
+                Err(error) => {
+                    rifiuti.insert(layer_id.0, error);
+                    layer_rifiutato(layer_id, table_meta)
                 }
             };
-            let rtree_table = registered_rtree(&conn, &table_meta.table, &table_meta.geom_col)?;
-            let schema::ReadSchema {
-                schema,
-                attrs,
-                properties,
-            } = build_schema(&conn, &table_meta.table, &table_meta.geom_col, &crs)?;
-            let mut geometry = GeometryColumnContract::wkb_passthrough(
-                FieldId(0),
-                table_meta.geom_col.clone(),
-                crs,
-                schema.field(0).is_nullable(),
-            );
-            geometry.identita_dichiarata = schema
-                .field(0)
-                .metadata()
-                .get(plenora_io_model::geometry::PLENORA_FIELD_ID_KEY)
-                .and_then(|id| id.parse().ok());
-            geometry.dimensions = gpkg_dimensions(table_meta.z, table_meta.m);
-            geometry.srid = i32::try_from(table_meta.srs_id).ok();
-            if let Some(geometry_type) = gpkg_geometry_type(&table_meta.geometry_type_name) {
-                geometry.set_exact_geometry_types(vec![geometry_type]);
-            } else {
-                // Il tipo dichiarato e' generico: quali tipi ci siano lo dicono
-                // le geometrie, non l'intestazione della tabella.
-                let osservati = tipi_geometrici_osservati(
-                    &conn,
-                    &table_meta.table,
-                    &table_meta.geom_col,
-                    opts.max_rows(),
-                    &opts.wkb_limits(),
-                )?;
-                if !osservati.is_empty() {
-                    geometry.set_exact_geometry_types(osservati);
-                }
-            }
-            geometry.native_metadata.insert(
-                "gpkg.geometry_type_name".to_owned(),
-                table_meta.geometry_type_name.clone(),
-            );
-            geometry
-                .native_metadata
-                .insert("gpkg.z".to_owned(), table_meta.z.to_string());
-            geometry
-                .native_metadata
-                .insert("gpkg.m".to_owned(), table_meta.m.to_string());
-            geometry.native_metadata.insert(
-                "gpkg.rtree_index".to_owned(),
-                rtree_table.is_some().to_string(),
-            );
-            let contract = DataContract::new(
-                plenora_io_model::geometry::schema_from_native_fields(&schema, &geometry),
-                Some(geometry),
-            );
-            if let Err(error) = plenora_io_model::primary::validate_contract(&contract) {
-                rifiuti.insert(layer_id.0, error);
-                let (layer, meta) = layer_rifiutato(layer_id, table_meta);
-                layers.push(layer);
-                metas.push(meta);
-                continue;
-            }
-            plenora_io_core::property_plan::validate_gpkg_read_schema(&contract.schema)?;
-            let runtime_schema = contract.schema.clone();
-            layers.push(LayerContract {
-                id: layer_id,
-                name: table_meta.table.clone(),
-                contract,
-            });
-            // `srs_id` di tabella e' i64 in `gpkg_geometry_columns`; l'header
-            // per-feature codifica un i32 (finding #7). Se la tabella
-            // dichiara un valore fuori range i32 il file e' gia'
-            // non-conforme: fallire chiuso qui evita di normalizzarlo
-            // silenziosamente prima ancora di leggere una feature.
-            let layer_srs_id = i32::try_from(table_meta.srs_id).map_err(|_| {
-                // Lo `srs_id` non esce: e' un valore letto dal file, e chi
-                // legge l'errore ha il file.
-                err(&PublicMessage::Curated(
-                    "gpkg_geometry_columns.srs_id fuori dal range i32; GeoPackage non conforme",
-                ))
-            })?;
-            metas.push(LayerRead {
-                rtree_table,
-                table: table_meta.table,
-                geom_col: table_meta.geom_col,
-                schema: runtime_schema,
-                properties,
-                attrs,
-                layer_srs_id,
-            });
+            layers.push(layer);
+            metas.push(meta);
         }
         let mut provenance = LossReport::default();
         for (index, meta) in metas.iter().enumerate() {
@@ -688,12 +682,14 @@ struct GpkgDataset {
     path: PathBuf,
     layers: Vec<LayerContract>,
     metas: Vec<LayerRead>,
-    /// I layer il cui CRS non si risolve, per id: il loro contratto e' vuoto
-    /// e non si legge.
+    /// Gli oggetti rifiutati per id conservano il posto e non emettono dati.
     rifiuti: BTreeMap<u32, PlenoraIoError>,
 }
 
 impl OpenDatasetHandle for GpkgDataset {
+    fn preserves_unreadable_objects(&self) -> bool {
+        true
+    }
     fn layers(&self) -> &[LayerContract] {
         &self.layers
     }
@@ -1454,6 +1450,7 @@ fn real_to_sql_ref(value: f64) -> Result<BorrowedSqlValue<'static>> {
 }
 
 struct FeatureTable {
+    data_type: String,
     table: String,
     geom_col: String,
     srs_id: i64,
@@ -1525,99 +1522,136 @@ fn sqlite_table_exists(conn: &Connection, table: &str) -> Result<bool> {
     .map_err(sql_err)
 }
 
-fn feature_tables(conn: &Connection) -> Result<Vec<FeatureTable>> {
-    // Una riga `features` di `gpkg_contents` senza la sua riga in
-    // `gpkg_geometry_columns` (GPKG 1.3, requisito 22) e' un layer che il
-    // join sotto lascerebbe cadere: il file sembrerebbe avere un layer in
-    // meno. Si rifiuta il file invece di elencarlo incompleto.
-    let senza_geometria: i64 = conn
+fn object_error(reason: plenora_io_model::CapabilityReason) -> PlenoraIoError {
+    PlenoraIoError::capability_redatta(
+        "gpkg",
+        None,
+        reason,
+        &PublicMessage::Curated("oggetto GeoPackage non leggibile; consultare il motivo tipizzato"),
+    )
+}
+
+fn validate_object(conn: &Connection, table: &FeatureTable) -> Result<()> {
+    use plenora_io_model::CapabilityReason as R;
+    let duplicates: i64 = conn
         .query_row(
-            "SELECT COUNT(*) FROM gpkg_contents c
-             WHERE c.data_type = 'features' AND NOT EXISTS (
-                 SELECT 1 FROM gpkg_geometry_columns g
-                 WHERE g.table_name = c.table_name COLLATE NOCASE)",
-            [],
+            "SELECT count(*) FROM gpkg_contents WHERE table_name = ?1 COLLATE NOCASE",
+            [&table.table],
             |r| r.get(0),
         )
         .map_err(sql_err)?;
-    if senza_geometria > 0 {
-        return Err(err(&PublicMessage::Curated(
-            "GeoPackage: una feature table di gpkg_contents non ha la sua riga in \
-             gpkg_geometry_columns",
-        )));
+    if duplicates > 1 {
+        return Err(object_error(R::ObjectCatalogConflict));
     }
-    // Il verso opposto, della stessa classe: una colonna geometrica dichiarata
-    // in `gpkg_geometry_columns` la cui tabella non e' una riga `features` di
-    // `gpkg_contents` (assente, `attributes`, o `Features` con un'altra grafia,
-    // che il filtro esatto sotto non vede) e' una geometria che sparirebbe
-    // dall'elenco. Anche qui il file si rifiuta.
-    let geometria_senza_layer: i64 = conn
+    let kind: Option<String> = conn.query_row(
+        "SELECT type FROM sqlite_master WHERE name = ?1 COLLATE NOCASE AND type IN ('table','view')",
+        [&table.table], |r| r.get(0)).optional().map_err(sql_err)?;
+    match kind.as_deref() {
+        None => return Err(object_error(R::ObjectMissing)),
+        Some("view") => return Err(object_error(R::ObjectView)),
+        _ => {}
+    }
+    match table.data_type.as_str() {
+        "attributes" => return Err(object_error(R::ObjectAttributes)),
+        "tiles" => return Err(object_error(R::ObjectTiles)),
+        "features" => {}
+        _ => return Err(object_error(R::TypeNotRepresentable)),
+    }
+    if !sqlite_table_exists(conn, "gpkg_geometry_columns")? {
+        return Err(object_error(R::ObjectGeometryColumnMissing));
+    }
+    let geometries: i64 = conn
         .query_row(
-            "SELECT COUNT(*) FROM gpkg_geometry_columns g
-             WHERE NOT EXISTS (
-                 SELECT 1 FROM gpkg_contents c
-                 WHERE c.table_name = g.table_name COLLATE NOCASE
-                   AND c.data_type = 'features')",
-            [],
+            "SELECT count(*) FROM gpkg_geometry_columns WHERE table_name = ?1 COLLATE NOCASE",
+            [&table.table],
             |r| r.get(0),
         )
         .map_err(sql_err)?;
-    if geometria_senza_layer > 0 {
-        return Err(err(&PublicMessage::Curated(
-            "GeoPackage: una colonna di gpkg_geometry_columns non appartiene a una feature \
-             table di gpkg_contents",
-        )));
+    if geometries > 1 {
+        return Err(object_error(R::ObjectCatalogConflict));
     }
-    let mut out = Vec::new();
     let mut stmt = conn
-        .prepare(
-            "SELECT c.table_name, g.column_name, g.srs_id,
-                    g.geometry_type_name, g.z, g.m
-             FROM gpkg_contents c JOIN gpkg_geometry_columns g
-                  ON c.table_name = g.table_name COLLATE NOCASE
-             WHERE c.data_type = 'features' ORDER BY c.table_name",
-        )
+        .prepare("SELECT name, type, pk FROM pragma_table_info(?1)")
         .map_err(sql_err)?;
+    let cols = stmt
+        .query_map([&table.table], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+            ))
+        })
+        .map_err(sql_err)?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(sql_err)?;
+    if !cols
+        .iter()
+        .any(|(name, _, _)| name.eq_ignore_ascii_case(&table.geom_col))
+    {
+        return Err(object_error(R::ObjectGeometryColumnMissing));
+    }
+    let pk: Vec<_> = cols.iter().filter(|(_, _, pk)| *pk > 0).collect();
+    if pk.len() > 1
+        || pk
+            .iter()
+            .any(|(_, typ, _)| !typ.eq_ignore_ascii_case("INTEGER"))
+    {
+        return Err(object_error(R::ObjectPrimaryKey));
+    }
+    Ok(())
+}
+
+fn feature_tables(conn: &Connection) -> Result<Vec<FeatureTable>> {
+    let sql = if sqlite_table_exists(conn, "gpkg_geometry_columns")? {
+        "SELECT c.table_name, c.data_type, COALESCE(g.column_name,''), COALESCE(g.srs_id,0),
+                COALESCE(g.geometry_type_name,''), COALESCE(g.z,0), COALESCE(g.m,0)
+         FROM gpkg_contents c LEFT JOIN gpkg_geometry_columns g ON g.rowid = (
+            SELECT min(g2.rowid) FROM gpkg_geometry_columns g2
+            WHERE g2.table_name = c.table_name COLLATE NOCASE)
+         ORDER BY c.table_name COLLATE BINARY"
+    } else {
+        "SELECT table_name, data_type, '', 0, '', 0, 0 FROM gpkg_contents ORDER BY table_name COLLATE BINARY"
+    };
+    let mut stmt = conn.prepare(sql).map_err(sql_err)?;
     let rows = stmt
         .query_map([], |r| {
             Ok(FeatureTable {
                 table: r.get(0)?,
-                geom_col: r.get(1)?,
-                srs_id: r.get(2)?,
-                geometry_type_name: r.get(3)?,
-                z: r.get(4)?,
-                m: r.get(5)?,
+                data_type: r.get(1)?,
+                geom_col: r.get(2)?,
+                srs_id: r.get(3)?,
+                geometry_type_name: r.get(4)?,
+                z: r.get(5)?,
+                m: r.get(6)?,
             })
         })
         .map_err(sql_err)?;
-    for r in rows {
-        out.push(r.map_err(sql_err)?);
-    }
-    // Una tabella con piu' righe in `gpkg_geometry_columns` dichiara piu'
-    // colonne geometriche, vietate dal requisito 30 GeoPackage: un layer
-    // per riga ripeterebbe il nome della tabella e in ciascuno l'altra
-    // geometria uscirebbe come BLOB qualunque, cioe' degradata a binario e
-    // scelta al posto di chi legge (GEO-012).
-    //
-    // «La stessa tabella» si giudica come la giudica `SQLite`, che risolve i
-    // nomi di tabella senza distinzione di maiuscole ASCII: `features` e
-    // `FEATURES` in `gpkg_contents` sono due righe ma una sola tabella fisica.
-    // Per lo stesso motivo il join sopra usa `NOCASE`, che in `SQLite` piega
-    // solo l'ASCII, come la risoluzione dei nomi. Un confronto esatto qui
-    // aprirebbe la stessa tabella come due layer.
-    let mut tabelle_viste = std::collections::BTreeSet::new();
-    if !out
-        .iter()
-        .all(|riga| tabelle_viste.insert(riga.table.to_ascii_lowercase()))
+    let mut objects = rows
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(sql_err)?;
+    let mut unregistered = conn
+        .prepare(
+            "SELECT name FROM sqlite_master WHERE type IN ('table','view')
+         AND name NOT LIKE 'gpkg_%' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'rtree_%'
+         AND NOT EXISTS (SELECT 1 FROM gpkg_contents WHERE table_name = name COLLATE NOCASE)",
+        )
+        .map_err(sql_err)?;
+    for name in unregistered
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(sql_err)?
     {
-        return Err(PlenoraIoError::non_supportato_redatto(
-            &PublicMessage::Curated(
-                "GeoPackage: una feature table dichiara piu' colonne geometriche, \
-                 vietate dal requisito 30 della specifica",
-            ),
-        ));
+        objects.push(FeatureTable {
+            table: name.map_err(sql_err)?,
+            data_type: "attributes".to_owned(),
+            geom_col: String::new(),
+            srs_id: 0,
+            geometry_type_name: String::new(),
+            z: 0,
+            m: 0,
+        });
     }
-    Ok(out)
+    objects.sort_by(|left, right| left.table.cmp(&right.table));
+    Ok(objects)
 }
 
 const fn gpkg_dimensions(z: i64, m: i64) -> CoordinateDimensions {

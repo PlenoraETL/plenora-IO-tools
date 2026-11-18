@@ -2433,15 +2433,28 @@ fn un_layer_rifiutato_ferma_la_descrizione_di_tutti_i_layer() {
         layers: vec![layer(0), layer(1)],
         rifiutato: None,
     };
-    assert!(tutti_i_layer_descrivibili(&sano).is_ok());
+    assert_eq!(layer_status(&sano, LayerId(0))["readable"], true);
     let con_rifiuto = Finto {
         layers: vec![layer(0), layer(1)],
         rifiutato: Some(1),
     };
-    let Err(errore) = tutti_i_layer_descrivibili(&con_rifiuto) else {
-        panic!("un layer rifiutato descritto come leggibile");
-    };
-    assert_eq!(errore.category, ErrorCategory::Crs);
+    assert_eq!(layer_status(&con_rifiuto, LayerId(0))["readable"], true);
+    assert_eq!(layer_status(&con_rifiuto, LayerId(1))["readable"], false);
+}
+
+#[test]
+fn r2_il_motivo_tipizzato_arriva_nella_busta_pubblica() {
+    let error = PlenoraIoError::capability_redatta(
+        "gpkg",
+        None,
+        plenora_io_model::CapabilityReason::ObjectView,
+        &PublicMessage::Curated("oggetto non leggibile"),
+    );
+    let (_, document) = map_err(error);
+    assert_eq!(
+        document["error"]["details"]["capability_reason"],
+        "object_view"
+    );
 }
 
 #[test]

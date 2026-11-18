@@ -123,13 +123,90 @@ fn event_parser_rejects_model_track_and_multitrack() {
         let xml = format!(
             r#"<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2"><Placemark>{geometry}</Placemark></kml>"#
         );
-        let error = event_parser_error(&xml);
-        assert_eq!(error.category, plenora_io_model::ErrorCategory::DataMapping);
-        assert!(error.message.contains("geometria KML non supportata"));
-        let diagnostics = error.row_diagnostics.as_deref().unwrap();
-        assert_eq!(diagnostics.examples[0].source_index, 0);
-        assert_eq!(diagnostics.counts["kml.invalid_placemark"], 1);
-        assert!(diagnostics.validate().is_ok());
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("unsupported.kml");
+        std::fs::write(&path, xml).unwrap();
+        let mut stream = PlacemarkStream::open(&path).unwrap();
+        let placemark = stream
+            .next_placemark(&CancellationToken::default(), 0)
+            .unwrap()
+            .unwrap();
+        assert!(placemark.geometry.is_none());
+        assert_eq!(stream.unsupported, 1);
+    }
+}
+
+#[test]
+fn r2_documento_cartella_placemark_non_supportati() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("objects.kml");
+    std::fs::write(&path, r#"<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2"><Document><Folder>
+        <Placemark><Point><coordinates>1,2</coordinates></Point></Placemark>
+        <Placemark><Model><Location/></Model></Placemark>
+        <Placemark><gx:Track><when>2026</when></gx:Track></Placemark>
+        <Placemark><gx:MultiTrack><gx:Track/></gx:MultiTrack></Placemark>
+        <Placemark><gx:Foo><gx:Bar/></gx:Foo></Placemark>
+        </Folder></Document></kml>"#).unwrap();
+    let ds = KmlDriver
+        .open(Source::Path(path), opzioni_lettura())
+        .unwrap();
+    assert_eq!(ds.layers().len(), 8);
+    for (index, layer) in ds.layers().iter().enumerate() {
+        assert_eq!(layer.id.0 as usize, index);
+        assert!(ds.rifiuto_del_layer(layer.id).is_none());
+        let mut reader = ds
+            .open_layer_reader(&ReadRequest {
+                layer: layer.id,
+                projected_fields: None,
+                projection_mode: ProjectionMode::BestEffort,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                scope: ReadScope::Complete,
+                batch_target: BatchTarget::default(),
+                cancellation: CancellationToken::default(),
+            })
+            .unwrap();
+        let batch = reader.next_batch().unwrap().unwrap();
+        assert_eq!(batch.num_rows(), if index < 3 { 5 } else { 1 });
+        if index >= 4 {
+            assert!(batch.column(0).is_null(0));
+        }
+        if index == 0 {
+            assert_eq!(reader.loss_report().counts["kml.unsupported_geometry"], 4);
+        }
+    }
+}
+
+#[test]
+fn r2_placemark_danneggiato_non_impedisce_il_successivo() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("damaged.kml");
+    std::fs::write(&path, "<kml><Document><Placemark><Point><coordinates>1,2 3,4</coordinates></Point></Placemark><Placemark><Point><coordinates>5,6</coordinates></Point></Placemark></Document></kml>").unwrap();
+    let ds = KmlDriver
+        .open(Source::Path(path), opzioni_lettura())
+        .unwrap();
+    assert_eq!(ds.layers().len(), 4);
+    assert!(ds.rifiuto_del_layer(LayerId(2)).is_some());
+    for id in [0, 2, 3] {
+        let result = ds.open_layer_reader(&ReadRequest {
+            layer: LayerId(id),
+            projected_fields: None,
+            projection_mode: ProjectionMode::BestEffort,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: ReadScope::Complete,
+            batch_target: BatchTarget::default(),
+            cancellation: CancellationToken::default(),
+        });
+        if id == 2 {
+            let listed = ds.rifiuto_del_layer(LayerId(id)).unwrap();
+            let error = result.err().unwrap();
+            assert_eq!(error.code, listed.code);
+            assert_eq!(error.message, listed.message);
+            continue;
+        }
+        let mut reader = result.unwrap();
+        assert!(reader.next_batch().unwrap().is_some());
     }
 }
 

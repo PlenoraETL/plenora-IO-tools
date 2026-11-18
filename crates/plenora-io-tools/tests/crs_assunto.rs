@@ -103,8 +103,17 @@ fn un_assume_crs_che_contraddice_il_crs_dichiarato_e_rifiutato() {
         let dichiarato = dichiarato.to_owned();
 
         let conflitto = esegui(&["inspect", &percorso, "--assume-crs", "EPSG:3003"]);
+        let errore = if conflitto["status"] == "ok" {
+            assert_eq!(
+                conflitto["result"]["layers"][0]["status"]["readable"],
+                false
+            );
+            &conflitto["result"]["layers"][0]["status"]["error"]["error"]
+        } else {
+            &conflitto["error"]
+        };
         assert_eq!(
-            conflitto["error"]["category"], "crs",
+            errore["category"], "crs",
             "{formato}: un --assume-crs diverso da {dichiarato} e' stato accettato: {conflitto}"
         );
         assert!(

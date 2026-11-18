@@ -1848,9 +1848,7 @@ fn with_read_budget_rifiuta_una_colonna_geometrica_dal_nome_ripetuto() {
         &crate::driver::ReadOptions::from_read_parts(bundle.into_read_parts()),
         true,
     );
-    let Err(errore) = esito else {
-        unreachable!("un nome geometrico ripetuto non deve aprire il dataset");
-    };
+    let errore = esito.err().unwrap();
     assert_eq!(errore.category, ErrorCategory::Schema, "{errore:?}");
     assert!(!errore.message.contains("geometry"), "{}", errore.message);
 }
@@ -2049,9 +2047,7 @@ fn with_read_budget_rifiuta_una_definizione_che_geo_005_rifiuta() {
         // `organization = 'POSTGIS'` di un `GeoPackage`).
         ("POSTGIS:4326", r#"GEOGCS["x"]"#),
     ] {
-        let Err(errore) = apri(id, definizione) else {
-            unreachable!("{definizione}: una definizione che GEO-005 rifiuta e' stata aperta");
-        };
+        let errore = apri(id, definizione).err().unwrap();
         assert_eq!(errore.category, ErrorCategory::Crs, "{definizione}");
         assert!(!errore.message.contains("4258"), "{}", errore.message);
     }

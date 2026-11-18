@@ -1147,6 +1147,14 @@ impl FormatDriver for GeoParquetDriver {
 
     fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
         let path = percorso_verificato(source, &mut opts)?;
+        if path.is_dir() {
+            return Err(PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated(
+                    "directory Parquet non supportata; fornire un singolo file Parquet",
+                ),
+            ));
+        }
+
         // Il footer Parquet puo' portare la chiave `ARROW:schema`, che e' un
         // messaggio Arrow IPC deserializzato qui dentro: un `.parquet` ostile
         // raggiunge quindi lo stesso panico di un `.arrow`. Vedi

@@ -48,24 +48,14 @@ use crate::driver::spool::StagedSpool;
 /// silenzio; un controllo per driver sarebbe stato dieci copie della stessa
 /// regola, con il rischio che l'undicesimo driver la dimentichi.
 ///
-/// # Un layer rifiutato non chiude gli altri
+/// # Errori per oggetto
 ///
-/// Le due verifiche del CRS (l'opzione e GEO-005/GEO-020) sono **del layer**.
-/// Fino al 24/10 correvano su tutti i layer a ogni apertura e il primo rifiuto
-/// chiudeva il dataset: un `GeoPackage` con una sola riga di
-/// `gpkg_spatial_ref_sys` malformata rendeva illeggibile anche il layer sano
-/// che `io.read --layer` chiedeva. Ora un dataset a piu' layer conserva il
-/// rifiuto del layer ([`OpenDatasetHandle::rifiuto_del_layer`]): la lettura di
-/// quel layer lo restituisce, quella degli altri procede, e `io.inspect` e
-/// `io.layers`, che descrivono tutti i layer, falliscono con quel rifiuto. Se
-/// i layer rifiutati sono tutti, o il layer e' uno solo, il rifiuto e' gia'
-/// dell'apertura, come prima.
+/// Un oggetto rifiutato resta enumerato anche se nessun oggetto e' leggibile.
+/// Il reader restituisce il suo errore; layers e inspect pubblicano lo stato.
 ///
 /// # Errors
 ///
-/// `schema` se il nome della colonna geometrica e' ambiguo; il primo rifiuto
-/// del CRS (`crs`, o `limit_exceeded` per una definizione oltre il tetto) se
-/// nessun layer si puo' leggere.
+/// Errori strutturali del contenitore e del budget dell'operazione.
 pub fn with_read_budget(
     dataset: Box<dyn OpenDatasetHandle>,
     opts: &crate::driver::ReadOptions,
@@ -76,20 +66,16 @@ pub fn with_read_budget(
         if dataset.rifiuto_del_layer(layer.id).is_some() {
             continue;
         }
-        plenora_io_model::primary::validate_contract(&layer.contract)?;
+        if let Err(error) = plenora_io_model::primary::validate_contract(&layer.contract) {
+            rifiuti.insert(layer.id.0, error);
+            continue;
+        }
         let geometrie = match layer.contract.geometries() {
             Ok(geometrie) => geometrie,
-            Err(errore)
-                if matches!(
-                    errore.category,
-                    plenora_io_model::ErrorCategory::Crs
-                        | plenora_io_model::ErrorCategory::ResourceLimit
-                ) =>
-            {
+            Err(errore) => {
                 rifiuti.insert(layer.id.0, errore);
                 continue;
             }
-            Err(errore) => return Err(errore),
         };
         for geometria in &geometrie {
             // Il contratto nomina la colonna geometrica, e chi la cerca nei
@@ -106,10 +92,11 @@ pub fn with_read_budget(
                 .filter(|campo| campo.name() == &geometria.name)
                 .count();
             if omonimi > 1 {
-                return Err(PlenoraIoError::schema_redatto(&PublicMessage::Curated(
+                rifiuti.insert(layer.id.0, PlenoraIoError::schema_redatto(&PublicMessage::Curated(
                     "colonna geometrica ambigua: il suo nome compare piu' volte nello schema del \
                      layer",
                 )));
+                break;
             }
             // GEO-005 e GEO-020 sul CRS emesso, per ogni driver: nessuno emette
             // una definizione o un identificatore che la scrittura IPC rifiuterebbe.
@@ -123,23 +110,14 @@ pub fn with_read_budget(
             }
         }
     }
-    let leggibili = dataset
-        .layers()
-        .iter()
-        .filter(|layer| {
-            !rifiuti.contains_key(&layer.id.0) && dataset.rifiuto_del_layer(layer.id).is_none()
-        })
-        .count();
-    if leggibili == 0 {
-        // Nessun layer si legge: il primo rifiuto, nell'ordine dei layer, e'
-        // quello dell'apertura.
-        let primo = dataset.layers().iter().find_map(|layer| {
-            rifiuti
+    if !dataset.preserves_unreadable_objects() {
+        for layer in dataset.layers() {
+            if let Some(error) = rifiuti
                 .remove(&layer.id.0)
                 .or_else(|| dataset.rifiuto_del_layer(layer.id))
-        });
-        if let Some(errore) = primo {
-            return Err(errore);
+            {
+                return Err(error);
+            }
         }
     }
     Ok(Box::new(BudgetedDataset {
@@ -159,8 +137,15 @@ struct BudgetedDataset {
 }
 
 impl OpenDatasetHandle for BudgetedDataset {
+    fn preserves_unreadable_objects(&self) -> bool {
+        self.dataset.preserves_unreadable_objects()
+    }
     fn layers(&self) -> &[LayerContract] {
         self.dataset.layers()
+    }
+
+    fn default_layer(&self) -> Option<LayerId> {
+        self.dataset.default_layer()
     }
 
     fn fidelity_assessment(&self) -> crate::loss::FidelityAssessment {

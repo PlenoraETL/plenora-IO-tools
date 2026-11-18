@@ -198,6 +198,7 @@ impl NativeStyles {
             _ => None,
         }
     }
+    #[allow(clippy::too_many_lines)] // Relazioni, stili e celle appartengono alla stessa apertura ZIP.
     pub fn read(path: &std::path::Path, sheet: &str, budget: &OperationBudget) -> Result<Self> {
         let mut zip = zip::ZipArchive::new(std::fs::File::open(path)?).map_err(|_| xml_error())?;
         let mut result = Self::default();
@@ -227,6 +228,21 @@ impl NativeStyles {
                 Ok(())
             },
         )?;
+        let part = if target.starts_with('/') {
+            target.trim_start_matches('/').to_owned()
+        } else {
+            format!("xl/{target}")
+        };
+        let member = zip
+            .by_name(&part)
+            .map_err(|_| super::sheet_error(plenora_io_model::CapabilityReason::ObjectMissing))?;
+        if member.size() == 0 {
+            return Err(super::sheet_error(
+                plenora_io_model::CapabilityReason::ObjectEmpty,
+            ));
+        }
+        drop(member);
+        super::valida_riferimenti_selezionati(&path.to_path_buf(), budget, Some(&part))?;
         let mut formats = BTreeMap::new();
         let mut styles = Vec::new();
         if zip.index_for_name("xl/styles.xml").is_none() {
@@ -251,11 +267,6 @@ impl NativeStyles {
             }
             Ok(())
         })?;
-        let part = if target.starts_with('/') {
-            target.trim_start_matches('/').to_owned()
-        } else {
-            format!("xl/{target}")
-        };
         scan(&mut zip, &part, budget, |tag, attrs| {
             if tag == "worksheet/sheetData/row/c" {
                 let (date, time) = attrs

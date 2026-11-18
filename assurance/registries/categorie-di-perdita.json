@@ -178,6 +178,11 @@
       "id": "geometry_representation_normalized",
       "superficie": "plenora-io-core",
       "forma": "literal"
+    },
+    {
+      "id": "kml.unsupported_geometry",
+      "superficie": "driver-kml",
+      "forma": "literal"
     }
   ],
   "vie_dinamiche_ammesse": [

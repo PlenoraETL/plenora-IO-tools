@@ -1814,7 +1814,7 @@
           "tipi": [
             "object"
           ],
-          "sempre": true
+          "sempre": false
         },
         ".error.details.row_diagnostics.completeness": {
           "tipi": [
@@ -1953,6 +1953,12 @@
             "string"
           ],
           "sempre": true
+        },
+        ".error.details.capability_reason": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
         }
       },
       "stato": "contratto separato, riutilizzato dal v2 senza modifiche",
@@ -2676,6 +2682,108 @@
             "string"
           ],
           "sempre": true
+        },
+        ".result.layers[].status": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": false
+        },
+        ".result.layers[].status.error.contract": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error.category": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error.code": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error.details": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error.details.capability_reason": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error.message": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error.phase": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error.remote_effect": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error.retry": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error.retry.kind": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.protocol_version": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.status": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.readable": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.visibility": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
         }
       },
       "required_result_fields": [
@@ -2859,6 +2967,108 @@
             "string"
           ],
           "sempre": true
+        },
+        ".result.layers[].status": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": false
+        },
+        ".result.layers[].status.error.contract": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error.category": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error.code": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error.details": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error.details.capability_reason": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error.message": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error.phase": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error.remote_effect": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error.retry": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error.retry.kind": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.protocol_version": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.status": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.readable": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.visibility": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
         }
       },
       "required_result_fields": [

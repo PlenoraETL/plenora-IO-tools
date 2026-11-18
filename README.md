@@ -161,7 +161,7 @@ default quando il valore manca o è malformato: la CLI **fallisce chiuso**.
 | flag | valore | effetto |
 |---|---|---|
 | `--assume-crs` | identificatore CRS | il CRS da assumere per i formati che non lo portano; `csv` lo esige |
-| `--layer` | intero | opera su un solo layer invece che su tutti |
+| `--layer` | intero | seleziona un indice esplicito; senza opzione read e convert usano il layer predefinito |
 | `--limit` | intero | ferma `read` dopo N righe accettate e dichiara `truncated` |
 | `--durable` | — | `fsync` di file e directory prima del rename; l'esito di durabilità è riportato |
 | `--opt` | `chiave=valore` | opzione di formato per entrambe le direzioni |
@@ -267,3 +267,19 @@ testo della licenza sia quello pubblicato da chi l'ha scritta — non che lo
 diciamo noi.
 
 Le modifiche e la migrazione della versione corrente sono nel [CHANGELOG](CHANGELOG.md).
+
+### Selezione ed elenco degli oggetti
+
+`layers` e `inspect` elencano anche gli oggetti non leggibili: `status.readable`
+vale `false` e `status.error` contiene il motivo tipizzato, senza dati del file.
+`read` e `convert` senza `--layer` selezionano entrambi un solo oggetto predefinito.
+Negli XLSX e' il primo worksheet visibile (oppure il nome esatto di `sheet`);
+negli altri formati e' l'indice zero. Nessun ripiego se l'oggetto e' rifiutato.
+`--layer` seleziona l'indice mostrato dall'elenco, inclusi gli oggetti rifiutati.
+
+Gli indici sono a base zero: GPKG ordina i nomi con confronto binario SQLite;
+FileGDB segue gli identificatori del catalogo interno; XLSX l'ordine del workbook.
+KML ha all'indice zero il documento aggregato, poi Document, Folder e Placemark
+in ordine di apertura XML; DXF ha il model space all'indice zero, poi i blocchi
+nell'ordine del file. Un errore locale non elimina l'oggetto e non scala gli indici.
+Gli indici descrivono quel contenitore: aggiunte o riordinamenti possono cambiarli.

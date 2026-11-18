@@ -105,5 +105,11 @@
   "temporal_2026_11_15": {
     "cambiamento": "I6: checked local datetime, years 1..9999, whole seconds and exact quarter-hour offset; UTC flag 100. Returns DateError before FFI on invalid input.",
     "prove": "temporal::tests::temporal_ogr_boundaries; native roundtrip pending: GDAL development library unavailable locally"
+  },
+  "object_error_isolation": {
+    "file": "vendor/gdal/src/config.rs",
+    "api": "with_quiet_errors",
+    "reason": "Handler silenzioso GDAL limitato al thread e alla durata della chiamata; ripristino RAII anche durante unwinding. Impedisce stderr nativo con percorsi e nomi degli oggetti durante le aperture FileGDB. Gli errori pubblici restano quelli redatti del driver.",
+    "verification": "driver-filegdb con gdal-backend; riproduzioni raccolta-a sotto target/r2-reproductions. Non costituisce una nuova misura fuzz o benchmark."
   }
 }

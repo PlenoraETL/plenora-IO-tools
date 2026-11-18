@@ -1281,7 +1281,10 @@ fn una_colonna_che_oscura_il_rowid_viene_rifiutata() {
 
         // `expect_err` richiederebbe `Debug` sul trait object restituito
         // in caso di successo, che non lo implementa.
-        match driver.open(Source::Path(path), opzioni_lettura()) {
+        match driver
+            .open(Source::Path(path), opzioni_lettura())
+            .and_then(rifiuta_oggetti_non_leggibili)
+        {
             Ok(_) => panic!("colonna {nome}: il file doveva essere rifiutato"),
             Err(errore) => assert!(
                 errore.to_string().contains("oscura l'alias"),
@@ -1342,10 +1345,13 @@ fn due_colonne_geometriche_per_la_stessa_tabella_sono_rifiutate() {
     .unwrap();
     drop(conn);
 
-    match driver.open(Source::Path(path), opzioni_lettura()) {
+    match driver
+        .open(Source::Path(path), opzioni_lettura())
+        .and_then(rifiuta_oggetti_non_leggibili)
+    {
         Ok(_) => panic!("una tabella con due geometrie non deve produrre layer"),
         Err(errore) => {
-            assert_eq!(errore.code, plenora_io_model::IoErrorCode::Unsupported);
+            assert_eq!(errore.code, plenora_io_model::IoErrorCode::Capability);
             // Errori senza dati: i nomi vengono dal file.
             assert!(!errore.message.contains("segreta"), "{}", errore.message);
             assert!(!errore.message.contains("features"), "{}", errore.message);
@@ -1375,10 +1381,13 @@ fn due_geometrie_sotto_nomi_di_tabella_che_differiscono_per_maiuscole_sono_rifiu
     .unwrap();
     drop(conn);
 
-    match driver.open(Source::Path(path), opzioni_lettura()) {
+    match driver
+        .open(Source::Path(path), opzioni_lettura())
+        .and_then(rifiuta_oggetti_non_leggibili)
+    {
         Ok(_) => panic!("la stessa tabella con due geometrie non deve produrre layer"),
         Err(errore) => {
-            assert_eq!(errore.code, plenora_io_model::IoErrorCode::Unsupported);
+            assert_eq!(errore.code, plenora_io_model::IoErrorCode::Capability);
             assert!(!errore.message.contains("geom2"), "{}", errore.message);
         }
     }
@@ -1403,10 +1412,13 @@ fn una_feature_table_senza_colonna_geometrica_dichiarata_e_rifiutata() {
     .unwrap();
     drop(conn);
 
-    match driver.open(Source::Path(path), opzioni_lettura()) {
+    match driver
+        .open(Source::Path(path), opzioni_lettura())
+        .and_then(rifiuta_oggetti_non_leggibili)
+    {
         Ok(_) => panic!("un layer dichiarato e non elencabile non deve sparire"),
         Err(errore) => {
-            assert_eq!(errore.code, plenora_io_model::IoErrorCode::Format);
+            assert_eq!(errore.code, plenora_io_model::IoErrorCode::Capability);
             assert!(!errore.message.contains("seconda"), "{}", errore.message);
         }
     }
@@ -1437,12 +1449,15 @@ fn una_geometria_dichiarata_fuori_da_una_feature_table_e_rifiutata() {
         ))
         .unwrap();
         drop(conn);
-        match driver.open(Source::Path(path), opzioni_lettura()) {
+        match driver
+            .open(Source::Path(path), opzioni_lettura())
+            .and_then(rifiuta_oggetti_non_leggibili)
+        {
             Ok(_) => panic!("una geometria dichiarata non deve sparire: {scenario}"),
             Err(errore) => {
                 assert_eq!(
                     errore.code,
-                    plenora_io_model::IoErrorCode::Format,
+                    plenora_io_model::IoErrorCode::Capability,
                     "{scenario}"
                 );
                 assert!(!errore.message.contains("seconda"), "{}", errore.message);
@@ -2203,7 +2218,7 @@ fn un_layer_dal_crs_rifiutato_non_chiude_gli_altri() {
 /// Se nessun layer si legge, l'apertura fallisce con il primo rifiuto, come
 /// prima.
 #[test]
-fn se_tutti_i_layer_sono_rifiutati_l_apertura_fallisce() {
+fn se_tutti_i_layer_sono_rifiutati_i_motivi_restano_disponibili() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("due.gpkg");
     due_layer(&path);
@@ -2212,10 +2227,15 @@ fn se_tutti_i_layer_sono_rifiutati_l_apertura_fallisce() {
         &["vani", "strade"],
         Some(("EPSG", 4326, "+proj=longlat +datum=WGS84")),
     );
-    let Err(errore) = GpkgDriver.open(Source::Path(path), opzioni_lettura()) else {
-        panic!("l'apertura riesce senza layer leggibili");
-    };
-    assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
+    let dataset = GpkgDriver
+        .open(Source::Path(path), opzioni_lettura())
+        .unwrap();
+    assert_eq!(dataset.layers().len(), 2);
+    for layer in dataset.layers() {
+        let error = dataset.rifiuto_del_layer(layer.id).unwrap();
+        assert_eq!(error.category, plenora_io_model::ErrorCategory::Crs);
+        assert!(dataset.open_layer_reader(&richiesta(layer.id)).is_err());
+    }
 }
 
 /// Rilettura 9, punto 1 nel `GeoPackage`: `EPSG:4326` registrato con una
@@ -2568,4 +2588,121 @@ fn r1_companion_appearing_after_create_blocks_publication() {
         plenora_io_model::IoErrorCode::OutputExists
     );
     assert!(!path.exists());
+}
+
+fn rifiuta_oggetti_non_leggibili(
+    dataset: Box<dyn OpenDatasetHandle>,
+) -> Result<Box<dyn OpenDatasetHandle>> {
+    for layer in dataset.layers() {
+        if let Some(error) = dataset.rifiuto_del_layer(layer.id) {
+            return Err(error);
+        }
+    }
+    Ok(dataset)
+}
+
+#[test]
+fn r2_oggetti_non_leggibili_conservano_indici_e_motivi() {
+    use plenora_io_model::CapabilityReason as R;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("objects.gpkg");
+    due_layer(&path);
+    let conn = Connection::open(&path).unwrap();
+    let cases = [
+        (
+            "a_view",
+            "CREATE VIEW a_view AS SELECT * FROM strade",
+            "features",
+            "geometry",
+            R::ObjectView,
+        ),
+        (
+            "b_attributes",
+            "CREATE TABLE b_attributes(id INTEGER)",
+            "attributes",
+            "geometry",
+            R::ObjectAttributes,
+        ),
+        (
+            "c_tiles",
+            "CREATE TABLE c_tiles(id INTEGER)",
+            "tiles",
+            "geometry",
+            R::ObjectTiles,
+        ),
+        (
+            "d_missing",
+            "SELECT 1",
+            "features",
+            "geometry",
+            R::ObjectMissing,
+        ),
+        (
+            "e_composite",
+            "CREATE TABLE e_composite(a INTEGER,b INTEGER,geom BLOB,PRIMARY KEY(a,b))",
+            "features",
+            "geom",
+            R::ObjectPrimaryKey,
+        ),
+        (
+            "f_text",
+            "CREATE TABLE f_text(id TEXT PRIMARY KEY,geom BLOB)",
+            "features",
+            "geom",
+            R::ObjectPrimaryKey,
+        ),
+        (
+            "g_column",
+            "CREATE TABLE g_column(id INTEGER PRIMARY KEY,geom BLOB)",
+            "features",
+            "absent",
+            R::ObjectGeometryColumnMissing,
+        ),
+    ];
+    for (name, ddl, kind, geometry, _) in cases {
+        conn.execute_batch(ddl).unwrap();
+        conn.execute(
+            "INSERT INTO gpkg_contents(table_name,data_type,srs_id) VALUES (?1,?2,4326)",
+            [name, kind],
+        )
+        .unwrap();
+        if kind == "features" {
+            conn.execute(
+                "INSERT INTO gpkg_geometry_columns VALUES (?1,?2,'POINT',4326,0,0)",
+                [name, geometry],
+            )
+            .unwrap();
+        }
+    }
+    drop(conn);
+    for _ in 0..2 {
+        let ds = GpkgDriver
+            .open(Source::Path(path.clone()), opzioni_lettura())
+            .unwrap();
+        assert_eq!(ds.layers().len(), cases.len() + 2);
+        for (index, (name, _, _, _, reason)) in cases.iter().enumerate() {
+            let layer = &ds.layers()[index];
+            assert_eq!(&layer.name, name);
+            assert_eq!(layer.id.0 as usize, index);
+            let listed = ds.rifiuto_del_layer(layer.id).unwrap();
+            assert_eq!(listed.capability_reason, Some(*reason));
+            let error = ds.open_layer_reader(&richiesta(layer.id)).err().unwrap();
+            assert_eq!(error.capability_reason, listed.capability_reason);
+            assert!(!error.message.contains(name));
+        }
+        let mut reader = ds
+            .open_layer_reader(&richiesta(id_del_layer(ds.as_ref(), "strade")))
+            .unwrap();
+        assert_eq!(reader.next_batch().unwrap().unwrap().num_rows(), 1);
+    }
+}
+
+#[test]
+fn r2_srs_obbligatori_non_sono_crs_risolti() {
+    let conn = Connection::open_in_memory().unwrap();
+    init_gpkg(&conn).unwrap();
+    for id in [-1, 0] {
+        let error = crs_for(&conn, id).unwrap_err();
+        assert_eq!(error.code, plenora_io_model::IoErrorCode::CrsUnresolved);
+    }
 }

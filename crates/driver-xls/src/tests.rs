@@ -616,17 +616,21 @@ fn n1_infer_layout_rifiuta_le_due_quote() {
     scrivi_xlsx(&normale, 3, 3);
     XlsDriver
         .open(Source::Path(normale), opzioni_lettura_wkt())
+        .and_then(rifiuta_oggetti_non_leggibili)
         .expect("tre righe per tre colonne stanno in qualunque quota di default");
 
     // Larghezza oltre la quota: `--max-columns` a 2 su un foglio da 3.
     let largo = dir.path().join("largo.xlsx");
     scrivi_xlsx(&largo, 2, 3);
-    let Err(errore) = XlsDriver.open(
-        Source::Path(largo),
-        opzioni_lettura_wkt_con(
-            plenora_io_model::budget::PipelineLimits::default().with_max_columns(2),
-        ),
-    ) else {
+    let Err(errore) = XlsDriver
+        .open(
+            Source::Path(largo),
+            opzioni_lettura_wkt_con(
+                plenora_io_model::budget::PipelineLimits::default().with_max_columns(2),
+            ),
+        )
+        .and_then(rifiuta_oggetti_non_leggibili)
+    else {
         panic!("tre colonne oltre una quota di due devono essere rifiutate");
     };
     assert!(
@@ -638,12 +642,15 @@ fn n1_infer_layout_rifiuta_le_due_quote() {
     // Altezza oltre la quota: `--max-rows` a 1 su un foglio da 3 righe dati.
     let alto = dir.path().join("alto.xlsx");
     scrivi_xlsx(&alto, 3, 2);
-    let Err(errore) = XlsDriver.open(
-        Source::Path(alto),
-        opzioni_lettura_wkt_con(
-            plenora_io_model::budget::PipelineLimits::default().with_max_rows(1),
-        ),
-    ) else {
+    let Err(errore) = XlsDriver
+        .open(
+            Source::Path(alto),
+            opzioni_lettura_wkt_con(
+                plenora_io_model::budget::PipelineLimits::default().with_max_rows(1),
+            ),
+        )
+        .and_then(rifiuta_oggetti_non_leggibili)
+    else {
         panic!("tre righe oltre una quota di una devono essere rifiutate");
     };
     assert!(
@@ -709,12 +716,15 @@ fn n1_il_foglio_senza_celle_e_fermato_dallo_schema_prima_di_infer_layout() {
     // Meta' due: la stessa configurazione passata da `open` non arriva al
     // driver. Il rifiuto e' dello schema delle opzioni, in fase di
     // validazione, non dell'inferenza.
-    let Err(fermato) = XlsDriver.open(
-        Source::Path(vuoto),
-        opzioni_lettura()
-            .with_assume_crs("EPSG:4326")
-            .with_format_option("wkt_column", ""),
-    ) else {
+    let Err(fermato) = XlsDriver
+        .open(
+            Source::Path(vuoto),
+            opzioni_lettura()
+                .with_assume_crs("EPSG:4326")
+                .with_format_option("wkt_column", ""),
+        )
+        .and_then(rifiuta_oggetti_non_leggibili)
+    else {
         panic!("un nome di colonna vuoto non e' un valore ammesso");
     };
     assert_eq!(
@@ -1017,12 +1027,15 @@ fn n1_la_colonna_wkt_assente_esce_dal_driver_con_il_suo_messaggio() {
     let percorso = dir.path().join("altra-colonna.xlsx");
     scrivi_xlsx(&percorso, 2, 2);
 
-    let Err(errore) = XlsDriver.open(
-        Source::Path(percorso),
-        opzioni_lettura()
-            .with_assume_crs("EPSG:4326")
-            .with_format_option("wkt_column", "questa-non-c-e"),
-    ) else {
+    let Err(errore) = XlsDriver
+        .open(
+            Source::Path(percorso),
+            opzioni_lettura()
+                .with_assume_crs("EPSG:4326")
+                .with_format_option("wkt_column", "questa-non-c-e"),
+        )
+        .and_then(rifiuta_oggetti_non_leggibili)
+    else {
         panic!("una colonna WKT che non esiste non e' una geometria");
     };
     assert_eq!(
@@ -2352,11 +2365,15 @@ fn la_cella_wkt_e_rifiutata_per_componenti_sotto_il_cap_in_byte() {
     assert!(
         XlsDriver
             .open(Source::Path(output.clone()), opzioni(COMPONENTI))
+            .and_then(rifiuta_oggetti_non_leggibili)
             .is_ok(),
         "con {COMPONENTI} componenti di tetto la stessa cella deve passare"
     );
 
-    match XlsDriver.open(Source::Path(output), opzioni(COMPONENTI - 1)) {
+    match XlsDriver
+        .open(Source::Path(output), opzioni(COMPONENTI - 1))
+        .and_then(rifiuta_oggetti_non_leggibili)
+    {
         Err(errore) => assert_eq!(
             errore.code,
             plenora_io_model::IoErrorCode::LimitExceeded,
@@ -2394,11 +2411,14 @@ fn inference_uses_configured_wkt_cell_bytes_not_default() {
     assert!(
         XlsDriver
             .open(Source::Path(output.clone()), opzioni(64))
+            .and_then(rifiuta_oggetti_non_leggibili)
             .is_ok(),
         "una cella dentro il tetto configurato deve passare"
     );
 
-    let esito = XlsDriver.open(Source::Path(output), opzioni(4));
+    let esito = XlsDriver
+        .open(Source::Path(output), opzioni(4))
+        .and_then(rifiuta_oggetti_non_leggibili);
     assert!(
         matches!(
             esito,
@@ -2445,6 +2465,7 @@ fn il_wkb_codificato_non_supera_il_tetto_anche_se_il_testo_ci_sta() {
 
     let messaggio = XlsDriver
         .open(Source::Path(output), opzioni)
+        .and_then(rifiuta_oggetti_non_leggibili)
         .err()
         .map(|errore| errore.message);
     assert!(
@@ -2531,7 +2552,9 @@ fn un_riferimento_oltre_i_limiti_del_formato_e_rifiutato_prima_di_calamine() {
 
             // Nessun panico: senza la prevalidazione questa riga abbatte
             // il processo di test invece di restituire.
-            let esito = XlsDriver.open(Source::Path(percorso_seme.clone()), opzioni);
+            let esito = XlsDriver
+                .open(Source::Path(percorso_seme.clone()), opzioni)
+                .and_then(rifiuta_oggetti_non_leggibili);
 
             // Nessun dataset parziale: `open` non consegna un handle a
             // meta'. La prova e' che non ne consegna affatto uno.
@@ -2677,10 +2700,12 @@ fn n1_open_esige_assume_crs_quando_c_e_geometria() {
     // Le stesse opzioni **senza** `with_assume_crs`: e' l'unica differenza
     // rispetto al caso che passa, ed e' cio' che rende il test una prova
     // del ramo e non di un guasto qualunque.
-    let esito = XlsDriver.open(
-        Source::Path(percorso.clone()),
-        opzioni_lettura().with_format_option("wkt_column", "geometry"),
-    );
+    let esito = XlsDriver
+        .open(
+            Source::Path(percorso.clone()),
+            opzioni_lettura().with_format_option("wkt_column", "geometry"),
+        )
+        .and_then(rifiuta_oggetti_non_leggibili);
     let Err(errore) = esito else {
         panic!("senza CRS dichiarato la geometria non e' interpretabile");
     };
@@ -2688,12 +2713,14 @@ fn n1_open_esige_assume_crs_quando_c_e_geometria() {
 
     // Controprova: con il CRS lo stesso file si apre. Senza, il test
     // proverebbe soltanto che *qualcosa* fallisce.
-    let esito = XlsDriver.open(
-        Source::Path(percorso.clone()),
-        opzioni_lettura()
-            .with_format_option("wkt_column", "geometry")
-            .with_assume_crs("EPSG:4326"),
-    );
+    let esito = XlsDriver
+        .open(
+            Source::Path(percorso.clone()),
+            opzioni_lettura()
+                .with_format_option("wkt_column", "geometry")
+                .with_assume_crs("EPSG:4326"),
+        )
+        .and_then(rifiuta_oggetti_non_leggibili);
     assert!(
         esito.is_ok(),
         "con `assume_crs` lo stesso file deve aprirsi"
@@ -2702,13 +2729,15 @@ fn n1_open_esige_assume_crs_quando_c_e_geometria() {
     // E il foglio **dichiarato** invece che dedotto: e' l'altro ramo del
     // `match` su `format_options["sheet"]`, che nessun test toccava.
     // `rust_xlsxwriter` nomina il primo foglio «Sheet1».
-    let esito = XlsDriver.open(
-        Source::Path(percorso),
-        opzioni_lettura()
-            .with_format_option("wkt_column", "geometry")
-            .with_format_option("sheet", "Sheet1")
-            .with_assume_crs("EPSG:4326"),
-    );
+    let esito = XlsDriver
+        .open(
+            Source::Path(percorso),
+            opzioni_lettura()
+                .with_format_option("wkt_column", "geometry")
+                .with_format_option("sheet", "Sheet1")
+                .with_assume_crs("EPSG:4326"),
+        )
+        .and_then(rifiuta_oggetti_non_leggibili);
     assert!(
         esito.is_ok(),
         "il foglio dichiarato per nome deve essere accettato"
@@ -3128,14 +3157,17 @@ fn xlsx_spool_is_bounded_by_the_input_byte_limit() {
     workbook.save(&output).unwrap();
     let input_bytes = std::fs::metadata(&output).unwrap().len();
 
-    let result = XlsDriver.open(
-        Source::Path(output),
-        opzioni_lettura_con(
-            plenora_io_model::budget::PipelineLimits::default().with_max_input_bytes(input_bytes),
+    let result = XlsDriver
+        .open(
+            Source::Path(output),
+            opzioni_lettura_con(
+                plenora_io_model::budget::PipelineLimits::default()
+                    .with_max_input_bytes(input_bytes),
+            )
+            .with_assume_crs("EPSG:4326")
+            .with_format_option("wkt_column", "geometry"),
         )
-        .with_assume_crs("EPSG:4326")
-        .with_format_option("wkt_column", "geometry"),
-    );
+        .and_then(rifiuta_oggetti_non_leggibili);
     let error = result.err().expect("lo spool deve rispettare il limite");
     assert_eq!(error.code, plenora_io_model::IoErrorCode::LimitExceeded);
 }
@@ -3411,18 +3443,21 @@ fn h01_un_foglio_senza_celle_e_senza_dimension_viene_rifiutato() {
     let percorso = dir.path().join("vuoto.xlsx");
     std::fs::write(&percorso, xlsx_senza_dimension_con("")).unwrap();
 
-    let Err(errore) = XlsDriver.open(Source::Path(percorso), opzioni_lettura_wkt()) else {
+    let Err(errore) = XlsDriver
+        .open(Source::Path(percorso), opzioni_lettura_wkt())
+        .and_then(rifiuta_oggetti_non_leggibili)
+    else {
         panic!(
             "un foglio senza celle non ha un layout da inferire: la cornice \
                  degenere deve portare al rifiuto, non all'accettazione"
         );
     };
-    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Format);
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Capability);
     assert_eq!(
         errore.category,
-        plenora_io_model::ErrorCategory::DataMapping
+        plenora_io_model::ErrorCategory::Unsupported
     );
-    assert_eq!(errore.phase, plenora_io_model::ErrorPhase::Read);
+    assert_eq!(errore.phase, plenora_io_model::ErrorPhase::Validate);
     assert_eq!(
         errore.driver.as_deref(),
         Some("xls"),
@@ -3492,7 +3527,9 @@ fn h01_dalla_cornice_sintetica_non_nasce_ne_schema_ne_batch() {
     let percorso = dir.path().join("vuoto.xlsx");
     std::fs::write(&percorso, xlsx_senza_dimension_con("")).unwrap();
 
-    let esito = XlsDriver.open(Source::Path(percorso), opzioni_lettura_wkt());
+    let esito = XlsDriver
+        .open(Source::Path(percorso), opzioni_lettura_wkt())
+        .and_then(rifiuta_oggetti_non_leggibili);
     let motivo = esito.as_ref().err();
     assert!(
             motivo.is_some(),
@@ -3567,12 +3604,15 @@ fn n1_le_quote_valgono_anche_sui_limiti_ricavati() {
     let dir = tempfile::tempdir().unwrap();
     let percorso = dir.path().join("quota.xlsx");
     std::fs::write(&percorso, &byte).unwrap();
-    let Err(errore) = XlsDriver.open(
-        Source::Path(percorso),
-        opzioni_lettura_wkt_con(
-            plenora_io_model::budget::PipelineLimits::default().with_max_columns(1),
-        ),
-    ) else {
+    let Err(errore) = XlsDriver
+        .open(
+            Source::Path(percorso),
+            opzioni_lettura_wkt_con(
+                plenora_io_model::budget::PipelineLimits::default().with_max_columns(1),
+            ),
+        )
+        .and_then(rifiuta_oggetti_non_leggibili)
+    else {
         panic!("due colonne ricavate oltre una quota di una devono essere rifiutate");
     };
     assert!(
@@ -3715,3 +3755,129 @@ fn il_genere_dell_opzione_segue_la_regola_comune() {
 mod escape_ooxml;
 #[path = "tests/valori.rs"]
 mod valori;
+
+fn rifiuta_oggetti_non_leggibili(
+    dataset: Box<dyn OpenDatasetHandle>,
+) -> Result<Box<dyn OpenDatasetHandle>> {
+    for layer in dataset.layers() {
+        if let Some(error) = dataset.rifiuto_del_layer(layer.id) {
+            return Err(error);
+        }
+    }
+    Ok(dataset)
+}
+
+#[test]
+fn r2_fogli_visibili_nascosti_vuoti_e_grafici() {
+    use plenora_io_model::CapabilityReason as R;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("objects.xlsx");
+    let mut workbook = Workbook::new();
+    for (name, hidden, empty) in [
+        ("Hidden", true, false),
+        ("Healthy", false, false),
+        ("Empty", false, true),
+    ] {
+        let sheet = workbook.add_worksheet();
+        sheet.set_name(name).unwrap();
+        if name == "Healthy" {
+            sheet.set_active(true);
+        }
+        if hidden {
+            sheet.set_hidden(true);
+        }
+        if !empty {
+            sheet.write_string(0, 0, "geometry").unwrap();
+            sheet.write_string(1, 0, "POINT (1 2)").unwrap();
+        }
+    }
+    let mut chart = rust_xlsxwriter::Chart::new(rust_xlsxwriter::ChartType::Column);
+    chart.add_series().set_values("Healthy!$A$1:$A$2");
+    workbook
+        .add_chartsheet()
+        .set_name("Chart")
+        .unwrap()
+        .insert_chart(0, 0, &chart)
+        .unwrap();
+    for name in ["MissingPart", "EmptyPart"] {
+        let sheet = workbook.add_worksheet();
+        sheet.set_name(name).unwrap();
+        sheet.write_string(0, 0, "geometry").unwrap();
+        sheet.write_string(1, 0, "POINT (1 2)").unwrap();
+    }
+    workbook.save(&path).unwrap();
+    r2_damage_parts(&path);
+    let ds = XlsDriver
+        .open(Source::Path(path), opzioni_lettura_wkt())
+        .unwrap();
+    assert_eq!(ds.layers().len(), 6);
+    assert_eq!(ds.default_layer(), Some(LayerId(1)));
+    assert_eq!(
+        ds.layers()[0].contract.schema.metadata()["xlsx.visibility"],
+        "hidden"
+    );
+    for (index, reason) in [
+        (2, R::ObjectEmpty),
+        (3, R::ObjectChartSheet),
+        (4, R::ObjectMissing),
+        (5, R::ObjectEmpty),
+    ] {
+        let id = LayerId(index);
+        assert_eq!(ds.layers()[index as usize].id, id);
+        assert_eq!(
+            ds.rifiuto_del_layer(id).unwrap().capability_reason,
+            Some(reason)
+        );
+        assert_eq!(
+            ds.open_layer_reader(&ReadRequest {
+                layer: id,
+                projected_fields: None,
+                projection_mode: ProjectionMode::BestEffort,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                scope: ReadScope::Complete,
+                batch_target: BatchTarget::default(),
+                cancellation: CancellationToken::default()
+            })
+            .err()
+            .unwrap()
+            .capability_reason,
+            Some(reason)
+        );
+    }
+    for id in [LayerId(0), LayerId(1)] {
+        let mut reader = ds
+            .open_layer_reader(&ReadRequest {
+                layer: id,
+                projected_fields: None,
+                projection_mode: ProjectionMode::BestEffort,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                scope: ReadScope::Complete,
+                batch_target: BatchTarget::default(),
+                cancellation: CancellationToken::default(),
+            })
+            .unwrap();
+        assert_eq!(reader.next_batch().unwrap().unwrap().num_rows(), 1);
+    }
+}
+
+fn r2_damage_parts(path: &std::path::Path) {
+    let mut archive =
+        zip::ZipArchive::new(std::io::Cursor::new(std::fs::read(path).unwrap())).unwrap();
+    let mut output = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for index in 0..archive.len() {
+        let mut member = archive.by_index(index).unwrap();
+        let name = member.name().unwrap().into_owned();
+        if name == "xl/worksheets/sheet4.xml" {
+            continue;
+        }
+        output
+            .start_file(&name, zip::write::SimpleFileOptions::default())
+            .unwrap();
+        if name != "xl/worksheets/sheet5.xml" {
+            std::io::copy(&mut member, &mut output).unwrap();
+        }
+    }
+    std::fs::write(path, output.finish().unwrap().into_inner()).unwrap();
+}

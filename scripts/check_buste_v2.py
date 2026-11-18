@@ -69,8 +69,11 @@ tiene il verso inverso, che rende visibile ogni dichiarazione non esercitata.
 from __future__ import annotations
 
 import argparse
+from contextlib import closing
 import json
 import os
+import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -383,9 +386,27 @@ MATRICE: tuple[dict[str, Any], ...] = (
         "perche": "la busta d'errore nella sua forma minima: sei chiavi.",
     },
     {
+        "nome": "errore-capability",
+        "busta": "plenora-error-v1",
+        "argomenti": ["read", "{uscita}/vista.gpkg", "--layer", "0"],
+        "perche": "Il motivo tipizzato del rifiuto in details.capability_reason.",
+    },
+    {
+        "nome": "layers-xlsx",
+        "busta": "plenora-io-layers-v1",
+        "argomenti": ["layers", "{canoniche}/canonico.xlsx", "--assume-crs", "EPSG:3003", "--opt", "wkt_column=geometry"],
+        "perche": "La visibilita del foglio nello stato dell'oggetto.",
+    },
+    {
+        "nome": "inspect-xlsx",
+        "busta": "plenora-io-inspect-v1",
+        "argomenti": ["inspect", "{canoniche}/canonico.xlsx", "--assume-crs", "EPSG:3003", "--opt", "wkt_column=geometry"],
+        "perche": "La visibilita del foglio nello stato dell'oggetto.",
+    },
+    {
         "nome": "errore-con-diagnostica-di-riga",
         "busta": "plenora-error-v1",
-        "argomenti": ["read", "{ostili}/lettura.kml"],
+        "argomenti": ["read", "{ostili}/lettura.kml", "--layer", "3"],
         "perche": (
             "la busta d'errore con `row_diagnostics`, la settima chiave. Il "
             "manifesto affermava sei chiavi «e nessuna in piu'»: questo caso "
@@ -473,6 +494,11 @@ def esegui(percorso_binario: str, uscita: Path) -> list[dict[str, Any]]:
     caso che non produce JSON su nessuno dei due e' un difetto e viene detto,
     non saltato.
     """
+    vista = uscita / "vista.gpkg"
+    shutil.copyfile(CANONICHE / "canonico.gpkg", vista)
+    with closing(sqlite3.connect(vista)) as conn:
+        conn.execute('CREATE VIEW "000_vista" AS SELECT * FROM gpkg_contents')
+        conn.commit()
     sostituzioni = {
         "canoniche": CANONICHE.as_posix(),
         "ostili": OSTILI.as_posix(),

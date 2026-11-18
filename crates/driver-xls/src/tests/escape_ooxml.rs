@@ -156,7 +156,10 @@ fn workbook_rinominato_accettato_da_calamine_ma_rifiutato_da_io() {
     let path = dir.path().join("rinominato.xlsx");
     std::fs::write(&path, bytes).unwrap();
     for _ in 0..3 {
-        let Err(errore) = XlsDriver.open(Source::Path(path.clone()), opzioni_lettura_wkt()) else {
+        let Err(errore) = XlsDriver
+            .open(Source::Path(path.clone()), opzioni_lettura_wkt())
+            .and_then(rifiuta_oggetti_non_leggibili)
+        else {
             panic!("i percorsi fissi di NativeStyles devono rifiutare la parte mancante");
         };
         assert_eq!(errore.message, "metadati temporali XML XLSX non validi");

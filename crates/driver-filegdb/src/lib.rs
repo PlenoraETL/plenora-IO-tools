@@ -1476,19 +1476,77 @@ mod backend {
     /// le regole di un altro formato. Ora o e' un `FileGDB`, o l'apertura
     /// fallisce.
     fn apri_solo_filegdb(path: &std::path::Path) -> gdal::errors::Result<Dataset> {
-        Dataset::open_ex(
-            path,
-            gdal::DatasetOptions {
-                open_flags: gdal::GdalOpenFlags::GDAL_OF_READONLY
-                    | gdal::GdalOpenFlags::GDAL_OF_VECTOR,
-                allowed_drivers: Some(&["OpenFileGDB"]),
-                open_options: None,
-                sibling_files: None,
-            },
+        gdal::config::with_quiet_errors(|| {
+            Dataset::open_ex(
+                path,
+                gdal::DatasetOptions {
+                    open_flags: gdal::GdalOpenFlags::GDAL_OF_READONLY
+                        | gdal::GdalOpenFlags::GDAL_OF_VECTOR,
+                    allowed_drivers: Some(&["OpenFileGDB"]),
+                    open_options: None,
+                    sibling_files: None,
+                },
+            )
+        })
+    }
+
+    fn catalog_objects(path: &std::path::Path) -> Result<Vec<(u64, String)>> {
+        let catalog = apri_solo_filegdb(&path.join("a00000001.gdbtable"))
+            .map_err(|_| err(&PublicMessage::Curated("catalogo FileGDB non leggibile")))?;
+        let mut layer = catalog
+            .layer(0)
+            .map_err(|_| err(&PublicMessage::Curated("catalogo FileGDB assente")))?;
+        let mut objects = Vec::new();
+        for feature in layer.features() {
+            let id = feature
+                .fid()
+                .ok_or_else(|| err(&PublicMessage::Curated("identita catalogo FileGDB assente")))?;
+            let name = feature
+                .field_as_string(0)
+                .map_err(|_| err(&PublicMessage::Curated("voce catalogo FileGDB non valida")))?
+                .ok_or_else(|| {
+                    err(&PublicMessage::Curated(
+                        "nome oggetto catalogo FileGDB assente",
+                    ))
+                })?;
+            if !matches!(
+                name.as_str(),
+                "GDB_SystemCatalog"
+                    | "GDB_DBTune"
+                    | "GDB_SpatialRefs"
+                    | "GDB_Items"
+                    | "GDB_ItemTypes"
+                    | "GDB_ItemRelationships"
+                    | "GDB_ItemRelationshipTypes"
+                    | "GDB_ReplicaLog"
+            ) {
+                objects.push((id, name));
+            }
+        }
+        objects.sort_by_key(|(id, _)| *id);
+        Ok(objects)
+    }
+
+    fn internal_file_error(reason: plenora_io_model::CapabilityReason) -> PlenoraIoError {
+        PlenoraIoError::capability_redatta(
+            "filegdb",
+            None,
+            reason,
+            &PublicMessage::Curated(
+                "oggetto FileGDB non leggibile; file interno assente, vuoto o non rappresentabile",
+            ),
         )
     }
 
     pub fn open(
+        path: &std::path::Path,
+        assume_crs: Option<&str>,
+    ) -> Result<Box<dyn OpenDatasetHandle>> {
+        gdal::config::with_quiet_errors(|| open_objects(path, assume_crs))
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn open_objects(
         path: &std::path::Path,
         assume_crs: Option<&str>,
     ) -> Result<Box<dyn OpenDatasetHandle>> {
@@ -1497,120 +1555,183 @@ mod backend {
             .map_err(|_| err(&PublicMessage::Curated("apertura GDAL fallita")))?;
         let mut layers = Vec::new();
         let mut metas = Vec::new();
-        for (i, layer) in ds.layers().enumerate() {
-            // Il campo geometrico si cerca **per primo**, e la sua assenza non
-            // e' un errore.
-            //
-            // Un FileGDB e' fatto di feature class **e** di tabelle: le seconde
-            // non hanno geometria, il formato le ammette, ed e' cosi' che sono
-            // fatte le GDB reali. Il driver le trattava come un layer rotto e
-            // rifiutava l'intero dataset, in fase di apertura: quattro feature
-            // class valide diventavano inaccessibili perche' accanto a loro
-            // c'era una tabella, e nessun `--layer` poteva aggirarlo, perche'
-            // il rifiuto precedeva la scelta.
-            //
-            // Una tabella viene percio' **enumerata**, con `geometry: None`.
-            // Non saltata: saltarla sposterebbe gli indici di layer sotto i
-            // piedi di chi li ha letti dal catalogo, e `--layer 1`
-            // significherebbe due cose diverse a seconda di che cosa il driver
-            // ha deciso di nascondere.
-            let ogr_geometry_type = layer
-                .defn()
-                .geom_fields()
-                .next()
-                .map(|field| field.field_type());
-            // Quanti campi geometrici il layer dichiara. Il contratto ne porta
-            // uno, il primo: gli altri sparivano senza traccia. Ora la scoperta
-            // li conta, e la lettura del layer si rifiuta (GEO-012).
-            let campi_geometrici = layer.defn().geom_fields().count();
-            // Il CRS si risolve solo per chi ha una geometria: pretenderlo da
-            // una tabella significava chiedere un `--assume-crs` per dei dati
-            // che non sono spaziali, con un messaggio che parlava di geometria.
-            let crs_e_geometria = match ogr_geometry_type {
-                Some(ogr_geometry_type) => {
-                    let crs = resolve_layer_crs(layer.spatial_ref(), assume_crs)?;
-                    let mut geometria = geometry_contract_from_ogr(ogr_geometry_type, crs);
-                    if campi_geometrici > 1 {
-                        // Il limite si vede dalla scoperta, come chiede
-                        // GEO-012: il numero e' strutturale, non un dato.
-                        geometria.native_metadata.insert(
-                            "filegdb.geometry_field_count".to_owned(),
-                            campi_geometrici.to_string(),
-                        );
+        let mut rifiuti = std::collections::BTreeMap::new();
+        let objects = catalog_objects(path)?;
+        let gdal_names: Vec<_> = ds.layers().map(|layer| layer.name()).collect();
+        for (i, (file_id, name)) in objects.into_iter().enumerate() {
+            let result = (|| -> Result<(LayerContract, LayerMeta)> {
+                for extension in ["gdbtable", "gdbtablx"] {
+                    let member = path.join(format!("a{file_id:08x}.{extension}"));
+                    match std::fs::metadata(member) {
+                        Ok(meta) if meta.len() == 0 => {
+                            return Err(internal_file_error(
+                                plenora_io_model::CapabilityReason::ObjectEmpty,
+                            ))
+                        }
+                        Ok(meta) if !meta.is_file() => {
+                            return Err(internal_file_error(
+                                plenora_io_model::CapabilityReason::ObjectMissing,
+                            ))
+                        }
+                        Err(_) => {
+                            return Err(internal_file_error(
+                                plenora_io_model::CapabilityReason::ObjectMissing,
+                            ))
+                        }
+                        _ => {}
                     }
-                    Some(geometria)
                 }
-                None => None,
-            };
-            let native_fields: Vec<(LayerFieldMeta, Field)> = layer
-                .defn()
-                .fields()
-                .map(|field| {
-                    let name = field.name();
-                    let field_type = field.field_type();
-                    ogr_to_arrow(field_type).map(|data_type| {
-                        let metadata = HashMap::from([
-                            (OGR_FIELD_TYPE_KEY.to_owned(), field_type.to_string()),
-                            (OGR_FIELD_WIDTH_KEY.to_owned(), field.width().to_string()),
+                let gdal_idx = gdal_names
+                    .iter()
+                    .position(|candidate| candidate == &name)
+                    .ok_or_else(|| {
+                        internal_file_error(plenora_io_model::CapabilityReason::ObjectMissing)
+                    })?;
+                let layer = ds.layer(gdal_idx).map_err(|_| {
+                    internal_file_error(plenora_io_model::CapabilityReason::ObjectMissing)
+                })?;
+                // Il campo geometrico si cerca **per primo**, e la sua assenza non
+                // e' un errore.
+                //
+                // Un FileGDB e' fatto di feature class **e** di tabelle: le seconde
+                // non hanno geometria, il formato le ammette, ed e' cosi' che sono
+                // fatte le GDB reali. Il driver le trattava come un layer rotto e
+                // rifiutava l'intero dataset, in fase di apertura: quattro feature
+                // class valide diventavano inaccessibili perche' accanto a loro
+                // c'era una tabella, e nessun `--layer` poteva aggirarlo, perche'
+                // il rifiuto precedeva la scelta.
+                //
+                // Una tabella viene percio' **enumerata**, con `geometry: None`.
+                // Non saltata: saltarla sposterebbe gli indici di layer sotto i
+                // piedi di chi li ha letti dal catalogo, e `--layer 1`
+                // significherebbe due cose diverse a seconda di che cosa il driver
+                // ha deciso di nascondere.
+                let ogr_geometry_type = layer
+                    .defn()
+                    .geom_fields()
+                    .next()
+                    .map(|field| field.field_type());
+                // Quanti campi geometrici il layer dichiara. Il contratto ne porta
+                // uno, il primo: gli altri sparivano senza traccia. Ora la scoperta
+                // li conta, e la lettura del layer si rifiuta (GEO-012).
+                let campi_geometrici = layer.defn().geom_fields().count();
+                // Il CRS si risolve solo per chi ha una geometria: pretenderlo da
+                // una tabella significava chiedere un `--assume-crs` per dei dati
+                // che non sono spaziali, con un messaggio che parlava di geometria.
+                let crs_e_geometria = match ogr_geometry_type {
+                    Some(ogr_geometry_type) => {
+                        let crs = resolve_layer_crs(layer.spatial_ref(), assume_crs)?;
+                        let mut geometria = geometry_contract_from_ogr(ogr_geometry_type, crs);
+                        if campi_geometrici > 1 {
+                            // Il limite si vede dalla scoperta, come chiede
+                            // GEO-012: il numero e' strutturale, non un dato.
+                            geometria.native_metadata.insert(
+                                "filegdb.geometry_field_count".to_owned(),
+                                campi_geometrici.to_string(),
+                            );
+                        }
+                        Some(geometria)
+                    }
+                    None => None,
+                };
+                let native_fields: Vec<(LayerFieldMeta, Field)> = layer
+                    .defn()
+                    .fields()
+                    .map(|field| {
+                        let name = field.name();
+                        let field_type = field.field_type();
+                        ogr_to_arrow(field_type).map(|data_type| {
+                            let metadata = HashMap::from([
+                                (OGR_FIELD_TYPE_KEY.to_owned(), field_type.to_string()),
+                                (OGR_FIELD_WIDTH_KEY.to_owned(), field.width().to_string()),
+                                (
+                                    OGR_FIELD_PRECISION_KEY.to_owned(),
+                                    field.precision().to_string(),
+                                ),
+                            ]);
+                            let arrow_field =
+                                Field::new(&name, data_type.clone(), true).with_metadata(metadata);
                             (
-                                OGR_FIELD_PRECISION_KEY.to_owned(),
-                                field.precision().to_string(),
-                            ),
-                        ]);
-                        let arrow_field =
-                            Field::new(&name, data_type.clone(), true).with_metadata(metadata);
-                        (
-                            LayerFieldMeta {
-                                name,
-                                data_type,
-                                ogr_type: field_type,
-                            },
-                            arrow_field,
-                        )
+                                LayerFieldMeta {
+                                    name,
+                                    data_type,
+                                    ogr_type: field_type,
+                                },
+                                arrow_field,
+                            )
+                        })
                     })
-                })
-                .collect::<Result<Vec<_>>>()?;
-            let (fields, attribute_arrow_fields): (Vec<_>, Vec<_>) =
-                native_fields.into_iter().unzip();
-            let (arrow_fields, geometry) = match crs_e_geometria {
-                Some(geometry) => {
-                    let geometry_arrow_field = super::native_geometry_field(&geometry);
-                    let mut campi = vec![geometry_arrow_field];
-                    campi.extend(attribute_arrow_fields);
-                    (campi, Some(geometry))
+                    .collect::<Result<Vec<_>>>()?;
+                let (fields, attribute_arrow_fields): (Vec<_>, Vec<_>) =
+                    native_fields.into_iter().unzip();
+                let (arrow_fields, geometry) = match crs_e_geometria {
+                    Some(geometry) => {
+                        let geometry_arrow_field = super::native_geometry_field(&geometry);
+                        let mut campi = vec![geometry_arrow_field];
+                        campi.extend(attribute_arrow_fields);
+                        (campi, Some(geometry))
+                    }
+                    // Una tabella: gli attributi e basta, senza una colonna
+                    // geometrica davanti. E' anche cio' che sposta gli indici, e il
+                    // reader lo rilegge da `ha_geometria`.
+                    None => (attribute_arrow_fields, None),
+                };
+                let schema: SchemaRef = Arc::new(Schema::new(arrow_fields));
+                let ha_geometria = geometry.is_some();
+                let contract = DataContract::new(
+                    plenora_io_model::geometry::with_contract_version(schema),
+                    geometry,
+                );
+                plenora_io_model::primary::reconcile_schema_contract(&contract)?;
+                // Indice di layer di un FileGDB: il formato ne ammette al piu'
+                // qualche migliaio, il cast a u32 non puo' troncare.
+                #[allow(clippy::cast_possible_truncation)]
+                let layer_id = LayerId(i as u32);
+                let contract = LayerContract {
+                    id: layer_id,
+                    name: layer.name(),
+                    contract,
+                };
+                let meta = LayerMeta {
+                    gdal_idx,
+                    fields,
+                    ha_geometria,
+                    campi_geometrici,
+                };
+                Ok((contract, meta))
+            })();
+            let (contract, meta) = match result {
+                Ok(value) => value,
+                Err(error) => {
+                    let id = LayerId(u32::try_from(i).map_err(|_| {
+                        PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                            "troppi oggetti FileGDB",
+                        ))
+                    })?);
+                    rifiuti.insert(id.0, error);
+                    (
+                        LayerContract {
+                            id,
+                            name: name.clone(),
+                            contract: DataContract::new(Arc::new(Schema::empty()), None),
+                        },
+                        LayerMeta {
+                            gdal_idx: i,
+                            fields: Vec::new(),
+                            ha_geometria: false,
+                            campi_geometrici: 0,
+                        },
+                    )
                 }
-                // Una tabella: gli attributi e basta, senza una colonna
-                // geometrica davanti. E' anche cio' che sposta gli indici, e il
-                // reader lo rilegge da `ha_geometria`.
-                None => (attribute_arrow_fields, None),
             };
-            let schema: SchemaRef = Arc::new(Schema::new(arrow_fields));
-            let ha_geometria = geometry.is_some();
-            let contract = DataContract::new(
-                plenora_io_model::geometry::with_contract_version(schema.clone()),
-                geometry,
-            );
-            plenora_io_model::primary::reconcile_schema_contract(&contract)?;
-            // Indice di layer di un FileGDB: il formato ne ammette al piu'
-            // qualche migliaio, il cast a u32 non puo' troncare.
-            #[allow(clippy::cast_possible_truncation)]
-            let layer_id = LayerId(i as u32);
-            layers.push(LayerContract {
-                id: layer_id,
-                name: layer.name(),
-                contract,
-            });
-            metas.push(LayerMeta {
-                gdal_idx: i,
-                fields,
-                ha_geometria,
-                campi_geometrici,
-            });
+            layers.push(contract);
+            metas.push(meta);
         }
         Ok(Box::new(GdbDataset {
             path: path.to_owned(),
             layers,
             metas,
+            rifiuti,
             reader_gate: SingleReaderGate::new(DESCRIPTOR.id()),
         }))
     }
@@ -1690,12 +1811,19 @@ mod backend {
         path: PathBuf,
         layers: Vec<LayerContract>,
         metas: Vec<LayerMeta>,
+        rifiuti: std::collections::BTreeMap<u32, PlenoraIoError>,
         reader_gate: SingleReaderGate,
     }
 
     impl OpenDatasetHandle for GdbDataset {
+        fn preserves_unreadable_objects(&self) -> bool {
+            true
+        }
         fn layers(&self) -> &[LayerContract] {
             &self.layers
+        }
+        fn rifiuto_del_layer(&self, layer: LayerId) -> Option<PlenoraIoError> {
+            self.rifiuti.get(&layer.0).cloned()
         }
         fn fidelity_assessment(&self) -> plenora_io_core::FidelityAssessment {
             plenora_io_core::FidelityAssessment::for_format(
@@ -1704,6 +1832,9 @@ mod backend {
             )
         }
         fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
+            if let Some(error) = self.rifiuto_del_layer(request.layer) {
+                return Err(error);
+            }
             plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
             let idx = self
                 .layers
@@ -1811,94 +1942,97 @@ mod backend {
             contract,
             2,
             move |emitter: BatchEmitter| {
-                let ds = apri_solo_filegdb(&path)
-                    .map_err(|_| err(&PublicMessage::Curated("apertura del FileGDB fallita")))?;
-                let mut layer = ds.layer(gdal_idx).map_err(|_| {
-                    err(&PublicMessage::Curated(
-                        "apertura del layer FileGDB fallita",
-                    ))
-                })?;
-                // Il worker riapre il dataset: prima di usare gli indici OGR
-                // pre-risolti verifica che nessuno abbia cambiato lo schema.
-                let actual_fields: Vec<_> = layer
-                    .defn()
-                    .fields()
-                    .map(|field| (field.name(), field.field_type()))
-                    .collect();
-                verifica_schema_invariato(&actual_fields, &fields)?;
-                let selected_fields: HashSet<usize> =
-                    fields.iter().map(|field| field.ogr_index).collect();
-                let mut ignored_fields = actual_fields
-                    .iter()
-                    .enumerate()
-                    .filter(|(index, _)| !selected_fields.contains(index))
-                    .map(|(_, (name, _))| name.as_str())
-                    .collect::<Vec<_>>();
-                // `OGR_GEOMETRY` si ignora solo dove esiste: su una tabella
-                // non c'e' campo geometrico da nominare, e nominarlo sarebbe
-                // una projection su un campo che il layer non ha.
-                if geometria.presente && !geometria.inclusa {
-                    ignored_fields.push("OGR_GEOMETRY");
-                }
-                layer.set_ignored_fields(&ignored_fields).map_err(|_| {
-                    err(&PublicMessage::Curated(
-                        "projection fisica FileGDB non applicabile",
-                    ))
-                })?;
-                let mut geom = geometria.inclusa.then(BinaryBuilder::new);
-                let mut builders: Vec<ReadCol> = fields
-                    .iter()
-                    .map(|field| ReadCol::new(&field.data_type))
-                    .collect();
-                let mut n = 0usize;
-                for feature in layer.features() {
-                    if let Some(builder) = &mut geom {
-                        match feature.geometry_by_index(0) {
-                            Ok(geometry) => {
-                                let bytes = geometry.wkb().map_err(|_| {
-                                    err(&PublicMessage::Curated(
-                                        "conversione della geometria FileGDB in WKB fallita",
-                                    ))
-                                })?;
-                                builder.append_value(&bytes);
-                            }
-                            Err(GdalError::NullPointer {
-                                method_name: "OGR_F_GetGeomFieldRef",
-                                ..
-                            }) => {
-                                builder.append_null();
-                            }
-                            Err(_) => {
-                                return Err(err(&PublicMessage::Curated(
-                                    "lettura della geometria FileGDB fallita",
-                                )))
+                gdal::config::with_quiet_errors(|| {
+                    let ds = apri_solo_filegdb(&path).map_err(|_| {
+                        err(&PublicMessage::Curated("apertura del FileGDB fallita"))
+                    })?;
+                    let mut layer = ds.layer(gdal_idx).map_err(|_| {
+                        err(&PublicMessage::Curated(
+                            "apertura del layer FileGDB fallita",
+                        ))
+                    })?;
+                    // Il worker riapre il dataset: prima di usare gli indici OGR
+                    // pre-risolti verifica che nessuno abbia cambiato lo schema.
+                    let actual_fields: Vec<_> = layer
+                        .defn()
+                        .fields()
+                        .map(|field| (field.name(), field.field_type()))
+                        .collect();
+                    verifica_schema_invariato(&actual_fields, &fields)?;
+                    let selected_fields: HashSet<usize> =
+                        fields.iter().map(|field| field.ogr_index).collect();
+                    let mut ignored_fields = actual_fields
+                        .iter()
+                        .enumerate()
+                        .filter(|(index, _)| !selected_fields.contains(index))
+                        .map(|(_, (name, _))| name.as_str())
+                        .collect::<Vec<_>>();
+                    // `OGR_GEOMETRY` si ignora solo dove esiste: su una tabella
+                    // non c'e' campo geometrico da nominare, e nominarlo sarebbe
+                    // una projection su un campo che il layer non ha.
+                    if geometria.presente && !geometria.inclusa {
+                        ignored_fields.push("OGR_GEOMETRY");
+                    }
+                    layer.set_ignored_fields(&ignored_fields).map_err(|_| {
+                        err(&PublicMessage::Curated(
+                            "projection fisica FileGDB non applicabile",
+                        ))
+                    })?;
+                    let mut geom = geometria.inclusa.then(BinaryBuilder::new);
+                    let mut builders: Vec<ReadCol> = fields
+                        .iter()
+                        .map(|field| ReadCol::new(&field.data_type))
+                        .collect();
+                    let mut n = 0usize;
+                    for feature in layer.features() {
+                        if let Some(builder) = &mut geom {
+                            match feature.geometry_by_index(0) {
+                                Ok(geometry) => {
+                                    let bytes = geometry.wkb().map_err(|_| {
+                                        err(&PublicMessage::Curated(
+                                            "conversione della geometria FileGDB in WKB fallita",
+                                        ))
+                                    })?;
+                                    builder.append_value(&bytes);
+                                }
+                                Err(GdalError::NullPointer {
+                                    method_name: "OGR_F_GetGeomFieldRef",
+                                    ..
+                                }) => {
+                                    builder.append_null();
+                                }
+                                Err(_) => {
+                                    return Err(err(&PublicMessage::Curated(
+                                        "lettura della geometria FileGDB fallita",
+                                    )))
+                                }
                             }
                         }
+                        for (builder, field) in builders.iter_mut().zip(&fields) {
+                            builder.append_feature(&feature, field)?;
+                        }
+                        n += 1;
+                        if n >= batch_sizer.rows() {
+                            let batch = finish_read_batch(&schema, &mut geom, &mut builders, n)?;
+                            plenora_io_core::driver::validate_external_batch(
+                                &batch,
+                                plenora_io_model::ErrorPhase::Read,
+                            )?;
+                            batch_sizer.observe(&batch);
+                            if !emitter.send(batch) {
+                                return Ok(());
+                            }
+                            n = 0;
+                        }
                     }
-                    for (builder, field) in builders.iter_mut().zip(&fields) {
-                        builder.append_feature(&feature, field)?;
-                    }
-                    n += 1;
-                    if n >= batch_sizer.rows() {
+                    if n > 0 {
                         let batch = finish_read_batch(&schema, &mut geom, &mut builders, n)?;
-                        plenora_io_core::driver::validate_external_batch(
-                            &batch,
-                            plenora_io_model::ErrorPhase::Read,
-                        )?;
-                        batch_sizer.observe(&batch);
                         if !emitter.send(batch) {
                             return Ok(());
                         }
-                        n = 0;
                     }
-                }
-                if n > 0 {
-                    let batch = finish_read_batch(&schema, &mut geom, &mut builders, n)?;
-                    if !emitter.send(batch) {
-                        return Ok(());
-                    }
-                }
-                Ok(())
+                    Ok(())
+                })
             },
         )
     }
@@ -2004,6 +2138,11 @@ mod backend {
                 Self::Str(b) => Arc::new(b.finish()),
             }
         }
+    }
+
+    #[cfg(test)]
+    mod r2_tests {
+        include!("r2_tests.rs");
     }
 
     #[cfg(test)]
@@ -2716,12 +2855,13 @@ mod backend {
             writer.write(&batch).unwrap();
             writer.finish().unwrap();
 
-            let Err(errore) = driver.open(
-                Source::Path(path.clone()),
-                opzioni_lettura().with_assume_crs("EPSG:3003"),
-            ) else {
-                panic!("--assume-crs in conflitto col CRS incorporato: ignorato");
-            };
+            let dataset = driver
+                .open(
+                    Source::Path(path.clone()),
+                    opzioni_lettura().with_assume_crs("EPSG:3003"),
+                )
+                .unwrap();
+            let errore = dataset.rifiuto_del_layer(LayerId(0)).unwrap();
             assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
             let concorde = driver
                 .open(

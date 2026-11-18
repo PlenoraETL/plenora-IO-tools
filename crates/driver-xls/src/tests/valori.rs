@@ -278,6 +278,7 @@ fn workbook_esterni_date_durate_errori_e_vuoti() {
         );
         assert!(XlsDriver
             .open(Source::Path(path), opzioni_lettura_wkt())
+            .and_then(rifiuta_oggetti_non_leggibili)
             .is_err());
     }
     let rows = format!(

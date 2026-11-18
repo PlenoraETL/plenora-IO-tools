@@ -177,7 +177,10 @@
         "name": "geometry"
       },
       "id": 0,
-      "name": "canonico"
+      "name": "canonico",
+      "status": {
+        "readable": true
+      }
     }
   ]
 }

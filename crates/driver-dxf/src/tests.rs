@@ -36,6 +36,70 @@ use plenora_io_model::contract::GeometryType;
 use plenora_io_model::crs::CrsResolution;
 
 #[test]
+fn r2_blocchi_sani_e_non_rappresentabili_restano_elencati() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("objects.dxf");
+    let mut drawing = Drawing::new();
+    let mut healthy = Block {
+        name: "Healthy".to_owned(),
+        ..Block::default()
+    };
+    healthy
+        .entities
+        .push(Entity::new(EntityType::ModelPoint(ModelPoint {
+            location: DxfPoint::new(1.0, 2.0, 0.0),
+            ..Default::default()
+        })));
+    drawing.add_block(healthy);
+    let mut external = Block {
+        name: "External".to_owned(),
+        ..Block::default()
+    };
+    external.set_is_xref(true);
+    drawing.add_block(external);
+    let mut broken = Block {
+        name: "Broken".to_owned(),
+        ..Block::default()
+    };
+    broken.entities.push(Entity::new(EntityType::Circle(
+        dxf::entities::Circle::default(),
+    )));
+    drawing.add_block(broken);
+    drawing.save(&mut File::create(&path).unwrap()).unwrap();
+    let ds = DxfDriver
+        .open(
+            Source::Path(path),
+            opzioni_lettura().with_assume_crs("EPSG:4326"),
+        )
+        .unwrap();
+    assert_eq!(ds.layers().len(), 4);
+    for (index, layer) in ds.layers().iter().enumerate() {
+        assert_eq!(layer.id.0 as usize, index);
+        let request = ReadRequest {
+            layer: layer.id,
+            projected_fields: None,
+            projection_mode: ProjectionMode::BestEffort,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: ReadScope::Complete,
+            batch_target: BatchTarget::default(),
+            cancellation: CancellationToken::default(),
+        };
+        if index >= 2 {
+            let listed = ds.rifiuto_del_layer(layer.id).unwrap();
+            let error = ds.open_layer_reader(&request).err().unwrap();
+            assert_eq!(error.code, listed.code);
+            assert_eq!(error.message, listed.message);
+        } else {
+            let mut reader = ds.open_layer_reader(&request).unwrap();
+            if index == 1 {
+                assert_eq!(reader.next_batch().unwrap().unwrap().num_rows(), 1);
+            }
+        }
+    }
+}
+
+#[test]
 fn bounded_output_fails_before_exceeding_the_limit() {
     let mut output = BoundedOutput::new(Vec::new(), 3);
     output.write_all(b"ab").unwrap();
@@ -1454,7 +1518,8 @@ fn row_level_dxf_failure_reports_the_top_level_entity_index() {
             Source::Path(path),
             opzioni_lettura().with_assume_crs("EPSG:4326"),
         )
-        .err()
+        .unwrap()
+        .rifiuto_del_layer(LayerId(0))
         .expect("il CIRCLE degenere deve essere rifiutato");
     let diagnostics = error.row_diagnostics.as_deref().unwrap();
     assert_eq!(diagnostics.examples[0].source_index, 1);

@@ -1,7 +1,7 @@
 //! driver-xls — XLSX ↔ `RecordBatch`. Foglio tabellare: la
 //! geometria è dichiarata via `format_options` (`x_column`+`y_column` XY o
 //! `wkt_column` XY/XYZ/XYM/XYZM), il CRS via `assume_crs` (`PRODUCT.md § CRS`). Foglio scelto con
-//! `format_options["sheet"]` o il primo. Multi-foglio: incremento futuro.
+//! `format_options["sheet"]` o il primo worksheet visibile; tutti i fogli sono enumerati.
 #![forbid(unsafe_code)]
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -261,7 +261,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     plenora_io_core::DeterminismLevel::Semantic,
     Some(WriteMode::Buffered),
     Some(plenora_io_core::DeterminismLevel::Semantic),
-    false, // primo foglio nella v1; multi-foglio futuro
+    false, // Il writer produce un solo foglio; il reader enumera l'intero workbook.
     false,
     ReaderConcurrency::SingleActiveReader,
     plenora_io_core::ProjectionSupport::None,
@@ -305,6 +305,7 @@ impl FormatDriver for XlsDriver {
         &DESCRIPTOR
     }
 
+    #[allow(clippy::too_many_lines)] // Il workbook resta posseduto fino alla chiusura di tutti gli spool.
     fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
         let path = plenora_io_core::preflight_source(self.descriptor(), source, &mut opts)?;
         if !path
@@ -322,49 +323,114 @@ impl FormatDriver for XlsDriver {
         // FZ-0: il panico di calamine sui riferimenti di cella e' impedito
         // qui, prima che la libreria veda il foglio. La barriera resta sotto,
         // ma un panico catturato e' pur sempre un panico avvenuto.
-        valida_riferimenti_cella(&path, opts.budget())?;
+        valida_riferimenti_selezionati(&path, opts.budget(), Some("xl/workbook.xml"))?;
         let mut wb: Xlsx<_> = leggendo_calamine(|| {
             open_workbook(&path).map_err(|_| err(&PublicMessage::Curated("apertura XLSX fallita")))
         })?;
         check_cancelled(opts.cancellation(), ErrorPhase::Read)?;
-        let sheet = match opts.format_options.get("sheet").cloned() {
-            Some(dichiarato) => dichiarato,
-            None => leggendo_calamine(|| Ok(wb.sheet_names().first().cloned()))?
-                .ok_or_else(|| err(&PublicMessage::Curated("nessun foglio nel workbook")))?,
+        let sheets = wb.sheets_metadata().to_vec();
+        let selected = match opts.format_options.get("sheet") {
+            Some(name) => Some(
+                sheets
+                    .iter()
+                    .position(|sheet| &sheet.name == name)
+                    .ok_or_else(|| {
+                        PlenoraIoError::redatto(
+                            plenora_io_model::IoErrorCode::Format,
+                            plenora_io_model::ErrorCategory::InvalidConfiguration,
+                            ErrorPhase::Validate,
+                            plenora_io_model::RemoteEffect::None,
+                            plenora_io_model::RetryDisposition::Never,
+                            &PublicMessage::Curated(
+                                "foglio XLSX inesistente; sheet distingue maiuscole e minuscole",
+                            ),
+                        )
+                    })?,
+            ),
+            None => sheets.iter().position(|sheet| {
+                sheet.typ == calamine::SheetType::WorkSheet
+                    && sheet.visible == calamine::SheetVisible::Visible
+            }),
         };
-        let crs = opts.assume_crs.clone().ok_or_else(|| {
-            PlenoraIoError::crs_redatto(&PublicMessage::Curated(
-                "XLSX con geometria richiede --assume-crs",
-            ))
-        })?;
-        // Il workbook viene lasciato cadere **prima** di propagare l'esito, non
-        // dopo: se `infer_layout` e' rientrato per un panico di calamine, lo
-        // stato attraversato dal panico smette di esistere qui, e non c'e' un
-        // ramo d'errore che possa ancora toccarlo. E' la meta' che riguarda il
-        // workbook della promessa di `leggendo_calamine`; l'altra meta', il
-        // lettore di celle, se la impone da solo.
-        let styles = NativeStyles::read(&path, &sheet, opts.budget())?;
-        let inferenza = infer_layout(
-            &mut wb,
-            &sheet,
-            &opts.format_options,
-            &crs,
-            opts.cancellation(),
-            XlsxQuote::from_read_options(&opts),
-            &styles,
-            opts.budget(),
-        );
+        let mut layers = Vec::new();
+        let mut contents = Vec::new();
+        let mut rifiuti = BTreeMap::new();
+        for (index, sheet) in sheets.iter().enumerate() {
+            opts.ensure_active()?;
+            let id = LayerId(u32::try_from(index).map_err(|_| {
+                PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppi fogli XLSX"))
+            })?);
+            let result = (|| {
+                if sheet.typ != calamine::SheetType::WorkSheet {
+                    return Err(sheet_error(
+                        plenora_io_model::CapabilityReason::ObjectChartSheet,
+                    ));
+                }
+                let crs = opts.assume_crs.clone().ok_or_else(|| {
+                    PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+                        "XLSX con geometria richiede --assume-crs",
+                    ))
+                })?;
+                let styles = NativeStyles::read(&path, &sheet.name, opts.budget())?;
+                infer_layout(
+                    &mut wb,
+                    &sheet.name,
+                    &opts.format_options,
+                    &crs,
+                    opts.cancellation(),
+                    XlsxQuote::from_read_options(&opts),
+                    &styles,
+                    opts.budget(),
+                )
+            })();
+            let (mut contract, content) = match result {
+                Ok((layout, contract, spool)) => (contract, Some((layout, spool))),
+                Err(error)
+                    if matches!(
+                        error.category,
+                        plenora_io_model::ErrorCategory::ResourceLimit
+                            | plenora_io_model::ErrorCategory::Cancelled
+                            | plenora_io_model::ErrorCategory::Timeout
+                    ) =>
+                {
+                    return Err(error)
+                }
+                Err(error) => {
+                    rifiuti.insert(id.0, error);
+                    (DataContract::new(Arc::new(Schema::empty()), None), None)
+                }
+            };
+            let mut metadata = contract.schema.metadata().clone();
+            metadata.insert(
+                "xlsx.visibility".to_owned(),
+                match sheet.visible {
+                    calamine::SheetVisible::Visible => "visible",
+                    calamine::SheetVisible::Hidden => "hidden",
+                    calamine::SheetVisible::VeryHidden => "very_hidden",
+                }
+                .to_owned(),
+            );
+            contract.schema = Arc::new(Schema::new_with_metadata(
+                contract.schema.fields().clone(),
+                metadata,
+            ));
+            layers.push(LayerContract {
+                id,
+                name: sheet.name.clone(),
+                contract,
+            });
+            contents.push(content);
+        }
+        let default_layer = selected
+            .and_then(|index| layers.get(index))
+            .map(|layer| layer.id);
         drop(wb);
-        let (layout, contract, spool) = inferenza?;
         plenora_io_core::with_read_budget(
             Box::new(XlsDataset {
-                layers: vec![LayerContract {
-                    id: LayerId(0),
-                    name: sheet.clone(),
-                    contract,
-                }],
-                layout,
-                spool,
+                layers,
+                contents,
+                rifiuti,
+                default_layer,
                 reader_gate: SingleReaderGate::new(DESCRIPTOR.id()),
             }),
             &opts,
@@ -548,7 +614,16 @@ const MAX_MEMBRI_ARCHIVIO: usize = 4096;
 /// non torna, un XML malformato o piu' parti/byte dei tetti sopra fermano la
 /// lettura con un errore tipizzato. Non c'e' un ramo che, non riuscendo a
 /// controllare, prosegua lo stesso.
+#[cfg(test)]
 fn valida_riferimenti_cella(path: &PathBuf, budget: &OperationBudget) -> Result<()> {
+    valida_riferimenti_selezionati(path, budget, None)
+}
+
+fn valida_riferimenti_selezionati(
+    path: &PathBuf,
+    budget: &OperationBudget,
+    selected: Option<&str>,
+) -> Result<()> {
     let file = std::fs::File::open(path)?;
     let mut archive = zip::ZipArchive::new(file)
         .map_err(|_| err(&PublicMessage::Curated("contenitore XLSX non valido")))?;
@@ -594,7 +669,9 @@ fn valida_riferimenti_cella(path: &PathBuf, budget: &OperationBudget) -> Result<
             && std::path::Path::new(&minuscolo)
                 .extension()
                 .is_some_and(|estensione| estensione.eq_ignore_ascii_case("xml"));
-        if e_foglio || minuscolo == "xl/workbook.xml" {
+        if selected.map_or(e_foglio || minuscolo == "xl/workbook.xml", |part| {
+            nome == part
+        }) {
             indici_nel_perimetro.push(indice);
         }
     }
@@ -725,12 +802,34 @@ fn valida_valore_riferimento(valore: &[u8]) -> Result<()> {
 
 struct XlsDataset {
     layers: Vec<LayerContract>,
-    layout: XlsxLayout,
-    spool: Arc<tempfile::NamedTempFile>,
+    contents: Vec<Option<(XlsxLayout, Arc<tempfile::NamedTempFile>)>>,
+    rifiuti: BTreeMap<u32, PlenoraIoError>,
+    default_layer: Option<LayerId>,
     reader_gate: SingleReaderGate,
 }
 
+fn sheet_error(reason: plenora_io_model::CapabilityReason) -> PlenoraIoError {
+    let message = match reason {
+        plenora_io_model::CapabilityReason::ObjectEmpty => {
+            &PublicMessage::Curated("foglio vuoto; scegliere un altro oggetto con --layer o sheet")
+        }
+        _ => &PublicMessage::Curated(
+            "foglio XLSX non leggibile; scegliere un altro oggetto con --layer o sheet",
+        ),
+    };
+    PlenoraIoError::capability_redatta("xls", None, reason, message)
+}
+
 impl OpenDatasetHandle for XlsDataset {
+    fn preserves_unreadable_objects(&self) -> bool {
+        true
+    }
+    fn default_layer(&self) -> Option<LayerId> {
+        self.default_layer
+    }
+    fn rifiuto_del_layer(&self, layer: LayerId) -> Option<PlenoraIoError> {
+        self.rifiuti.get(&layer.0).cloned()
+    }
     fn layers(&self) -> &[LayerContract] {
         &self.layers
     }
@@ -742,9 +841,20 @@ impl OpenDatasetHandle for XlsDataset {
     }
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
-        let layout = self.layout.clone();
-        let spool = Arc::clone(&self.spool);
-        let layer = self.layers[0].clone();
+        if let Some(error) = self.rifiuto_del_layer(request.layer) {
+            return Err(error);
+        }
+        let index = self
+            .layers
+            .iter()
+            .position(|layer| layer.id == request.layer)
+            .ok_or_else(|| sheet_error(plenora_io_model::CapabilityReason::ObjectMissing))?;
+        let (layout, spool) = self.contents[index]
+            .as_ref()
+            .ok_or_else(|| sheet_error(plenora_io_model::CapabilityReason::ObjectEmpty))?;
+        let layout = layout.clone();
+        let spool = Arc::clone(spool);
+        let layer = self.layers[index].clone();
         let cancellation = request.cancellation.clone();
         let batch_sizer = plenora_io_core::AdaptiveBatchSizer::new(
             layer.contract.schema.as_ref(),
@@ -1587,6 +1697,9 @@ where
         for_each_dense_row(&mut reader, bounds, cancellation, |row_index, row| {
             budget.context().ensure_active()?;
             if row_index == bounds.start.0 {
+                if row.iter().all(|cell| matches!(cell, Data::Empty)) {
+                    return Err(sheet_error(plenora_io_model::CapabilityReason::ObjectEmpty));
+                }
                 let row_headers: Vec<String> = row.iter().map(data_to_string).collect();
                 let (resolved_geom, resolved_columns) =
                     resolve_geometry(&row_headers, bounds.start.1, opts)?;
@@ -1660,7 +1773,7 @@ where
         })?;
     spool_writer.finish()?;
     if observed_cells == 0 {
-        return Err(err(&PublicMessage::Curated("foglio vuoto")));
+        return Err(sheet_error(plenora_io_model::CapabilityReason::ObjectEmpty));
     }
     let headers =
         headers.ok_or_else(|| err(&PublicMessage::Curated("intestazione XLSX assente")))?;

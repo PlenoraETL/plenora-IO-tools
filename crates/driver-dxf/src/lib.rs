@@ -524,6 +524,7 @@ impl FormatDriver for DxfDriver {
         &DESCRIPTOR
     }
 
+    #[allow(clippy::too_many_lines)] // Scansione e spool condividono il budget e la vita del contenitore.
     fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
         let path = plenora_io_core::preflight_source(self.descriptor(), source, &mut opts)?;
         let mut stream = DrawingEntityReader::load_file(&path).map_err(|_| {
@@ -540,6 +541,7 @@ impl FormatDriver for DxfDriver {
         let mut stats = DxfContractStats::default();
         let mut spool_writer = DxfSpoolWriter::new(opts.max_input_bytes(), opts.budget().clone());
         let mut source_index = 0_u64;
+        let mut model_error = None;
         while let Some(entity) = stream.next_entity().map_err(|_| {
             read_row_error(
                 err(&PublicMessage::Curated("lettura di un'entità DXF fallita")),
@@ -550,18 +552,28 @@ impl FormatDriver for DxfDriver {
         })? {
             opts.ensure_active()?;
             let mut visiting = HashSet::new();
-            walker
-                .walk_entity(&entity, Transform3::IDENTITY, "0", 0, &mut visiting)
-                .map_err(|error| {
-                    read_row_error(
+            if model_error.is_none() {
+                let result = walker
+                    .walk_entity(&entity, Transform3::IDENTITY, "0", 0, &mut visiting)
+                    .and_then(|()| stats.observe(&walker, opts.cancellation()))
+                    .and_then(|()| spool_writer.write_and_clear(&mut walker, opts.cancellation()));
+                if let Err(error) = result {
+                    if matches!(
+                        error.category,
+                        plenora_io_model::ErrorCategory::ResourceLimit
+                            | plenora_io_model::ErrorCategory::Cancelled
+                            | plenora_io_model::ErrorCategory::Timeout
+                    ) {
+                        return Err(error);
+                    }
+                    model_error = Some(read_row_error(
                         error,
                         Some(source_index),
                         "dxf.entity_not_representable",
                         Some(GEOMETRY),
-                    )
-                })?;
-            stats.observe(&walker, opts.cancellation())?;
-            spool_writer.write_and_clear(&mut walker, opts.cancellation())?;
+                    ));
+                }
+            }
             source_index = source_index.checked_add(1).ok_or_else(|| {
                 PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppe entita DXF"))
             })?;
@@ -572,26 +584,63 @@ impl FormatDriver for DxfDriver {
                 "chiusura della scansione DXF fallita",
             ))
         })?;
-        rifiuta_entita_non_supportate_nel_modello(&drawing)?;
+        if let Err(error) = rifiuta_entita_non_supportate_nel_modello(&drawing) {
+            model_error = Some(error);
+        }
         let crs = resolve_dxf_crs(&drawing, &opts)?;
         let loss = walker.loss.clone();
-        let contract = dxf_contract(crs, stats.dimensions(), stats.geometry_types)?;
+        let contract = dxf_contract(crs.clone(), stats.dimensions(), stats.geometry_types)?;
         let name = path
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("layer")
             .to_owned();
+        let mut layers = vec![LayerContract {
+            id: LayerId(0),
+            name,
+            contract,
+        }];
+        let mut objects = vec![Some((spool, walker.emitted_rows, loss))];
+        let mut rifiuti = std::collections::BTreeMap::new();
+        if let Some(error) = model_error {
+            rifiuti.insert(0, error);
+        }
+        for block in drawing.blocks() {
+            opts.ensure_active()?;
+            let id = LayerId(u32::try_from(layers.len()).map_err(|_| {
+                PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppi blocchi DXF"))
+            })?);
+            let result = read_block_object(&drawing, block, &opts, &crs);
+            let (contract, content) = match result {
+                Ok((contract, spool, rows, loss)) => (contract, Some((spool, rows, loss))),
+                Err(error)
+                    if matches!(
+                        error.category,
+                        plenora_io_model::ErrorCategory::ResourceLimit
+                            | plenora_io_model::ErrorCategory::Cancelled
+                            | plenora_io_model::ErrorCategory::Timeout
+                    ) =>
+                {
+                    return Err(error)
+                }
+                Err(error) => {
+                    rifiuti.insert(id.0, error);
+                    (DataContract::new(Arc::new(Schema::empty()), None), None)
+                }
+            };
+            layers.push(LayerContract {
+                id,
+                name: block.name.clone(),
+                contract,
+            });
+            objects.push(content);
+        }
         plenora_io_core::with_read_budget(
             Box::new(DxfDataset {
-                layers: vec![LayerContract {
-                    id: LayerId(0),
-                    name,
-                    contract,
-                }],
-                spool,
-                rows: walker.emitted_rows,
+                layers,
+                objects,
+                rifiuti,
                 wkb_limits: opts.wkb_limits(),
-                loss,
                 reader_gate: SingleReaderGate::new(DESCRIPTOR.id()),
             }),
             &opts,
@@ -1569,16 +1618,54 @@ fn read_dxf_spool_string(input: &mut impl Read) -> Result<Option<String>> {
         .map_err(|_| err(&PublicMessage::Curated("testo dello spool DXF non UTF-8")))
 }
 
+fn read_block_object(
+    drawing: &Drawing,
+    block: &Block,
+    opts: &ReadOptions,
+    crs: &ResolvedCrs,
+) -> Result<(DataContract, DxfSpoolStorage, usize, LossReport)> {
+    if block.is_xref()
+        || block.is_xref_overlay()
+        || drawing.block_has_unsupported_entities(&block.name)
+    {
+        return Err(PlenoraIoError::capability_redatta(
+            "dxf",
+            None,
+            plenora_io_model::CapabilityReason::TypeNotRepresentable,
+            &PublicMessage::Curated("blocco DXF esterno o con entita non supportate"),
+        ));
+    }
+    let mut walker = Walker::new(
+        drawing,
+        DxfQuote::from_read_options(opts),
+        opts.cancellation(),
+    )?;
+    let mut stats = DxfContractStats::default();
+    let mut output = DxfSpoolWriter::new(opts.max_input_bytes(), opts.budget().clone());
+    for entity in &block.entities {
+        walker.walk_entity(entity, Transform3::IDENTITY, "0", 0, &mut HashSet::new())?;
+        stats.observe(&walker, opts.cancellation())?;
+        output.write_and_clear(&mut walker, opts.cancellation())?;
+    }
+    let contract = dxf_contract(crs.clone(), stats.dimensions(), stats.geometry_types)?;
+    Ok((contract, output.finish()?, walker.emitted_rows, walker.loss))
+}
+
 struct DxfDataset {
     layers: Vec<LayerContract>,
-    spool: DxfSpoolStorage,
-    rows: usize,
+    objects: Vec<Option<(DxfSpoolStorage, usize, LossReport)>>,
+    rifiuti: std::collections::BTreeMap<u32, PlenoraIoError>,
     wkb_limits: WkbLimits,
-    loss: LossReport,
     reader_gate: SingleReaderGate,
 }
 
 impl OpenDatasetHandle for DxfDataset {
+    fn preserves_unreadable_objects(&self) -> bool {
+        true
+    }
+    fn rifiuto_del_layer(&self, layer: LayerId) -> Option<PlenoraIoError> {
+        self.rifiuti.get(&layer.0).cloned()
+    }
     fn layers(&self) -> &[LayerContract] {
         &self.layers
     }
@@ -1587,19 +1674,29 @@ impl OpenDatasetHandle for DxfDataset {
             DESCRIPTOR.id(),
             DESCRIPTOR.fidelity_class(),
         )
-        .with_loss_report(&self.loss)
     }
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
+        if let Some(error) = self.rifiuto_del_layer(request.layer) {
+            return Err(error);
+        }
+        let index = self
+            .layers
+            .iter()
+            .position(|layer| layer.id == request.layer)
+            .ok_or_else(|| err(&PublicMessage::Curated("oggetto DXF inesistente")))?;
+        let (spool, rows, loss) = self.objects[index]
+            .as_ref()
+            .ok_or_else(|| err(&PublicMessage::Curated("blocco DXF non leggibile")))?;
         let reader = self.reader_gate.open(request.layer, || {
             Ok(Box::new(DxfReader {
-                input: self.spool.reader()?,
-                remaining_rows: self.rows,
+                input: spool.reader()?,
+                remaining_rows: *rows,
                 wkb_limits: self.wkb_limits,
-                layer: self.layers[0].clone(),
-                loss: self.loss.clone(),
+                layer: self.layers[index].clone(),
+                loss: loss.clone(),
                 batch_sizer: plenora_io_core::AdaptiveBatchSizer::new(
-                    self.layers[0].contract.schema.as_ref(),
+                    self.layers[index].contract.schema.as_ref(),
                     request.batch_target,
                 ),
                 cancellation: request.cancellation.clone(),
@@ -2223,6 +2320,14 @@ impl Walker {
             insert.z_scale_factor,
         ));
         if let Some(block) = self.blocks.get(&insert.name).cloned() {
+            if block.is_xref() || block.is_xref_overlay() {
+                return Err(PlenoraIoError::capability_redatta(
+                    "dxf",
+                    None,
+                    plenora_io_model::CapabilityReason::TypeNotRepresentable,
+                    &PublicMessage::Curated("riferimento DXF esterno non rappresentabile"),
+                ));
+            }
             self.loss.record("blocco INSERT esploso", 1);
             for entity in &block.entities {
                 self.walk_entity(entity, composed, layer, depth + 1, visiting)?;

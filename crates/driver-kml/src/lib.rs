@@ -350,17 +350,20 @@ impl FormatDriver for KmlDriver {
         let path = plenora_io_core::preflight_source(self.descriptor(), source, &mut opts)?;
         let mut stream = PlacemarkStream::open(&path)?;
         let mut stats = KmlContractStats::default();
+        let mut unsupported_prefix = vec![0_u64];
+        let mut rifiuti = std::collections::BTreeMap::new();
         let spool = Arc::new(tempfile::NamedTempFile::new()?);
         let mut spool_writer = KmlSpoolWriter::new(
             spool.as_file(),
             opts.max_input_bytes(),
             opts.budget().clone(),
         );
-        while let Some(placemark) = stream.next_placemark(
+        while let Some(placemark) = stream.next_isolated_placemark(
             opts.cancellation(),
             u64::try_from(stats.rows).map_err(|_| {
                 PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppe righe KML"))
             })?,
+            &mut rifiuti,
         )? {
             opts.ensure_active()?;
             if stats.rows >= opts.max_rows() {
@@ -387,6 +390,7 @@ impl FormatDriver for KmlDriver {
                 placemark.name.as_deref(),
                 placemark.description.as_deref(),
             )?;
+            unsupported_prefix.push(stream.unsupported);
         }
         spool_writer.finish()?;
         let rows = stats.rows;
@@ -396,15 +400,46 @@ impl FormatDriver for KmlDriver {
             .and_then(|s| s.to_str())
             .unwrap_or("layer")
             .to_owned();
+        let mut layers = vec![LayerContract {
+            id: LayerId(0),
+            name,
+            contract: contract.clone(),
+        }];
+        let mut ranges = vec![(0, rows)];
+        for (name, start, end) in stream.objects {
+            let id = LayerId(u32::try_from(layers.len()).map_err(|_| {
+                PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppi oggetti KML"))
+            })?);
+            layers.push(LayerContract {
+                id,
+                name,
+                contract: contract.clone(),
+            });
+            ranges.push((
+                usize::try_from(start)
+                    .map_err(|_| err(&PublicMessage::Curated("indice KML fuori intervallo")))?,
+                usize::try_from(end - start)
+                    .map_err(|_| err(&PublicMessage::Curated("conteggio KML fuori intervallo")))?,
+            ));
+        }
+        let losses = ranges
+            .iter()
+            .map(|(start, length)| {
+                let mut loss = LossReport::default();
+                let count = unsupported_prefix[start + length] - unsupported_prefix[*start];
+                if count > 0 {
+                    loss.record("kml.unsupported_geometry", count);
+                }
+                loss
+            })
+            .collect();
         plenora_io_core::with_read_budget(
             Box::new(KmlDataset {
-                layers: vec![LayerContract {
-                    id: LayerId(0),
-                    name,
-                    contract,
-                }],
+                layers,
                 spool,
-                rows,
+                ranges,
+                losses,
+                rifiuti,
                 reader_gate: SingleReaderGate::new(DESCRIPTOR.id()),
             }),
             &opts,
@@ -479,11 +514,19 @@ impl FormatDriver for KmlDriver {
 struct KmlDataset {
     layers: Vec<LayerContract>,
     spool: Arc<tempfile::NamedTempFile>,
-    rows: usize,
+    ranges: Vec<(usize, usize)>,
+    losses: Vec<LossReport>,
+    rifiuti: std::collections::BTreeMap<u32, PlenoraIoError>,
     reader_gate: SingleReaderGate,
 }
 
 impl OpenDatasetHandle for KmlDataset {
+    fn rifiuto_del_layer(&self, layer: LayerId) -> Option<PlenoraIoError> {
+        self.rifiuti.get(&layer.0).cloned()
+    }
+    fn preserves_unreadable_objects(&self) -> bool {
+        true
+    }
     fn layers(&self) -> &[LayerContract] {
         &self.layers
     }
@@ -494,14 +537,30 @@ impl OpenDatasetHandle for KmlDataset {
         )
     }
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
+        if let Some(error) = self.rifiuto_del_layer(request.layer) {
+            return Err(error);
+        }
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
+        let index = self
+            .layers
+            .iter()
+            .position(|layer| layer.id == request.layer)
+            .ok_or_else(|| err(&PublicMessage::Curated("oggetto KML inesistente")))?;
         let reader = self.reader_gate.open(request.layer, || {
+            let mut input = BufReader::with_capacity(KML_IO_BUFFER_BYTES, self.spool.reopen()?);
+            for _ in 0..self.ranges[index].0 {
+                check_cancelled(&request.cancellation, ErrorPhase::Read)?;
+                read_spool_value(&mut input)?;
+                read_spool_string(&mut input)?;
+                read_spool_string(&mut input)?;
+            }
             Ok(Box::new(KmlReader {
-                input: BufReader::with_capacity(KML_IO_BUFFER_BYTES, self.spool.reopen()?),
-                remaining_rows: self.rows,
-                layer: self.layers[0].clone(),
+                input,
+                loss: self.losses[index].clone(),
+                remaining_rows: self.ranges[index].1,
+                layer: self.layers[index].clone(),
                 batch_sizer: plenora_io_core::AdaptiveBatchSizer::new(
-                    self.layers[0].contract.schema.as_ref(),
+                    self.layers[index].contract.schema.as_ref(),
                     request.batch_target,
                 ),
                 cancellation: request.cancellation.clone(),
@@ -516,6 +575,7 @@ impl OpenDatasetHandle for KmlDataset {
 }
 
 struct KmlReader {
+    loss: LossReport,
     input: BufReader<File>,
     remaining_rows: usize,
     layer: LayerContract,
@@ -524,6 +584,9 @@ struct KmlReader {
 }
 
 impl LayerReader for KmlReader {
+    fn loss_report(&self) -> LossReport {
+        self.loss.clone()
+    }
     fn contract(&self) -> &LayerContract {
         &self.layer
     }
@@ -698,6 +761,9 @@ struct PlacemarkStream {
     xml_depth: usize,
     element_stack: Vec<Vec<u8>>,
     open_points_with_coordinates: Vec<bool>,
+    unsupported: u64,
+    objects: Vec<(String, u64, u64)>,
+    object_stack: Vec<usize>,
 }
 
 impl PlacemarkStream {
@@ -718,6 +784,9 @@ impl PlacemarkStream {
             xml_depth: 0,
             element_stack: Vec::new(),
             open_points_with_coordinates: Vec::new(),
+            unsupported: 0,
+            objects: Vec::new(),
+            object_stack: Vec::new(),
         })
     }
 
@@ -1048,9 +1117,9 @@ impl PlacemarkStream {
                 self.read_multi_geometry(cancellation)?,
             )),
             b"Model" | b"Track" | b"MultiTrack" => {
-                return Err(err(&PublicMessage::Curated(
-                    "geometria KML non supportata dal contratto corrente",
-                )))
+                self.unsupported = self.unsupported.saturating_add(1);
+                self.skip_element(cancellation)?;
+                None
             }
             _ => {
                 self.skip_element(cancellation)?;
@@ -1061,12 +1130,18 @@ impl PlacemarkStream {
 
     fn read_placemark(&mut self, cancellation: &CancellationToken) -> Result<Placemark> {
         let mut placemark = Placemark::default();
+        let unsupported_before = self.unsupported;
         loop {
             match self.next_event(cancellation)? {
                 Event::Start(element) => match element.local_name().as_ref().as_bytes() {
                     b"name" => placemark.name = Some(self.read_text(cancellation)?),
                     b"description" => placemark.description = Some(self.read_text(cancellation)?),
                     name => {
+                        if element.name().as_ref().starts_with("gx:")
+                            && !matches!(name, b"Track" | b"MultiTrack")
+                        {
+                            self.unsupported = self.unsupported.saturating_add(1);
+                        }
                         if let Some(geometry) = self.read_geometry(name, cancellation)? {
                             if placemark.geometry.is_some() {
                                 return Err(err(&PublicMessage::Curated(
@@ -1077,8 +1152,19 @@ impl PlacemarkStream {
                         }
                     }
                 },
+                Event::Empty(element)
+                    if matches!(
+                        element.local_name().as_ref(),
+                        "Model" | "Track" | "MultiTrack"
+                    ) || element.name().as_ref().starts_with("gx:") =>
+                {
+                    self.unsupported = self.unsupported.saturating_add(1);
+                }
                 Event::End(element) if element.local_name().as_ref() == "Placemark" => {
-                    return Ok(placemark)
+                    if self.unsupported != unsupported_before {
+                        placemark.geometry = None;
+                    }
+                    return Ok(placemark);
                 }
                 Event::Eof => {
                     return Err(err(&PublicMessage::Curated(
@@ -1087,6 +1173,38 @@ impl PlacemarkStream {
                 }
                 _ => {}
             }
+        }
+    }
+
+    fn next_isolated_placemark(
+        &mut self,
+        cancellation: &CancellationToken,
+        source_index: u64,
+        rejections: &mut std::collections::BTreeMap<u32, PlenoraIoError>,
+    ) -> Result<Option<Placemark>> {
+        match self.next_placemark(cancellation, source_index) {
+            Err(error)
+                if error.category == plenora_io_model::ErrorCategory::DataMapping
+                    && self
+                        .element_stack
+                        .iter()
+                        .any(|name| local_xml_name(name) == b"Placemark") =>
+            {
+                while self
+                    .element_stack
+                    .iter()
+                    .any(|name| local_xml_name(name) == b"Placemark")
+                {
+                    self.next_event(cancellation)?;
+                }
+                let id = u32::try_from(self.objects.len()).map_err(|_| {
+                    PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppi oggetti KML"))
+                })?;
+                rejections.insert(id, error);
+                self.unsupported = self.unsupported.saturating_add(1);
+                Ok(Some(Placemark::default()))
+            }
+            result => result,
         }
     }
 
@@ -1102,6 +1220,8 @@ impl PlacemarkStream {
                     if element.local_name().as_ref() == "Placemark"
                         && self.traversed_by_legacy_reader() =>
                 {
+                    self.objects
+                        .push(("Placemark".to_owned(), source_index, source_index + 1));
                     return self
                         .read_placemark(cancellation)
                         .map(Some)
@@ -1118,13 +1238,37 @@ impl PlacemarkStream {
                     if element.local_name().as_ref() == "Placemark"
                         && self.traversed_by_legacy_reader() =>
                 {
+                    self.objects
+                        .push(("Placemark".to_owned(), source_index, source_index + 1));
                     return Ok(Some(Placemark::default()));
                 }
+                Event::Empty(element)
+                    if matches!(element.local_name().as_ref(), "Document" | "Folder") =>
+                {
+                    self.objects.push((
+                        element.local_name().as_ref().to_owned(),
+                        source_index,
+                        source_index,
+                    ));
+                }
                 Event::Start(element) => {
+                    if matches!(element.local_name().as_ref(), "Document" | "Folder") {
+                        self.object_stack.push(self.objects.len());
+                        self.objects.push((
+                            element.local_name().as_ref().to_owned(),
+                            source_index,
+                            source_index,
+                        ));
+                    }
                     self.ancestors
                         .push(element.name().as_ref().as_bytes().to_vec());
                 }
-                Event::End(_) => {
+                Event::End(element) => {
+                    if matches!(element.local_name().as_ref(), "Document" | "Folder") {
+                        if let Some(index) = self.object_stack.pop() {
+                            self.objects[index].2 = source_index;
+                        }
+                    }
                     self.ancestors.pop();
                 }
                 Event::Eof => return Ok(None),

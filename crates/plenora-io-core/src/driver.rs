@@ -704,6 +704,17 @@ pub trait FormatDriver: Send + Sync {
 
 pub trait OpenDatasetHandle: Send + Sync {
     fn layers(&self) -> &[LayerContract];
+
+    /// Il formato espone gli errori locali come stati degli oggetti enumerati.
+    fn preserves_unreadable_objects(&self) -> bool {
+        false
+    }
+
+    /// Oggetto scelto quando la richiesta non specifica un indice.
+    fn default_layer(&self) -> Option<plenora_io_model::contract::LayerId> {
+        self.layers().first().map(|layer| layer.id)
+    }
+
     /// Valutazione di fedeltà concreta per il dataset aperto (`PRODUCT.md § LossReport`).
     fn fidelity_assessment(&self) -> FidelityAssessment;
     /// Apre un reader indipendente per un layer; lo STATO mutabile vive nel
@@ -720,10 +731,8 @@ pub trait OpenDatasetHandle: Send + Sync {
     /// (`verifica_crs_emesso`, `--assume-crs`) o il driver non l'ha risolto.
     ///
     /// Un layer rifiutato non rende illeggibili gli altri: `open_layer_reader`
-    /// su di lui restituisce questo errore, e chi descrive tutti i layer
-    /// (`io.inspect`, `io.layers`) deve chiederlo e fallire, perche' il suo
-    /// contratto non e' una descrizione di cui il bordo risponda. Il default e'
-    /// nessun rifiuto: un dataset a un layer fallisce gia' all'apertura.
+    /// su di lui restituisce questo errore. L'enumerazione conserva l'oggetto
+    /// e pubblica il rifiuto come stato, senza interpretare il contratto vuoto.
     fn rifiuto_del_layer(&self, _layer: LayerId) -> Option<PlenoraIoError> {
         None
     }

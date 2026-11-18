@@ -111,12 +111,16 @@
       "ResourceLimit/Validate/LimitExceeded/Never"
     ],
     "open": [
+      "ResourceLimit/Validate/LimitExceeded/Never",
       "ResourceLimit/Validate/LimitExceeded/Never"
     ],
     "push": [
       "ResourceLimit/Validate/LimitExceeded/Never",
       "ResourceLimit/Validate/LimitExceeded/Never",
       "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "read_block_object": [
+      "Unsupported/Validate/Capability/Never"
     ],
     "resolve_dxf_crs": [
       "Crs/Validate/Crs/Never",
@@ -128,6 +132,9 @@
       "Crs/Validate/CrsUnresolved/Never",
       "Crs/Validate/Crs/Never",
       "Crs/Validate/CrsUnresolved/Never"
+    ],
+    "walk_insert": [
+      "Unsupported/Validate/Capability/Never"
     ],
     "write": [
       "ResourceLimit/Validate/LimitExceeded/Never",
@@ -158,6 +165,9 @@
     "geometry_capability": [
       "Unsupported/Validate/Capability/Never"
     ],
+    "internal_file_error": [
+      "Unsupported/Validate/Capability/Never"
+    ],
     "layer_spatial_ref": [
       "Crs/Validate/Crs/Never",
       "Crs/Validate/CrsUnresolved/Never",
@@ -173,6 +183,9 @@
     ],
     "open": [
       "Unsupported/Validate/Unsupported/Never"
+    ],
+    "open_objects": [
+      "ResourceLimit/Validate/LimitExceeded/Never"
     ],
     "resolve_layer_crs": [
       "Crs/Validate/Crs/Never",
@@ -256,6 +269,9 @@
     "geometry_type_label": [
       "Unsupported/Validate/Unsupported/Never"
     ],
+    "open": [
+      "Unsupported/Validate/Unsupported/Never"
+    ],
     "resolve_geometry_and_crs": [
       "Schema/Validate/Schema/Never",
       "Unsupported/Validate/Unsupported/Never"
@@ -308,11 +324,14 @@
     "err": [
       "DataMapping/Read/Format/Never"
     ],
-    "feature_tables": [
-      "Unsupported/Validate/Unsupported/Never"
-    ],
     "layer_crs": [
       "Crs/Validate/Crs/Never"
+    ],
+    "object_error": [
+      "Unsupported/Validate/Capability/Never"
+    ],
+    "open": [
+      "ResourceLimit/Validate/LimitExceeded/Never"
     ],
     "register_srs": [
       "Unsupported/Validate/Unsupported/Never",
@@ -350,7 +369,11 @@
     "err": [
       "DataMapping/Read/Format/Never"
     ],
+    "next_isolated_placemark": [
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
     "open": [
+      "ResourceLimit/Validate/LimitExceeded/Never",
       "ResourceLimit/Validate/LimitExceeded/Never",
       "ResourceLimit/Validate/LimitExceeded/Never",
       "ResourceLimit/Validate/LimitExceeded/Never"
@@ -444,12 +467,17 @@
     ],
     "open": [
       "Unsupported/Validate/Unsupported/Never",
+      "esplicito/esplicito/Format/esplicito",
+      "ResourceLimit/Validate/LimitExceeded/Never",
       "Crs/Validate/Crs/Never"
     ],
     "resolve_geometry": [
       "esplicito/esplicito/Generic/esplicito"
     ],
-    "valida_riferimenti_cella": [
+    "sheet_error": [
+      "Unsupported/Validate/Capability/Never"
+    ],
+    "valida_riferimenti_selezionati": [
       "ResourceLimit/Validate/LimitExceeded/Never",
       "ResourceLimit/Validate/LimitExceeded/Never"
     ],

@@ -33,7 +33,10 @@
       "field_count": 9,
       "geometry_crs": "EPSG:3003",
       "id": 0,
-      "name": "principale"
+      "name": "principale",
+      "status": {
+        "readable": true
+      }
     }
   ]
 }

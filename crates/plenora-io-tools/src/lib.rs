@@ -146,6 +146,12 @@ fn err_doc(code: &str, error: &PlenoraIoError) -> Value {
             }
         }
     }
+    if let Some(reason) = error.capability_reason {
+        if error_document.get("details").is_none() {
+            error_document["details"] = json!({});
+        }
+        error_document["details"]["capability_reason"] = json!(reason);
+    }
     let busta_intera = json!({
         "status": "error",
         "protocol_version": busta::PROTOCOLLO,
@@ -599,18 +605,40 @@ fn open_source(cli: &Cli) -> Result<(Box<dyn FormatDriver>, PathBuf), (i32, Valu
     Ok((driver, path))
 }
 
-/// `io.inspect` e `io.layers` descrivono **tutti** i layer: un layer rifiutato
-/// ([`plenora_io_core::driver::OpenDatasetHandle::rifiuto_del_layer`], un CRS
-/// che non passa le verifiche comuni) li fa fallire con il suo rifiuto, invece di comparire nell'elenco
-/// come se fosse leggibile. Gli altri layer restano leggibili con
-/// `io.read --layer`.
-fn tutti_i_layer_descrivibili(
+fn selected_layer_id(
+    cli: &Cli,
+    dataset: &dyn plenora_io_core::driver::OpenDatasetHandle,
+) -> Result<u32, (i32, Value)> {
+    cli.layer
+        .or_else(|| dataset.default_layer().map(|id| id.0))
+        .ok_or_else(|| {
+            local_err_doc(
+                "NO_LAYER",
+                ErrorCategory::NotFound,
+                ErrorPhase::Prepare,
+                &PublicMessage::Curated(
+                    "nessun oggetto predefinito disponibile; scegliere --layer o sheet",
+                ),
+            )
+        })
+}
+
+fn layer_status(
     ds: &dyn plenora_io_core::driver::OpenDatasetHandle,
-) -> Result<(), PlenoraIoError> {
-    ds.layers()
-        .iter()
-        .find_map(|layer| ds.rifiuto_del_layer(layer.id))
-        .map_or(Ok(()), Err)
+    id: plenora_io_model::contract::LayerId,
+) -> Value {
+    let mut status = ds.rifiuto_del_layer(id).map_or_else(
+        || json!({"readable": true}),
+        |error| json!({"readable": false, "error": map_err(error).1}),
+    );
+    if let Some(visibility) = ds
+        .layers()
+        .get(id.0 as usize)
+        .and_then(|layer| layer.contract.schema.metadata().get("xlsx.visibility"))
+    {
+        status["visibility"] = json!(visibility);
+    }
+    status
 }
 
 /// `io.inspect`. La porta pubblica e' `operazioni::inspect`.
@@ -623,9 +651,16 @@ pub fn cmd_inspect(cli: &Cli) -> CliResult {
     let (driver, path) = open_source(cli)?;
     let ropts = read_options(cli).map_err(map_err)?;
     let ds = driver.open(Source::Path(path), ropts).map_err(map_err)?;
-    tutti_i_layer_descrivibili(ds.as_ref()).map_err(map_err)?;
     let fidelity = ds.fidelity_assessment();
-    let layers: Vec<Value> = ds.layers().iter().map(layer_json).collect();
+    let layers: Vec<Value> = ds
+        .layers()
+        .iter()
+        .map(|layer| {
+            let mut value = layer_json(layer);
+            value["status"] = layer_status(ds.as_ref(), layer.id);
+            value
+        })
+        .collect();
     Ok(json!({
 
         "format": serde_json::to_value(driver.descriptor()).unwrap_or(Value::Null),
@@ -643,7 +678,6 @@ pub fn cmd_layers(cli: &Cli) -> CliResult {
     let (driver, path) = open_source(cli)?;
     let ropts = read_options(cli).map_err(map_err)?;
     let ds = driver.open(Source::Path(path), ropts).map_err(map_err)?;
-    tutti_i_layer_descrivibili(ds.as_ref()).map_err(map_err)?;
     let fidelity = ds.fidelity_assessment();
     let layers: Vec<Value> = ds
         .layers()
@@ -651,6 +685,7 @@ pub fn cmd_layers(cli: &Cli) -> CliResult {
         .map(|l| {
             json!({
                 "id": l.id.0,
+                "status": layer_status(ds.as_ref(), l.id),
                 "name": l.name,
                 "geometry_crs": l
                     .contract
@@ -1059,7 +1094,7 @@ pub fn cmd_read(cli: &Cli) -> CliResult {
     let ropts = read_options(cli).map_err(map_err)?;
     let ds = driver.open(Source::Path(path), ropts).map_err(map_err)?;
     let fidelity_iniziale = ds.fidelity_assessment();
-    let layer_id = cli.layer.unwrap_or(0);
+    let layer_id = selected_layer_id(cli, ds.as_ref())?;
     let contract = ds
         .layers()
         .iter()
@@ -1349,10 +1384,14 @@ pub fn cmd_convert(cli: &Cli) -> CliResult {
     let ds = src.open(Source::Path(in_path), ropts).map_err(map_err)?;
     let initial_read_fidelity = ds.fidelity_assessment();
 
-    // Layer da convertire: `--layer` ne sceglie uno, altrimenti tutti.
+    // La selezione predefinita coincide con quella di read.
     let all: Vec<LayerContract> = ds.layers().to_vec();
-    let selected: Vec<LayerContract> = match cli.layer {
-        Some(id) => vec![all.iter().find(|l| l.id.0 == id).cloned().ok_or_else(|| {
+    let id = selected_layer_id(cli, ds.as_ref())?;
+    let selected = vec![all
+        .iter()
+        .find(|layer| layer.id.0 == id)
+        .cloned()
+        .ok_or_else(|| {
             local_err_doc(
                 "NO_LAYER",
                 ErrorCategory::NotFound,
@@ -1362,9 +1401,7 @@ pub fn cmd_convert(cli: &Cli) -> CliResult {
                     NumeroStrutturale::Indice(u64::from(id)),
                 ),
             )
-        })?],
-        None => all,
-    };
+        })?];
     // Multi-layer verso destinazione single-layer: vietato (fail-closed).
     if selected.len() > 1 && !dst.descriptor().multi_layer() {
         return Err(local_err_doc(
