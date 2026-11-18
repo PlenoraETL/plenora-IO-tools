@@ -835,14 +835,14 @@ impl PlacemarkStream {
             "name" | "description" if matches!(parent, Some(b"Document" | b"Folder")) => {
                 Some(NativeElement::LayerMetadata)
             }
-            "MultiGeometry" => Some(NativeElement::GeometryType),
             "LinearRing" if !matches!(parent, Some(b"outerBoundaryIs" | b"innerBoundaryIs")) => {
                 Some(NativeElement::GeometryType)
             }
 
-            "coordinates" | "extrude" | "kml" | "Document" | "Placemark" | "Point"
-            | "LineString" | "Polygon" | "LinearRing" | "outerBoundaryIs" | "innerBoundaryIs"
-            | "name" | "description" | "altitudeMode" | "value" => None,
+            "MultiGeometry" | "coordinates" | "extrude" | "tessellate" | "kml" | "Document"
+            | "Placemark" | "Point" | "LineString" | "Polygon" | "LinearRing"
+            | "outerBoundaryIs" | "innerBoundaryIs" | "name" | "description" | "altitudeMode"
+            | "value" => None,
             _ => Some(NativeElement::ForeignMembers),
         };
         let mut layers = vec![0];
@@ -1120,7 +1120,9 @@ impl PlacemarkStream {
                 Event::Start(element) if element.local_name().as_ref() == "altitudeMode" => {
                     absolute = self.read_text(cancellation)?.trim() == "absolute";
                 }
-                Event::Start(element) if element.local_name().as_ref() == "extrude" => {
+                Event::Start(element)
+                    if matches!(element.local_name().as_ref(), "extrude" | "tessellate") =>
+                {
                     if !matches!(self.read_text(cancellation)?.trim(), "0" | "false") {
                         self.observe_scoped(NativeElement::ForeignMembers);
                     }
@@ -1160,7 +1162,9 @@ impl PlacemarkStream {
                         self.read_geometry_coordinates(b"LinearRing", cancellation)?,
                     ));
                 }
-                Event::Start(element) if element.local_name().as_ref() == "extrude" => {
+                Event::Start(element)
+                    if matches!(element.local_name().as_ref(), "extrude" | "tessellate") =>
+                {
                     if !matches!(self.read_text(cancellation)?.trim(), "0" | "false") {
                         self.observe_scoped(NativeElement::ForeignMembers);
                     }
@@ -1203,7 +1207,9 @@ impl PlacemarkStream {
                 Event::Start(element) if element.local_name().as_ref() == "altitudeMode" => {
                     absolute = self.read_text(cancellation)?.trim() == "absolute";
                 }
-                Event::Start(element) if element.local_name().as_ref() == "extrude" => {
+                Event::Start(element)
+                    if matches!(element.local_name().as_ref(), "extrude" | "tessellate") =>
+                {
                     if !matches!(self.read_text(cancellation)?.trim(), "0" | "false") {
                         self.observe_scoped(NativeElement::ForeignMembers);
                     }

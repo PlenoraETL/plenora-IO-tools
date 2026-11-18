@@ -1012,7 +1012,7 @@ fn native_inventory_kml_reproduction() {
         ("kml_extended_data_not_preserved", 1),
         ("kml_hierarchy_flattened", 1),
         ("kml_altitude_mode_not_preserved", 1),
-        ("native_geometry_type_changed", 2),
+        ("native_geometry_type_changed", 1),
         ("kml.unsupported_geometry", 1),
     ] {
         assert_eq!(loss.counts[category], count, "{category}");

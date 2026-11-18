@@ -1728,6 +1728,7 @@ where
     let mut geom = None;
     let mut geom_columns = BTreeSet::new();
     let mut accumulators: Vec<TypeAccumulator> = Vec::new();
+    let mut non_text_cells: Vec<u64> = Vec::new();
     let mut temporal = vec![None; width];
     let mut ordinary = vec![false; width];
     let mut detected_dimensions = BTreeSet::new();
@@ -1747,6 +1748,7 @@ where
                 let (resolved_geom, resolved_columns) =
                     resolve_geometry(&row_headers, bounds.start.1, opts)?;
                 accumulators = vec![TypeAccumulator::default(); width - resolved_columns.len()];
+                non_text_cells = vec![0; accumulators.len()];
                 geom = Some(resolved_geom);
                 geom_columns = resolved_columns;
                 headers = Some(row_headers);
@@ -1821,7 +1823,11 @@ where
                             )));
                         }
                     }
-                    accumulators[attribute_index].observe(classify_data(data)?);
+                    let class = classify_data(data)?;
+                    if !matches!(class, ObservedValueClass::Null | ObservedValueClass::Text) {
+                        non_text_cells[attribute_index] += 1;
+                    }
+                    accumulators[attribute_index].observe(class);
                     spool_writer.data(data)?;
                 }
                 attribute_index += 1;
@@ -1921,6 +1927,18 @@ where
             continue;
         }
         let column_type = accumulators[attribute_index].column_type();
+        if column_type == ColType::Text && temporal[attribute_index].is_none() {
+            // The final column type, not the presence of inference, determines
+            // whether native numbers/booleans actually become strings.
+            loss_table::observe_native(
+                &mut native_loss,
+                (NativeDriver::Xls, TransportDirection::Read),
+                NativeElement::Inference,
+                non_text_cells[attribute_index],
+                quote.layer,
+                Some(u64::from(column)),
+            );
+        }
         fields.push(Field::new(
             name,
             temporal[attribute_index]

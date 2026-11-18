@@ -371,8 +371,7 @@ fn xls_a_csv_conserva_null_e_interi_larghi() {
     assert_eq!(
         esito.perdite(),
         perdite(&[
-            ("native_field_order_changed", 9),
-            ("arrow_metadata_not_preserved", 15),
+            ("arrow_metadata_not_preserved", 6),
             ("crs_id_not_preserved_absent", 1)
         ]),
         "il CSV non porta il CRS, e non c'e' niente da cui ricavarlo"
@@ -400,9 +399,9 @@ fn xls_a_csv_conserva_null_e_interi_larghi() {
     }
 }
 
-/// Da un formato spaziale a uno che spaziale non e'.
+/// Il WKT conserva la geometria; il CRS resta esterno al foglio.
 #[test]
-fn kml_a_xls_dichiara_geometria_e_crs_perduti() {
+fn kml_a_xls_dichiara_il_crs_perso_e_ricostruisce_la_geometria() {
     let dir = temporanea();
     let uscita = dir.path().join("uscita.xlsx");
     let esito = converti("canonico.kml", &uscita, &["--layer", "0"]);
@@ -410,19 +409,16 @@ fn kml_a_xls_dichiara_geometria_e_crs_perduti() {
     assert_eq!(
         esito.perdite(),
         perdite(&[
-            ("native_field_order_changed", 3),
-            ("arrow_metadata_not_preserved", 13),
+            ("arrow_metadata_not_preserved", 4),
             ("crs_id_not_preserved_absent", 1)
         ]),
         "il CRS e' dichiarato perduto"
     );
-    // La geometria non sparisce in silenzio: la fedelta' scende, e con la
-    // propria ragione. Le due meta' -- categorie e ragioni -- dicono cose
-    // diverse, e nessuna basta da sola.
+    // Il CRS non viaggia nel WKT: la fedelta' conserva la ragione del vincolo.
     let documento = esito.documento();
     assert_eq!(
         documento["conversion_fidelity"]["level"], "approximating",
-        "un bersaglio che la geometria non la porta non puo' dirsi lossless"
+        "un bersaglio che il CRS non lo porta non puo' dirsi lossless"
     );
     let ragioni: Vec<&str> = documento["conversion_fidelity"]["reasons"]
         .as_array()
@@ -448,7 +444,8 @@ fn geoparquet_a_csv_dichiara_la_perdita_del_crs() {
         esito.perdite(),
         perdite(&[
             ("native_not_null_not_preserved", 4),
-            ("arrow_metadata_not_preserved", 20),
+            ("arrow_metadata_not_preserved", 12),
+            ("native_field_order_changed", 9),
             ("coercion tipo attributo", 2),
             ("crs_definition_not_preserved_absent", 1),
             ("crs_id_not_preserved_absent", 1),

@@ -432,6 +432,15 @@ impl NativeMetadataCheck {
                 options.assume_crs = Some("EPSG:4326".to_owned());
                 options.format_options.insert("x_column".into(), "x".into());
                 options.format_options.insert("y_column".into(), "y".into());
+            } else if self
+                .contracts
+                .iter()
+                .any(|contract| contract.geometry.is_some())
+            {
+                options.assume_crs = Some("EPSG:4326".to_owned());
+                options
+                    .format_options
+                    .insert("wkt_column".into(), "geometry".into());
             }
             if driver.descriptor().id() == "csv" {
                 if let Some(delimiter) = self.options.get("delimiter") {
@@ -442,7 +451,7 @@ impl NativeMetadataCheck {
             }
         }
         let assumed_for_decoding = (matches!(driver.descriptor().id(), "csv" | "xls")
-            && options_xy(&self.options))
+            && options.assume_crs.is_some())
             || (driver.descriptor().id() == "shp" && !path.with_extension("prj").exists());
         if assumed_for_decoding {
             options.assume_crs = Some("EPSG:4326".to_owned());
@@ -516,8 +525,4 @@ impl NativeMetadataCheck {
         self.context.ensure_active()?;
         Ok(report)
     }
-}
-
-fn options_xy(options: &std::collections::BTreeMap<String, String>) -> bool {
-    options.get("geometry_encoding").is_some_and(|s| s == "xy")
 }

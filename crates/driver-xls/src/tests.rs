@@ -19,7 +19,7 @@ use super::*;
 /// del riferimento. Vale la pena dire perche', perche' la prima stesura di
 /// questa sonda ha sbagliato in tutti e due i versi: prima pretendeva il
 /// rifiuto di `AA` -- descrivendo una grammatica che la funzione non
-/// promette -- e poi, corretta, lo chiamava «riferimento valido», che e'
+/// promette -- e poi, corretta, lo chiamava Â«riferimento validoÂ», che e'
 /// altrettanto falso. `AA` non e' un riferimento di cella: e' un token che
 /// non puo' far traboccare l'accumulatore, e il pre-filtro lascia passare
 /// esattamente quello.
@@ -51,11 +51,11 @@ fn n1_valida_valore_riferimento_applica_i_tetti_senza_validare_il_formato() {
     ];
     for valore in oltre_i_conteggi {
         let Err(errore) = valida_valore_riferimento(valore.as_bytes()) else {
-            panic!("«{valore}» eccede i conteggi del formato e doveva essere fermato");
+            panic!("Â«{valore}Â» eccede i conteggi del formato e doveva essere fermato");
         };
         assert!(
             errore.message.contains("oltre i limiti del formato"),
-            "«{valore}»: atteso il rifiuto sui limiti, arrivato «{}»",
+            "Â«{valore}Â»: atteso il rifiuto sui limiti, arrivato Â«{}Â»",
             errore.message
         );
     }
@@ -65,11 +65,11 @@ fn n1_valida_valore_riferimento_applica_i_tetti_senza_validare_il_formato() {
     let forma_non_a1: Vec<&str> = vec!["1A", "A1B", "A-1", "A1:2B"];
     for valore in forma_non_a1 {
         let Err(errore) = valida_valore_riferimento(valore.as_bytes()) else {
-            panic!("«{valore}» non ha la forma lettere-poi-cifre e doveva essere fermato");
+            panic!("Â«{valore}Â» non ha la forma lettere-poi-cifre e doveva essere fermato");
         };
         assert!(
             errore.message.contains("atteso stile A1"),
-            "«{valore}»: atteso il rifiuto di forma, arrivato «{}»",
+            "Â«{valore}Â»: atteso il rifiuto di forma, arrivato Â«{}Â»",
             errore.message
         );
     }
@@ -81,7 +81,7 @@ fn n1_valida_valore_riferimento_applica_i_tetti_senza_validare_il_formato() {
     for valore in conformi {
         assert!(
             valida_valore_riferimento(valore.as_bytes()).is_ok(),
-            "«{valore}» e' conforme e non deve essere fermato"
+            "Â«{valore}Â» e' conforme e non deve essere fermato"
         );
     }
 
@@ -117,7 +117,7 @@ fn n1_valida_valore_riferimento_applica_i_tetti_senza_validare_il_formato() {
     for (valore, perche) in tollerati_dal_prefiltro {
         assert!(
             valida_valore_riferimento(valore.as_bytes()).is_ok(),
-            "«{valore}» ({perche}) viene oggi delegato al parser: fermarlo qui \
+            "Â«{valore}Â» ({perche}) viene oggi delegato al parser: fermarlo qui \
                  cambia il confine del pre-filtro e richiede una decisione esplicita"
         );
     }
@@ -151,7 +151,7 @@ fn n1_cell_at_distingue_la_colonna_prima_dell_inizio_da_quella_oltre_la_fine() {
         };
         assert!(
             errore.message.contains("indice colonna XLSX non valido"),
-            "colonna {colonna}: arrivato «{}»",
+            "colonna {colonna}: arrivato Â«{}Â»",
             errore.message
         );
     }
@@ -162,7 +162,7 @@ fn n1_cell_at_distingue_la_colonna_prima_dell_inizio_da_quella_oltre_la_fine() {
         };
         assert!(
             errore.message.contains("fuori dalle dimensioni dichiarate"),
-            "colonna {colonna}: arrivato «{}»",
+            "colonna {colonna}: arrivato Â«{}Â»",
             errore.message
         );
     }
@@ -171,7 +171,7 @@ fn n1_cell_at_distingue_la_colonna_prima_dell_inizio_da_quella_oltre_la_fine() {
 /// `LettoreCelleSorvegliato`: dopo un fallimento non si legge piu', e le due
 /// vie di lettura lo dicono con lo stesso errore.
 ///
-/// Il tipo promette che «dopo un panico il lettore viene scartato» sia una
+/// Il tipo promette che Â«dopo un panico il lettore viene scartatoÂ» sia una
 /// proprieta' del **tipo** e non una convenzione da ricordare: al primo
 /// fallimento il lettore cade e ogni chiamata successiva trova `None`.
 /// Nessun percorso del driver ci prova -- tutti propagano -- ed e' proprio
@@ -202,7 +202,7 @@ fn n1_un_lettore_invalidato_rifiuta_entrambe_le_letture() {
     };
     assert!(
         su_dimensioni.message.contains(LETTORE_INVALIDATO),
-        "dimensioni: arrivato «{}»",
+        "dimensioni: arrivato Â«{}Â»",
         su_dimensioni.message
     );
 
@@ -211,12 +211,12 @@ fn n1_un_lettore_invalidato_rifiuta_entrambe_le_letture() {
     };
     assert!(
         su_cella.message.contains(LETTORE_INVALIDATO),
-        "prossima_cella: arrivato «{}»",
+        "prossima_cella: arrivato Â«{}Â»",
         su_cella.message
     );
 
     // Il rifiuto e' stabile: interrogarlo di nuovo non lo fa cambiare idea.
-    // Non dice quale forma abbia la guardia -- vedi «Che cosa non prova».
+    // Non dice quale forma abbia la guardia -- vedi Â«Che cosa non provaÂ».
     assert!(invalidato.dimensioni().is_err());
     assert!(invalidato.prossima_cella().is_err());
 }
@@ -363,7 +363,7 @@ type CasoDiOverflow = (&'static str, [(u64, u64); 2], &'static str);
 /// dei decompressi resta scoperto mentre la sonda e' verde. Ogni caso
 /// carica quindi l'overflow su un accumulatore e tiene innocuo l'altro, e
 /// l'asserzione nomina il messaggio specifico invece del prefisso comune:
-/// «overflow nel conteggio dei byte» non distingue i due.
+/// Â«overflow nel conteggio dei byteÂ» non distingue i due.
 #[test]
 fn n1_le_dimensioni_dichiarate_in_zip64_non_sommano_in_silenzio() {
     let dir = tempfile::tempdir().unwrap();
@@ -371,8 +371,8 @@ fn n1_le_dimensioni_dichiarate_in_zip64_non_sommano_in_silenzio() {
 
     // Il controllo che rende interpretabile il resto: lo stesso archivio con
     // dimensioni piccole **passa**. Senza, un rifiuto non distinguerebbe
-    // «la somma trabocca» da «il central directory costruito dalla sonda non
-    // e' leggibile», e la sonda proverebbe l'incapacita' di chi l'ha scritta
+    // Â«la somma traboccaÂ» da Â«il central directory costruito dalla sonda non
+    // e' leggibileÂ», e la sonda proverebbe l'incapacita' di chi l'ha scritta
     // invece del comportamento del driver.
     let innocuo = dir.path().join("innocuo.xlsx");
     std::fs::write(&innocuo, zip64_con_dimensioni_dichiarate([(2, 2), (3, 3)])).unwrap();
@@ -396,17 +396,17 @@ fn n1_le_dimensioni_dichiarate_in_zip64_non_sommano_in_silenzio() {
         std::fs::write(&percorso, zip64_con_dimensioni_dichiarate(voci)).unwrap();
         let Err(errore) = validate_archive_ratio(&percorso, opzioni.budget()) else {
             panic!(
-                    "«{nome}»: la somma di u64::MAX e 1 deve traboccare; se passa, il crate                      `zip` sta normalizzando le dimensioni dichiarate e il ramo va                      riclassificato"
+                    "Â«{nome}Â»: la somma di u64::MAX e 1 deve traboccare; se passa, il crate                      `zip` sta normalizzando le dimensioni dichiarate e il ramo va                      riclassificato"
                 );
         };
         assert_eq!(
             errore.category,
             plenora_io_model::ErrorCategory::ResourceLimit,
-            "«{nome}»: un overflow di conteggio e' un limite, non un formato non valido"
+            "Â«{nome}Â»: un overflow di conteggio e' un limite, non un formato non valido"
         );
         assert!(
                 errore.message.contains(atteso),
-                "«{nome}»: atteso «{atteso}», arrivato «{}». Un messaggio generico non                  distinguerebbe i due accumulatori, ed e' il difetto che questo caso esiste                  per escludere",
+                "Â«{nome}Â»: atteso Â«{atteso}Â», arrivato Â«{}Â». Un messaggio generico non                  distinguerebbe i due accumulatori, ed e' il difetto che questo caso esiste                  per escludere",
                 errore.message
             );
     }
@@ -417,12 +417,12 @@ fn n1_le_dimensioni_dichiarate_in_zip64_non_sommano_in_silenzio() {
 /// # Il difetto che questa sonda ha trovato
 ///
 /// La selezione del perimetro passava da `archive.by_index(indice).ok()?`
-/// dentro un `filter_map`: qualunque errore di apertura diventava «parte
-/// ignorata». Una parte con central directory leggibile e header locale
+/// dentro un `filter_map`: qualunque errore di apertura diventava Â«parte
+/// ignorataÂ». Una parte con central directory leggibile e header locale
 /// irraggiungibile spariva quindi dal perimetro, e
 /// `valida_riferimenti_cella` restituiva `Ok` -- cioe' **fail-open**, in una
-/// funzione il cui doc-comment promette che «non c'e' un ramo che, non
-/// riuscendo a controllare, prosegua lo stesso».
+/// funzione il cui doc-comment promette che Â«non c'e' un ramo che, non
+/// riuscendo a controllare, prosegua lo stessoÂ».
 ///
 /// Non era una svista di stile: `?` dentro `filter_map` scarta l'errore per
 /// costruzione, e il `by_name` successivo non lo ripara, perche' cerca fra i
@@ -487,7 +487,7 @@ fn n1_una_parte_enumerabile_ma_non_apribile_ferma_la_lettura() {
     };
     assert!(
         errore.message.contains("parte XLSX non leggibile"),
-        "atteso il rifiuto sull'apertura della parte, arrivato «{}»",
+        "atteso il rifiuto sull'apertura della parte, arrivato Â«{}Â»",
         errore.message
     );
 }
@@ -517,7 +517,7 @@ fn xlsx_con_parti(quante: usize) -> Vec<u8> {
 /// Il tetto sulle parti conta **i membri dell'archivio**, non le sole parti
 /// XML, e i due confini stanno uno accanto all'altro.
 ///
-/// Il **vecchio** nome della costante diceva «parti XML» mentre il controllo
+/// Il **vecchio** nome della costante diceva Â«parti XMLÂ» mentre il controllo
 /// guarda `archive.len()`, cioe' ogni membro: un contenitore con migliaia di
 /// immagini viene fermato quanto uno con migliaia di fogli. E' il
 /// comportamento voluto -- il tetto difende dall'abuso del contenitore, non
@@ -631,7 +631,7 @@ fn n1_infer_layout_rifiuta_le_due_quote() {
     };
     assert!(
         errore.message.contains("max_columns"),
-        "atteso il rifiuto sulla larghezza, arrivato «{}»",
+        "atteso il rifiuto sulla larghezza, arrivato Â«{}Â»",
         errore.message
     );
 
@@ -651,7 +651,7 @@ fn n1_infer_layout_rifiuta_le_due_quote() {
     };
     assert!(
         errore.message.contains("max_rows"),
-        "atteso il rifiuto sull'altezza, arrivato «{}»",
+        "atteso il rifiuto sull'altezza, arrivato Â«{}Â»",
         errore.message
     );
 }
@@ -705,7 +705,7 @@ fn n1_il_foglio_senza_celle_e_fermato_dallo_schema_prima_di_infer_layout() {
     };
     assert!(
         errore.message.contains("foglio vuoto"),
-        "atteso il rifiuto sul foglio vuoto, arrivato «{}»",
+        "atteso il rifiuto sul foglio vuoto, arrivato Â«{}Â»",
         errore.message
     );
 
@@ -731,12 +731,12 @@ fn n1_il_foglio_senza_celle_e_fermato_dallo_schema_prima_di_infer_layout() {
     );
     assert!(
         fermato.message.contains("testo non vuoto"),
-        "atteso il rifiuto dello schema sul valore vuoto, arrivato «{}»",
+        "atteso il rifiuto dello schema sul valore vuoto, arrivato Â«{}Â»",
         fermato.message
     );
 }
 
-/// «intestazione XLSX assente» e «geometria XLSX non configurata» sono
+/// Â«intestazione XLSX assenteÂ» e Â«geometria XLSX non configurataÂ» sono
 /// irraggiungibili: `data_row_count` rifiuta prima le dimensioni che
 /// renderebbero vuoto il ciclo.
 ///
@@ -746,7 +746,7 @@ fn n1_il_foglio_senza_celle_e_fermato_dallo_schema_prima_di_infer_layout() {
 /// `bounds.start.0..=bounds.end.0`, e la prima riga visitata assegna
 /// entrambe le variabili oppure propaga l'errore di `resolve_geometry`.
 /// Perche' quell'intervallo sia vuoto servirebbe `start.0 > end.0`, e
-/// `data_row_count` lo rifiuta con «dimensioni XLSX non valide».
+/// `data_row_count` lo rifiuta con Â«dimensioni XLSX non valideÂ».
 ///
 /// La sonda non copre quelle righe: esegue la **guardia** che le rende
 /// inarrivabili. Se la precedenza cambia -- se le dimensioni invertite
@@ -773,7 +773,7 @@ fn n1_le_dimensioni_invertite_precedono_l_intestazione_assente() {
         };
         assert!(
             errore.message.contains("dimensioni XLSX non valide"),
-            "atteso il rifiuto sulle dimensioni, arrivato «{}»",
+            "atteso il rifiuto sulle dimensioni, arrivato Â«{}Â»",
             errore.message
         );
     }
@@ -792,7 +792,7 @@ fn n1_le_dimensioni_invertite_precedono_l_intestazione_assente() {
     );
 }
 
-/// «troppe colonne XLSX» e «indice colonna XLSX fuori intervallo» sono
+/// Â«troppe colonne XLSXÂ» e Â«indice colonna XLSX fuori intervalloÂ» sono
 /// irraggiungibili: la larghezza che `data_row_width` accetta non lascia
 /// spazio ne' al `try_from` ne' all'overflow.
 ///
@@ -953,7 +953,7 @@ fn n1_resolve_geometry_nomina_la_colonna_che_manca_e_rifiuta_due_geometrie() {
     // la tabella dei negativi.
     let (wkt, colonne_wkt) =
         resolve_geometry(&intestazioni, INIZIO, &opzioni(&[("wkt_column", "geom")]))
-            .expect("«geom» e' la seconda intestazione");
+            .expect("Â«geomÂ» e' la seconda intestazione");
     let XlsxGeomSpec::Wkt(colonna) = wkt else {
         panic!("wkt_column deve produrre una geometria WKT");
     };
@@ -965,7 +965,7 @@ fn n1_resolve_geometry_nomina_la_colonna_che_manca_e_rifiuta_due_geometrie() {
         INIZIO,
         &opzioni(&[("x_column", "lon"), ("y_column", "lat")]),
     )
-    .expect("«lon» e «lat» sono la terza e la quarta intestazione");
+    .expect("Â«lonÂ» e Â«latÂ» sono la terza e la quarta intestazione");
     let XlsxGeomSpec::Xy(x, y) = xy else {
         panic!("x_column con y_column deve produrre una geometria x/y");
     };
@@ -1219,7 +1219,7 @@ fn n1_for_each_dense_row_rifiuta_le_celle_fuori_ordine_e_fuori_dimensione() {
     assert_eq!(errore.message, "ordine delle celle XLSX non monotono");
 }
 
-/// «indice colonna XLSX non rappresentabile» e' irraggiungibile: la
+/// Â«indice colonna XLSX non rappresentabileÂ» e' irraggiungibile: la
 /// piattaforma decide, e su tutte quelle supportate `usize` copre `u32`.
 ///
 /// L'offset e' `cell_column - bounds.start.1`, cioe' un `u32`, e la
@@ -1523,7 +1523,7 @@ fn n1_bounded_spool_writer_distingue_la_quota_dall_overflow_e_dal_disco() {
     );
     assert!(
         errore.message.contains("max_input_bytes"),
-        "il messaggio deve dire qual e' il limite, arrivato «{}»",
+        "il messaggio deve dire qual e' il limite, arrivato Â«{}Â»",
         errore.message
     );
 
@@ -1695,7 +1695,7 @@ fn n1_bounded_spool_writer_geometry_distingue_l_assenza_dalla_geometria_vuota() 
 /// modello di budget. Il risultato era che un `.xlsx` conforme -- una cella
 /// `<c t="inlineStr"><is><t></t></is></c>`, che il formato ammette e che
 /// `calamine` consegna come `Data::String("")` -- veniva rifiutato con
-/// `ResourceLimit` e il messaggio «una lease deve essere maggiore di zero».
+/// `ResourceLimit` e il messaggio Â«una lease deve essere maggiore di zeroÂ».
 ///
 /// Non era un errore innocuo per essere fail-closed: mandava chi legge ad
 /// alzare una quota che non c'entrava, per un file che non aveva niente di
@@ -1747,7 +1747,7 @@ fn n1_una_cella_di_testo_vuota_non_e_una_quota_superata() {
 /// una geometria a meta'.
 ///
 /// Sono due esiti che si somigliano e non lo sono: una cella WKT vuota, o
-/// una coppia x/y entrambe assenti, dicono «questa riga non ha geometria» e
+/// una coppia x/y entrambe assenti, dicono Â«questa riga non ha geometriaÂ» e
 /// producono `Ok(false)`, che a valle diventa un nullo. Una sola delle due
 /// coordinate, invece, e' un dato incompleto: accettarlo significherebbe
 /// inventare l'altra meta' o buttare via quella presente, e il rifiuto
@@ -1791,14 +1791,14 @@ fn n1_encode_geometry_cell_separa_l_assenza_dalla_geometria_a_meta() {
     assert!(presente && byte > 0, "una geometria vera riempie il buffer");
 
     // WKT vuoto o soli spazi: assenza, non errore. Lo spazio conta: e' il
-    // caso che una cella «pulita a mano» produce piu' spesso del vuoto.
+    // caso che una cella Â«pulita a manoÂ» produce piu' spesso del vuoto.
     for testo in ["", "   "] {
         let (presente, _) = codifica(
             &[Data::String(testo.to_owned()), Data::Empty, Data::Empty],
             XlsxGeomSpec::Wkt(0),
         )
         .expect("una cella WKT vuota non e' un errore");
-        assert!(!presente, "«{testo}» non e' una geometria");
+        assert!(!presente, "Â«{testo}Â» non e' una geometria");
     }
 
     // Coppia x/y completa, e coppia interamente assente.
@@ -1934,7 +1934,7 @@ fn n1_write_cell_scrive_i_valori_convertibili_e_propaga_il_rifiuto_del_formato()
     };
     assert!(
         errore.message.starts_with("XLSX:"),
-        "il rifiuto deve venire dal formato, con la classe al posto del Display: «{}»",
+        "il rifiuto deve venire dal formato, con la classe al posto del Display: Â«{}Â»",
         errore.message
     );
 }
@@ -1945,8 +1945,8 @@ fn n1_write_cell_scrive_i_valori_convertibili_e_propaga_il_rifiuto_del_formato()
 /// La prima: `json_from_array` non restituisce mai un array o un oggetto
 /// JSON, quindi il braccio `other` del `match` non ha input. La seconda: i
 /// soli `Number` che costruisce vengono da `i64`, `u64` o `f64` finito, e
-/// `as_f64` li converte tutti -- il rifiuto «numero non rappresentabile
-/// come f64 in XLSX» non ha input nemmeno lui. Gli estremi sono verificati,
+/// `as_f64` li converte tutti -- il rifiuto Â«numero non rappresentabile
+/// come f64 in XLSXÂ» non ha input nemmeno lui. Gli estremi sono verificati,
 /// non argomentati.
 #[test]
 fn n1_json_from_array_non_produce_ne_aggregati_ne_numeri_non_rappresentabili() {
@@ -1987,7 +1987,7 @@ fn n1_json_from_array_non_produce_ne_aggregati_ne_numeri_non_rappresentabili() {
         };
         assert!(
                 numero.as_f64().is_some(),
-                "{caso}: se questo fallisse, «numero non rappresentabile come f64» diventerebbe raggiungibile"
+                "{caso}: se questo fallisse, Â«numero non rappresentabile come f64Â» diventerebbe raggiungibile"
             );
     }
 }
@@ -2058,7 +2058,7 @@ const fn vertice(x: f64, y: f64) -> WkbCoordinate {
 /// I tre rifiuti dicono cose diverse a chi ha costruito il piano: manca la
 /// colonna, la colonna c'e' ma non e' WKB, la colonna e' WKB ma contiene
 /// qualcosa che due numeri non descrivono. L'ultimo e' il piu' facile da
-/// confondere con una perdita accettabile -- «scrivo il centroide» -- e il
+/// confondere con una perdita accettabile -- Â«scrivo il centroideÂ» -- e il
 /// rifiuto e' la scelta opposta: l'encoding `xy` si chiede esplicitamente,
 /// e chi lo chiede su una `LineString` ha sbagliato piano, non dato.
 #[test]
@@ -2325,7 +2325,7 @@ fn la_classe_xlsx_traduce_ogni_variante_costruibile() {
 /// Da S4.d il percorso di lettura vive interamente li': la memoria dei
 /// batch e' una `InternalMemoryLease`, che esiste solo dentro un
 /// `PipelineContext`. `opzioni_lettura()` costruisce ancora il ramo
-/// legacy — sparira' in S4.e — e con quello `open` fallisce chiuso.
+/// legacy â€” sparira' in S4.e â€” e con quello `open` fallisce chiuso.
 /// La capability `hostile_input_hardened`, provata dove S12 la sposta.
 ///
 /// Non e' il cap in byte: quello esisteva prima del parser progressivo e
@@ -2398,7 +2398,7 @@ fn la_cella_wkt_e_rifiutata_per_componenti_sotto_il_cap_in_byte() {
 /// L'inferenza XLSX usa il tetto per cella **configurato**.
 ///
 /// Fino a S5 `encode_geometry_cell` passava
-/// `WkbLimits::default().max_cell_bytes` — 64 MiB — quindi
+/// `WkbLimits::default().max_cell_bytes` â€” 64 MiB â€” quindi
 /// `--max-wkb-cell-bytes` non arrivava al parsing WKT, e una cella oltre
 /// la soglia richiesta veniva parsata comunque.
 #[test]
@@ -2605,8 +2605,8 @@ fn un_riferimento_oltre_i_limiti_del_formato_e_rifiutato_prima_di_calamine() {
 /// Il seme conforme continua a essere letto: la prevalidazione non rifiuta
 /// cio' che il formato ammette.
 ///
-/// Senza questo, un controllo troppo severo — per esempio uno che
-/// rifiutasse ogni riferimento con lettere — passerebbe il test sopra e
+/// Senza questo, un controllo troppo severo â€” per esempio uno che
+/// rifiutasse ogni riferimento con lettere â€” passerebbe il test sopra e
 /// romperebbe ogni XLSX reale, senza che nessuno se ne accorgesse qui.
 #[test]
 fn un_xlsx_conforme_supera_la_prevalidazione() {
@@ -2625,7 +2625,7 @@ fn un_xlsx_conforme_supera_la_prevalidazione() {
 /// E' la forma giusta dopo FZ-0: la prevalidazione impedisce il panico
 /// noto, ma non puo' dimostrare che nessun altro percorso di `calamine`
 /// ne produca uno. Se domani ne comparisse un altro, la barriera lo
-/// converte comunque in errore tipizzato — e questo test lo dimostra
+/// converte comunque in errore tipizzato â€” e questo test lo dimostra
 /// invece di dedurlo.
 #[test]
 fn la_barriera_converte_un_panico_di_calamine_in_errore_tipizzato() {
@@ -2664,7 +2664,7 @@ fn coordinate_cells_fail_closed_on_invalid_or_lossy_values() {
 // --- ASSURANCE-N1: i rami negativi -------------------------------------
 //
 // I rami negativi di `open`, `create` e `validate_archive_ratio`: mai
-// eseguiti da nulla — ne' dai test, ne' dal replay — e preesistenti a S9.
+// eseguiti da nulla â€” ne' dai test, ne' dal replay â€” e preesistenti a S9.
 //
 // La forma e' quella indicata dal registro: **la classe di equivalenza
 // della precondizione**. Non serve un file enorme per superare un tetto,
@@ -2673,7 +2673,7 @@ fn coordinate_cells_fail_closed_on_invalid_or_lossy_values() {
 
 /// `.xls` non e' instradato in lettura, e il rifiuto e' una capability.
 ///
-/// La distinzione conta: un `Format` direbbe «il file e' rotto», e chi
+/// La distinzione conta: un `Format` direbbe Â«il file e' rottoÂ», e chi
 /// legge cercherebbe un errore nel proprio dato invece di convertirlo.
 #[test]
 fn n1_open_rifiuta_xls_come_capability_non_come_formato() {
@@ -2744,7 +2744,7 @@ fn n1_open_esige_assume_crs_quando_c_e_geometria() {
 
     // E il foglio **dichiarato** invece che dedotto: e' l'altro ramo del
     // `match` su `format_options["sheet"]`, che nessun test toccava.
-    // `rust_xlsxwriter` nomina il primo foglio «Sheet1».
+    // `rust_xlsxwriter` nomina il primo foglio Â«Sheet1Â».
     let esito = XlsDriver
         .open(
             Source::Path(percorso),
@@ -2823,8 +2823,8 @@ fn n1_create_accetta_una_destinazione_senza_estensione_xlsx() {
 
 /// Un piano senza esattamente un layer e' fermato **prima** di `create`.
 ///
-/// La prima stesura di questo test si chiamava «`create` rifiuta un piano
-/// che non ha esattamente un layer» e passava — ma la misura di copertura
+/// La prima stesura di questo test si chiamava Â«`create` rifiuta un piano
+/// che non ha esattamente un layerÂ» e passava â€” ma la misura di copertura
 /// ha mostrato che il ramo di `create` **restava scoperto**: `validate_write`
 /// nel core ferma entrambe le classi prima, e l'asserzione sulla sola
 /// categoria `Unsupported` era soddisfatta da un errore diverso.
@@ -2883,7 +2883,7 @@ fn n1_un_piano_senza_un_solo_layer_e_fermato_prima_di_create() {
 /// Un `geometry_encoding` non ammesso e' fermato dalla validazione delle
 /// opzioni, non da `create`.
 ///
-/// Il commento nel codice lo dichiarava «difensivo». Questo test lo
+/// Il commento nel codice lo dichiarava Â«difensivoÂ». Questo test lo
 /// **misura**: l'errore che esce e' quello del validatore delle opzioni,
 /// con il token dell'opzione rifiutata e l'elenco degli ammessi. Il ramo
 /// dentro `create` resta percio' irraggiungibile dall'API pubblica.
@@ -2933,7 +2933,7 @@ fn n1_un_geometry_encoding_non_ammesso_e_fermato_prima_di_create() {
 /// Non serve un archivio enorme: serve un **moltiplicatore** enorme.
 /// `compressed.checked_mul(maximum_ratio)` con `ratio` vicino a `u64::MAX`
 /// trabocca su qualunque file non vuoto, ed e' la classe di equivalenza
-/// della precondizione — non un caso patologico costruito ad arte.
+/// della precondizione â€” non un caso patologico costruito ad arte.
 #[test]
 fn n1_il_rapporto_di_decompressione_non_trabocca_in_silenzio() {
     let dir = tempfile::tempdir().unwrap();
@@ -3440,7 +3440,7 @@ fn xlsx_senza_dimension_con(celle: &str) -> Vec<u8> {
     buffer.into_inner()
 }
 
-/// H-01, prima condizione: **zero celle osservate → rifiuto tipizzato**.
+/// H-01, prima condizione: **zero celle osservate â†’ rifiuto tipizzato**.
 ///
 /// La cornice degenere che `limiti_osservati` restituisce quando non osserva
 /// nemmeno una cella e' il ripiego che la revisione H-01 ammette, e questa
@@ -3481,7 +3481,7 @@ fn h01_un_foglio_senza_celle_e_senza_dimension_viene_rifiutato() {
 /// H-01, seconda condizione: **una vera cella `A1` non e' un foglio vuoto**.
 ///
 /// E' il confine che rende la deroga ammissibile invece che comoda.
-/// `calamine` non distingue «`<dimension>` assente» da «`A1:A1`»: in
+/// `calamine` non distingue Â«`<dimension>` assenteÂ» da Â«`A1:A1`Â»: in
 /// entrambi i casi restituisce la cornice di una cella sola, ed e' la
 /// stessa cornice che la scansione produce quando le celle sono zero.
 ///
@@ -3554,12 +3554,12 @@ fn h01_dalla_cornice_sintetica_non_nasce_ne_schema_ne_batch() {
 ///
 /// L'elemento e' opzionale in ECMA-376: chi lo omette produce un file
 /// valido, e Excel stesso lo tratta come un suggerimento. Il driver
-/// pretendeva invece che ci fosse, e sul file conforme rifiutava con «cella
-/// XLSX fuori dalle dimensioni dichiarate» -- un rifiuto che nomina
+/// pretendeva invece che ci fosse, e sul file conforme rifiutava con Â«cella
+/// XLSX fuori dalle dimensioni dichiarateÂ» -- un rifiuto che nomina
 /// dimensioni che nessuno ha dichiarato.
 ///
 /// La controprova positiva sta nella stessa sonda: lo stesso contenuto con
-/// il `ref` giusto dev'essere letto **identico**. Senza, «legge due righe»
+/// il `ref` giusto dev'essere letto **identico**. Senza, Â«legge due righeÂ»
 /// sarebbe vero anche di un lettore che si e' inventato i limiti.
 #[test]
 fn n1_il_foglio_senza_dimension_si_legge_come_quello_che_la_dichiara() {
@@ -3600,7 +3600,7 @@ fn n1_una_dimension_dichiarata_e_violata_resta_un_rifiuto() {
         errore
             .message
             .contains("cella XLSX fuori dalle dimensioni dichiarate"),
-        "atteso il rifiuto sulle dimensioni dichiarate, arrivato «{}»",
+        "atteso il rifiuto sulle dimensioni dichiarate, arrivato Â«{}Â»",
         errore.message
     );
 }
@@ -3630,7 +3630,7 @@ fn n1_le_quote_valgono_anche_sui_limiti_ricavati() {
     };
     assert!(
         errore.message.contains("max_columns"),
-        "atteso il rifiuto sulla larghezza ricavata, arrivato «{}»",
+        "atteso il rifiuto sulla larghezza ricavata, arrivato Â«{}Â»",
         errore.message
     );
 }
@@ -4046,4 +4046,74 @@ fn row_limit_counts_implicit_empty_xlsx_rows_before_invalid_tail() {
     assert_eq!(batch.num_rows(), 1);
     assert_eq!(batch.column(0).null_count(), 1);
     assert!(reader.next_batch().unwrap().is_none());
+}
+
+#[test]
+fn mixed_native_scalars_declare_only_observed_string_coercions() {
+    for mixed in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mixed.xlsx");
+        let mut workbook = Workbook::new();
+        let sheet = workbook.add_worksheet();
+        sheet.write_string(0, 0, "number").unwrap();
+        sheet.write_string(0, 1, "boolean").unwrap();
+        sheet.write_number(1, 0, 1.5).unwrap();
+        sheet.write_boolean(1, 1, true).unwrap();
+        if mixed {
+            sheet.write_string(2, 0, "text").unwrap();
+            sheet.write_string(2, 1, "text").unwrap();
+        }
+        workbook.save(&path).unwrap();
+        let dataset = XlsDriver
+            .open(Source::Path(path), opzioni_lettura())
+            .unwrap();
+        let mut reader = dataset
+            .open_layer_reader(&ReadRequest {
+                layer: LayerId(0),
+                projected_fields: None,
+                projection_mode: ProjectionMode::BestEffort,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                scope: ReadScope::Complete,
+                batch_target: BatchTarget::default(),
+                cancellation: CancellationToken::default(),
+            })
+            .unwrap();
+        let batch = reader.next_batch().unwrap().unwrap();
+        if mixed {
+            for (column, expected) in [(0, "1.5"), (1, "true")] {
+                let values = batch
+                    .column(column)
+                    .as_any()
+                    .downcast_ref::<arrow_array::StringArray>()
+                    .unwrap();
+                assert_eq!(values.value(0), expected);
+                assert_eq!(values.value(1), "text");
+            }
+        } else {
+            assert_eq!(
+                batch
+                    .column(0)
+                    .as_any()
+                    .downcast_ref::<arrow_array::Float64Array>()
+                    .unwrap()
+                    .value(0)
+                    .to_bits(),
+                1.5_f64.to_bits()
+            );
+            assert!(batch
+                .column(1)
+                .as_any()
+                .downcast_ref::<arrow_array::BooleanArray>()
+                .unwrap()
+                .value(0));
+        }
+        assert!(reader.next_batch().unwrap().is_none());
+        let expected = if mixed {
+            std::iter::once(("native_type_inference".to_owned(), 2)).collect()
+        } else {
+            std::collections::BTreeMap::default()
+        };
+        assert_eq!(reader.loss_report().counts, expected);
+    }
 }

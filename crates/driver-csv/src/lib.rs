@@ -62,7 +62,6 @@ fn native_read_loss(
     headers: &[String],
     geom: Option<GeomSpec>,
     opts: &ReadOptions,
-    attrs: &[(usize, ColType)],
 ) -> Result<LossReport> {
     let columns: Vec<_> = match geom {
         Some(GeomSpec::Wkt(i)) => vec![i],
@@ -102,18 +101,9 @@ fn native_read_loss(
             }
         }
     }
-    for (index, kind) in attrs {
-        if kind.arrow_data_type() != arrow_schema::DataType::Utf8 {
-            loss_table::observe_native(
-                &mut loss,
-                (NativeDriver::Csv, TransportDirection::Read),
-                NativeElement::Inference,
-                1,
-                0,
-                Some(*index as u64),
-            );
-        }
-    }
+    // infer_types accepts a scalar type only when every non-null token is
+    // reconstructed exactly (including quoting). A type inferred without a
+    // value change is not a loss; incompatible tokens stay Utf8.
     Ok(loss)
 }
 
@@ -504,7 +494,7 @@ impl FormatDriver for CsvDriver {
         for (ci, ct) in &attrs {
             fields.push(Field::new(&headers[*ci], ct.arrow_data_type(), true));
         }
-        let loss = native_read_loss(&path, delim, &headers, geom, &opts, &attrs)?;
+        let loss = native_read_loss(&path, delim, &headers, geom, &opts)?;
         let schema: SchemaRef = Arc::new(Schema::new(fields));
         let contract = if let Some(geometry) = geometry_contract {
             DataContract::new(
