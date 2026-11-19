@@ -918,6 +918,24 @@ assenti o vuoti sono `object_missing`/`object_empty`; membri troncati o malforma
 l'errore strutturale nell'oggetto enumerato. I fratelli sani restano selezionabili.
 Nessun recupero implicito GDAL sostituisce questa dichiarazione.
 
+I nomi fisici FileGDB hanno una sola identità ASCII indipendente dal caso:
+prefisso `a`, otto cifre esadecimali e suffisso (anche gli indici `nome.atx`).
+Il parser comune associa tutti i suffissi al relativo oggetto; i controlli di
+header restano quelli previsti per ciascun tipo. `gdb` e `timestamps` usano
+la stessa normalizzazione. Alias della stessa identità sono ambigui.
+Questa è una regola di interoperabilità di IO-TOOLS, non una promessa generale
+del filesystem o di Esri. [GDAL 3.9.3, OpenFileGDBDataSource::Open](https://github.com/OSGeo/gdal/blob/v3.9.3/ogr/ogrsf_frmts/openfilegdb/ogropenfilegdbdatasource.cpp#L180-L290)
+riconosce il prefisso diretto minuscolo e costruisce percorsi canonici minuscoli.
+Per le varianti IO-TOOLS prepara una copia temporanea canonica, conservata
+anche dai lettori attivi; non rinomina l'ingresso. La scrittura nativa e la
+materializzazione usano la stessa identità. La copia richiede spazio temporaneo
+proporzionale al dataset, già soggetto alla quota di ingresso.
+
+Le regole dipendono dal formato: Shapefile risolve le estensioni dei companion
+con il resolver comune; GPKG conserva i suffissi SQLite esatti `-wal`, `-shm`
+e `-journal` sul filesystem ospite. DXF e KML sono file singoli: l'estensione
+riconosce il formato senza cambiare l'identità del percorso richiesto.
+
 ### Diagnostiche: riservatezza dei testi e dei valori
 
 I testi degli errori e delle diagnostiche non contengono dati del chiamante:
@@ -1419,7 +1437,8 @@ Il testo TEXT resta una colonna; altezza, rotazione e stile non sono conservati.
 Le entità paper space rimangono nel medesimo oggetto del model space, con perdita
 esplicita della distinzione. Un blocco XREF o il model space che lo usa tramite
 INSERT è rifiutato localmente: nessun riferimento esterno viene seguito.
-`dxf_attribute_not_represented` conta le celle delle colonne scartate in scrittura;
+`dxf_attribute_not_represented` conta le differenze degli attributi rispetto alla rilettura:
+celle diverse o mancanti e celle delle righe aggiunte, anche nelle colonne conservate;
 gli esempi ne riportano l'indice, mai il nome nella categoria o nel dettaglio.
 
 FileGDB dichiara l'ordine geometria-prima e i vincoli NOT NULL non trasportati,

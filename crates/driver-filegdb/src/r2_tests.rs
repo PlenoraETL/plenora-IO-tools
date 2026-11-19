@@ -463,3 +463,168 @@ fn native_date32_keeps_calendar_day_and_null() {
         19_782
     );
 }
+
+// No filesystem-case guard: these run unchanged on WSL/Linux.
+#[test]
+fn g5_member_case_matrix_preserves_local_errors_and_healthy_siblings() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../plenora-io-tools/tests/fixtures/canoniche/canonico.gdb");
+    for ext in [
+        "gdbtable",
+        "gdbtablx",
+        "gdbindexes",
+        "spx",
+        "atx",
+        "field.atx",
+    ] {
+        for mask in 0..8 {
+            for directory in [false, true] {
+                let temporary = tempfile::tempdir().unwrap();
+                let path = temporary.path().join("case.gdb");
+                std::fs::create_dir(&path).unwrap();
+                for entry in std::fs::read_dir(&fixture).unwrap() {
+                    let entry = entry.unwrap();
+                    std::fs::copy(entry.path(), path.join(entry.file_name())).unwrap();
+                }
+                let original = path.join(format!("a0000000a.{ext}"));
+                if original.exists() {
+                    std::fs::remove_file(original).unwrap();
+                }
+                let name = format!(
+                    "{}0000000{}.{}",
+                    if mask & 1 == 0 { "a" } else { "A" },
+                    if mask & 2 == 0 { "a" } else { "A" },
+                    if mask & 4 == 0 {
+                        ext.to_owned()
+                    } else {
+                        ext.to_ascii_uppercase()
+                    }
+                );
+                if directory {
+                    std::fs::create_dir(path.join(name)).unwrap();
+                } else {
+                    std::fs::write(path.join(name), b"BAD").unwrap();
+                }
+                let mut options = plenora_io_core::ReadOptions::from_read_parts(
+                    plenora_io_model::budget::PipelineBudget::builder()
+                        .build()
+                        .unwrap()
+                        .into_read_parts(),
+                );
+                driver_common::structure::preflight(
+                    &DESCRIPTOR,
+                    plenora_io_core::Source::Path(path.clone()),
+                    &mut options,
+                )
+                .unwrap();
+                let dataset = open(&path, None).unwrap();
+                assert_eq!(dataset.layers().len(), 5);
+                assert!(
+                    dataset.rifiuto_del_layer(LayerId(1)).is_some(),
+                    "{ext}/{mask}/{directory}"
+                );
+                assert!(
+                    dataset.rifiuto_del_layer(LayerId(0)).is_none(),
+                    "{ext}/{mask}/{directory}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn g5_all_members_uppercase_are_readable_on_case_sensitive_filesystems() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../plenora-io-tools/tests/fixtures/canoniche/canonico.gdb");
+    for uppercase in [false, true] {
+        let temporary = tempfile::tempdir().unwrap();
+        let path = temporary.path().join("case.gdb");
+        std::fs::create_dir(&path).unwrap();
+        for entry in std::fs::read_dir(&fixture).unwrap() {
+            let entry = entry.unwrap();
+            let name = entry.file_name().to_str().unwrap().to_owned();
+            std::fs::copy(
+                entry.path(),
+                path.join(if uppercase {
+                    name.to_ascii_uppercase()
+                } else {
+                    name
+                }),
+            )
+            .unwrap();
+        }
+        let mut options = plenora_io_core::ReadOptions::from_read_parts(
+            plenora_io_model::budget::PipelineBudget::builder()
+                .build()
+                .unwrap()
+                .into_read_parts(),
+        );
+        driver_common::structure::preflight(
+            &DESCRIPTOR,
+            plenora_io_core::Source::Path(path.clone()),
+            &mut options,
+        )
+        .unwrap();
+        let dataset = open(&path, None).unwrap();
+        assert_eq!(dataset.layers().len(), 5);
+        for layer in dataset.layers() {
+            assert!(dataset.rifiuto_del_layer(layer.id).is_none());
+        }
+        let request = ReadRequest {
+            layer: LayerId(0),
+            projected_fields: None,
+            projection_mode: plenora_io_core::ProjectionMode::BestEffort,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: plenora_io_core::ReadScope::Complete,
+            batch_target: plenora_io_core::BatchTarget::default(),
+            cancellation: plenora_io_model::CancellationToken::default(),
+        };
+        let mut reader = dataset.open_layer_reader(&request).unwrap();
+        drop(dataset); // The worker must keep the canonical view alive.
+        let mut rows = 0;
+        while let Some(batch) = reader.next_batch().unwrap() {
+            rows += batch.num_rows();
+        }
+        assert!(rows > 0);
+    }
+}
+
+#[test]
+fn g5_resolver_enumerates_every_member_type_and_case_axis() {
+    for extension in [
+        "gdbtable",
+        "gdbtablx",
+        "gdbindexes",
+        "spx",
+        "atx",
+        "freelist",
+        "field.atx",
+        "hbar",
+        "cdf",
+        "sdf",
+    ] {
+        for mask in 0..8 {
+            let temporary = tempfile::tempdir().unwrap();
+            let name = format!(
+                "{}00{}.{}",
+                if mask & 1 == 0 { "a" } else { "A" },
+                if mask & 2 == 0 { "abcdef" } else { "ABCDEF" },
+                if mask & 4 == 0 {
+                    extension.to_owned()
+                } else {
+                    extension.to_ascii_uppercase()
+                }
+            );
+            let physical = temporary.path().join(name);
+            std::fs::write(&physical, b"member").unwrap();
+            let resolved = driver_common::filegdb_names::resolve(
+                temporary.path(),
+                &format!("a00abcdef.{extension}"),
+            )
+            .unwrap();
+            assert_eq!(resolved, physical);
+            assert_eq!(std::fs::read(resolved).unwrap(), b"member");
+        }
+    }
+}

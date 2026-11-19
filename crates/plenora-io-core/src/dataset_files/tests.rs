@@ -106,11 +106,22 @@ fn native_case_rules_for_sqlite_and_unrelated_datasets() {
     std::fs::write(dir.path().join("A.GPKG"), b"database").unwrap();
     assert_eq!(GPKG.ensure_absent(&main).is_err(), main.exists());
     std::fs::remove_file(dir.path().join("A.GPKG")).unwrap();
-    std::fs::write(dir.path().join("a.gpkg-WAL"), b"journal").unwrap();
-    assert_eq!(
-        GPKG.ensure_absent(&main).is_err(),
-        dir.path().join("a.gpkg-wal").exists()
-    );
+    for suffix in ["wal", "shm", "journal"] {
+        for upper in [false, true] {
+            let spelling = if upper {
+                suffix.to_ascii_uppercase()
+            } else {
+                suffix.to_owned()
+            };
+            let member = dir.path().join(format!("a.gpkg-{spelling}"));
+            std::fs::write(&member, b"journal").unwrap();
+            assert_eq!(
+                GPKG.ensure_absent(&main).is_err(),
+                dir.path().join(format!("a.gpkg-{suffix}")).exists()
+            );
+            std::fs::remove_file(member).unwrap();
+        }
+    }
 }
 
 #[test]

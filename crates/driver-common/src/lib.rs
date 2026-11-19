@@ -4,6 +4,7 @@
 #![forbid(unsafe_code)]
 
 pub mod csv_wire;
+pub mod filegdb_names;
 pub mod prevalida_arrow;
 pub mod structure;
 pub mod wkt_lossless;

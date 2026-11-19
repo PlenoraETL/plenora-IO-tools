@@ -106,7 +106,9 @@ fn ogni_invocazione_ha_la_propria_directory() {
     let parti = __fuzz_parti_della_fixture(&archivio).expect("archivio leggibile");
     let tabella = parti
         .iter()
-        .position(|(nome, _)| nome.ends_with(".gdbtable"))
+        .position(|(nome, _)| {
+            driver_common::filegdb_names::parse(nome).is_some_and(|m| m.extension == "gdbtable")
+        })
         .expect("la fixture ha almeno una tabella");
 
     ULTIMA_DIRECTORY.with(|viste| viste.borrow_mut().clear());
@@ -286,4 +288,17 @@ fn una_radice_non_creabile_e_un_errore_di_ambiente() {
         errore.message.contains("ambiente"),
         "un errore d'ambiente non va confuso con un difetto del file letto: {errore:?}"
     );
+}
+
+#[test]
+#[cfg(feature = "gdal-backend")]
+fn g5_fixture_rejects_case_aliases_before_materialization() {
+    let mut archive = b"PLENORA-GDB-FIXTURE-1\n".to_vec();
+    archive.extend_from_slice(&2u32.to_le_bytes());
+    for name in ["a0000000a.gdbtable", "A0000000A.GDBTABLE"] {
+        archive.extend_from_slice(&u16::try_from(name.len()).unwrap().to_le_bytes());
+        archive.extend_from_slice(name.as_bytes());
+        archive.extend_from_slice(&0u32.to_le_bytes());
+    }
+    assert!(__fuzz_parti_della_fixture(&archive).is_none());
 }

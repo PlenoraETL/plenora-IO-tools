@@ -96,22 +96,8 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
 
 pub struct FileGdbDriver;
 
-/// Rifiuta la lettura di un layer che dichiara piu' di un campo geometrico.
-///
-/// Il modello porta un contratto geometrico per layer, e il reader prendeva il
-/// primo campo: gli altri non comparivano nemmeno nello schema, e sparivano.
-/// E' la scelta al posto di chi legge che GEO-012 vieta. Il layer resta
-/// enumerato -- rifiutare all'apertura chiuderebbe anche i layer leggibili
-/// accanto a lui -- e la scoperta ne dichiara il numero in
-/// `filegdb.geometry_field_count`.
-///
-/// Sta fuori dal backend perche' la decisione non dipende da GDAL e si prova
-/// anche senza: `OpenFileGDB` non scrive layer con due geometrie, e nessuna
-/// fixture del driver saprebbe produrne uno.
-///
-/// # Errors
-///
-/// `Unsupported` con piu' di un campo geometrico.
+/// Rifiuta piu' campi geometrici: il contratto porta una geometria per layer.
+/// La verifica esiste anche nello stub; il rifiuto riguarda il singolo layer.
 #[cfg_attr(not(feature = "gdal-backend"), allow(dead_code))]
 fn rifiuta_piu_geometrie(campi_geometrici: usize) -> plenora_io_model::Result<()> {
     if campi_geometrici > 1 {
@@ -125,42 +111,11 @@ fn rifiuta_piu_geometrie(campi_geometrici: usize) -> plenora_io_model::Result<()
     Ok(())
 }
 
-// --- la superficie del fuzz target -----------------------------------------
-//
-// Vive qui, e non dentro `fuzz/fuzz_targets/`, per la stessa ragione per cui ci
-// vive quella di `driver-shp`: qui e' **provabile**. Le sonde del driver
-// chiamano lo stesso entry point del target sulla stessa fixture, e verificano
-// cio' che un replay senza crash non verifica -- che l'isolamento fra
-// invocazioni ci sia, che i nomi dei file non vengano dal payload, che una
-// lettura riuscita porti davvero delle righe.
-
-/// Le parti di un FileGDB, per nome, lette dall'archivio della fixture.
-///
-/// Un FileGDB non e' un file: e' una **directory** di tabelle che si citano a
-/// vicenda per GUID. Il fuzzer consegna pero' un solo blob, e da un blob non si
-/// costruisce una directory coerente -- non perche' sia difficile, ma perche' il
-/// formato e' proprietario e ricostruito per reverse engineering: costruirlo da
-/// zero significherebbe riscrivere `OpenFileGDB` e produrre file validi rispetto
-/// alla nostra idea del formato invece che a quella di GDAL.
-///
-/// La strada e' l'opposta. Si parte da un FileGDB **vero**, prodotto da GDAL da
-/// un GeoJSON committato, e il fuzzer ne sostituisce **una parte per volta**.
-/// Cio' che muta e' il contenuto di una tabella; cio' che resta e' una directory
-/// che il driver ha una ragione di aprire.
-///
-/// ```text
-/// PLENORA-GDB-FIXTURE-1\n
-/// u32          numero di parti
-/// per parte:   u16 lunghezza del nome, nome ASCII, u32 lunghezza, byte
-/// ```
-///
-/// L'archivio e' nostro e non viene dal fuzzer: e' `include_bytes!` dal lato del
-/// target. Qui e' un parametro proprio per questo -- il driver di produzione non
-/// porta dentro di se' cinquantadue kilobyte di fixture, e la sonda puo' passare
-/// l'archivio letto dal disco.
-///
-/// `None` = archivio malformato. Non e' un caso che il fuzzer possa produrre:
-/// l'archivio non e' l'input.
+/// Legge il bundle canonico GDAL, non il payload del fuzzer.
+/// Formato: magic `PLENORA-GDB-FIXTURE-1\n`, u32 parti; per parte u16
+/// lunghezza nome, nome ASCII, u32 lunghezza contenuto, contenuto (little endian).
+/// Il parser condiviso normalizza i basename e rifiuta percorsi e alias.
+/// `None` indica un bundle malformato o vuoto; la fixture resta esterna al binario.
 #[cfg(feature = "gdal-backend")]
 #[doc(hidden)]
 #[must_use]
@@ -171,6 +126,7 @@ pub fn __fuzz_parti_della_fixture(archivio: &[u8]) -> Option<Vec<(String, &[u8])
     let quante = u32::from_le_bytes([grezzo[0], grezzo[1], grezzo[2], grezzo[3]]);
 
     let mut parti = Vec::new();
+    let mut names = std::collections::BTreeSet::new();
     for _ in 0..quante {
         let (grezzo, dopo) = resto.split_at_checked(2)?;
         let lunghezza_nome = usize::from(u16::from_le_bytes([grezzo[0], grezzo[1]]));
@@ -180,13 +136,11 @@ pub fn __fuzz_parti_della_fixture(archivio: &[u8]) -> Option<Vec<(String, &[u8])
         let (contenuto, dopo) = dopo.split_at_checked(usize::try_from(lunghezza).ok()?)?;
 
         let nome = std::str::from_utf8(nome).ok()?;
-        if !nome_di_parte_ammesso(nome) {
-            // Il nome finisce in un percorso. Non viene dal fuzzer -- viene
-            // dall'archivio, che e' nostro -- ma un archivio corrotto non deve
-            // poter far scrivere fuori dalla directory.
+        let member = driver_common::filegdb_names::parse(nome)?;
+        if !names.insert(member.canonical.clone()) {
             return None;
         }
-        parti.push((nome.to_owned(), contenuto));
+        parti.push((member.canonical, contenuto));
         resto = dopo;
     }
     if !resto.is_empty() {
@@ -201,54 +155,23 @@ pub fn __fuzz_parti_della_fixture(archivio: &[u8]) -> Option<Vec<(String, &[u8])
     Some(parti)
 }
 
-/// I soli nomi che una parte di `FileGDB` puo' avere.
-///
-/// Ogni parte che `OpenFileGDB` scrive comincia con una lettera minuscola --
-/// `gdb`, `timestamps`, `a00000001.gdbtable` -- e prosegue con minuscole,
-/// cifre, punti e trattini bassi. Niente separatori e niente nomi vuoti: un
-/// nome che finisce in un `join` e non e' stato guardato e' un percorso
-/// costruito da dei byte.
-///
-/// La condizione sulla **prima** lettera non e' un dettaglio estetico: senza,
-/// `".."` sarebbe fatto di soli caratteri ammessi e passerebbe. E' il buco che
-/// la sonda di questo file ha trovato nella prima stesura.
-#[cfg(feature = "gdal-backend")]
+/// Basenames accepted by the shared `FileGDB` member parser.
+#[cfg(all(test, feature = "gdal-backend"))]
 fn nome_di_parte_ammesso(nome: &str) -> bool {
-    let mut byte = nome.bytes();
-    byte.next().is_some_and(|primo| primo.is_ascii_lowercase())
-        && byte.all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.' || b == b'_')
+    driver_common::filegdb_names::parse(nome).is_some()
 }
 
-/// Un errore dell'ambiente non e' un difetto del file letto.
-///
-/// Un filesystem pieno o una directory non creabile diventano un errore
-/// tipizzato e non un panico: un panico dell'harness verrebbe archiviato dal
-/// fuzzer come finding del driver, e la campagna misurerebbe il proprio
-/// scaffolding.
+/// Un guasto di materializzazione e' un errore tipizzato, non un finding.
 #[cfg(feature = "gdal-backend")]
 fn errore_di_ambiente(_: std::io::Error) -> plenora_io_model::PlenoraIoError {
-    // Lo stesso costruttore del resto del driver, e non `non_supportato_redatto`.
-    //
-    // In questa crate `Unsupported` ha un significato preciso e difeso da
-    // `tests/ostili.rs`: «il binario non e' stato costruito per parlare con
-    // GDAL». Riusarlo per «il filesystem non ha collaborato» farebbe cercare a
-    // chi legge una libreria da installare, e annacquerebbe la sola categoria
-    // che distingue lo stub dal guasto. `driver-shp` fa la stessa scelta per il
-    // proprio errore d'ambiente.
+    // Unsupported resta riservato al backend non compilato.
     backend::err(&plenora_io_model::PublicMessage::Curated(
         "materializzazione della .gdb fallita: e' l'ambiente, non il file letto",
     ))
 }
 
-/// Scrive le parti dentro una directory **gia' esistente**, sostituendone una.
-///
-/// Separata da `__fuzz_leggi_gdb` per una ragione sola: cosi' una sonda puo'
-/// passarle una radice inesistente e osservare l'errore, invece di forzare il
-/// fallimento mutando `TMPDIR` -- che renderebbe il difetto visibile agli altri
-/// test in parallelo e il fallimento intermittente invece che riproducibile.
-///
-/// `sostituita` e' un **indice**, non un nome: il payload sceglie quale parte
-/// cambiare, mai come si chiama. Nessun percorso deriva dai byte del fuzzer.
+/// Materializza in una directory esistente; il payload sceglie un indice,
+/// mai un nome. Separato per provare gli errori senza modificare `TMPDIR`.
 #[cfg(feature = "gdal-backend")]
 fn materializza_gdb(
     radice: &std::path::Path,
@@ -264,52 +187,35 @@ fn materializza_gdb(
         } else {
             originale
         };
-        std::fs::write(dataset.join(nome), byte).map_err(errore_di_ambiente)?;
+        std::fs::write(
+            dataset.join(
+                driver_common::filegdb_names::parse(nome)
+                    .ok_or_else(|| {
+                        backend::err(&plenora_io_model::PublicMessage::Curated(
+                            "nome membro FileGDB non valido",
+                        ))
+                    })?
+                    .canonical,
+            ),
+            byte,
+        )
+        .map_err(errore_di_ambiente)?;
     }
     Ok(dataset)
 }
 
-// L'ultima directory che `__fuzz_leggi_gdb` ha usato, per la sola sonda che
-// prova l'isolamento.
-//
-// Serve perche' l'isolamento **non si vede dall'esito**: la materializzazione
-// riscrive tutte le parti a ogni invocazione, quindi una directory riusata
-// darebbe gli stessi risultati di una nuova. Una sonda che si limitasse a
-// rileggere la fixture dopo averne rotta una parte passerebbe in entrambi i
-// casi, e proverebbe soltanto che la riscrittura funziona.
-//
-// Cio' che va provato e' che la directory sia **diversa** ogni volta, e per
-// provarlo bisogna vederla. Il seam esiste solo sotto `cfg(test)`: in campagna
-// non c'e' niente da registrare.
+// Seam di test: osserva che ogni invocazione usi una directory diversa,
+// anche quando riscrivere la stessa directory darebbe gli stessi risultati.
 #[cfg(all(test, feature = "gdal-backend"))]
 thread_local! {
     static ULTIMA_DIRECTORY: std::cell::RefCell<Vec<std::path::PathBuf>> =
         const { std::cell::RefCell::new(Vec::new()) };
 }
 
-/// Entry point non stabile per libFuzzer: una `.gdb` completa, letta davvero.
-///
-/// L'input del fuzzer si legge cosi':
-///
-/// ```text
-/// byte 0    quale parte sostituire (modulo il numero di parti)
-/// byte 1..  il contenuto che prende il suo posto
-/// ```
-///
-/// Il modulo non e' pigrizia: **ogni** byte deve scegliere una parte, altrimenti
-/// il fuzzer passerebbe il tempo a produrre input scartati invece che input che
-/// arrivano al driver. Un input vuoto materializza la fixture intatta, ed e' il
-/// caso che prova che la base si legge.
-///
-/// La directory e' **nuova a ogni invocazione**. Riusarla farebbe sopravvivere
-/// la tabella mutata dall'input precedente, e la campagna misurerebbe la propria
-/// directory invece del formato.
-///
-/// # Che cosa `Err` significa qui
-///
-/// Quasi tutto. Una tabella sostituita con byte casuali non e' un FileGDB, e il
-/// rifiuto tipizzato e' l'esito atteso. Il finding e' il **panico**, l'abort, o
-/// un output parziale consegnato prima di un errore terminale.
+/// Entry point non stabile: il byte iniziale seleziona una parte modulo il
+/// numero di membri; i byte restanti la sostituiscono. Input vuoto = fixture
+/// intatta. Ogni invocazione usa una directory nuova e drena tutte le righe.
+/// Un rifiuto tipizzato e' atteso; panico, abort o consegna parziale sono finding.
 #[cfg(feature = "gdal-backend")]
 #[doc(hidden)]
 pub fn __fuzz_leggi_gdb(archivio: &[u8], dati: &[u8], opts: ReadOptions) -> Result<usize> {
@@ -1736,14 +1642,8 @@ mod backend {
         geometry
     }
 
-    /// Apre il percorso con il **solo** driver `OpenFileGDB`.
-    ///
-    /// `Dataset::open` lascia scegliere a GDAL fra tutti i driver registrati,
-    /// e una directory `.gdb` che contiene altro -- per esempio dei CSV, che il
-    /// driver CSV di GDAL apre come directory -- veniva letta come se fosse un
-    /// `FileGDB`: un'interpretazione scelta da GDAL al posto di chi legge, con
-    /// le regole di un altro formato. Ora o e' un `FileGDB`, o l'apertura
-    /// fallisce.
+    /// Apre con il solo `OpenFileGDB`: una directory `.gdb` contenente CSV
+    /// non deve attivare implicitamente un altro driver GDAL.
     fn apri_solo_filegdb(path: &std::path::Path) -> gdal::errors::Result<Dataset> {
         with_native_diagnostics(|| {
             Dataset::open_ex(
@@ -1760,8 +1660,11 @@ mod backend {
     }
 
     fn catalog_objects(path: &std::path::Path) -> Result<Vec<(u64, String)>> {
-        let catalog = apri_solo_filegdb(&path.join("a00000001.gdbtable"))
-            .map_err(|_| err(&PublicMessage::Curated("catalogo FileGDB non leggibile")))?;
+        let catalog = apri_solo_filegdb(&driver_common::filegdb_names::resolve(
+            path,
+            "a00000001.gdbtable",
+        )?)
+        .map_err(|_| err(&PublicMessage::Curated("catalogo FileGDB non leggibile")))?;
         let mut layer = catalog
             .layer(0)
             .map_err(|_| err(&PublicMessage::Curated("catalogo FileGDB assente")))?;
@@ -1815,11 +1718,55 @@ mod backend {
         with_native_diagnostics(|| open_objects(path, assume_crs))
     }
 
+    // GDAL 3.9.3 builds lowercase physical paths (OpenFileGDBDataSource::Open).
+    // Give it a private canonical view only when necessary; never rename input.
+    fn canonical_view(path: &std::path::Path) -> Result<Option<std::sync::Arc<tempfile::TempDir>>> {
+        let entries = std::fs::read_dir(path)?.collect::<std::io::Result<Vec<_>>>()?;
+        let needs_view = entries.iter().any(|e| {
+            e.file_name()
+                .to_str()
+                .and_then(driver_common::filegdb_names::parse)
+                .is_some_and(|m| e.file_name() != std::ffi::OsStr::new(&m.canonical))
+        });
+        if !needs_view {
+            return Ok(None);
+        }
+        let view = tempfile::Builder::new()
+            .prefix("plenora-filegdb-")
+            .suffix(".gdb")
+            .tempdir()?;
+        let mut names = std::collections::BTreeSet::new();
+        for entry in entries {
+            let original = entry.file_name();
+            let name = original
+                .to_str()
+                .and_then(driver_common::filegdb_names::parse)
+                .map_or_else(|| original.clone(), |m| m.canonical.into());
+            if !names.insert(name.clone()) {
+                return Err(err(&PublicMessage::Curated(
+                    "nomi dei membri FileGDB ambigui",
+                )));
+            }
+            let destination = view.path().join(name);
+            let kind = entry.file_type()?;
+            if kind.is_file() {
+                std::fs::copy(entry.path(), destination)?;
+            } else if kind.is_dir() {
+                std::fs::create_dir(destination)?;
+            } else {
+                return Err(err(&PublicMessage::Curated("membro FileGDB non regolare")));
+            }
+        }
+        Ok(Some(std::sync::Arc::new(view)))
+    }
+
     #[allow(clippy::too_many_lines)]
     fn open_objects(
         path: &std::path::Path,
         assume_crs: Option<&str>,
     ) -> Result<Box<dyn OpenDatasetHandle>> {
+        let view = canonical_view(path)?;
+        let path = view.as_ref().map_or(path, |view| view.path());
         let diagnostics = Diagnostics::default();
         let _scope = diagnostics.enter();
         // Schema dai def GDAL, SENZA leggere feature (poi il reader streamma).
@@ -1833,8 +1780,11 @@ mod backend {
         for (i, (file_id, name)) in objects.into_iter().enumerate() {
             let result = (|| -> Result<(LayerContract, LayerMeta)> {
                 for extension in ["gdbtable", "gdbtablx"] {
-                    let member = path.join(format!("a{file_id:08x}.{extension}"));
-                    match std::fs::metadata(member) {
+                    let member = driver_common::filegdb_names::resolve(
+                        path,
+                        &format!("a{file_id:08x}.{extension}"),
+                    );
+                    match member.and_then(std::fs::metadata) {
                         Ok(meta) if meta.len() == 0 => {
                             return Err(internal_file_error(
                                 plenora_io_model::CapabilityReason::ObjectEmpty,
@@ -1863,22 +1813,8 @@ mod backend {
                 let layer = ds.layer(gdal_idx).map_err(|_| {
                     internal_file_error(plenora_io_model::CapabilityReason::ObjectMissing)
                 })?;
-                // Il campo geometrico si cerca **per primo**, e la sua assenza non
-                // e' un errore.
-                //
-                // Un FileGDB e' fatto di feature class **e** di tabelle: le seconde
-                // non hanno geometria, il formato le ammette, ed e' cosi' che sono
-                // fatte le GDB reali. Il driver le trattava come un layer rotto e
-                // rifiutava l'intero dataset, in fase di apertura: quattro feature
-                // class valide diventavano inaccessibili perche' accanto a loro
-                // c'era una tabella, e nessun `--layer` poteva aggirarlo, perche'
-                // il rifiuto precedeva la scelta.
-                //
-                // Una tabella viene percio' **enumerata**, con `geometry: None`.
-                // Non saltata: saltarla sposterebbe gli indici di layer sotto i
-                // piedi di chi li ha letti dal catalogo, e `--layer 1`
-                // significherebbe due cose diverse a seconda di che cosa il driver
-                // ha deciso di nascondere.
+                // Anche le tabelle senza geometria sono valide. Quando presente,
+                // la geometria precede gli attributi Arrow.
                 let ogr_geometry_type = layer
                     .defn()
                     .geom_fields()
@@ -2071,6 +2007,7 @@ mod backend {
         Ok(Box::new(GdbDataset {
             diagnostics,
             path: path.to_owned(),
+            view,
             layers,
             metas,
             rifiuti,
@@ -2397,6 +2334,7 @@ mod backend {
     }
 
     struct GdbDataset {
+        view: Option<std::sync::Arc<tempfile::TempDir>>,
         diagnostics: Diagnostics,
         path: PathBuf,
         layers: Vec<LayerContract>,
@@ -2472,6 +2410,7 @@ mod backend {
                 spawn_reader(
                     self.diagnostics.clone(),
                     self.path.clone(),
+                    self.view.clone(),
                     m.gdal_idx,
                     layer_contract.contract.schema.clone(),
                     fields,
@@ -2575,6 +2514,7 @@ mod backend {
     fn spawn_reader(
         diagnostics: Diagnostics,
         path: PathBuf,
+        view: Option<std::sync::Arc<tempfile::TempDir>>,
         gdal_idx: usize,
         schema: SchemaRef,
         fields: Vec<ProjectedField>,
@@ -2589,6 +2529,7 @@ mod backend {
             contract,
             2,
             move |emitter: BatchEmitter| {
+                let _view = view;
                 let _scope = diagnostics.enter();
                 with_native_diagnostics(|| {
                     let ds = apri_solo_filegdb(&path).map_err(|_| {

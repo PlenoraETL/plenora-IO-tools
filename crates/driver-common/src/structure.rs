@@ -300,7 +300,9 @@ fn shapefile(path: &Path) -> Result<()> {
 fn filegdb(path: &Path, opts: &ReadOptions) -> Result<()> {
     require(path.is_dir(), "filegdb")?;
     require(
-        path.join("a00000001.gdbtable").is_file() && path.join("a00000001.gdbtablx").is_file(),
+        ["a00000001.gdbtable", "a00000001.gdbtablx"]
+            .iter()
+            .all(|name| crate::filegdb_names::resolve(path, name).is_ok_and(|p| p.is_file())),
         "filegdb",
     )?;
     for entry in std::fs::read_dir(path)? {
@@ -311,16 +313,17 @@ fn filegdb(path: &Path, opts: &ReadOptions) -> Result<()> {
         if path
             .file_name()
             .and_then(|s| s.to_str())
-            .and_then(|s| s.split('.').next())
-            .is_some_and(|s| {
-                s.strip_prefix('a')
-                    .and_then(|s| u32::from_str_radix(s, 16).ok())
-                    .is_some_and(|id| id >= 9)
-            })
+            .and_then(crate::filegdb_names::parse)
+            .is_some_and(|member| member.id.is_some_and(|id| id >= 9))
         {
             continue;
         }
-        if path.file_name().is_some_and(|name| name == "gdb") {
+        if path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .and_then(crate::filegdb_names::parse)
+            .is_some_and(|m| m.canonical == "gdb")
+        {
             let (h, length) = header::<8>(&path, "filegdb")?;
             require(length == 8 && h[4..] == [0xde, 0xad, 0xbe, 0xef], "filegdb")?;
         }
@@ -335,14 +338,18 @@ fn filegdb(path: &Path, opts: &ReadOptions) -> Result<()> {
 pub fn filegdb_object(path: &Path, id: u64) -> Result<()> {
     let stem = format!("a{id:08x}");
     for extension in ["gdbtable", "gdbtablx"] {
-        filegdb_member(&path.join(format!("{stem}.{extension}")))?;
+        filegdb_member(&crate::filegdb_names::resolve(
+            path,
+            &format!("{stem}.{extension}"),
+        )?)?;
     }
     for entry in std::fs::read_dir(path)? {
         let member = entry?.path();
         if member
             .file_name()
             .and_then(|s| s.to_str())
-            .is_some_and(|s| s.starts_with(&format!("{stem}.")))
+            .and_then(crate::filegdb_names::parse)
+            .is_some_and(|m| m.id.map(u64::from) == Some(id))
         {
             filegdb_member(&member)?;
         }
@@ -351,12 +358,11 @@ pub fn filegdb_object(path: &Path, id: u64) -> Result<()> {
 }
 
 fn filegdb_member(path: &Path) -> Result<()> {
-    match path
-        .extension()
+    let member = path
+        .file_name()
         .and_then(|s| s.to_str())
-        .map(str::to_ascii_lowercase)
-        .as_deref()
-    {
+        .and_then(crate::filegdb_names::parse);
+    match member.as_ref().map(|m| m.extension.as_str()) {
         Some("gdbtable") => {
             let (h, length) = header::<40>(path, "filegdb")?;
             require(

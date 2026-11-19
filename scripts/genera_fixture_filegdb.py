@@ -86,23 +86,20 @@ PROVA = ROOT / "assurance" / "fixture-filegdb.json"
 
 INTESTAZIONE = b"PLENORA-GDB-FIXTURE-1\n"
 
-# I nomi che una parte di FileGDB puo' avere. Non e' una convenzione nostra: e'
-# cio' che `OpenFileGDB` scrive, e limitarlo qui impedisce che un archivio
-# costruito altrove faccia scrivere al target un nome qualunque.
+# Profilo canonico del bundle di qualifica prodotto da questo generatore:
+# conserva i nomi minuscoli emessi da GDAL, senza normalizzare gli artefatti
+# congelati. Non e' il riconoscitore dei dataset in ingresso al prodotto.
 CARATTERI_AMMESSI = set("abcdefghijklmnopqrstuvwxyz0123456789._")
 
 
 def nome_di_parte_ammesso(nome: str) -> bool:
-    """La stessa regola che applica il target, e per la stessa ragione.
+    """Whitelist dei basename del bundle canonico generato qui.
 
-    Ogni parte che `OpenFileGDB` scrive comincia con una lettera minuscola --
-    `gdb`, `timestamps`, `a00000001.gdbtable`. La condizione sulla **prima**
-    lettera non e' estetica: senza, `".."` sarebbe fatto di soli caratteri
-    ammessi e passerebbe, e ogni nome finisce in un `join`.
-
-    La regola sta in due posti perche' i due posti servono a cose diverse: qui
-    protegge chi **costruisce** l'archivio, in `driver-filegdb` protegge chi lo
-    **legge**. Che siano la stessa regola lo prova una sonda per parte.
+    Il prodotto usa il parser condiviso Rust `driver_common::filegdb_names`
+    anche per le varianti di caso. Questo generatore conserva invece la grafia
+    nativa della fixture congelata: non riscrive nomi, contenuti o misure.
+    La prima lettera minuscola e l'assenza di separatori impediscono che un
+    basename della fixture diventi un percorso relativo come `..`.
     """
     return (
         bool(nome)
