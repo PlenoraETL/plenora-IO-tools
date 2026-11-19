@@ -48,9 +48,9 @@
       "segmenti": [
         "driver_filegdb",
         "backend",
-        "open"
+        "open_selected"
       ],
-      "perche": "il ramo che esiste **solo** con `gdal-backend`: e' li' che il dataset viene aperto davvero. Senza la feature il driver e' uno stub, e uno stub non esercita nessun formato."
+      "perche": "FileGdbDriver::open chiama ora backend::open_selected, che apre tramite open_objects. backend::open e' solo un adattatore #[cfg(test)] e non viene compilato nel target. gdal-backend e' gia' abilitata in fuzz/Cargo.toml; requisito invariato sul backend reale."
     },
     {
       "id": "driver.contratto-geometrico",

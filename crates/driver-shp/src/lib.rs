@@ -2275,7 +2275,7 @@ fn valida_struttura_shp(shp_path: &Path, row_limit: Option<u64>) -> Result<()> {
         && count != u32::from_le_bytes([header[4], header[5], header[6], header[7]])
     {
         return Err(err(&PublicMessage::Curated(
-            "numero di geometrie diverso dal numero di record DBF",
+            "numero di geometrie diverso dal numero di record DBF", // profondita: conteggi strutturali
         )));
     }
     valida_indice_shx(
@@ -4056,8 +4056,8 @@ fn materializza_bundle(radice: &Path, parti: &PartiDelBundle<'_>) -> Result<Path
     std::fs::write(&principale, shp).map_err(errore_di_ambiente)?;
     std::fs::write(radice.join("input.dbf"), dbf).map_err(errore_di_ambiente)?;
     if !shx.is_empty() {
-        // Senza `.shx` il driver non conta le forme in anticipo: e' un percorso
-        // legittimo, e va lasciato raggiungibile quanto quello con l'indice.
+        // La catena SHP viene contata anche senza indice; quando presente,
+        // lo SHX deve essere materializzato per verificarne anche la coerenza.
         std::fs::write(radice.join("input.shx"), shx).map_err(errore_di_ambiente)?;
     }
     if !prj.is_empty() {

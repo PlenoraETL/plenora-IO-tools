@@ -147,10 +147,7 @@ fn il_seme_di_polilinea_arriva_al_drenaggio() {
     assert_eq!(righe, 1);
 }
 
-/// Conteggi disallineati **con** indice: il `.shx` risponde a
-/// `shape_count()`, e il driver rifiuta all'apertura senza decodificare una
-/// sola geometria. E' la difesa piu' economica del reader, e senza un seme
-/// che porti l'indice sarebbe irraggiungibile da questo target.
+/// Il confronto strutturale dei conteggi precede l'inferenza anche con SHX.
 #[test]
 fn i_conteggi_disallineati_sono_rifiutati_all_apertura_quando_c_e_l_indice() {
     let errore = __fuzz_leggi_bundle(
@@ -166,7 +163,7 @@ fn i_conteggi_disallineati_sono_rifiutati_all_apertura_quando_c_e_l_indice() {
 
 /// Anche senza indice la catena dei record viene contata prima del drenaggio.
 #[test]
-fn i_conteggi_disallineati_emergono_nel_drenaggio_senza_indice() {
+fn i_conteggi_disallineati_sono_rifiutati_all_apertura_senza_indice() {
     let errore = __fuzz_leggi_bundle(
         &seme("disallineati-senza-indice.bundle"),
         opzioni_di_campagna().with_assume_crs("EPSG:4326"),
@@ -764,6 +761,20 @@ fn un_offset_del_primo_record_troppo_corto_e_un_errore_non_un_panico() {
     assert_eq!(
         errore.message,
         "contenuto vuoto o struttura non valida; formato atteso: Shapefile"
+    );
+}
+
+/// Il preflight ammette l'offset fisico, il driver rifiuta quello utile.
+#[test]
+fn il_seme_offset_utile_corto_raggiunge_la_difesa_del_decoder() {
+    let errore = __fuzz_leggi_bundle(
+        &seme("dbf-offset-utile-corto.bundle"),
+        opzioni_di_campagna().with_assume_crs("EPSG:4326"),
+    )
+    .expect_err("zero byte utili non contengono il terminatore");
+    assert_eq!(
+        errore.message,
+        "offset del primo record DBF piu' corto dell'intestazione"
     );
 }
 
@@ -4057,6 +4068,52 @@ fn n1_spawn_parser_si_ferma_quando_le_geometrie_finiscono_prima_dei_record() {
     assert_eq!(
         errore.message,
         "numero di geometrie diverso dal numero di record DBF"
+    );
+}
+
+/// Prova deterministica dello stato non costruibile dal bundle fuzz statico.
+#[test]
+fn cardinalita_cambiata_dopo_inferenza_e_rifiutata_nel_drenaggio() {
+    let dir = tempfile::tempdir().unwrap();
+    let bundle = bundle_di_righe(dir.path(), "stabile.shp", &["NOME"], 1, |_| {});
+    let layout = read_dbf_layout(&bundle, None).expect("il dbf e' ben formato");
+    assert_eq!(layout.record_count, 1);
+
+    let schema: SchemaRef = Arc::new(Schema::new(vec![geometry_field(GEOMETRY, "EPSG:4326")]));
+    let layer = LayerContract {
+        id: LayerId(0),
+        name: "stabile".to_owned(),
+        contract: DataContract::new(schema.clone(), None),
+    };
+    let ingresso = ShpParserInput {
+        path: bundle,
+        schema: schema.clone(),
+        cols: Vec::new(),
+        dbf_layout: layout.clone(),
+        dimensions: CoordinateDimensions::Xy,
+        expected_shape_type: Some("point-xy"),
+        // Simula un conteggio inferito prima di una modifica delle righe attive.
+        expected_active_rows: 2,
+        include_geometry: true,
+        batch_sizer: plenora_io_core::AdaptiveBatchSizer::new(&schema, BatchTarget::default()),
+        layer,
+        loss: LossReport::default(),
+        row_diagnostics: ShpRowDiagnosticsConfig::from_options(&BTreeMap::new(), &[], &layout)
+            .expect("nessuna opzione di diagnostica"),
+        scope: ReadScope::Complete,
+        cancellation: plenora_io_model::CancellationToken::new(),
+    };
+
+    let mut reader = spawn_parser(ingresso).expect("i file statici sono coerenti");
+    let (righe, errore) = consume_until_error(reader.as_mut());
+    assert_eq!(righe, 0, "il lotto pendente non deve uscire");
+    assert_eq!(
+        errore.message,
+        "cardinalita' Shapefile cambiata durante la lettura"
+    );
+    assert!(
+        errore.row_diagnostics.is_none(),
+        "nessuna riga scartata prima del rifiuto"
     );
 }
 

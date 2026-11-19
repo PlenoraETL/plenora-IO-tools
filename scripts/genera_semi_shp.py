@@ -93,10 +93,9 @@ def _assembla(tipo: int, contenuti: list[bytes], riquadro: tuple[float, ...]):
     parte lo farebbe divergere al primo record di lunghezza diversa, e un
     indice che mente e' un difetto del seme, non del lettore.
 
-    Serve al lettore per contare le forme **senza leggerle**. Senza `.shx` il
-    driver non puo' confrontare in anticipo il numero di forme con il numero di
-    record del DBF, e quel ramo di rifiuto resta irraggiungibile: un seme senza
-    indice coprirebbe meno di quanto sembri.
+    Serve al lettore per contare le forme **senza leggerle**. La prevalidazione
+    conta anche la catena SHP senza indice; con lo SHX verifica inoltre che
+    ogni voce corrisponda a quella catena.
     """
     corpo = b""
     voci = []
@@ -474,17 +473,22 @@ def semi() -> dict[str, bytes]:
         (0.0, 0.0, 1.0, 1.0),
     )
 
-    # Il conteggio del DBF e quello del `.shp` **non** coincidono. Con l'indice
-    # il driver se ne accorge all'apertura, prima di decodificare una sola
-    # geometria; senza indice lo scopre durante la lettura. Sono due rami
-    # diversi dello stesso rifiuto, e ci vogliono due semi per raggiungerli
-    # entrambi.
+    # Il confronto strutturale rifiuta entrambi all'apertura, anche senza SHX.
     disallineato = dbf([("NOME", "C", 8)], [["SOLO_UNA"]])
 
     nullo_sovradimensionato, _ = shp_col_nullo_sovradimensionato()
     due_righe = dbf([("NOME", "C", 8)], [["SENZA"], ["FIRENZE"]])
 
+    # Minimo per raggiungere l'offset utile corto DOPO il preflight comune:
+    # SHP vuoto, nessun indice/campo/record; offset fisico 263, esattamente il backlink.
+    # Il preflight accetta start >= 33, ma il driver sottrae il backlink
+    # Visual FoxPro e trova zero byte utili, sotto il minimo 33.
+    vuoto, _ = _assembla(NULLO, [], (0.0, 0.0, 0.0, 0.0))
+    offset_utile_corto = dbf_ostile(dbf([], []), offset=263, versione=0x31)
+    offset_utile_corto = offset_utile_corto[:32].ljust(263, b"\x00")
+
     return {
+        "dbf-offset-utile-corto.bundle": bundle(vuoto, b"", offset_utile_corto),
         "punti-con-attributi.bundle": bundle(punti, indice_punti, attributi),
         "punti-con-prj.bundle": bundle(punti, indice_punti, attributi, PRJ_WGS84),
         "polilinea.bundle": bundle(linee, indice_linee, una_riga),

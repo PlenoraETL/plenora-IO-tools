@@ -40,8 +40,7 @@
     "shp.conteggio-delle-forme",
     "drenaggio.batch",
     "prevalidazione.conteggi-del-multipunto",
-    "rifiuto.conteggi-all-apertura",
-    "rifiuto.cardinalita-nel-drenaggio"
+    "rifiuto.conteggi-all-apertura"
   ],
   "funzioni": [
     {
@@ -186,7 +185,7 @@
         "ShapeReader",
         "shape_count"
       ],
-      "perche": "il conteggio anticipato delle forme, che esiste solo quando l'indice c'e' ed e' cio' su cui poggia il rifiuto all'apertura."
+      "perche": "Il conteggio fornito dall'indice viene ancora consultato nell'inferenza. Il rifiuto dei conteggi incoerenti avviene gia' nella prevalidazione della catena SHP."
     },
     {
       "id": "drenaggio.batch",
@@ -243,14 +242,8 @@
     {
       "id": "rifiuto.conteggi-all-apertura",
       "file": "crates/driver-shp/src/lib.rs",
-        "ancora": "                \"numero di geometrie diverso dal numero di record DBF\",",
-      "perche": "la difesa piu' economica del reader: con il `.shx` il disallineamento si vede prima di decodificare una geometria. Che `shape_count` sia coperta non basta -- dice che il conteggio e' stato letto, non che il rifiuto sia scattato."
-    },
-    {
-      "id": "rifiuto.cardinalita-nel-drenaggio",
-      "file": "crates/driver-shp/src/lib.rs",
-      "ancora": "\"cardinalita' Shapefile cambiata durante la lettura\",",
-      "perche": "lo stesso disallineamento **senza** indice emerge a lettura avviata, dopo il parsing delle geometrie. E' un ramo diverso, e serve un seme diverso per raggiungerlo."
+      "ancora": "\"numero di geometrie diverso dal numero di record DBF\", // profondita: conteggi strutturali",
+      "perche": "Il confronto e' ora in valida_struttura_shp, prima dell'inferenza, con e senza SHX. I due semi disallineati esistenti raggiungono questo rifiuto; la vecchia ancora individuava il controllo successivo in infer_geometry_info."
     },
     {
       "id": "bundle.shx-materializzato",
@@ -268,7 +261,7 @@
       "id": "rifiuto.offset-dbf-corto",
       "file": "crates/driver-shp/src/lib.rs",
       "ancora": "\"offset del primo record DBF piu' corto dell'intestazione\",",
-      "perche": "il primo difetto che il target ha trovato: una sottrazione non controllata dentro `dbase::File::open`."
+      "perche": "Il preflight comune rifiuta gia' gli offset fisici sotto 33. Il seme dbf-offset-utile-corto.bundle usa Visual FoxPro: 263 byte fisici meno 263 di backlink lasciano zero byte utili e raggiungono questa difesa del decoder."
     },
     {
       "id": "rifiuto.campo-dbf-corto",
@@ -329,7 +322,8 @@
     "read_all": "il drenaggio di questo repository non passa da una `read_all`: si apre un reader per layer e si chiama `next_batch` finche' non torna `None`. La proprieta' richiesta -- che le righe escano davvero -- e' `drenaggio.batch`.",
     "errore_di_ambiente": "la riga che trasforma un errore di scrittura in errore tipizzato resta a **zero**, ed e' giusto: durante la misura l'ambiente non ha fallito. E' provata da una sonda del driver, non da qui, perche' pretenderla coperta significherebbe pretendere che il filesystem si rompa durante una misura.",
     "semantica": "che un ramo sia raggiunto non dice che il suo contratto sia verificato. Questo registro separa Ã‚Â«non raggiuntoÃ‚Â» da Ã‚Â«raggiuntoÃ‚Â»; la seconda meta' la verificano le sonde di `driver-shp`.",
-    "difese": "i rami di rifiuto elencati qui non sono la copertura del reader: sono la prova che i semi ostili committati raggiungono ancora la difesa che li riguarda. Un seme che smettesse di arrivarci resterebbe verde nel replay -- non fa crashare niente -- e questa misura e' l'unica cosa che se ne accorgerebbe."
+    "difese": "i rami di rifiuto elencati qui non sono la copertura del reader: sono la prova che i semi ostili committati raggiungono ancora la difesa che li riguarda. Un seme che smettesse di arrivarci resterebbe verde nel replay -- non fa crashare niente -- e questa misura e' l'unica cosa che se ne accorgerebbe.",
+    "rifiuto.cardinalita-nel-drenaggio": "Rimosso dal perimetro del target statico: valida_struttura_shp confronta SHP/DBF prima dell'inferenza e di nuovo prima del parser; l'inferenza conta le righe attive. __fuzz_leggi_bundle materializza una sola volta una directory privata e non muta i file fra le scansioni. Il ramo terminale resta una difesa contro stato cambiato dopo l'inferenza, verificata da tests::cardinalita_cambiata_dopo_inferenza_e_rifiutata_nel_drenaggio (stato atteso iniettato, nessuna race). Il rifiuto dei bundle statici disallineati resta obbligatorio in rifiuto.conteggi-all-apertura, con sonde su entrambi i semi."
   },
   "regola_release_9": "Il replay finito non sostituisce questa misura: requisiti, impronta e confine GDAL restano obbligatori. Nessuna nuova misura attestata dalla modifica di policy."
 }
