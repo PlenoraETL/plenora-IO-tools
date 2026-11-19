@@ -329,6 +329,31 @@ fn absent_schema_timezone_requires_native_evidence() {
 }
 
 #[test]
+fn absent_schema_timezone_from_native_accessor_is_explicit() {
+    use gdal::vector::{Feature, LayerAccess, LayerOptions, OGRFieldType};
+
+    let driver = gdal::DriverManager::get_driver_by_name("Memory").unwrap();
+    let mut dataset = driver.create_vector_only("").unwrap();
+    let layer = dataset.create_layer(LayerOptions::default()).unwrap();
+    layer
+        .create_defn_fields(&[("time", OGRFieldType::OFTDateTime)])
+        .unwrap();
+    let feature = Feature::new(layer.defn()).unwrap();
+    assert!(feature.field_datetime_timezone_flag(1).is_err());
+    let raw = feature.field_datetime_timezone_flag(0).unwrap();
+    let version: u32 = gdal::version::version_info("VERSION_NUM").parse().unwrap();
+    assert_eq!(raw.is_some(), version >= 3_080_000);
+    if let Some(flag) = raw {
+        assert_eq!(flag, 0); // unknown is distinct from unavailable
+    } else {
+        let error = schema_timezone_flag(raw, None).unwrap_err();
+        assert_eq!(error.code, plenora_io_model::IoErrorCode::Unsupported);
+        assert_eq!(schema_timezone_flag(raw, Some(true)).unwrap(), 100);
+        assert_eq!(schema_timezone_flag(raw, Some(false)).unwrap(), 0);
+    }
+}
+
+#[test]
 fn fractional_seconds_accessor_and_arrow_rounding_are_explicit() {
     use gdal::vector::{FieldDefn, LayerOptions, OGRFieldType};
     let driver = gdal::DriverManager::get_driver_by_name("Memory").unwrap();

@@ -385,22 +385,21 @@ impl<'a> Feature<'a> {
     /// `Some(0)` is GDAL's unknown flag, not an unavailable accessor.
     pub fn field_datetime_timezone_flag(&self, field_idx: usize) -> Result<Option<i32>> {
         self.checked_field_index(field_idx, "field_datetime_timezone_flag")?;
-        self.datetime_timezone_flag_available(field_idx)
-    }
-
-    #[cfg(not(any(major_ge_4, all(major_is_3, minor_ge_8))))]
-    fn datetime_timezone_flag_available(&self, _field_idx: usize) -> Result<Option<i32>> {
-        Ok(None)
-    }
-
-    #[cfg(any(major_ge_4, all(major_is_3, minor_ge_8)))]
-    fn datetime_timezone_flag_available(&self, field_idx: usize) -> Result<Option<i32>> {
-        let idx = self.checked_field_index(field_idx, "field_datetime_timezone_flag")?;
-        let defn = unsafe { gdal_sys::OGR_F_GetFieldDefnRef(self.c_feature, idx) };
-        if defn.is_null() {
-            return Err(_last_null_pointer_err("OGR_F_GetFieldDefnRef"));
+        // This must be conditional compilation, not a runtime version check:
+        // even an unexecuted call requires the native symbol at link time.
+        #[cfg(any(major_ge_4, all(major_is_3, minor_ge_8)))]
+        {
+            let idx = self.checked_field_index(field_idx, "field_datetime_timezone_flag")?;
+            let defn = unsafe { gdal_sys::OGR_F_GetFieldDefnRef(self.c_feature, idx) };
+            if defn.is_null() {
+                return Err(_last_null_pointer_err("OGR_F_GetFieldDefnRef"));
+            }
+            Ok(Some(unsafe { gdal_sys::OGR_Fld_GetTZFlag(defn) }))
         }
-        Ok(Some(unsafe { gdal_sys::OGR_Fld_GetTZFlag(defn) }))
+        #[cfg(not(any(major_ge_4, all(major_is_3, minor_ge_8))))]
+        {
+            Ok(None)
+        }
     }
 
     fn checked_field_index(&self, index: usize, method_name: &'static str) -> Result<c_int> {
