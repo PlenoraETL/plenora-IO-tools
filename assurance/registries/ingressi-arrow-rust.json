@@ -926,6 +926,13 @@
         "plenora_io_core::driver::FormatDriver"
       ]
     },
+    "plenora-io-core/src/driver.rs::plenora_io_core::driver::FormatDriver::open_selected": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Seleziona l'oggetto prima della scoperta del driver; riceve Source, ReadOptions e LayerId, senza array o buffer Arrow. I batch passano dal reader e dai suoi ingressi guardati.",
+      "tipi": [
+        "plenora_io_core::driver::FormatDriver"
+      ]
+    },
     "plenora-io-core/src/driver.rs::plenora_io_core::driver::FormatWriter::declare_input_total": {
       "classificazione": "non riceve dati esterni",
       "motivazione": "Metodo su stato privato di reader/writer/dataset; non accetta array dal chiamante. I batch eventualmente conservati sono passati dagli ingressi guardati di lettura/scrittura.",

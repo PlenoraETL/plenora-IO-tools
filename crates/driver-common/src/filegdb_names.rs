@@ -9,6 +9,53 @@ pub struct Member {
     pub canonical: String,
 }
 
+/// Physical dependencies shared by discovery, validation and native readers.
+/// The catalog decoder supplies the IDs of shared native schema tables.
+#[derive(Clone, Copy, Debug)]
+pub enum Operation<'a> {
+    Catalog,
+    Object { id: u64, catalog: &'a [u64] },
+}
+
+/// Return only the files belonging to this operation, without opening siblings.
+/// # Errors
+/// Directory enumeration, missing required members or ambiguous identities.
+pub fn required(
+    directory: &Path,
+    operation: Operation<'_>,
+) -> std::io::Result<Vec<(PathBuf, Member)>> {
+    let mut members = std::collections::BTreeMap::new();
+    for entry in std::fs::read_dir(directory)? {
+        let entry = entry?;
+        let Some(member) = entry.file_name().to_str().and_then(parse) else {
+            continue;
+        };
+        let selected = match operation {
+            Operation::Catalog => member.id == Some(1),
+            Operation::Object { id, catalog } => member.id.is_some_and(|owner| {
+                owner == 1 || u64::from(owner) == id || catalog.contains(&u64::from(owner))
+            }),
+        };
+        if selected
+            && members
+                .insert(member.canonical.clone(), (entry.path(), member))
+                .is_some()
+        {
+            return Err(std::io::ErrorKind::InvalidData.into());
+        }
+    }
+    let id = match operation {
+        Operation::Catalog => 1,
+        Operation::Object { id, .. } => id,
+    };
+    for extension in ["gdbtable", "gdbtablx"] {
+        if !members.contains_key(&format!("a{id:08x}.{extension}")) {
+            return Err(std::io::ErrorKind::NotFound.into());
+        }
+    }
+    Ok(members.into_values().collect())
+}
+
 /// Parse a basename, never a path. Unknown extensions remain associated with
 /// their table so they cannot bypass local ownership checks.
 #[must_use]

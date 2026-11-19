@@ -85,6 +85,10 @@ fn calls(source: &str, function: &str, callee: &str) -> bool {
         found: bool,
     }
     impl<'ast> Visit<'ast> for Calls<'_> {
+        fn visit_expr_method_call(&mut self, node: &'ast syn::ExprMethodCall) {
+            self.found |= node.method == self.callee;
+            syn::visit::visit_expr_method_call(self, node);
+        }
         fn visit_expr_call(&mut self, node: &'ast syn::ExprCall) {
             if let syn::Expr::Path(path) = node.func.as_ref() {
                 let name = path
@@ -124,6 +128,18 @@ fn calls(source: &str, function: &str, callee: &str) -> bool {
     };
     visitor.visit_file(&syn::parse_file(source).unwrap());
     visitor.calls.found
+}
+
+fn assert_reader_route(name: &str, source: &str) {
+    if name == "driver-filegdb" {
+        assert!(calls(source, "open", "open_selected"), "{name}: selection");
+        assert!(
+            calls(source, "open_selected", "with_read_budget"),
+            "{name}: selected reader"
+        );
+    } else {
+        assert!(calls(source, "open", "with_read_budget"), "{name}: reader");
+    }
 }
 
 #[test]
@@ -166,7 +182,11 @@ fn enumeration_guards_driver_and_surface_routes() {
         let source =
             std::fs::read_to_string(root.join("crates").join(name).join("src/lib.rs")).unwrap();
         assert!(calls(&source, "create", "validate_write"), "{name}: writer");
-        assert!(calls(&source, "open", "with_read_budget"), "{name}: reader");
+        assert_reader_route(name, &source);
+    }
+    let cli = std::fs::read_to_string(root.join("crates/plenora-io-tools/src/lib.rs")).unwrap();
+    for operation in ["cmd_read", "cmd_convert"] {
+        assert!(calls(&cli, operation, "open_selected"), "{operation}");
     }
     for (path, function, callee) in [
         (

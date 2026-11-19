@@ -104,8 +104,14 @@ fn catalogo_con_oggetti_non_leggibili_non_scala_gli_indici() {
             .unwrap();
     }
     drop(dataset);
-    let objects = catalog_objects(&path).unwrap();
-    for (id, name) in objects {
+    let view = canonical_view(
+        &path,
+        driver_common::filegdb_names::Operation::Catalog,
+        None,
+    )
+    .unwrap();
+    let objects = catalog_objects(view.path()).unwrap();
+    for (id, name) in objects.objects {
         if name == "Missing" {
             std::fs::remove_file(path.join(format!("a{id:08x}.gdbtable"))).unwrap();
         }
@@ -627,4 +633,36 @@ fn g5_resolver_enumerates_every_member_type_and_case_axis() {
             assert_eq!(std::fs::read(resolved).unwrap(), b"member");
         }
     }
+}
+
+#[test]
+fn explicit_selection_discovers_only_the_requested_object_with_stable_id() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../plenora-io-tools/tests/fixtures/canoniche/canonico.gdb");
+    let temporary = tempfile::tempdir().unwrap();
+    let path = temporary.path().join("selected.gdb");
+    std::fs::create_dir(&path).unwrap();
+    for entry in std::fs::read_dir(fixture).unwrap() {
+        let entry = entry.unwrap();
+        std::fs::copy(entry.path(), path.join(entry.file_name())).unwrap();
+    }
+    // Unselected corrupt members must never acquire a view or schema.
+    std::fs::write(path.join("a00000009.gdbtable"), b"BAD").unwrap();
+    let dataset = open_selected(&path, None, Some(LayerId(3))).unwrap();
+    assert_eq!(dataset.layers().len(), 1);
+    assert_eq!(dataset.layers()[0].id, LayerId(3));
+    assert!(dataset.rifiuto_del_layer(LayerId(3)).is_none());
+    let request = ReadRequest {
+        layer: LayerId(3),
+        projected_fields: None,
+        projection_mode: plenora_io_core::ProjectionMode::BestEffort,
+        pruning_predicate: None,
+        spatial_pruning_hint: None,
+        scope: plenora_io_core::ReadScope::Complete,
+        batch_target: plenora_io_core::BatchTarget::default(),
+        cancellation: plenora_io_model::CancellationToken::default(),
+    };
+    let mut reader = dataset.open_layer_reader(&request).unwrap();
+    drop(dataset);
+    assert!(reader.next_batch().unwrap().is_some());
 }

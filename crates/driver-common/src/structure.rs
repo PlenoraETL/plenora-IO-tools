@@ -299,60 +299,56 @@ fn shapefile(path: &Path) -> Result<()> {
 }
 fn filegdb(path: &Path, opts: &ReadOptions) -> Result<()> {
     require(path.is_dir(), "filegdb")?;
-    require(
-        ["a00000001.gdbtable", "a00000001.gdbtablx"]
-            .iter()
-            .all(|name| crate::filegdb_names::resolve(path, name).is_ok_and(|p| p.is_file())),
-        "filegdb",
-    )?;
-    for entry in std::fs::read_dir(path)? {
+    for (member, _) in
+        crate::filegdb_names::required(path, crate::filegdb_names::Operation::Catalog)
+            .map_err(|_| invalid("filegdb"))?
+    {
         opts.ensure_active()?;
-        let path = entry?.path();
-        // User objects are validated at their catalog position by the driver.
-        // A damaged member must not invalidate unrelated catalog objects.
-        if path
-            .file_name()
-            .and_then(|s| s.to_str())
-            .and_then(crate::filegdb_names::parse)
-            .is_some_and(|member| member.id.is_some_and(|id| id >= 9))
-        {
-            continue;
-        }
-        if path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .and_then(crate::filegdb_names::parse)
-            .is_some_and(|m| m.canonical == "gdb")
-        {
-            let (h, length) = header::<8>(&path, "filegdb")?;
-            require(length == 8 && h[4..] == [0xde, 0xad, 0xbe, 0xef], "filegdb")?;
-        }
-        filegdb_member(&path)?;
+        filegdb_member(&member).map_err(|_| invalid("filegdb"))?;
     }
     Ok(())
 }
 
-/// Validate the physical table and index of one catalog object.
+/// Validate only the members owned by the requested catalog object.
 /// # Errors
-/// Returns a local structural error for malformed or truncated members.
+/// Local missing, empty, inaccessible or malformed members.
 pub fn filegdb_object(path: &Path, id: u64) -> Result<()> {
-    let stem = format!("a{id:08x}");
-    for extension in ["gdbtable", "gdbtablx"] {
-        filegdb_member(&crate::filegdb_names::resolve(
-            path,
-            &format!("{stem}.{extension}"),
-        )?)?;
-    }
-    for entry in std::fs::read_dir(path)? {
-        let member = entry?.path();
-        if member
-            .file_name()
-            .and_then(|s| s.to_str())
-            .and_then(crate::filegdb_names::parse)
-            .is_some_and(|m| m.id.map(u64::from) == Some(id))
-        {
-            filegdb_member(&member)?;
+    let members = crate::filegdb_names::required(
+        path,
+        crate::filegdb_names::Operation::Object { id, catalog: &[] },
+    )
+    .map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            PlenoraIoError::capability_redatta(
+                "filegdb",
+                None,
+                plenora_io_model::CapabilityReason::ObjectMissing,
+                &PublicMessage::Curated("membro oggetto FileGDB assente"),
+            )
+        } else {
+            error.into()
         }
+    })?;
+    for (member, identity) in members {
+        if identity.id.map(u64::from) != Some(id) {
+            continue;
+        }
+        let metadata = std::fs::symlink_metadata(&member)?;
+        if !metadata.is_file() || metadata.len() == 0 {
+            return Err(PlenoraIoError::capability_redatta(
+                "filegdb",
+                None,
+                if metadata.is_file() {
+                    plenora_io_model::CapabilityReason::ObjectEmpty
+                } else {
+                    plenora_io_model::CapabilityReason::ObjectMissing
+                },
+                &PublicMessage::Curated("membro oggetto FileGDB vuoto o non regolare"),
+            ));
+        }
+        // Even opaque extensions must not conceal inaccessible object members.
+        let _file = File::open(&member)?;
+        filegdb_member(&member)?;
     }
     Ok(())
 }
@@ -381,6 +377,24 @@ fn filegdb_member(path: &Path) -> Result<()> {
             )?;
         }
         Some("gdbindexes") => filegdb_indexes(path)?,
+        Some("freelist") => {
+            // GDAL FileGDB freelist: 4096-byte pages and a 344-byte trailer.
+            let trailer = tail::<344>(path, "filegdb")?;
+            let length = std::fs::metadata(path)?.len();
+            require(length % 4096 == 344 && le32(&trailer) == 1, "filegdb")?;
+            let pages = length / 4096;
+            for slot in trailer[8..].as_chunks::<8>().0 {
+                let (page, count) = (le32(slot), u64::from(le32(&slot[4..])));
+                require(
+                    if page == u32::MAX {
+                        count == 0
+                    } else {
+                        u64::from(page) < pages && count > 0 && count <= pages
+                    },
+                    "filegdb",
+                )?;
+            }
+        }
         Some("spx" | "atx") => {
             require(std::fs::symlink_metadata(path)?.is_file(), "filegdb")?;
             let (footer, length) = (tail::<22>(path, "filegdb")?, std::fs::metadata(path)?.len());
@@ -391,7 +405,7 @@ fn filegdb_member(path: &Path) -> Result<()> {
                 "filegdb",
             )?;
         }
-        _ => {}
+        _ => return Err(invalid("filegdb")),
     }
     Ok(())
 }

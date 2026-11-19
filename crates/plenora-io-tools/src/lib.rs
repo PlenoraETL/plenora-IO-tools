@@ -1143,7 +1143,13 @@ fn cmd_write_inner(cli: &Cli) -> CliResult {
 pub fn cmd_read(cli: &Cli) -> CliResult {
     let (driver, path) = open_source(cli)?;
     let ropts = read_options(cli).map_err(map_err)?;
-    let ds = driver.open(Source::Path(path), ropts).map_err(map_err)?;
+    let ds = driver
+        .open_selected(
+            Source::Path(path),
+            ropts,
+            cli.layer.map(plenora_io_model::contract::LayerId),
+        )
+        .map_err(map_err)?;
     let layer_id = selected_layer_id(cli, ds.as_ref())?;
     let contract = ds
         .layers()
@@ -1429,7 +1435,13 @@ pub fn cmd_convert(cli: &Cli) -> CliResult {
     // ingresso e uscita; `--in-opt` (e `--out-opt`) sovrascrivono per chiave
     // la stessa opzione, come dichiarato dal README.
     ropts.format_options = opts_uniti(&cli.opts, &cli.in_opts);
-    let ds = src.open(Source::Path(in_path), ropts).map_err(map_err)?;
+    let ds = src
+        .open_selected(
+            Source::Path(in_path),
+            ropts,
+            cli.layer.map(plenora_io_model::contract::LayerId),
+        )
+        .map_err(map_err)?;
 
     let selected = if cli.layer.is_none()
         && ds.explicit_layer().is_none()

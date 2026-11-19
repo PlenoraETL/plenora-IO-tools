@@ -698,6 +698,19 @@ pub trait FormatDriver: Send + Sync {
     /// Restituisce un errore se la sorgente non è accessibile, non è nel
     /// formato atteso o eccede i limiti dichiarati in `opts`.
     fn open(&self, source: Source, opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>>;
+    /// Open for an explicit object selection. Drivers may limit discovery to
+    /// that object, preserving its original catalog ID. No selection means
+    /// normal full discovery; the default implementation discovers everything.
+    /// # Errors
+    /// The same source, format and budget errors as `open`.
+    fn open_selected(
+        &self,
+        source: Source,
+        opts: ReadOptions,
+        _layer: Option<LayerId>,
+    ) -> Result<Box<dyn OpenDatasetHandle>> {
+        self.open(source, opts)
+    }
     /// Statico: verifica che il contratto sia rappresentabile (`ENGINEERING.md § Pipeline di scrittura (capability-check`)).
     ///
     /// # Errors

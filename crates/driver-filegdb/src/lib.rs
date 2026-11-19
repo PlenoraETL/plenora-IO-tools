@@ -374,14 +374,23 @@ impl FormatDriver for FileGdbDriver {
     // `mut` serve solo al ramo con `gdal-backend`, che passa `&mut opts` al
     // preflight. Senza la feature nessuno la muta, e clippy ha ragione: il
     // lint si spegne dove il ramo non c'e', non dappertutto.
-    #[cfg_attr(not(feature = "gdal-backend"), allow(unused_mut))]
-    fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
+    fn open(&self, source: Source, opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
+        self.open_selected(source, opts, None)
+    }
+
+    #[cfg_attr(not(feature = "gdal-backend"), allow(unused_mut, unused_variables))]
+    fn open_selected(
+        &self,
+        source: Source,
+        mut opts: ReadOptions,
+        selected: Option<plenora_io_model::contract::LayerId>,
+    ) -> Result<Box<dyn OpenDatasetHandle>> {
         #[cfg(feature = "gdal-backend")]
         {
             radici::applica();
             let path = driver_common::structure::preflight(self.descriptor(), source, &mut opts)?;
-            let dataset = backend::open(&path, opts.assume_crs.as_deref())?;
-            return plenora_io_core::with_read_budget(dataset, &opts, false);
+            let dataset = backend::open_selected(&path, opts.assume_crs.as_deref(), selected)?;
+            plenora_io_core::with_read_budget(dataset, &opts, false)
         }
         #[cfg(not(feature = "gdal-backend"))]
         {
@@ -1659,16 +1668,22 @@ mod backend {
         })
     }
 
-    fn catalog_objects(path: &std::path::Path) -> Result<Vec<(u64, String)>> {
+    struct CatalogObjects {
+        objects: Vec<(u64, String)>,
+        metadata: Vec<u64>,
+    }
+
+    fn catalog_objects(path: &std::path::Path) -> Result<CatalogObjects> {
         let catalog = apri_solo_filegdb(&driver_common::filegdb_names::resolve(
             path,
-            "a00000001.gdbtable",
+            "a00000002.gdbtable",
         )?)
         .map_err(|_| err(&PublicMessage::Curated("catalogo FileGDB non leggibile")))?;
         let mut layer = catalog
             .layer(0)
             .map_err(|_| err(&PublicMessage::Curated("catalogo FileGDB assente")))?;
         let mut objects = Vec::new();
+        let mut metadata = Vec::new();
         for feature in layer.features() {
             let id = feature
                 .fid()
@@ -1681,9 +1696,17 @@ mod backend {
                         "nome oggetto catalogo FileGDB assente",
                     ))
                 })?;
+            if matches!(
+                name.as_str(),
+                "GDB_Items" | "GDB_FeatureClasses" | "GDB_ObjectClasses"
+            ) {
+                metadata.push(id);
+            }
             if !matches!(
                 name.as_str(),
-                "GDB_SystemCatalog"
+                "GDB_FeatureClasses"
+                    | "GDB_ObjectClasses"
+                    | "GDB_SystemCatalog"
                     | "GDB_DBTune"
                     | "GDB_SpatialRefs"
                     | "GDB_Items"
@@ -1696,7 +1719,7 @@ mod backend {
             }
         }
         objects.sort_by_key(|(id, _)| *id);
-        Ok(objects)
+        Ok(CatalogObjects { objects, metadata })
     }
 
     fn internal_file_error(reason: plenora_io_model::CapabilityReason) -> PlenoraIoError {
@@ -1710,100 +1733,128 @@ mod backend {
         )
     }
 
+    #[cfg(test)]
     pub fn open(
         path: &std::path::Path,
         assume_crs: Option<&str>,
     ) -> Result<Box<dyn OpenDatasetHandle>> {
-        install_diagnostics();
-        with_native_diagnostics(|| open_objects(path, assume_crs))
+        open_selected(path, assume_crs, None)
     }
 
-    // GDAL 3.9.3 builds lowercase physical paths (OpenFileGDBDataSource::Open).
-    // Give it a private canonical view only when necessary; never rename input.
-    fn canonical_view(path: &std::path::Path) -> Result<Option<std::sync::Arc<tempfile::TempDir>>> {
-        let entries = std::fs::read_dir(path)?.collect::<std::io::Result<Vec<_>>>()?;
-        let needs_view = entries.iter().any(|e| {
-            e.file_name()
-                .to_str()
-                .and_then(driver_common::filegdb_names::parse)
-                .is_some_and(|m| e.file_name() != std::ffi::OsStr::new(&m.canonical))
-        });
-        if !needs_view {
-            return Ok(None);
-        }
+    pub fn open_selected(
+        path: &std::path::Path,
+        assume_crs: Option<&str>,
+        selected: Option<LayerId>,
+    ) -> Result<Box<dyn OpenDatasetHandle>> {
+        install_diagnostics();
+        with_native_diagnostics(|| open_objects(path, assume_crs, selected))
+    }
+
+    // Each native handle sees its own physical dependencies, even with canonical input.
+    fn canonical_view(
+        path: &std::path::Path,
+        operation: driver_common::filegdb_names::Operation<'_>,
+        catalog: Option<&std::path::Path>,
+    ) -> Result<std::sync::Arc<tempfile::TempDir>> {
         let view = tempfile::Builder::new()
             .prefix("plenora-filegdb-")
             .suffix(".gdb")
             .tempdir()?;
-        let mut names = std::collections::BTreeSet::new();
-        for entry in entries {
-            let original = entry.file_name();
-            let name = original
-                .to_str()
-                .and_then(driver_common::filegdb_names::parse)
-                .map_or_else(|| original.clone(), |m| m.canonical.into());
-            if !names.insert(name.clone()) {
-                return Err(err(&PublicMessage::Curated(
-                    "nomi dei membri FileGDB ambigui",
-                )));
-            }
-            let destination = view.path().join(name);
-            let kind = entry.file_type()?;
-            if kind.is_file() {
-                std::fs::copy(entry.path(), destination)?;
-            } else if kind.is_dir() {
-                std::fs::create_dir(destination)?;
+        let members = driver_common::filegdb_names::required(path, operation)?;
+        for (source, member) in members {
+            let shared = match operation {
+                driver_common::filegdb_names::Operation::Catalog => true,
+                driver_common::filegdb_names::Operation::Object { catalog, .. } => member
+                    .id
+                    .is_some_and(|id| id == 1 || catalog.contains(&u64::from(id))),
+            };
+            let source = if shared {
+                catalog.map_or_else(|| source.clone(), |root| root.join(&member.canonical))
             } else {
+                source
+            };
+            // Decode the catalog as a standalone table: GDAL otherwise loads
+            // GDB_Items before exposing its rows. The private ID has no siblings.
+            let destination =
+                if matches!(operation, driver_common::filegdb_names::Operation::Catalog) {
+                    member.canonical.replacen("a00000001", "a00000002", 1)
+                } else {
+                    member.canonical
+                };
+            if !std::fs::symlink_metadata(&source)?.is_file() {
                 return Err(err(&PublicMessage::Curated("membro FileGDB non regolare")));
             }
+            std::fs::copy(source, view.path().join(destination))?;
         }
-        Ok(Some(std::sync::Arc::new(view)))
+        Ok(std::sync::Arc::new(view))
     }
 
     #[allow(clippy::too_many_lines)]
     fn open_objects(
         path: &std::path::Path,
         assume_crs: Option<&str>,
+        selected: Option<LayerId>,
     ) -> Result<Box<dyn OpenDatasetHandle>> {
-        let view = canonical_view(path)?;
-        let path = view.as_ref().map_or(path, |view| view.path());
+        let catalog = canonical_view(path, driver_common::filegdb_names::Operation::Catalog, None)
+            .map_err(|_| plenora_io_model::error_table::Situation::InvalidContent.error())?;
         let diagnostics = Diagnostics::default();
         let _scope = diagnostics.enter();
         // Schema dai def GDAL, SENZA leggere feature (poi il reader streamma).
-        let ds = apri_solo_filegdb(path)
-            .map_err(|_| err(&PublicMessage::Curated("apertura GDAL fallita")))?;
         let mut layers = Vec::new();
         let mut metas = Vec::new();
         let mut rifiuti = std::collections::BTreeMap::new();
-        let objects = catalog_objects(path)?;
-        let gdal_names: Vec<_> = ds.layers().map(|layer| layer.name()).collect();
+        let CatalogObjects { objects, metadata } = catalog_objects(catalog.path())
+            .map_err(|_| plenora_io_model::error_table::Situation::InvalidContent.error())?;
+        for &id in &metadata {
+            driver_common::structure::filegdb_object(path, id)
+                .map_err(|_| plenora_io_model::error_table::Situation::InvalidContent.error())?;
+        }
+        let catalog = canonical_view(
+            path,
+            driver_common::filegdb_names::Operation::Object {
+                id: 1,
+                catalog: &metadata,
+            },
+            None,
+        )
+        .map_err(|_| plenora_io_model::error_table::Situation::InvalidContent.error())?;
+        // Validate shared native metadata before attributing errors to objects.
+        drop(
+            apri_solo_filegdb(&catalog.path().join("a00000001.gdbtable"))
+                .map_err(|_| plenora_io_model::error_table::Situation::InvalidContent.error())?,
+        );
+        let unowned_members = std::fs::read_dir(path)?.try_fold(0_u64, |count, entry| {
+            let entry = entry?;
+            let owned = entry
+                .file_name()
+                .to_str()
+                .and_then(driver_common::filegdb_names::parse)
+                .is_some_and(|member| {
+                    member.id.is_some_and(|id| {
+                        id == 1
+                            || metadata.contains(&u64::from(id))
+                            || objects.iter().any(|(object, _)| *object == u64::from(id))
+                    })
+                });
+            Ok::<_, std::io::Error>(count.saturating_add(u64::from(!owned)))
+        })?;
         for (i, (file_id, name)) in objects.into_iter().enumerate() {
+            if selected.is_some_and(|layer| u64::from(layer.0) != i as u64) {
+                continue;
+            }
             let result = (|| -> Result<(LayerContract, LayerMeta)> {
-                for extension in ["gdbtable", "gdbtablx"] {
-                    let member = driver_common::filegdb_names::resolve(
-                        path,
-                        &format!("a{file_id:08x}.{extension}"),
-                    );
-                    match member.and_then(std::fs::metadata) {
-                        Ok(meta) if meta.len() == 0 => {
-                            return Err(internal_file_error(
-                                plenora_io_model::CapabilityReason::ObjectEmpty,
-                            ))
-                        }
-                        Ok(meta) if !meta.is_file() => {
-                            return Err(internal_file_error(
-                                plenora_io_model::CapabilityReason::ObjectMissing,
-                            ))
-                        }
-                        Err(_) => {
-                            return Err(internal_file_error(
-                                plenora_io_model::CapabilityReason::ObjectMissing,
-                            ))
-                        }
-                        _ => {}
-                    }
-                }
                 driver_common::structure::filegdb_object(path, file_id)?;
+                let view = canonical_view(
+                    path,
+                    driver_common::filegdb_names::Operation::Object {
+                        id: file_id,
+                        catalog: &metadata,
+                    },
+                    Some(catalog.path()),
+                )?;
+                let ds = apri_solo_filegdb(view.path())
+                    .map_err(|_| err(&PublicMessage::Curated("apertura oggetto GDAL fallita")))?;
+                let gdal_names: Vec<_> = ds.layers().map(|layer| layer.name()).collect();
                 let gdal_idx = gdal_names
                     .iter()
                     .position(|candidate| candidate == &name)
@@ -1969,6 +2020,7 @@ mod backend {
                     Some(0),
                 );
                 let meta = LayerMeta {
+                    view: Some(view),
                     loss,
                     gdal_idx,
                     fields,
@@ -1992,6 +2044,7 @@ mod backend {
                             contract: DataContract::new(Arc::new(Schema::empty()), None),
                         },
                         LayerMeta {
+                            view: None,
                             loss: LossReport::default(),
                             gdal_idx: i,
                             fields: Vec::new(),
@@ -2005,9 +2058,8 @@ mod backend {
             metas.push(meta);
         }
         Ok(Box::new(GdbDataset {
+            unowned_members,
             diagnostics,
-            path: path.to_owned(),
-            view,
             layers,
             metas,
             rifiuti,
@@ -2317,6 +2369,7 @@ mod backend {
     }
 
     struct LayerMeta {
+        view: Option<std::sync::Arc<tempfile::TempDir>>,
         loss: LossReport,
         gdal_idx: usize,
         fields: Vec<LayerFieldMeta>,
@@ -2334,9 +2387,8 @@ mod backend {
     }
 
     struct GdbDataset {
-        view: Option<std::sync::Arc<tempfile::TempDir>>,
+        unowned_members: u64,
         diagnostics: Diagnostics,
-        path: PathBuf,
         layers: Vec<LayerContract>,
         metas: Vec<LayerMeta>,
         rifiuti: std::collections::BTreeMap<u32, PlenoraIoError>,
@@ -2359,6 +2411,15 @@ mod backend {
                 DESCRIPTOR.fidelity_class(),
             );
             assessment.merge(&self.diagnostics.assessment());
+            if self.unowned_members != 0 {
+                assessment.add_reason(
+                    plenora_io_core::loss::FidelityReasonCode::FormatConstraint,
+                    format!(
+                        "membri FileGDB non attribuiti esclusi dalla lettura; conteggio {}",
+                        self.unowned_members
+                    ),
+                );
+            }
             assessment
         }
         fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
@@ -2409,8 +2470,12 @@ mod backend {
             let reader = self.reader_gate.open(request.layer, || {
                 spawn_reader(
                     self.diagnostics.clone(),
-                    self.path.clone(),
-                    self.view.clone(),
+                    m.view
+                        .as_ref()
+                        .ok_or_else(|| err(&PublicMessage::Curated("vista oggetto assente")))?
+                        .path()
+                        .to_owned(),
+                    m.view.clone(),
                     m.gdal_idx,
                     layer_contract.contract.schema.clone(),
                     fields,

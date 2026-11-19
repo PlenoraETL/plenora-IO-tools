@@ -54,3 +54,39 @@ fn every_member_case_combination_has_one_identity() {
         assert!(parse(invalid).is_none(), "{invalid}");
     }
 }
+
+#[test]
+fn operation_plan_contains_only_catalog_dependencies_and_requested_owner() {
+    let root = tempfile::tempdir().unwrap();
+    for id in 1..=15 {
+        for suffix in [
+            "gdbtable",
+            "gdbtablx",
+            "gdbindexes",
+            "field.atx",
+            "freelist",
+        ] {
+            std::fs::write(
+                root.path()
+                    .join(format!("A{id:08X}.{}", suffix.to_uppercase())),
+                b"not opened by planning",
+            )
+            .unwrap();
+        }
+    }
+    for name in ["TIMESTAMPS", "gdb", "foreign", "a00000009-.gdbtable"] {
+        std::fs::create_dir(root.path().join(name)).unwrap();
+    }
+    let catalog = required(root.path(), Operation::Catalog).unwrap();
+    assert_eq!(catalog.len(), 5);
+    assert!(catalog.iter().all(|(_, member)| member.id == Some(1)));
+    for id in 9..=15 {
+        let members = required(root.path(), Operation::Object { id, catalog: &[4] }).unwrap();
+        assert_eq!(members.len(), 15);
+        assert!(members.iter().all(|(_, member)| {
+            member
+                .id
+                .is_some_and(|owner| owner == 1 || owner == 4 || u64::from(owner) == id)
+        }));
+    }
+}

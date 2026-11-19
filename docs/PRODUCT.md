@@ -2491,11 +2491,38 @@ un'attestazione di appartenenza al dataset. Se due decoder ammettono gli stessi
 byte, un `.cpg` estraneo non e' riconoscibile per inferenza. La fedelta' di lettura
 riporta questo limite come `format_constraint`, senza inventare una perdita.
 
-Un oggetto FileGDB privo di `.gdbtable` o `.gdbtablx`, oppure con uno di questi
-membri vuoto, rimane enumerato ma non leggibile (`object_missing`/`object_empty`).
-Non si attiva il recupero euristico GDAL degli indici: una lettura possibile con
-quel recupero non attesta l'integrita' dell'oggetto. Gli altri oggetti restano
-selezionabili.
+La regola di apertura FileGDB e' unica: il dataset e' un catalogo
+(`a00000001.gdbtable` e accessori, con la sola tabella condivisa `GDB_Items` per schemi e metadati
+nel formato v10, identificata dal catalogo e non da un ID fisso) piu' oggetti. Il parser unico dei basename stabilisce
+l'identita' e i membri di ciascun oggetto.
+
+- Un catalogo difettoso o illeggibile produce `InvalidContent` del dataset.
+- Un membro vuoto, troncato, di contenuto non valido, non regolare,
+  illeggibile, bloccato o con identita' ambigua riguarda soltanto il proprietario.
+  L'oggetto resta elencato, non leggibile, con la categoria del rifiuto;
+  i fratelli restano elencabili e selezionabili. Nessuna scelta implicita del
+  solo oggetto leggibile tra piu' oggetti totali.
+- Le varianti ASCII di caso di prefisso, cifre esadecimali ed estensione
+  conservano l'identita' se univoche. Un file estraneo attribuibile a un oggetto
+  e' rifiutato localmente; quelli non attribuibili, inclusi gli accessori globali
+  non necessari alla lettura, producono una diagnostica di conteggio senza
+  bloccare gli oggetti. Nessun contenuto estraneo viene interpretato come dato.
+- Ogni apertura nativa e ogni lettore ricevono una vista privata costruita
+  dal piano dichiarativo `operazione ? oggetto ? membri necessari`. La vista
+  dell'elenco contiene il catalogo; quella di un oggetto contiene il catalogo
+  e soltanto i suoi membri. Nessuna copia dell'intera directory, nessuna
+  apertura, copia o lettura dei membri di un fratello da parte dell'oggetto.
+  La vista resta viva fino alla chiusura del lettore.
+
+Il piano e' condiviso da validazione strutturale, `layers`, `inspect`, `read`
+e `convert`. Con `--layer`, `read` e `convert` trasmettono la selezione
+all'apertura: anche la scoperta dello schema riguarda soltanto quell'oggetto,
+con il suo ID originale. Nessuno schema o vista viene preparato per i fratelli.
+Senza selezione, la scoperta completa conserva tutti gli stati degli oggetti. Le estensioni attribuibili senza decoder strutturale sono
+rifiutate localmente: l'apertura non ne dichiara in silenzio l'integrita'.
+Un `.gdbtable` o `.gdbtablx` assente produce `object_missing`; un membro
+vuoto produce `object_empty`. Non si attiva il recupero euristico GDAL degli
+indici: una lettura possibile con quel recupero non attesta l'integrita'.
 
 Gli avvisi GDAL sono intercettati da un solo handler. Le operazioni e i worker
 condividono soltanto un contatore di warning; testo, percorsi e nomi nativi non

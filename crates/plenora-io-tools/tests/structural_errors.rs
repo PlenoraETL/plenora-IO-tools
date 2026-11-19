@@ -218,7 +218,7 @@ fn filegdb_members_and_geopackage_companions_precede_options() {
             } else {
                 std::fs::write(&member, bytes).unwrap();
             }
-            if name == "gdb" || name == "a00000001.gdbtable" {
+            if name == "a00000001.gdbtable" {
                 assert_error(&path, "filegdb", "FileGDB", Situation::InvalidContent);
             } else if !cfg!(feature = "gdal-backend") {
                 // Senza il tier GDB il catalogo sano supera la validazione
@@ -245,9 +245,19 @@ fn filegdb_members_and_geopackage_companions_precede_options() {
                         .iter()
                         .filter(|l| l["status"]["readable"] == false)
                         .count(),
-                    1,
+                    usize::from(name != "gdb"),
                     "{doc}"
                 );
+                // Global non-owned members are diagnostic, never prerequisites.
+                if name == "gdb" {
+                    assert!(doc["fidelity"]["reasons"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|reason| reason["detail"].as_str().is_some_and(
+                            |text| text.starts_with("membri FileGDB non attribuiti esclusi")
+                        )));
+                }
                 for layer in layers.iter().filter(|l| l["status"]["readable"] == true) {
                     let (_, result) = plenora_io_tools::esegui(
                         &[
