@@ -452,7 +452,10 @@ pub fn assess_write_contract(
                 type_class: None,
             };
             let is_geometry = geometry_name == Some(field.name().as_str());
-            if !is_geometry && capabilities.attributes == AttributeWriteSupport::LossReported {
+            if !is_geometry
+                && capabilities.attributes == AttributeWriteSupport::LossReported
+                && crate::loss_table::rules(descriptor.id()).is_none()
+            {
                 assessment.add_reason_redatta(
                     FidelityReasonCode::AttributeLoss,
                     "l'attributo non e' nativo del formato, o e' dichiarato come perdita",

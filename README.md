@@ -330,7 +330,8 @@ Le modifiche e la migrazione della versione corrente sono nel [CHANGELOG](CHANGE
 `layers` e `inspect` elencano anche gli oggetti non leggibili: `status.readable`
 vale `false` e `status.error` contiene il motivo tipizzato, senza dati del file.
 Senza `--layer`, `read`, `write` e `convert` verso un formato a layer singolo
-usano l'unico oggetto leggibile; con zero o più oggetti leggibili restituiscono
+usano automaticamente solo un dataset con un unico oggetto leggibile; con zero
+o piu' di un oggetto totale, anche se uno solo e' leggibile, restituiscono
 `LAYER_SELECTION_REQUIRED`, con indici e stati, e richiedono `--layer`.
 `convert` verso GPKG o FileGDB copia tutti gli oggetti leggibili e dichiara gli
 esclusi con `source_object_not_readable`, conteggio, indice e motivo tipizzato.

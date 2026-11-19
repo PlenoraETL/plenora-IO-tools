@@ -76,5 +76,13 @@
       "nota": "601 nel caso peggiore: l'oggetto `details`, il documento di diagnostica con i suoi dieci campi, 64 esempi da tre coppie e 64 conteggi. Un terzo del tetto."
     }
   ],
-  "che_cosa_resta_scoperto": "niente, sui sette assi. L'ultimo a chiudersi e' stato il primo: il tetto sulla busta d'errore intera, che nessuna costante limitava.\n\nResta pero' una distinzione che vale piu' di un verde. Il tetto e' una **guardia**, e nessun percorso d'errore del prodotto le arriva vicino: `row_diagnostics` ha un tetto di 64 esempi e il messaggio e' curato, quindi si sta nell'ordine dei chilobyte contro i cinquecento ammessi. Le prove costruiscono i casi oltre il tetto a mano, perche' una guardia che non scatta mai va comunque provata: altrimenti si scopre che non funziona il giorno in cui serve. Sei sonde coprono il confine esatto, le tre riduzioni e l'idempotenza."
+  "che_cosa_resta_scoperto": "niente, sui sette assi. L'ultimo a chiudersi e' stato il primo: il tetto sulla busta d'errore intera, che nessuna costante limitava.\n\nResta pero' una distinzione che vale piu' di un verde. Il tetto e' una **guardia**, e nessun percorso d'errore del prodotto le arriva vicino: `row_diagnostics` ha un tetto di 64 esempi e il messaggio e' curato, quindi si sta nell'ordine dei chilobyte contro i cinquecento ammessi. Le prove costruiscono i casi oltre il tetto a mano, perche' una guardia che non scatta mai va comunque provata: altrimenti si scopre che non funziona il giorno in cui serve. Sei sonde coprono il confine esatto, le tre riduzioni e l'idempotenza.",
+  "riservatezza": {
+    "testi": "Insieme chiuso di frasi e codici; mai valori, nomi di campo, nomi di layer o percorsi del chiamante.",
+    "schema": "Nomi di campo/layer ammessi soltanto in campi strutturati dedicati e tipizzati: field, layer, column. DiagnosticFieldName e DiagnosticCause sono tipi distinti.",
+    "valori": "Mai emessi, neppure in key.value. key_policy=emit resta alias sintattico di redact.",
+    "vocabolario_cause": "crates/plenora-io-model/src/diagnostics.rs: DiagnosticCause; deserializzazione e serializzazione fail closed.",
+    "ambito": "errori, diagnostiche, stderr e buste SDK",
+    "misure": "I tetti numerici restano invariati. Le misure storiche di ampiezza sono fixture conservative del trasporto; il produttore corrente usa il vocabolario chiuso e non emette valori di chiave."
+  }
 }

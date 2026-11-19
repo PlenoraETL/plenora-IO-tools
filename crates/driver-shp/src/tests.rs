@@ -1594,18 +1594,14 @@ fn invalid_polygon_rows_return_complete_bounded_diagnostics() {
             .key
             .as_ref()
             .and_then(|key| key.value.as_ref()),
-        Some(&plenora_io_model::RowDiagnosticKeyValue::String(
-            (key_base + 17).to_string()
-        ))
+        None
     );
     assert_eq!(
         diagnostics.examples[1]
             .key
             .as_ref()
             .and_then(|key| key.value.as_ref()),
-        Some(&plenora_io_model::RowDiagnosticKeyValue::String(
-            (key_base + 89).to_string()
-        ))
+        None
     );
 
     let mut attribute_only_request = req();
@@ -1640,13 +1636,10 @@ fn invalid_polygon_rows_return_complete_bounded_diagnostics() {
     let mut numeric_key_reader = numeric_key_dataset.open_layer_reader(&request).unwrap();
     let (_, numeric_key_error) = consume_until_error(numeric_key_reader.as_mut());
     let numeric_examples = numeric_key_error.row_diagnostics.unwrap().examples;
-    for (example, source_index) in numeric_examples.iter().zip([17_u64, 89]) {
+    for example in &numeric_examples {
         assert_eq!(
             example.key.as_ref().and_then(|key| key.value.as_ref()),
-            Some(&plenora_io_model::RowDiagnosticKeyValue::String(format!(
-                "{}.25",
-                numeric_key_base + source_index
-            )))
+            None
         );
     }
 

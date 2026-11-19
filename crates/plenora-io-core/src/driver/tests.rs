@@ -1278,13 +1278,19 @@ fn runtime_write_rejections_have_bounded_global_row_diagnostics() {
 /// ragione di capability.
 #[test]
 fn row_scoped_write_rejection_without_input_total_keeps_the_primary_cause() {
-    let error = write_row_rejection("test", 0, 1, &[(0, "test.rejected", "value")], None);
+    let error = write_row_rejection(
+        "test",
+        0,
+        1,
+        &[(0, "driver.invalid_attribute", "value")],
+        None,
+    );
 
     assert_eq!(error.category, ErrorCategory::DataMapping);
     assert_eq!(error.phase, ErrorPhase::Write);
     assert_eq!(error.driver.as_deref(), Some("test"));
     assert!(
-        error.message.contains("test.rejected"),
+        error.message.contains("driver.invalid_attribute"),
         "senza report la causa deve stare nel messaggio: {error}"
     );
     assert!(
@@ -1295,10 +1301,16 @@ fn row_scoped_write_rejection_without_input_total_keeps_the_primary_cause() {
     assert!(error.row_diagnostics.is_none());
 
     // Controprova: con il totale il report c'e', e porta la stessa causa.
-    let con_totale = write_row_rejection("test", 0, 1, &[(0, "test.rejected", "value")], Some(1));
+    let con_totale = write_row_rejection(
+        "test",
+        0,
+        1,
+        &[(0, "driver.invalid_attribute", "value")],
+        Some(1),
+    );
     let report = con_totale.row_diagnostics.as_deref().unwrap();
     assert_eq!(report.input_total, Some(1));
-    assert_eq!(report.counts["test.rejected"], 1);
+    assert_eq!(report.counts["driver.invalid_attribute"], 1);
     assert_eq!(con_totale.category, ErrorCategory::DataMapping);
 }
 
@@ -1309,11 +1321,11 @@ fn row_diagnostics_hide_unattestable_columns_without_losing_causes() {
             "test",
             0,
             1,
-            &[(0, "test.cell_not_representable", invalid.as_str())],
+            &[(0, "driver.invalid_attribute", invalid.as_str())],
             Some(1),
         );
         let diagnostics = error.row_diagnostics.as_deref().unwrap();
-        assert_eq!(diagnostics.counts["test.cell_not_representable"], 1);
+        assert_eq!(diagnostics.counts["driver.invalid_attribute"], 1);
         assert_eq!(diagnostics.examples[0].column, None);
         assert!(diagnostics
             .knowledge_limits
@@ -1328,7 +1340,7 @@ fn row_diagnostics_hide_unattestable_columns_without_losing_causes() {
         "test",
         0,
         1,
-        &[(0, "test.cell_not_representable", unicode)],
+        &[(0, "driver.invalid_attribute", unicode)],
         Some(1),
     );
     let diagnostics = error.row_diagnostics.as_deref().unwrap();
@@ -1341,7 +1353,7 @@ fn read_row_error_emits_examples_only_for_attestable_indices() {
     let attested = read_row_error(
         PlenoraIoError::formato_redatto("test", &PublicMessage::Curated("bad row")),
         Some(7),
-        "test.invalid_row",
+        "driver.invalid_attribute",
         Some("value"),
     );
     let diagnostics = attested.row_diagnostics.as_deref().unwrap();
@@ -1355,7 +1367,7 @@ fn read_row_error_emits_examples_only_for_attestable_indices() {
     let unknown = read_row_error(
         PlenoraIoError::formato_redatto("test", &PublicMessage::Curated("bad row")),
         None,
-        "test.invalid_row",
+        "driver.invalid_attribute",
         Some("value"),
     );
     let diagnostics = unknown.row_diagnostics.as_deref().unwrap();
@@ -1378,7 +1390,7 @@ fn non_geometry_row_rejection_uses_a_non_geometry_capability_reason() {
         "test",
         0,
         1,
-        &[(0, "test.cell_not_representable", "value")],
+        &[(0, "kml.cell_not_representable", "value")],
         Some(1),
     );
     assert_eq!(

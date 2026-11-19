@@ -162,6 +162,18 @@ def verify(binary, tables):
                     errors.append(f'{situation}/{driver}: {key}: {actual.get(key)!r} != {row[key]!r}')
             if code != row['exit']:
                 errors.append(f'{situation}/{driver}: exit {code} != {row["exit"]}')
+        # Header ambiguities are configuration errors, including repeated
+        # geometry names; they must not be documented as data_mapping.
+        for index, (contents, options) in enumerate([
+            ('wkt,wkt\nPOINT(1 2),POINT(1 2)\n', ['--opt', 'wkt_column=wkt']),
+            ('x,x,y\n1,1,2\n', ['--opt', 'x_column=x', '--opt', 'y_column=y']),
+        ]):
+            duplicate = work / f'duplicate-geometry-{index}.csv'
+            duplicate.write_text(contents, encoding='utf8')
+            code, response = run(binary, ['read', duplicate, '--assume-crs', 'EPSG:4326', *options])
+            error = response.get('error', {})
+            if code != 2 or (error.get('category'), error.get('phase')) != ('invalid_configuration', 'validate'):
+                errors.append(f'duplicate geometry header: unexpected classification: {response}')
         # Campione fisso, distinto dall'enumerazione bidirezionale generale.
         # Le celle contestate e due trasporti Arrow conservativi hanno oracoli
         # indipendenti su tipo/valore riletto o attributo realmente omesso.

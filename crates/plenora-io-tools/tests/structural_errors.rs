@@ -218,7 +218,37 @@ fn filegdb_members_and_geopackage_companions_precede_options() {
             } else {
                 std::fs::write(&member, bytes).unwrap();
             }
-            assert_error(&path, "filegdb", "FileGDB", Situation::InvalidContent);
+            if name == "gdb" || name == "a00000001.gdbtable" {
+                assert_error(&path, "filegdb", "FileGDB", Situation::InvalidContent);
+            } else {
+                let (_, result) = plenora_io_tools::esegui(
+                    &["layers".to_owned(), path.to_str().unwrap().to_owned()],
+                    &CancellationToken::new(),
+                );
+                let doc = result.unwrap();
+                let layers = doc["layers"].as_array().unwrap();
+                assert_eq!(layers.len(), 5, "{doc}");
+                assert_eq!(
+                    layers
+                        .iter()
+                        .filter(|l| l["status"]["readable"] == false)
+                        .count(),
+                    1,
+                    "{doc}"
+                );
+                for layer in layers.iter().filter(|l| l["status"]["readable"] == true) {
+                    let (_, result) = plenora_io_tools::esegui(
+                        &[
+                            "read".to_owned(),
+                            path.to_str().unwrap().to_owned(),
+                            "--layer".to_owned(),
+                            layer["id"].to_string(),
+                        ],
+                        &CancellationToken::new(),
+                    );
+                    assert!(result.is_ok(), "{name}/{defect}: {result:?}");
+                }
+            }
         }
     }
     for suffix in ["-wal", "-shm", "-journal"] {

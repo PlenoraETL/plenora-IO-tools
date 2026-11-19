@@ -1853,6 +1853,7 @@ mod backend {
                         _ => {}
                     }
                 }
+                driver_common::structure::filegdb_object(path, file_id)?;
                 let gdal_idx = gdal_names
                     .iter()
                     .position(|candidate| candidate == &name)

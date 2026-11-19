@@ -306,51 +306,86 @@ fn filegdb(path: &Path, opts: &ReadOptions) -> Result<()> {
     for entry in std::fs::read_dir(path)? {
         opts.ensure_active()?;
         let path = entry?.path();
+        // User objects are validated at their catalog position by the driver.
+        // A damaged member must not invalidate unrelated catalog objects.
+        if path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .and_then(|s| s.split('.').next())
+            .is_some_and(|s| {
+                s.strip_prefix('a')
+                    .and_then(|s| u32::from_str_radix(s, 16).ok())
+                    .is_some_and(|id| id >= 9)
+            })
+        {
+            continue;
+        }
         if path.file_name().is_some_and(|name| name == "gdb") {
             let (h, length) = header::<8>(&path, "filegdb")?;
             require(length == 8 && h[4..] == [0xde, 0xad, 0xbe, 0xef], "filegdb")?;
         }
-        match path
-            .extension()
+        filegdb_member(&path)?;
+    }
+    Ok(())
+}
+
+/// Validate the physical table and index of one catalog object.
+/// # Errors
+/// Returns a local structural error for malformed or truncated members.
+pub fn filegdb_object(path: &Path, id: u64) -> Result<()> {
+    let stem = format!("a{id:08x}");
+    for extension in ["gdbtable", "gdbtablx"] {
+        filegdb_member(&path.join(format!("{stem}.{extension}")))?;
+    }
+    for entry in std::fs::read_dir(path)? {
+        let member = entry?.path();
+        if member
+            .file_name()
             .and_then(|s| s.to_str())
-            .map(str::to_ascii_lowercase)
-            .as_deref()
+            .is_some_and(|s| s.starts_with(&format!("{stem}.")))
         {
-            Some("gdbtable") => {
-                let (h, length) = header::<40>(&path, "filegdb")?;
-                require(
-                    matches!(le32(&h), 3 | 4)
-                        && le64(&h[24..]) == length
-                        && le64(&h[32..]) < length,
-                    "filegdb",
-                )?;
-            }
-            Some("gdbtablx") => {
-                let (h, length) = header::<16>(&path, "filegdb")?;
-                let width = u64::from(le32(&h[12..]));
-                require(
-                    matches!(le32(&h), 3 | 4)
-                        && (4..=6).contains(&width)
-                        && 16 + u64::from(le32(&h[4..])) * 1024 * width <= length,
-                    "filegdb",
-                )?;
-            }
-            Some("gdbindexes") => filegdb_indexes(&path)?,
-            Some("spx" | "atx") => {
-                require(std::fs::symlink_metadata(&path)?.is_file(), "filegdb")?;
-                let (footer, length) = (
-                    tail::<22>(&path, "filegdb")?,
-                    std::fs::metadata(&path)?.len(),
-                );
-                require(
-                    length >= 22
-                        && (length - 22).is_multiple_of(4096)
-                        && matches!(le32(&footer[18..]), 1 | 2),
-                    "filegdb",
-                )?;
-            }
-            _ => {}
+            filegdb_member(&member)?;
         }
+    }
+    Ok(())
+}
+
+fn filegdb_member(path: &Path) -> Result<()> {
+    match path
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("gdbtable") => {
+            let (h, length) = header::<40>(path, "filegdb")?;
+            require(
+                matches!(le32(&h), 3 | 4) && le64(&h[24..]) == length && le64(&h[32..]) < length,
+                "filegdb",
+            )?;
+        }
+        Some("gdbtablx") => {
+            let (h, length) = header::<16>(path, "filegdb")?;
+            let width = u64::from(le32(&h[12..]));
+            require(
+                matches!(le32(&h), 3 | 4)
+                    && (4..=6).contains(&width)
+                    && 16 + u64::from(le32(&h[4..])) * 1024 * width <= length,
+                "filegdb",
+            )?;
+        }
+        Some("gdbindexes") => filegdb_indexes(path)?,
+        Some("spx" | "atx") => {
+            require(std::fs::symlink_metadata(path)?.is_file(), "filegdb")?;
+            let (footer, length) = (tail::<22>(path, "filegdb")?, std::fs::metadata(path)?.len());
+            require(
+                length >= 22
+                    && (length - 22).is_multiple_of(4096)
+                    && matches!(le32(&footer[18..]), 1 | 2),
+                "filegdb",
+            )?;
+        }
+        _ => {}
     }
     Ok(())
 }

@@ -128,9 +128,8 @@ fn l_identificatore_geometrico_rifiuta_i_nomi_non_attestabili() {
 use std::collections::BTreeMap;
 
 use crate::{
-    RowDiagnosticExample, RowDiagnosticKey, RowDiagnosticKeyState, RowDiagnosticKeyValue,
-    RowDiagnosticScope, RowDiagnosticsCompleteness, ROW_DIAGNOSTICS_CONTRACT,
-    ROW_DIAGNOSTICS_INDEX_BASIS,
+    RowDiagnosticExample, RowDiagnosticKey, RowDiagnosticKeyState, RowDiagnosticScope,
+    RowDiagnosticsCompleteness, ROW_DIAGNOSTICS_CONTRACT, ROW_DIAGNOSTICS_INDEX_BASIS,
 };
 
 /// L'identificatore nasce dallo schema, e solo da lì.
@@ -402,18 +401,18 @@ fn error_serializes_complete_bounded_read_diagnostics() {
         examples: vec![
             RowDiagnosticExample {
                 source_index: 17,
-                cause: "shapefile.inner_ring_without_outer".to_owned(),
+                cause: "shapefile.inner_ring_without_outer".into(),
                 column: None,
                 key: Some(RowDiagnosticKey {
-                    field: "ID_PART".to_owned(),
-                    state: RowDiagnosticKeyState::Value,
-                    value: Some(RowDiagnosticKeyValue::String("9007199254741009".to_owned())),
+                    field: "ID_PART".to_owned().into(),
+                    state: RowDiagnosticKeyState::Redacted,
+                    value: None,
                 }),
                 write_state: None,
             },
             RowDiagnosticExample {
                 source_index: 89,
-                cause: "shapefile.unclosed_ring".to_owned(),
+                cause: "shapefile.unclosed_ring".into(),
                 column: None,
                 key: None,
                 write_state: None,
@@ -445,7 +444,7 @@ fn error_serializes_complete_bounded_read_diagnostics() {
     );
     assert_eq!(
         value["row_diagnostics"]["examples"][0]["key"]["value"],
-        "9007199254741009"
+        serde_json::Value::Null
     );
     assert!(value["row_diagnostics"]["input_total"].is_null());
 }

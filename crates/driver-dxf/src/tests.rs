@@ -390,7 +390,7 @@ fn write_then_read_xyz_and_embedded_crs_round_trip() {
         planned_fidelity.level,
         plenora_io_core::Fidelity::Approximating
     );
-    assert!(planned_fidelity
+    assert!(!planned_fidelity
         .ragioni_canoniche()
         .any(|reason| { reason.code == plenora_io_core::FidelityReasonCode::AttributeLoss }));
     w.write(&batch).unwrap();
@@ -2123,10 +2123,8 @@ fn la_decodifica_difensiva_del_writer_dichiara_la_fase_di_scrittura() {
         path: output,
         durable: false,
         loss: LossReport::default(),
-        dropped_cols: Vec::new(),
         rows: 0,
         input_total: None,
-        first: true,
         wkb_limits: WkbLimits::default(),
         max_output_bytes: u64::MAX,
         contesto: opzioni_scrittura().budget().context().clone(),

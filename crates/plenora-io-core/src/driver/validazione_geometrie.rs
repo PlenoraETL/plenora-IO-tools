@@ -435,7 +435,7 @@ pub fn write_rejection_error(
             column_name_unattestable |= !column.is_attested();
             RowDiagnosticExample {
                 source_index: violation.source_index,
-                cause: violation.cause.to_owned(),
+                cause: violation.cause.into(),
                 column: column.into_option(),
                 key: None,
                 write_state: Some(RowDiagnosticWriteState::CertainlyRejected),

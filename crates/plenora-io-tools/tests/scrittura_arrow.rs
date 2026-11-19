@@ -72,6 +72,8 @@ fn dataset_arrow(directory: &Path, sorgente: &Path) -> PathBuf {
     let esito = esegui(&[
         "read",
         sorgente.to_str().unwrap(),
+        "--layer",
+        "0",
         "--output",
         arrow.to_str().unwrap(),
     ]);

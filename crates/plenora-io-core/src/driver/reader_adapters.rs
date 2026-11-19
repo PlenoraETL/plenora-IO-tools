@@ -1059,7 +1059,13 @@ struct ReadViolationAccumulator {
     examples_limit: u64,
     observed_total: u64,
     counts: BTreeMap<String, u64>,
-    examples: BTreeMap<u64, (&'static str, Option<String>)>,
+    examples: BTreeMap<
+        u64,
+        (
+            &'static str,
+            Option<plenora_io_model::diagnostics::DiagnosticFieldName>,
+        ),
+    >,
     column_names_attestable: bool,
     /// La causa della prima violazione in ordine di riga: decide la categoria
     /// (REJ-002).
@@ -1148,7 +1154,7 @@ impl ReadViolationAccumulator {
             .iter()
             .map(|(source_index, (cause, column))| RowDiagnosticExample {
                 source_index: *source_index,
-                cause: (*cause).to_owned(),
+                cause: (*cause).into(),
                 column: column.clone(),
                 key: None,
                 write_state: None,

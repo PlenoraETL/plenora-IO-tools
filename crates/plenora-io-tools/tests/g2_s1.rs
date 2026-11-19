@@ -37,6 +37,22 @@ fn selection_counts_readable_objects_and_reports_every_omission() {
     drop(conn);
     let src = source.to_str().unwrap();
     let (ok, doc) = run(&["read", src]);
+    assert!(!ok, "{doc}");
+    assert_eq!(doc["error"]["code"], "LAYER_SELECTION_REQUIRED");
+    assert_eq!(
+        doc["error"]["details"]["objects"].as_array().unwrap().len(),
+        2
+    );
+    let (ok, doc) = run(&["layers", src]);
+    assert!(ok, "{doc}");
+    let index = doc["result"]["layers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|layer| layer["status"]["readable"] == true)
+        .unwrap()["id"]
+        .to_string();
+    let (ok, doc) = run(&["read", src, "--layer", &index]);
     assert!(ok, "{doc}");
     assert_eq!(doc["result"]["rows_read"], 5);
     let out = dir.path().join("one.gpkg");

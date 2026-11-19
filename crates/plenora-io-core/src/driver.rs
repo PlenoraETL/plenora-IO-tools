@@ -1131,7 +1131,7 @@ pub fn read_row_error(
     let examples = source_index
         .map(|source_index| RowDiagnosticExample {
             source_index,
-            cause: cause.to_owned(),
+            cause: cause.into(),
             column: column.and_then(RowDiagnosticColumn::into_option),
             key: None,
             write_state: None,

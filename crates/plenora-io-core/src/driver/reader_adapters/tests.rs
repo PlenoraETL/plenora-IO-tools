@@ -893,8 +893,8 @@ fn terminal_driver_diagnostics_merge_with_common_read_rejections() {
         examples_truncated: false,
         examples: vec![RowDiagnosticExample {
             source_index: 50,
-            cause: "driver.invalid_attribute".to_owned(),
-            column: Some("value".to_owned()),
+            cause: "driver.invalid_attribute".into(),
+            column: Some("value".to_owned().into()),
             key: None,
             write_state: None,
         }],

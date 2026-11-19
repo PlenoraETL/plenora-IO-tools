@@ -69,9 +69,8 @@ use plenora_io_model::wkb::{
 };
 use plenora_io_model::{
     NumeroStrutturale, PlenoraIoError, PublicMessage, Result, RowDiagnosticExample,
-    RowDiagnosticKey, RowDiagnosticKeyState, RowDiagnosticKeyValue, RowDiagnosticScope,
-    RowDiagnostics, RowDiagnosticsCompleteness, ROW_DIAGNOSTICS_CONTRACT,
-    ROW_DIAGNOSTICS_INDEX_BASIS,
+    RowDiagnosticKey, RowDiagnosticKeyState, RowDiagnosticScope, RowDiagnostics,
+    RowDiagnosticsCompleteness, ROW_DIAGNOSTICS_CONTRACT, ROW_DIAGNOSTICS_INDEX_BASIS,
 };
 
 mod dbf_fidelity;
@@ -301,48 +300,26 @@ impl ShpRowDiagnostics {
         &mut self,
         source_index: u64,
         cause: &'static str,
-        record: Option<&Record>,
-        raw_numeric_key: Option<&str>,
+        _record: Option<&Record>,
+        _raw_numeric_key: Option<&str>,
     ) {
         self.observed_total += 1;
         *self.counts.entry(cause.to_owned()).or_default() += 1;
         if self.examples.len() as u64 >= self.config.examples_limit {
             return;
         }
-        let key = self.config.key.as_ref().map(|config| match config.policy {
-            DiagnosticKeyPolicy::Redact => RowDiagnosticKey {
-                field: config.field.clone(),
-                state: RowDiagnosticKeyState::Redacted,
-                value: None,
-            },
-            DiagnosticKeyPolicy::Emit => {
-                let decoded = config
-                    .raw_numeric_field_index
-                    .is_none()
-                    .then(|| {
-                        record
-                            .and_then(|row| row.get(&config.field))
-                            .and_then(fv_string)
-                    })
-                    .flatten();
-                let value = raw_numeric_key.map(str::to_owned).or(decoded);
-                match value {
-                    Some(value) if value.len() <= 1024 => RowDiagnosticKey {
-                        field: config.field.clone(),
-                        state: RowDiagnosticKeyState::Value,
-                        value: Some(RowDiagnosticKeyValue::String(value)),
-                    },
-                    _ => RowDiagnosticKey {
-                        field: config.field.clone(),
-                        state: RowDiagnosticKeyState::Unavailable,
-                        value: None,
-                    },
+        let key = self.config.key.as_ref().map(|config| RowDiagnosticKey {
+            field: config.field.clone().into(),
+            state: match config.policy {
+                DiagnosticKeyPolicy::Emit | DiagnosticKeyPolicy::Redact => {
+                    RowDiagnosticKeyState::Redacted
                 }
-            }
+            },
+            value: None,
         });
         self.examples.push(RowDiagnosticExample {
             source_index,
-            cause: cause.to_owned(),
+            cause: cause.into(),
             column: None,
             key,
             write_state: None,
@@ -569,7 +546,8 @@ const SCHEMA_OPZIONI: SchemaOpzioniFormato = SchemaOpzioniFormato::nuovo(&[
         fase: FaseOpzione::Lettura,
         valore: ValoreAmmesso::Enumerato(&["emit", "redact"]),
         predefinito: None,
-        descrizione: "se emettere o redigere la chiave; richiede row_diagnostics.key_field",
+        descrizione:
+            "chiave sempre redatta; emit alias di redact; richiede row_diagnostics.key_field",
     },
 ]);
 

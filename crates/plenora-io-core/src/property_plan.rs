@@ -388,6 +388,8 @@ pub struct NativeMetadataCheck {
     names: Vec<String>,
     context: plenora_io_model::budget::PipelineContext,
     options: std::collections::BTreeMap<String, String>,
+    attribute_source: std::sync::Mutex<Option<crate::driver::spool::StagedSpool>>,
+    budget: plenora_io_model::budget::OperationBudget,
 }
 
 impl NativeMetadataCheck {
@@ -398,7 +400,129 @@ impl NativeMetadataCheck {
             names: plan.layers.iter().map(|l| l.name.clone()).collect(),
             context: opts.budget().context().clone(),
             options: opts.format_options.clone(),
+            attribute_source: std::sync::Mutex::new(None),
+            budget: opts.budget().clone(),
         }
+    }
+
+    /// Retain the original attributes under the existing memory/spill quotas.
+    /// # Errors
+    /// Propagates budget, cancellation and spool errors before publication.
+    pub fn observe_attributes(
+        &mut self,
+        batch: &arrow_array::RecordBatch,
+    ) -> plenora_io_model::Result<()> {
+        crate::driver::validate_external_batch(batch, plenora_io_model::ErrorPhase::Write)?;
+        let indices: Vec<_> = batch
+            .schema()
+            .fields()
+            .iter()
+            .enumerate()
+            .filter(|(_, field)| !plenora_io_model::geometry::is_geometry_field(field))
+            .map(|(i, _)| i)
+            .collect();
+        if indices.is_empty() || batch.num_rows() == 0 {
+            return Ok(());
+        }
+        let attributes = batch.project(&indices).map_err(|_| invalid_plan())?;
+        let lease = self
+            .context
+            .lease_memory_internal((attributes.get_array_memory_size() as u64).max(1))?;
+        let spool = self
+            .attribute_source
+            .get_mut()
+            .map_err(|_| invalid_plan())?;
+        let spool = spool.get_or_insert_with(|| {
+            crate::driver::spool::StagedSpool::new(
+                attributes.schema(),
+                self.budget.clone(),
+                self.context.cancellation().clone(),
+            )
+        });
+        spool.push(attributes, lease)
+    }
+
+    fn compare_attributes(
+        &self,
+        dataset: &dyn crate::OpenDatasetHandle,
+        report: &mut crate::LossReport,
+        native: crate::loss_table::NativeDriver,
+    ) -> plenora_io_model::Result<()> {
+        let Some(mut spool) = self
+            .attribute_source
+            .lock()
+            .map_err(|_| invalid_plan())?
+            .take()
+        else {
+            return Ok(());
+        };
+        spool.seal()?;
+        let mut reader = dataset.open_layer_reader(&crate::ReadRequest {
+            layer: dataset.layers().first().ok_or_else(invalid_plan)?.id,
+            projected_fields: None,
+            projection_mode: crate::ProjectionMode::BestEffort,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: crate::ReadScope::default(),
+            batch_target: crate::BatchTarget::default(),
+            cancellation: self.context.cancellation().clone(),
+        })?;
+        let mut output = reader.next_batch()?;
+        let mut row = 0;
+        while let Some(source) = spool.next_batch()? {
+            for input_row in 0..source.num_rows() {
+                self.context.ensure_active()?;
+                while output.as_ref().is_some_and(|b| row == b.num_rows()) {
+                    output = reader.next_batch()?;
+                    row = 0;
+                }
+                for (column, field) in source.schema().fields().iter().enumerate() {
+                    let equal = output.as_ref().is_some_and(|batch| {
+                        batch.schema().index_of(field.name()).is_ok_and(|i| {
+                            source.column(column).slice(input_row, 1).to_data()
+                                == batch.column(i).slice(row, 1).to_data()
+                        })
+                    });
+                    let field_index = self.contracts[0]
+                        .schema
+                        .index_of(field.name())
+                        .ok()
+                        .map(|i| i as u64);
+                    crate::loss_table::observe_native(
+                        report,
+                        (native, crate::loss_table::TransportDirection::Write),
+                        crate::loss_table::NativeElement::Utf8,
+                        u64::from(!equal),
+                        0,
+                        field_index,
+                    );
+                }
+                if output.is_some() {
+                    row += 1;
+                }
+            }
+        }
+        // The reverse direction matters too: exploded geometries can create
+        // additional native attribute rows after the source has been consumed.
+        while let Some(batch) = output {
+            self.context.ensure_active()?;
+            let extra = batch.num_rows().saturating_sub(row) as u64;
+            for (index, field) in self.contracts[0].schema.fields().iter().enumerate() {
+                if !plenora_io_model::geometry::is_geometry_field(field) {
+                    crate::loss_table::observe_native(
+                        report,
+                        (native, crate::loss_table::TransportDirection::Write),
+                        crate::loss_table::NativeElement::Utf8,
+                        extra,
+                        0,
+                        Some(index as u64),
+                    );
+                }
+            }
+            output = reader.next_batch()?;
+            row = 0;
+        }
+        Ok(())
     }
 
     /// # Errors
@@ -458,6 +582,7 @@ impl NativeMetadataCheck {
         }
         let dataset = driver.open(crate::Source::Path(path.to_owned()), options)?;
         let mut report = crate::LossReport::default();
+        self.compare_attributes(dataset.as_ref(), &mut report, native)?;
         for (index, source) in self.contracts.iter().enumerate() {
             let before = &source.schema;
             let after = (if native == crate::loss_table::NativeDriver::FileGdb {

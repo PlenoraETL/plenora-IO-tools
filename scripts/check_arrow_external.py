@@ -134,6 +134,7 @@ def main(runtime=True):
     for relative, count in {
         "driver/batch_worker.rs": 2, "driver/spool.rs": 1,
         "driver/validazione_geometrie.rs": 1, "ewkb.rs": 1,
+        "property_plan.rs": 1,
     }.items():
         source = (ROOT / "crates/plenora-io-core/src" / relative).read_text(encoding="utf-8")
         assert source.count("validate_external_batch(") == count, relative

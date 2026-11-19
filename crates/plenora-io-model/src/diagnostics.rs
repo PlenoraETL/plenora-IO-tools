@@ -6,9 +6,240 @@ pub const ROW_DIAGNOSTICS_CONTRACT: &str = "plenora-row-diagnostics-v1";
 pub const ROW_DIAGNOSTICS_INDEX_BASIS: &str = "source_row_zero_based";
 pub const ROW_DIAGNOSTIC_COLUMN_UNATTESTABLE: &str = "diagnostic_column_name_unattestable";
 
+/// Closed vocabulary for diagnostic text. Schema identifiers cannot inhabit this type.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DiagnosticCause {
+    #[serde(rename = "contract.coordinate_dimensions")]
+    ContractCoordinateDimensions,
+    #[serde(rename = "contract.geometry_encoding")]
+    ContractGeometryEncoding,
+    #[serde(rename = "contract.geometry_type")]
+    ContractGeometryType,
+    #[serde(rename = "contract.nullability")]
+    ContractNullability,
+    #[serde(rename = "contract.srid")]
+    ContractSrid,
+    #[serde(rename = "conversion.invalid_date")]
+    ConversionInvalidDate,
+    #[serde(rename = "conversion.invalid_geometry")]
+    ConversionInvalidGeometry,
+    #[serde(rename = "driver.invalid_attribute")]
+    DriverInvalidAttribute,
+    #[serde(rename = "dxf.coordinate_dimensions_unsupported")]
+    DxfCoordinateDimensionsUnsupported,
+    #[serde(rename = "dxf.degenerate_geometry")]
+    DxfDegenerateGeometry,
+    #[serde(rename = "dxf.embedded_srid_unsupported")]
+    DxfEmbeddedSridUnsupported,
+    #[serde(rename = "dxf.empty_geometry_unsupported")]
+    DxfEmptyGeometryUnsupported,
+    #[serde(rename = "dxf.entity_decode_failed")]
+    DxfEntityDecodeFailed,
+    #[serde(rename = "dxf.entity_not_representable")]
+    DxfEntityNotRepresentable,
+    #[serde(rename = "dxf.geometry_type_unsupported")]
+    DxfGeometryTypeUnsupported,
+    #[serde(rename = "dxf.interior_rings_unsupported")]
+    DxfInteriorRingsUnsupported,
+    #[serde(rename = "dxf.layer_not_representable")]
+    DxfLayerNotRepresentable,
+    #[serde(rename = "dxf.measure_ordinate_unsupported")]
+    DxfMeasureOrdinateUnsupported,
+    #[serde(rename = "dxf.non_finite_coordinate")]
+    DxfNonFiniteCoordinate,
+    #[serde(rename = "dxf.null_geometry_unsupported")]
+    DxfNullGeometryUnsupported,
+    #[serde(rename = "dxf.unclosed_polygon_ring")]
+    DxfUnclosedPolygonRing,
+    #[serde(rename = "geojson.invalid_feature")]
+    GeojsonInvalidFeature,
+    #[serde(rename = "kml.cell_not_representable")]
+    KmlCellNotRepresentable,
+    #[serde(rename = "kml.geometry_not_representable")]
+    KmlGeometryNotRepresentable,
+    #[serde(rename = "kml.invalid_geometry")]
+    KmlInvalidGeometry,
+    #[serde(rename = "kml.invalid_placemark")]
+    KmlInvalidPlacemark,
+    #[serde(rename = "kml.unsupported_geometry")]
+    KmlUnsupportedGeometry,
+    #[serde(rename = "shapefile.attribute_conversion_failed")]
+    ShapefileAttributeConversionFailed,
+    #[serde(rename = "shapefile.attribute_decode_failed")]
+    ShapefileAttributeDecodeFailed,
+    #[serde(rename = "shapefile.attribute_numeric_invalid")]
+    ShapefileAttributeNumericInvalid,
+    #[serde(rename = "shapefile.attribute_scan_interrupted")]
+    ShapefileAttributeScanInterrupted,
+    #[serde(rename = "shapefile.cell_not_representable")]
+    ShapefileCellNotRepresentable,
+    #[serde(rename = "shapefile.dbf_exact_scan_interrupted")]
+    ShapefileDbfExactScanInterrupted,
+    #[serde(rename = "shapefile.degenerate_ring")]
+    ShapefileDegenerateRing,
+    #[serde(rename = "shapefile.geometry_conversion_failed")]
+    ShapefileGeometryConversionFailed,
+    #[serde(rename = "shapefile.geometry_encoding_failed")]
+    ShapefileGeometryEncodingFailed,
+    #[serde(rename = "shapefile.geometry_not_representable")]
+    ShapefileGeometryNotRepresentable,
+    #[serde(rename = "shapefile.geometry_type_unsupported")]
+    ShapefileGeometryTypeUnsupported,
+    #[serde(rename = "shapefile.inner_ring_without_outer")]
+    ShapefileInnerRingWithoutOuter,
+    #[serde(rename = "shapefile.invalid_geometry")]
+    ShapefileInvalidGeometry,
+    #[serde(rename = "shapefile.mixed_geometry_type")]
+    ShapefileMixedGeometryType,
+    #[serde(rename = "shapefile.polygon_without_outer")]
+    ShapefilePolygonWithoutOuter,
+    #[serde(rename = "shapefile.scan_cancelled")]
+    ShapefileScanCancelled,
+    #[serde(rename = "shapefile.scan_interrupted")]
+    ShapefileScanInterrupted,
+    #[serde(rename = "shapefile.shape_type_mismatch")]
+    ShapefileShapeTypeMismatch,
+    #[serde(rename = "shapefile.unclosed_ring")]
+    ShapefileUnclosedRing,
+}
+impl DiagnosticCause {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ContractCoordinateDimensions => "contract.coordinate_dimensions",
+            Self::ContractGeometryEncoding => "contract.geometry_encoding",
+            Self::ContractGeometryType => "contract.geometry_type",
+            Self::ContractNullability => "contract.nullability",
+            Self::ContractSrid => "contract.srid",
+            Self::ConversionInvalidDate => "conversion.invalid_date",
+            Self::ConversionInvalidGeometry => "conversion.invalid_geometry",
+            Self::DriverInvalidAttribute => "driver.invalid_attribute",
+            Self::DxfCoordinateDimensionsUnsupported => "dxf.coordinate_dimensions_unsupported",
+            Self::DxfDegenerateGeometry => "dxf.degenerate_geometry",
+            Self::DxfEmbeddedSridUnsupported => "dxf.embedded_srid_unsupported",
+            Self::DxfEmptyGeometryUnsupported => "dxf.empty_geometry_unsupported",
+            Self::DxfEntityDecodeFailed => "dxf.entity_decode_failed",
+            Self::DxfEntityNotRepresentable => "dxf.entity_not_representable",
+            Self::DxfGeometryTypeUnsupported => "dxf.geometry_type_unsupported",
+            Self::DxfInteriorRingsUnsupported => "dxf.interior_rings_unsupported",
+            Self::DxfLayerNotRepresentable => "dxf.layer_not_representable",
+            Self::DxfMeasureOrdinateUnsupported => "dxf.measure_ordinate_unsupported",
+            Self::DxfNonFiniteCoordinate => "dxf.non_finite_coordinate",
+            Self::DxfNullGeometryUnsupported => "dxf.null_geometry_unsupported",
+            Self::DxfUnclosedPolygonRing => "dxf.unclosed_polygon_ring",
+            Self::GeojsonInvalidFeature => "geojson.invalid_feature",
+            Self::KmlCellNotRepresentable => "kml.cell_not_representable",
+            Self::KmlGeometryNotRepresentable => "kml.geometry_not_representable",
+            Self::KmlInvalidGeometry => "kml.invalid_geometry",
+            Self::KmlInvalidPlacemark => "kml.invalid_placemark",
+            Self::KmlUnsupportedGeometry => "kml.unsupported_geometry",
+            Self::ShapefileAttributeConversionFailed => "shapefile.attribute_conversion_failed",
+            Self::ShapefileAttributeDecodeFailed => "shapefile.attribute_decode_failed",
+            Self::ShapefileAttributeNumericInvalid => "shapefile.attribute_numeric_invalid",
+            Self::ShapefileAttributeScanInterrupted => "shapefile.attribute_scan_interrupted",
+            Self::ShapefileCellNotRepresentable => "shapefile.cell_not_representable",
+            Self::ShapefileDbfExactScanInterrupted => "shapefile.dbf_exact_scan_interrupted",
+            Self::ShapefileDegenerateRing => "shapefile.degenerate_ring",
+            Self::ShapefileGeometryConversionFailed => "shapefile.geometry_conversion_failed",
+            Self::ShapefileGeometryEncodingFailed => "shapefile.geometry_encoding_failed",
+            Self::ShapefileGeometryNotRepresentable => "shapefile.geometry_not_representable",
+            Self::ShapefileGeometryTypeUnsupported => "shapefile.geometry_type_unsupported",
+            Self::ShapefileInnerRingWithoutOuter => "shapefile.inner_ring_without_outer",
+            Self::ShapefileInvalidGeometry => "shapefile.invalid_geometry",
+            Self::ShapefileMixedGeometryType => "shapefile.mixed_geometry_type",
+            Self::ShapefilePolygonWithoutOuter => "shapefile.polygon_without_outer",
+            Self::ShapefileScanCancelled => "shapefile.scan_cancelled",
+            Self::ShapefileScanInterrupted => "shapefile.scan_interrupted",
+            Self::ShapefileShapeTypeMismatch => "shapefile.shape_type_mismatch",
+            Self::ShapefileUnclosedRing => "shapefile.unclosed_ring",
+        }
+    }
+    #[must_use]
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "contract.coordinate_dimensions" => Some(Self::ContractCoordinateDimensions),
+            "contract.geometry_encoding" => Some(Self::ContractGeometryEncoding),
+            "contract.geometry_type" => Some(Self::ContractGeometryType),
+            "contract.nullability" => Some(Self::ContractNullability),
+            "contract.srid" => Some(Self::ContractSrid),
+            "conversion.invalid_date" => Some(Self::ConversionInvalidDate),
+            "conversion.invalid_geometry" => Some(Self::ConversionInvalidGeometry),
+            "driver.invalid_attribute" => Some(Self::DriverInvalidAttribute),
+            "dxf.coordinate_dimensions_unsupported" => {
+                Some(Self::DxfCoordinateDimensionsUnsupported)
+            }
+            "dxf.degenerate_geometry" => Some(Self::DxfDegenerateGeometry),
+            "dxf.embedded_srid_unsupported" => Some(Self::DxfEmbeddedSridUnsupported),
+            "dxf.empty_geometry_unsupported" => Some(Self::DxfEmptyGeometryUnsupported),
+            "dxf.entity_decode_failed" => Some(Self::DxfEntityDecodeFailed),
+            "dxf.entity_not_representable" => Some(Self::DxfEntityNotRepresentable),
+            "dxf.geometry_type_unsupported" => Some(Self::DxfGeometryTypeUnsupported),
+            "dxf.interior_rings_unsupported" => Some(Self::DxfInteriorRingsUnsupported),
+            "dxf.layer_not_representable" => Some(Self::DxfLayerNotRepresentable),
+            "dxf.measure_ordinate_unsupported" => Some(Self::DxfMeasureOrdinateUnsupported),
+            "dxf.non_finite_coordinate" => Some(Self::DxfNonFiniteCoordinate),
+            "dxf.null_geometry_unsupported" => Some(Self::DxfNullGeometryUnsupported),
+            "dxf.unclosed_polygon_ring" => Some(Self::DxfUnclosedPolygonRing),
+            "geojson.invalid_feature" => Some(Self::GeojsonInvalidFeature),
+            "kml.cell_not_representable" => Some(Self::KmlCellNotRepresentable),
+            "kml.geometry_not_representable" => Some(Self::KmlGeometryNotRepresentable),
+            "kml.invalid_geometry" => Some(Self::KmlInvalidGeometry),
+            "kml.invalid_placemark" => Some(Self::KmlInvalidPlacemark),
+            "kml.unsupported_geometry" => Some(Self::KmlUnsupportedGeometry),
+            "shapefile.attribute_conversion_failed" => {
+                Some(Self::ShapefileAttributeConversionFailed)
+            }
+            "shapefile.attribute_decode_failed" => Some(Self::ShapefileAttributeDecodeFailed),
+            "shapefile.attribute_numeric_invalid" => Some(Self::ShapefileAttributeNumericInvalid),
+            "shapefile.attribute_scan_interrupted" => Some(Self::ShapefileAttributeScanInterrupted),
+            "shapefile.cell_not_representable" => Some(Self::ShapefileCellNotRepresentable),
+            "shapefile.dbf_exact_scan_interrupted" => Some(Self::ShapefileDbfExactScanInterrupted),
+            "shapefile.degenerate_ring" => Some(Self::ShapefileDegenerateRing),
+            "shapefile.geometry_conversion_failed" => Some(Self::ShapefileGeometryConversionFailed),
+            "shapefile.geometry_encoding_failed" => Some(Self::ShapefileGeometryEncodingFailed),
+            "shapefile.geometry_not_representable" => Some(Self::ShapefileGeometryNotRepresentable),
+            "shapefile.geometry_type_unsupported" => Some(Self::ShapefileGeometryTypeUnsupported),
+            "shapefile.inner_ring_without_outer" => Some(Self::ShapefileInnerRingWithoutOuter),
+            "shapefile.invalid_geometry" => Some(Self::ShapefileInvalidGeometry),
+            "shapefile.mixed_geometry_type" => Some(Self::ShapefileMixedGeometryType),
+            "shapefile.polygon_without_outer" => Some(Self::ShapefilePolygonWithoutOuter),
+            "shapefile.scan_cancelled" => Some(Self::ShapefileScanCancelled),
+            "shapefile.scan_interrupted" => Some(Self::ShapefileScanInterrupted),
+            "shapefile.shape_type_mismatch" => Some(Self::ShapefileShapeTypeMismatch),
+            "shapefile.unclosed_ring" => Some(Self::ShapefileUnclosedRing),
+            _ => None,
+        }
+    }
+}
+impl From<&'static str> for DiagnosticCause {
+    fn from(value: &'static str) -> Self {
+        Self::parse(value).expect("diagnostic cause must belong to the closed vocabulary")
+    }
+}
+impl PartialEq<&str> for DiagnosticCause {
+    fn eq(&self, other: &&str) -> bool {
+        self.as_str() == *other
+    }
+}
+/// A schema identifier, serialized only in a dedicated structured field.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct DiagnosticFieldName(String);
+impl From<String> for DiagnosticFieldName {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
+}
+impl std::ops::Deref for DiagnosticFieldName {
+    type Target = str;
+    fn deref(&self) -> &str {
+        &self.0
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RowDiagnosticColumn {
-    Attested(String),
+    Attested(DiagnosticFieldName),
     Unattestable,
 }
 
@@ -16,14 +247,14 @@ impl RowDiagnosticColumn {
     pub fn attest(value: impl Into<String>) -> Self {
         let value = value.into();
         if !value.is_empty() && value.chars().count() <= 256 {
-            Self::Attested(value)
+            Self::Attested(value.into())
         } else {
             Self::Unattestable
         }
     }
 
     #[must_use]
-    pub fn into_option(self) -> Option<String> {
+    pub fn into_option(self) -> Option<DiagnosticFieldName> {
         match self {
             Self::Attested(value) => Some(value),
             Self::Unattestable => None,
@@ -61,16 +292,12 @@ pub enum RowDiagnosticKeyState {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum RowDiagnosticKeyValue {
-    String(String),
-    Integer(i64),
-    Boolean(bool),
-}
+pub enum RowDiagnosticKeyValue {}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RowDiagnosticKey {
-    pub field: String,
+    pub field: DiagnosticFieldName,
     pub state: RowDiagnosticKeyState,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value: Option<RowDiagnosticKeyValue>,
@@ -89,9 +316,9 @@ pub enum RowDiagnosticWriteState {
 #[serde(deny_unknown_fields)]
 pub struct RowDiagnosticExample {
     pub source_index: u64,
-    pub cause: String,
+    pub cause: DiagnosticCause,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub column: Option<String>,
+    pub column: Option<DiagnosticFieldName>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key: Option<RowDiagnosticKey>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -168,7 +395,7 @@ impl RowDiagnostics {
             return Err("examples_limit deve essere almeno 1".to_owned());
         }
         let counts_sum = self.counts.iter().try_fold(0_u64, |sum, (cause, count)| {
-            if !valid_token(cause) || *count == 0 {
+            if DiagnosticCause::parse(cause).is_none() || *count == 0 {
                 return Err("causa o conteggio row diagnostics non valido".to_owned());
             }
             sum.checked_add(*count)
@@ -226,7 +453,7 @@ impl RowDiagnostics {
             if !indices.insert(example.source_index) {
                 return Err("source_index duplicato negli esempi".to_owned());
             }
-            if !valid_token(&example.cause) || !self.counts.contains_key(&example.cause) {
+            if !self.counts.contains_key(example.cause.as_str()) {
                 return Err("causa esempio assente dai conteggi".to_owned());
             }
             if example
@@ -237,7 +464,7 @@ impl RowDiagnostics {
                 return Err("column esempio non valida".to_owned());
             }
             validate_key(example.key.as_ref())?;
-            *example_causes.entry(&example.cause).or_default() += 1;
+            *example_causes.entry(example.cause.as_str()).or_default() += 1;
         }
         for (cause, count) in example_causes {
             if count > self.counts[cause] {
@@ -362,19 +589,23 @@ impl RowDiagnostics {
     }
 }
 
-fn valid_token(value: &str) -> bool {
-    value.len() <= 128
-        && value.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
-        && value.as_bytes().iter().all(|byte| {
-            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'.' | b'_' | b'-')
-        })
-        && !value.as_bytes().windows(2).any(|pair| {
-            matches!(pair[0], b'.' | b'_' | b'-') && matches!(pair[1], b'.' | b'_' | b'-')
-        })
-        && value
-            .as_bytes()
-            .last()
-            .is_some_and(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+fn valid_knowledge_limit(value: &str) -> bool {
+    matches!(
+        value,
+        "diagnostic_column_name_unattestable"
+            | "source_row_identity_unattestable"
+            | "scan_terminated_before_eof"
+            | "scan_cancelled_before_eof"
+            | "scan_deadline_exceeded_before_eof"
+            | "driver_row_diagnostics_invalid"
+            | "read_scope_row_limit_reached"
+            | "driver_scan_interrupted"
+            | "write_validation_stopped_at_first_rejected_batch"
+            | "shapefile.scan_cancelled"
+            | "shapefile.dbf_exact_scan_interrupted"
+            | "shapefile.scan_interrupted"
+            | "shapefile.attribute_scan_interrupted"
+    )
 }
 
 fn validate_knowledge_limits(values: Option<&[String]>) -> std::result::Result<(), String> {
@@ -384,7 +615,7 @@ fn validate_knowledge_limits(values: Option<&[String]>) -> std::result::Result<(
     let mut unique = std::collections::BTreeSet::new();
     if values
         .iter()
-        .any(|value| !valid_token(value) || !unique.insert(value))
+        .any(|value| !valid_knowledge_limit(value) || !unique.insert(value))
     {
         return Err("knowledge_limits non validi o duplicati".to_owned());
     }
@@ -399,23 +630,8 @@ fn validate_key(key: Option<&RowDiagnosticKey>) -> std::result::Result<(), Strin
         return Err("campo chiave diagnostica non valido".to_owned());
     }
     match (&key.state, &key.value) {
-        (RowDiagnosticKeyState::Value, Some(RowDiagnosticKeyValue::String(value)))
-            if value.chars().count() <= 1024 =>
-        {
-            Ok(())
-        }
-        (RowDiagnosticKeyState::Value, Some(RowDiagnosticKeyValue::Integer(value)))
-            if (-9_007_199_254_740_991..=9_007_199_254_740_991).contains(value) =>
-        {
-            Ok(())
-        }
-        // I due rami restano distinti perche' codificano regole diverse del
-        // contratto (valore booleano ammesso vs assenza di valore per stato
-        // redatto/indisponibile); fonderli ne perderebbe la tracciabilita'.
-        #[allow(clippy::match_same_arms)]
-        (RowDiagnosticKeyState::Value, Some(RowDiagnosticKeyValue::Boolean(_))) => Ok(()),
         (RowDiagnosticKeyState::Redacted | RowDiagnosticKeyState::Unavailable, None) => Ok(()),
-        _ => Err("stato/value della chiave diagnostica incoerente".to_owned()),
+        _ => Err("diagnostic key values are forbidden".to_owned()),
     }
 }
 

@@ -725,10 +725,8 @@ impl FormatDriver for DxfDriver {
                 path,
                 durable: opts.durable,
                 loss: native_write_report(NativeDriver::Dxf, plan),
-                dropped_cols: Vec::new(),
                 rows: 0,
                 input_total: None,
-                first: true,
                 wkb_limits: opts.wkb_limits(),
                 max_output_bytes: opts.max_output_bytes(),
                 contesto: opts.budget().context().clone(),
@@ -748,10 +746,8 @@ struct DxfWriterState {
     path: PathBuf,
     durable: bool,
     loss: LossReport,
-    dropped_cols: Vec<usize>,
     rows: u64,
     input_total: Option<u64>,
-    first: bool,
     wkb_limits: WkbLimits,
     max_output_bytes: u64,
     /// Scadenza e cancellazione, per l'ultimo controllo prima del rename.
@@ -826,14 +822,7 @@ impl FormatWriter for DxfWriterState {
             .downcast_ref::<BinaryArray>()
             .ok_or_else(|| err(&PublicMessage::Curated("colonna geometria non binaria")))?;
         let layer_idx = schema.index_of("layer").ok();
-        if self.first {
-            for i in 0..schema.fields().len() {
-                if i != geom_idx && Some(i) != layer_idx {
-                    self.dropped_cols.push(i);
-                }
-            }
-            self.first = false;
-        }
+
         let limits = self.wkb_limits;
         let mut decoded = Vec::with_capacity(batch.num_rows());
         let mut rejections = Vec::new();
@@ -883,6 +872,7 @@ impl FormatWriter for DxfWriterState {
                 self.input_total,
             ));
         }
+        self.metadata_check.observe_attributes(batch)?;
         for (geometry, layer) in decoded.iter().zip(&layers) {
             let g = geometry
                 .as_ref()
@@ -909,17 +899,6 @@ impl FormatWriter for DxfWriterState {
     }
 
     fn finish(mut self: Box<Self>) -> Result<Published> {
-        // Gli attributi non rappresentabili in DXF sono dichiarati come perdita.
-        for c in &self.dropped_cols {
-            observe_native(
-                &mut self.loss,
-                (NativeDriver::Dxf, TransportDirection::Write),
-                NativeElement::Utf8,
-                self.rows,
-                0,
-                Some(*c as u64),
-            );
-        }
         let mut temp = create_staged_file(&self.path)?;
         let buffered = BufWriter::with_capacity(1024 * 1024, temp.as_file_mut());
         let mut output = BoundedOutput::new(buffered, self.max_output_bytes);

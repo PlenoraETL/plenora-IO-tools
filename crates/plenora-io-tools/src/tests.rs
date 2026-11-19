@@ -1174,7 +1174,7 @@ fn row_diagnostics_are_preserved_in_the_cli_error_envelope() {
         examples_truncated: false,
         examples: vec![plenora_io_model::RowDiagnosticExample {
             source_index: 17,
-            cause,
+            cause: plenora_io_model::diagnostics::DiagnosticCause::parse(&cause).unwrap(),
             column: None,
             key: None,
             write_state: None,

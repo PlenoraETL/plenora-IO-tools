@@ -629,14 +629,16 @@ fn selected_layer_id(
         .iter()
         .filter(|layer| dataset.rifiuto_del_layer(layer.id).is_none())
         .collect();
-    if readable.len() == 1 {
+    if readable.len() == 1 && dataset.layers().len() == 1 {
         return Ok(readable[0].id.0);
     }
     let mut error = local_err_doc(
         "LAYER_SELECTION_REQUIRED",
         ErrorCategory::InvalidPlan,
         ErrorPhase::Prepare,
-        &PublicMessage::Curated("scegliere --layer: richiesto esattamente un oggetto leggibile"),
+        &PublicMessage::Curated(
+            "scegliere --layer: selezione automatica richiede un solo oggetto totale e leggibile",
+        ),
     );
     error.1["error"]["details"] = json!({"objects": dataset.layers().iter().map(|layer|
         json!({"index": layer.id.0, "status": layer_status(dataset, layer.id)})

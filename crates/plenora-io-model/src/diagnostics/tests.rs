@@ -21,8 +21,8 @@ fn valid_read() -> RowDiagnostics {
         examples_truncated: false,
         examples: vec![RowDiagnosticExample {
             source_index: 4,
-            cause: "conversion.invalid_date".to_owned(),
-            column: Some("effective_date".to_owned()),
+            cause: "conversion.invalid_date".into(),
+            column: Some("effective_date".to_owned().into()),
             key: None,
             write_state: None,
         }],
@@ -60,13 +60,36 @@ fn invalid_documents_are_not_deserializable() {
 }
 
 #[test]
+fn caller_data_only_has_a_structured_schema_slot() {
+    let mut report = valid_read();
+    report.examples[0].column = Some("FIELD_SENTINEL_G4".to_owned().into());
+    let document = serde_json::to_value(&report).unwrap();
+    assert_eq!(document["examples"][0]["column"], "FIELD_SENTINEL_G4");
+    assert!(!document["examples"][0]["cause"]
+        .as_str()
+        .unwrap()
+        .contains("SENTINEL"));
+    let mut invalid = document.clone();
+    invalid["examples"][0]["cause"] = "caller.value".into();
+    assert!(serde_json::from_value::<RowDiagnostics>(invalid).is_err());
+    let mut invalid = document.clone();
+    invalid["examples"][0]["key"] = serde_json::json!({
+        "field": "FIELD_SENTINEL_G4", "state": "value", "value": "VALUE_SENTINEL_G4"
+    });
+    assert!(serde_json::from_value::<RowDiagnostics>(invalid).is_err());
+    let mut invalid = document;
+    invalid["counts"] = serde_json::json!({"caller.value": 1});
+    assert!(serde_json::from_value::<RowDiagnostics>(invalid).is_err());
+}
+
+#[test]
 fn unicode_limits_count_characters() {
     let mut report = valid_read();
-    report.examples[0].column = Some("é".repeat(256));
+    report.examples[0].column = Some("\u{e9}".repeat(256).into());
     report.examples[0].key = Some(RowDiagnosticKey {
-        field: "名".repeat(256),
-        state: RowDiagnosticKeyState::Value,
-        value: Some(RowDiagnosticKeyValue::String("😀".repeat(1024))),
+        field: "\u{540d}".repeat(256).into(),
+        state: RowDiagnosticKeyState::Redacted,
+        value: None,
     });
     assert!(report.validate().is_ok());
 }

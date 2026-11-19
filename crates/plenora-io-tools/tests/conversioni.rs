@@ -244,7 +244,7 @@ fn ipc_a_geoparquet_conserva_tutto_nel_verso_opposto() {
 fn gpkg_multi_layer_a_ipc_dichiara_i_layer_non_scelti() {
     let dir = temporanea();
     let uscita = dir.path().join("uscita.arrow");
-    let esito = converti("canonico.gpkg", &uscita, &[]);
+    let esito = converti("canonico.gpkg", &uscita, &["--layer", "0"]);
     assert!(esito.riuscito, "{}", esito.stderr);
     assert_eq!(esito.perdite(), perdite(&[]));
     // Il GeoPackage canonico ha due layer e il bersaglio ne accetta uno: la
@@ -775,7 +775,7 @@ fn csv_a_filegdb_con_i_tipi_che_il_formato_rappresenta() {
 fn gpkg_con_definizione_wkt_a_geoparquet_rifiuta_il_crs() {
     let dir = temporanea();
     let uscita = dir.path().join("uscita.parquet");
-    let esito = converti("canonico.gpkg", &uscita, &[]);
+    let esito = converti("canonico.gpkg", &uscita, &["--layer", "0"]);
     assert!(!esito.riuscito, "atteso un rifiuto: {}", esito.stdout);
     assert!(
         esito.messaggio().contains("PROJJSON"),
@@ -826,7 +826,7 @@ fn geojson_con_nome_lungo_a_shp_rifiuta_invece_di_troncare() {
 fn gpkg_con_riga_senza_geometria_a_dxf_rifiuta_la_riga() {
     let dir = temporanea();
     let uscita = dir.path().join("uscita.dxf");
-    let esito = converti("canonico.gpkg", &uscita, &[]);
+    let esito = converti("canonico.gpkg", &uscita, &["--layer", "0"]);
     assert!(!esito.riuscito, "atteso un rifiuto: {}", esito.stdout);
     let errore = esito.errore();
     let diagnostica = &errore["details"]["row_diagnostics"];
@@ -862,7 +862,7 @@ fn csv_con_booleano_a_filegdb_rifiuta_il_tipo() {
 fn gpkg_proiettato_a_kml_rifiuta_il_crs() {
     let dir = temporanea();
     let uscita = dir.path().join("uscita.kml");
-    let esito = converti("canonico.gpkg", &uscita, &[]);
+    let esito = converti("canonico.gpkg", &uscita, &["--layer", "0"]);
     assert!(!esito.riuscito, "atteso un rifiuto: {}", esito.stdout);
     assert!(
         esito.messaggio().contains("CRS fisso"),

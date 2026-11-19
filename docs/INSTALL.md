@@ -342,7 +342,7 @@ Non sono disponibili protocolli delle release Plenora precedenti.
 | shp | publish_mode | write | {"enum":["shapefile_directory_dataset","loose_shapefile_set"]} | assente | forma di pubblicazione; .shp.d si deduce, .shp va accettata |
 | shp | row_diagnostics.examples_limit | read | {"integer":{"max":64,"min":1}} | 64 | numero massimo di righe di esempio per diagnostica |
 | shp | row_diagnostics.key_field | read | text | assente | campo DBF usato come chiave nelle diagnostiche di riga |
-| shp | row_diagnostics.key_policy | read | {"enum":["emit","redact"]} | assente | se emettere o redigere la chiave; richiede row_diagnostics.key_field |
+| shp | row_diagnostics.key_policy | read | {"enum":["emit","redact"]} | assente | chiave sempre redatta; emit alias di redact; richiede row_diagnostics.key_field |
 | xls | geometry_encoding | write | {"enum":["wkt","xy"]} | wkt | come scrivere la geometria: colonna WKT o colonne x/y |
 | xls | sheet | read | text | assente | nome esatto del foglio da leggere; in assenza valgono le regole comuni di selezione |
 | xls | wkt_column | read | text | assente | colonna che contiene la geometria in WKT |

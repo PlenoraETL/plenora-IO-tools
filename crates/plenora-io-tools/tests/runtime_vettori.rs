@@ -131,6 +131,14 @@ impl Deposito {
                 "canonico-arrow.arrow",
             ),
         ];
+        // Runtime envelope tests need a single object, not an implicit choice
+        // between the canonical spatial layer and its unsupported sibling.
+        rusqlite::Connection::open(&ingressi[0].1)
+            .unwrap()
+            .execute_batch(
+                "DELETE FROM gpkg_contents WHERE data_type='attributes'; DROP TABLE secondario;",
+            )
+            .unwrap();
         Self {
             ingressi,
             uscite: uscite.to_path_buf(),

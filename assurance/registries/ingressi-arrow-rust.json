@@ -2036,6 +2036,14 @@
       "tipi": [
         "plenora_io_model::contract::DataContract"
       ]
+    },
+    "plenora-io-core/src/property_plan.rs::plenora_io_core::property_plan::NativeMetadataCheck::observe_attributes": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Valida il batch esterno prima di proiettare gli attributi e di accodarli nello spool soggetto alle quote. Il confronto rilegge solo batch validati.",
+      "tipi": [
+        "arrow_array::RecordBatch",
+        "plenora_io_core::property_plan::NativeMetadataCheck"
+      ]
     }
   },
   "macro_items": {

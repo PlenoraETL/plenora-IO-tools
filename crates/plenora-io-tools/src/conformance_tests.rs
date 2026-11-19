@@ -2408,6 +2408,7 @@ fn limit_skips_invalid_geometry_in_parquet_row_group_and_gpkg_page() {
     drop(connection);
     for path in [path, gpkg] {
         let mut args = vec!["read".to_owned(), path.to_string_lossy().into_owned()];
+        args.extend(["--layer".to_owned(), "0".to_owned()]);
         assert!(crate::esegui(&args, &CancellationToken::new()).1.is_err());
         args.extend(["--limit".to_owned(), "1".to_owned()]);
         let doc = crate::esegui(&args, &CancellationToken::new())
