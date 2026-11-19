@@ -316,7 +316,9 @@ impl FileSet {
         let paths = self.paths(&main)?;
         if paths[0].is_dir() {
             if let Some(main) = self.directory_main {
-                self.paths(&paths[0].join(main))?;
+                let logical = paths[0].join(main);
+                let actual = resolve(&logical)?.unwrap_or(logical);
+                self.paths(&actual)?;
             }
         }
         Ok(paths)

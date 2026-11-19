@@ -6249,7 +6249,7 @@ fn r1_foreign_companion_after_create_blocks_the_entire_loose_set() {
 }
 
 #[test]
-fn r1_mixed_old_set_is_refused_without_modifying_any_member() {
+fn r1_distinct_stems_follow_native_case_rules_without_modifying_old_members() {
     let dir = tempfile::tempdir().unwrap();
     let main = dir.path().join("VEC.SHP");
     r1_fixture(&main);
@@ -6268,15 +6268,17 @@ fn r1_mixed_old_set_is_refused_without_modifying_any_member() {
             contract: DataContract::from_schema(schema).unwrap(),
         }],
     };
-    let error = ShpDriver
-        .create(
-            Sink::Path(dir.path().join("vec.shp")),
-            &plan,
-            &opzioni_scrittura_loose(),
-        )
-        .err()
-        .unwrap();
-    assert_eq!(error.code, plenora_io_model::IoErrorCode::OutputExists);
+    let destination = dir.path().join("vec.shp");
+    let conflicts = destination.exists();
+    let result = ShpDriver.create(Sink::Path(destination), &plan, &opzioni_scrittura_loose());
+    if conflicts {
+        assert_eq!(
+            result.err().unwrap().code,
+            plenora_io_model::IoErrorCode::OutputExists
+        );
+    } else {
+        drop(result.unwrap());
+    }
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), before.len());
     for (path, bytes) in before {
         assert_eq!(std::fs::read(path).unwrap(), bytes);

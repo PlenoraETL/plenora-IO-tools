@@ -1076,7 +1076,7 @@ fn vincoli_dello_schema(campi: &Campi) -> Result<(), Value> {
         )));
     }
     // L'enum dei formati di `io.write` e `io.convert`, prima del risolutore:
-    // lo stesso rifiuto della CLI (`UNKNOWN_FORMAT`, dalla stessa funzione),
+    // lo stesso rifiuto della CLI (`CLI_USAGE`, dalla stessa funzione),
     // ma senza chiedere all'applicazione di materializzare nulla.
     for formato in [&campi.format, &campi.source_format, &campi.target_format]
         .into_iter()

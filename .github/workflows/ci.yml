@@ -17,6 +17,8 @@ permissions:
 env:
   CARGO_BUILD_JOBS: "4"
   CARGO_INCREMENTAL: "0"
+  # Interprete installato da setup-python per i generatori nativi indipendenti.
+  PLENORA_ENUM_PYTHON: python
   CANDIDATE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
 jobs:

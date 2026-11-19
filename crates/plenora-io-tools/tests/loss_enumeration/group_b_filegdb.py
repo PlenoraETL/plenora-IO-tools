@@ -1,13 +1,19 @@
 """Build a native FileGDB through GDAL C API, never through IO."""
 import ctypes as C
+from ctypes.util import find_library
 import os
 from pathlib import Path
 import sys
 
 # GDAL runtime is supplied by the invoking verification environment.
-bin_dir = next(Path(p) for p in os.environ['PATH'].split(os.pathsep) if (Path(p) / 'gdal.dll').exists())
-handle = os.add_dll_directory(str(bin_dir))
-gdal = C.CDLL(str(bin_dir / 'gdal.dll'))
+if os.name == 'nt':
+    bin_dir = next(Path(p) for p in os.environ['PATH'].split(os.pathsep) if (Path(p) / 'gdal.dll').exists())
+    handle = os.add_dll_directory(str(bin_dir))
+    gdal = C.CDLL(str(bin_dir / 'gdal.dll'))
+else:
+    library = find_library('gdal')
+    assert library, 'system GDAL runtime required by the native FileGDB witness'
+    gdal = C.CDLL(library)
 def bind(name, result, *args):
     fn = getattr(gdal, name)
     fn.restype = result
@@ -20,10 +26,10 @@ source = bind('GDALOpenEx', ptr, C.c_char_p, C.c_uint, chars, chars, chars)(os.f
 assert source, 'native GPKG fixture failed GDAL validation'
 mode = sys.argv[4] if len(sys.argv) > 4 else ''
 arguments = [b'-f', b'OpenFileGDB', b'-nln', b'features', b'-lco', b'GEOMETRY_NAME=geometry']
-if mode in ('Subtypes', 'Domains'):
+if mode in ('Subtypes', 'Domains', 'SignedInteger'):
+    # The signed witness fits the native 32-bit domain on every CI GDAL.
+    # Integer64 storage would require the GDAL 3.9 ArcGIS Pro target option.
     arguments.extend([b'-mapFieldType', b'Integer64=Integer'])
-if mode == 'SignedInteger':
-    arguments.extend([b'-lco', b'TARGET_ARCGIS_VERSION=ARCGIS_PRO_3_2_OR_LATER'])
 if mode == 'Hierarchy':
     arguments.extend([b'-lco', b'FEATURE_DATASET=NativeGroup'])
 if mode == 'LayerMetadata':

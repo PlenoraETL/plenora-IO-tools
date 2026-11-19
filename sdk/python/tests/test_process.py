@@ -155,13 +155,13 @@ class LEsecutore(unittest.TestCase):
         runner = self.runner(f"print({BUSTA_ERRORE!r})\n")
         with self.assertRaises(ProtocolError) as preso:
             runner.run(["read", "x"])
-        self.assertIn("stato «error»", str(preso.exception))
+        self.assertIn("Contratto o versione", str(preso.exception))
 
     def test_un_successo_con_uscita_diversa_da_zero(self) -> None:
         runner = self.runner('print(json.dumps({"status": "ok", "protocol_version": 2, "contract": "plenora-io-catalog-v2", "result": {}}))\nsys.exit(1)\n')
         with self.assertRaises(ProtocolError) as preso:
             runner.run(["catalog"])
-        self.assertIn("porta una busta d'errore", str(preso.exception))
+        self.assertIn("Contratto o versione", str(preso.exception))
 
     def test_un_output_parziale_prima_di_un_errore_e_rifiutato(self) -> None:
         """Un output parziale consegnato prima di un errore terminale e' cio'
@@ -216,7 +216,7 @@ class LEsecutore(unittest.TestCase):
 
     def test_uno_status_fuori_vocabolario_non_e_ricopiato(self) -> None:
         runner = self.runner(
-            'print(json.dumps({"status": "stato-inventato", "result": {}}))\n'
+            'print(json.dumps({"status": "stato-inventato", "protocol_version": 2, "contract": "plenora-io-catalog-v2", "result": {}}))\n'
         )
         with self.assertRaises(ProtocolError) as preso:
             runner.run(["catalog"])
@@ -291,6 +291,17 @@ class IMessaggiNonPortanoDati(unittest.TestCase):
 
     ARGOMENTI = ["convert", "C:/dati/clienti.csv", "/uscita/privata.gpkg", "--in-opt", "k=v"]
 
+    def test_identita_della_busta_nativa_obbligatoria(self) -> None:
+        from unittest.mock import Mock
+        valid = json.loads(BUSTA_ERRORE)
+        with self.assertRaises(NotFoundError):
+            NativeRunner(Mock(esegui=Mock(return_value=(5, json.dumps(valid), False)))).run(["read", "x"])
+        for key, wrong in (("contract", "altro"), ("protocol_version", 1), ("protocol_version", None)):
+            with self.subTest(key=key, wrong=wrong):
+                invalid = {**valid, key: wrong}
+                with self.assertRaises(ProtocolError):
+                    NativeRunner(Mock(esegui=Mock(return_value=(5, json.dumps(invalid), False)))).run(["read", "x"])
+
     def assertSenzaDati(self, messaggio: str) -> None:
         for frammento in ("clienti", "privata", "k=v", "dati", "uscita"):
             self.assertNotIn(frammento, messaggio)
@@ -349,7 +360,8 @@ class LaGerarchiaDegliErrori(unittest.TestCase):
             "message": "un messaggio qualunque",
         }
         errore.update(campi)
-        busta = {"status": "error", "error": errore}
+        busta = {"status": "error", "protocol_version": 2,
+                 "contract": "plenora-error-v1", "error": errore}
         percorso = self.tmp / NOME
         percorso.write_text(
             "#!/usr/bin/env python3\nimport sys, json\n"

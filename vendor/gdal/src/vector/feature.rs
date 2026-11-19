@@ -381,15 +381,26 @@ impl<'a> Feature<'a> {
     }
 
     /// Raw timezone flag from the field definition, even on an empty feature.
-    /// Available since GDAL 3.8. No interpretation of unknown/local/mixed flags.
+    /// GDAL before 3.8 cannot expose this datum and returns `None`.
+    /// `Some(0)` is GDAL's unknown flag, not an unavailable accessor.
+    pub fn field_datetime_timezone_flag(&self, field_idx: usize) -> Result<Option<i32>> {
+        self.checked_field_index(field_idx, "field_datetime_timezone_flag")?;
+        self.datetime_timezone_flag_available(field_idx)
+    }
+
+    #[cfg(not(any(major_ge_4, all(major_is_3, minor_ge_8))))]
+    fn datetime_timezone_flag_available(&self, _field_idx: usize) -> Result<Option<i32>> {
+        Ok(None)
+    }
+
     #[cfg(any(major_ge_4, all(major_is_3, minor_ge_8)))]
-    pub fn field_datetime_timezone_flag(&self, field_idx: usize) -> Result<i32> {
+    fn datetime_timezone_flag_available(&self, field_idx: usize) -> Result<Option<i32>> {
         let idx = self.checked_field_index(field_idx, "field_datetime_timezone_flag")?;
         let defn = unsafe { gdal_sys::OGR_F_GetFieldDefnRef(self.c_feature, idx) };
         if defn.is_null() {
             return Err(_last_null_pointer_err("OGR_F_GetFieldDefnRef"));
         }
-        Ok(unsafe { gdal_sys::OGR_Fld_GetTZFlag(defn) })
+        Ok(Some(unsafe { gdal_sys::OGR_Fld_GetTZFlag(defn) }))
     }
 
     fn checked_field_index(&self, index: usize, method_name: &'static str) -> Result<c_int> {

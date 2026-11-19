@@ -839,7 +839,7 @@ def sonda_limiti_della_diagnostica(
     sorgente = _fixture_ostile("lettura.kml")
     if sorgente is None:
         return Esito(False, "la fixture ostile che produce diagnostica di riga non c'e'")
-    corsa = artefatto.invoca("read", str(sorgente), "--format", "json")
+    corsa = artefatto.invoca("read", str(sorgente), "--layer", "3", "--format", "json")
     if corsa.exit_code == 0:
         return Esito(False, "la sorgente ostile non ha prodotto un errore")
     documento = corsa.documento()
@@ -1101,7 +1101,7 @@ def sonda_diagnostica_di_riga(artefatto: Artefatto, vocabolario: Vocabolario) ->
     if sorgente is None:
         return Esito(False, "la fixture ostile che produce diagnostica di riga non c'e'")
 
-    corsa = artefatto.invoca("read", str(sorgente), "--format", "json")
+    corsa = artefatto.invoca("read", str(sorgente), "--layer", "3", "--format", "json")
     if corsa.exit_code == 0:
         return Esito(False, "la sorgente ostile non ha prodotto un errore")
     documento = corsa.documento() or {}
@@ -1256,7 +1256,7 @@ def sonda_write_formato_esplicito(
             "write", str(arrow), str(ignoto), "--to", "shapefile", "--format", "json"
         )
         errore = (corsa.documento() or {}).get("error") or {}
-        if errore.get("code") != "UNKNOWN_FORMAT":
+        if (errore.get("code"), errore.get("category")) != ("CLI_USAGE", "invalid_configuration"):
             return Esito(
                 False,
                 "un formato fuori dal catalogo non e' rifiutato come tale: "

@@ -578,7 +578,7 @@ pub(super) fn exercise(
                     arrays[0] = Arc::new(BinaryArray::from(vec![None::<&[u8]>]));
                     batch = RecordBatch::try_new(batch.schema(), arrays).unwrap();
                 }
-                if matches!(element, E::Subtypes | E::Domains) {
+                if matches!(element, E::Subtypes | E::Domains | E::SignedInteger) {
                     let mut fields: Vec<_> = batch
                         .schema()
                         .fields()
@@ -586,7 +586,12 @@ pub(super) fn exercise(
                         .map(|f| f.as_ref().clone())
                         .collect();
                     let mut arrays = batch.columns().to_vec();
-                    arrays[1] = Arc::new(arrow_array::Int32Array::from(vec![1]));
+                    let value = if element == E::SignedInteger {
+                        i32::MIN
+                    } else {
+                        1
+                    };
+                    arrays[1] = Arc::new(arrow_array::Int32Array::from(vec![value]));
                     fields[1] = Field::new("value", DataType::Int32, true);
                     batch = RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays).unwrap();
                 }

@@ -35,13 +35,7 @@ pub fn read_applicability(driver: F, element: E) -> ReadApplicability {
     if let Some(reason) = absent {
         return ReadApplicability::NotApplicable {
             reason,
-            reference: match driver {
-                F::Shp => "ESRI Shapefile Technical Description, record and field layouts",
-                F::Dxf => "Autodesk DXF Reference, group-code value types and entity definitions",
-                F::FileGdb => "ESRI File Geodatabase API, field and geometry types",
-                F::Gpkg => "OGC GeoPackage 1.3.1 Table 1, integer data types",
-                _ => unreachable!(),
-            },
+            reference: grammar_reference(driver),
         };
     }
     let expressible = match element {
@@ -117,7 +111,16 @@ pub fn read_applicability(driver: F, element: E) -> ReadApplicability {
     if expressible {
         return ReadApplicability::Expressible;
     }
-    let reference = match driver {
+    let reference = grammar_reference(driver);
+    ReadApplicability::NotApplicable {
+        reason:
+            "No native grammar construct for this element; foreign Arrow transport is a Write case",
+        reference,
+    }
+}
+
+const fn grammar_reference(driver: F) -> &'static str {
+    match driver {
         F::GeoJson => "RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)",
         F::Kml => "OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData",
         F::Csv => "RFC 4180 section 2 (records and text fields; no schema metadata)",
@@ -126,11 +129,7 @@ pub fn read_applicability(driver: F, element: E) -> ReadApplicability {
         F::Dxf => "Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)",
         F::FileGdb => "ESRI File Geodatabase API, geodatabase schema XML",
         F::Gpkg => "OGC GeoPackage 1.3.1, core tables and registered extensions",
-        F::GeoParquet | F::Ipc => unreachable!(),
-    };
-    ReadApplicability::NotApplicable {
-        reason:
-            "No native grammar construct for this element; foreign Arrow transport is a Write case",
-        reference,
+        F::GeoParquet => "Apache Parquet format and GeoParquet metadata",
+        F::Ipc => "Apache Arrow IPC format and extension metadata",
     }
 }

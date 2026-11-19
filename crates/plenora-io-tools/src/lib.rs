@@ -968,7 +968,7 @@ fn piano_di_scrittura(
 /// e' il giudizio combinato, che e' quello dell'operazione.
 /// # Errors
 ///
-/// La busta d'errore del contratto comune. Fra i casi propri: `UNKNOWN_FORMAT`
+/// La busta d'errore del contratto comune. Fra i casi propri: `CLI_USAGE`
 /// per un `--to` fuori dal catalogo, l'errore d'uso senza `--to`, e i rifiuti
 /// di capacita' del formato di destinazione.
 pub fn cmd_write(cli: &Cli) -> CliResult {
@@ -1361,7 +1361,7 @@ fn trasferisci_layer(
 /// # Errors
 ///
 /// La busta d'errore del contratto comune. Fra i casi propri: l'errore d'uso
-/// senza i due formati espliciti, `UNKNOWN_FORMAT` per un identificatore fuori
+/// senza i due formati espliciti, `CLI_USAGE` per un identificatore fuori
 /// dal catalogo, e i rifiuti di capacita' dei due formati.
 pub fn cmd_convert(cli: &Cli) -> CliResult {
     if cli.positionals.len() < 2 {

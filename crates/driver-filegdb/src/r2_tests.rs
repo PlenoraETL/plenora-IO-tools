@@ -318,6 +318,17 @@ fn temporal_components_preserve_offsets_and_never_invent_utc() {
 }
 
 #[test]
+fn absent_schema_timezone_requires_native_evidence() {
+    assert_eq!(schema_timezone_flag(None, Some(true)).unwrap(), 100);
+    assert_eq!(schema_timezone_flag(None, Some(false)).unwrap(), 0);
+    assert_eq!(schema_timezone_flag(Some(104), None).unwrap(), 104);
+    assert_eq!(schema_timezone_flag(Some(0), None).unwrap(), 0);
+    let error = schema_timezone_flag(None, None).unwrap_err();
+    assert_eq!(error.category, plenora_io_model::ErrorCategory::Unsupported);
+    assert_eq!(error.code, plenora_io_model::IoErrorCode::Unsupported);
+}
+
+#[test]
 fn fractional_seconds_accessor_and_arrow_rounding_are_explicit() {
     use gdal::vector::{FieldDefn, LayerOptions, OGRFieldType};
     let driver = gdal::DriverManager::get_driver_by_name("Memory").unwrap();

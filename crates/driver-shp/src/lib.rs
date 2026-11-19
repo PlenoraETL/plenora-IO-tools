@@ -2292,7 +2292,7 @@ fn valida_struttura_shp(shp_path: &Path, row_limit: Option<u64>) -> Result<()> {
     let (byte_utili, count) = valida_geometrie_shp(shp_path, row_limit)?;
     let mut header = [0_u8; 8];
     File::open(plenora_io_core::dataset_files::required(
-        &shp_path.with_extension("dbf"),
+        &plenora_io_core::dataset_files::companion(shp_path, "dbf")?,
     )?)?
     .read_exact(&mut header)?;
     if row_limit.is_none_or(|n| u64::from(count) < n)

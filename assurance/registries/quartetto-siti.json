@@ -92,9 +92,6 @@
     "err": [
       "DataMapping/Read/Format/Never"
     ],
-    "push": [
-      "ResourceLimit/Validate/LimitExceeded/Never"
-    ],
     "read_block_object": [
       "Unsupported/Validate/Capability/Never"
     ],
@@ -106,11 +103,7 @@
     "resolve_dxf_crs_testuale": [
       "Crs/Validate/Crs/Never",
       "Crs/Validate/CrsUnresolved/Never",
-      "Crs/Validate/Crs/Never",
       "Crs/Validate/CrsUnresolved/Never"
-    ],
-    "walk_insert": [
-      "Unsupported/Validate/Capability/Never"
     ]
   },
   "crates/driver-filegdb/src/lib.rs": {
@@ -153,6 +146,9 @@
       "Crs/Validate/CrsUnresolved/Never"
     ],
     "rifiuta_piu_geometrie": [
+      "Unsupported/Validate/Unsupported/Never"
+    ],
+    "schema_timezone_flag": [
       "Unsupported/Validate/Unsupported/Never"
     ]
   },
@@ -279,11 +275,6 @@
       "Crs/Validate/Crs/Never"
     ]
   },
-  "crates/driver-gpkg/src/schema.rs": {
-    "build_schema": [
-      "Crs/Validate/Crs/Never"
-    ]
-  },
   "crates/driver-ipc/src/lib.rs": {
     "create": [
       "Conflict/Commit/OutputExists/Never",
@@ -310,9 +301,6 @@
     ]
   },
   "crates/driver-shp/src/lib.rs": {
-    "contraddice_il_prj": [
-      "Crs/Validate/Crs/Never"
-    ],
     "create": [
       "Unsupported/Validate/Unsupported/Never",
       "Unsupported/Validate/Unsupported/Never"
@@ -403,6 +391,8 @@
       "DataMapping/Read/Format/Never"
     ],
     "ensure_absent_except_staging": [
+      "Conflict/Commit/OutputExists/Never",
+      "Conflict/Commit/OutputExists/Never",
       "Conflict/Commit/OutputExists/Never"
     ],
     "input_validated": [
@@ -534,6 +524,9 @@
     ]
   },
   "crates/plenora-io-core/src/property_plan.rs": {
+    "compare": [
+      "InvalidPlan/Validate/Contract/Never"
+    ],
     "invalid_plan": [
       "InvalidPlan/Validate/Contract/Never"
     ],
@@ -673,7 +666,7 @@
       "ResourceLimit/Validate/LimitExceeded/Never",
       "ResourceLimit/Validate/LimitExceeded/Never"
     ],
-    "cmd_write": [
+    "cmd_write_inner": [
       "ResourceLimit/Validate/LimitExceeded/Never"
     ],
     "local_err_doc": [

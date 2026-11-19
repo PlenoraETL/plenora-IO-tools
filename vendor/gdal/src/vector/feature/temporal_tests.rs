@@ -11,6 +11,12 @@ fn temporal_native_roundtrip_and_rejection_is_atomic() {
         .create_defn_fields(&[("time", OGRFieldType::OFTDateTime)])
         .unwrap();
     let mut feature = Feature::new(layer.defn()).unwrap();
+    assert!(feature.field_datetime_timezone_flag(1).is_err());
+    let flag = feature.field_datetime_timezone_flag(0).unwrap();
+    assert_eq!(
+        flag.is_some(),
+        cfg!(any(major_ge_4, all(major_is_3, minor_ge_8)))
+    );
     for year in [1, 2026, 9999] {
         for offset in [-3600, 0, 3600] {
             let value = FixedOffset::east_opt(offset)

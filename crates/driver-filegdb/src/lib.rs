@@ -1860,14 +1860,15 @@ mod backend {
                         let mut data_type = ogr_to_arrow(field_type)?;
                         let mut timezone_metadata = None;
                         if field_type == gdal::vector::OGRFieldType::OFTDateTime {
-                            let mut flag = empty_feature
+                            let raw_flag = empty_feature
                                 .field_datetime_timezone_flag(field_index)
                                 .map_err(|_| {
                                     err(&PublicMessage::Curated("lettura fuso FileGDB fallita"))
                                 })?;
+                            let mut flag = schema_timezone_flag(raw_flag, time_in_utc)?;
                             // GDAL 3.9 exposes the row flag but leaves the field flag
                             // unknown. Its native layer definition carries IsTimeInUTC.
-                            timezone_metadata = Some(flag.to_string());
+                            timezone_metadata = raw_flag.map(|flag| flag.to_string());
                             if flag == 0 && time_in_utc == Some(true) {
                                 flag = 100;
                             }
@@ -2242,6 +2243,13 @@ mod backend {
                 ),
             ))
         }
+    }
+
+    fn schema_timezone_flag(raw: Option<i32>, time_in_utc: Option<bool>) -> Result<i32> {
+        raw.or_else(|| time_in_utc.map(|utc| if utc { 100 } else { 0 }))
+            .ok_or_else(|| PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated("GDAL non espone il fuso del campo e la definizione FileGDB non dichiara IsTimeInUTC"),
+            ))
     }
 
     fn ogr_timezone(flag: i32) -> Result<Option<Arc<str>>> {

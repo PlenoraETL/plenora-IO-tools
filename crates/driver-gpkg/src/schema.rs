@@ -351,11 +351,8 @@ fn sql_keywords(sql: &str) -> Vec<String> {
             }
         } else if c.is_ascii_alphanumeric() || c == '_' {
             let mut word = String::from(c);
-            while chars
-                .peek()
-                .is_some_and(|c| c.is_ascii_alphanumeric() || *c == '_')
-            {
-                word.push(chars.next().expect("peeked character"));
+            while let Some(next) = chars.next_if(|c| c.is_ascii_alphanumeric() || *c == '_') {
+                word.push(next);
             }
             words.push(word);
         }

@@ -580,6 +580,10 @@
       "classificazione": "non riceve dati Arrow esterni",
       "motivazione": "Metadati, modelli e buste JSON, opzioni scalari, errori o utility standard esposte dal modulo. Nessuna importazione Arrow o lettura di buffer esterni; eventuali oggetti estranei non diventano dati tabellari."
     },
+    "dataclasses.replace": {
+      "classificazione": "non riceve dati Arrow esterni",
+      "motivazione": "Ricostruisce i modelli dataclass dello SDK passando dal loro costruttore e dalla relativa validazione; non importa protocolli Arrow o buffer esterni."
+    },
     "functools.wraps": {
       "classificazione": "non riceve dati Arrow esterni",
       "motivazione": "Utility della libreria standard: trasferimento del contesto o metadati del wrapper; non importa buffer Arrow."

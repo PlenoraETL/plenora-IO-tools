@@ -108,7 +108,7 @@ class ConUnFinto(unittest.TestCase):
     @saltabile
     def test_un_ritentativo_con_ritardo_resta_leggibile(self) -> None:
         client = self.client(
-            'print(json.dumps({"status": "error", "error": {"code": "X",'
+            'print(json.dumps({"status": "error", "protocol_version": 2, "contract": "plenora-error-v1", "error": {"code": "X",'
             ' "category": "transient", "phase": "connect", "remote_effect": "none",'
             ' "retry": {"kind": "after", "delay_ms": 2750}, "message": "riprova"}}))'
             "\nsys.exit(5)\n"
@@ -144,7 +144,7 @@ class ConUnFinto(unittest.TestCase):
         flusso atteso e' l'altro.
         """
         client = self.client(
-            'print(json.dumps({"status": "boh", "version": "1.0.0"}))\n'
+            'print(json.dumps({"status": "boh", "protocol_version": 2, "contract": "plenora-io-version-v2", "version": "1.0.0"}))\n'
         )
         with self.assertRaises(ProtocolError) as preso:
             client.version()

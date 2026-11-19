@@ -242,8 +242,8 @@ class ArtefattoFinto:
                         "contract": "plenora-error-v1",
                         "command": "write",
                         "error": {
-                            "category": "unsupported",
-                            "code": "UNKNOWN_FORMAT",
+                            "category": "invalid_configuration",
+                            "code": "CLI_USAGE",
                             "message": "formato non riconosciuto",
                             "phase": "validate",
                             "remote_effect": "none",
@@ -252,7 +252,7 @@ class ArtefattoFinto:
                     }
                 )
                 + "\n",
-                exit_code=3,
+                exit_code=2,
             )
 
         # Il suffisso della destinazione **non** decide piu' il rifiuto, e non

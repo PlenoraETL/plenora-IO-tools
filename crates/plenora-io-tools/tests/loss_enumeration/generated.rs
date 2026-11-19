@@ -757,6 +757,12 @@ fn generated_product_requires_operational_evidence() {
                     native_rule(native, direction, *element)
                 };
                 let mut row = json!({"driver":driver.driver,"direction":format!("{direction:?}"),"element":format!("{element:?}"),"expected":format!("{expected:?}")});
+                if driver.driver == "filegdb" && !cfg!(feature = "gdal-backend") {
+                    row["status"] = json!("not-executed");
+                    row["reason"] = json!("gdal-backend unavailable in this build; full evidence requires the feature-on job");
+                    rows.push(row);
+                    continue;
+                }
                 if direction == D::Read {
                     if let ReadApplicability::NotApplicable { reason, reference } =
                         read_applicability(native, *element)
@@ -773,10 +779,7 @@ fn generated_product_requires_operational_evidence() {
                     rows.push(row);
                     continue;
                 }
-                if driver.driver == "filegdb" && !cfg!(feature = "gdal-backend") {
-                    row["status"] = json!("not-executed");
-                    row["reason"] = json!("gdal-backend unavailable");
-                } else if direction == D::Read && driver.driver != "ipc" {
+                if direction == D::Read && driver.driver != "ipc" {
                     native::exercise(driver.driver, native, *element, &root, &mut row);
                 } else {
                     match generate(*element) {
@@ -946,6 +949,10 @@ fn generated_product_requires_operational_evidence() {
         let outcome = match row["status"].as_str().unwrap() {
             "passed" => "passed",
             "not-applicable" => "not-applicable",
+            "not-executed" => {
+                assert!(row["driver"] == "filegdb" && !cfg!(feature = "gdal-backend"));
+                "not-executed"
+            }
             _ => "missing",
         };
         row["outcome"] = json!(outcome);
@@ -955,7 +962,7 @@ fn generated_product_requires_operational_evidence() {
             row["direction"].as_str().unwrap()
         );
         let counts = summary.entry(key).or_insert_with(|| {
-            ["passed", "not-applicable", "missing"]
+            ["passed", "not-applicable", "not-executed", "missing"]
                 .into_iter()
                 .map(|key| (key.to_owned(), 0))
                 .collect()
@@ -974,7 +981,12 @@ fn generated_product_requires_operational_evidence() {
     assert!(!rows.is_empty(), "driver filter selected no matrix cells");
     let remaining = rows
         .iter()
-        .filter(|r| r["status"] != "passed" && r["status"] != "not-applicable")
+        .filter(|r| {
+            !matches!(
+                r["status"].as_str(),
+                Some("passed" | "not-applicable" | "not-executed")
+            )
+        })
         .map(|r| {
             format!(
                 "{}\t{}\t{}\t{}\t{}",
