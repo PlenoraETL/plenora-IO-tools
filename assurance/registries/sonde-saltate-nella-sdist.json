@@ -237,7 +237,7 @@
   "generato_da": "scripts/check_sonde_saltate.py --misurato <elenca-sonde-saltate.json> --write",
   "conteggi": "Aspettative della discovery, non attestazioni di esecuzione: totale ed eseguite_nella_sdist escludono i salti specifici di piattaforma. Il gate applica anche le condizioni della piattaforma osservata. I nomi eseguiti sono confrontati, non solo il numero.",
   "totale": 130,
-  "eseguite_nella_sdist": 331,
+  "eseguite_nella_sdist": 332,
   "sonde_eseguite": [
     "test_async_client.AsyncClientTests.test_cancellation_waits_for_worker",
     "test_async_client.AsyncClientTests.test_construction_and_execution_are_off_loop",
@@ -504,6 +504,7 @@
     "test_models.LaSezioneDiFedelta.test_esatta_vuol_dire_esatta_e_non_troncata",
     "test_models.LaSezioneDiFedelta.test_le_quattro_omissioni_restano_separate",
     "test_models.LaSezioneDiFedelta.test_letta_intera",
+    "test_models.LaSezioneDiFedelta.test_ragione_con_classe_arrow_e_localizzazione_opzionale",
     "test_models.LaSezioneDiFedelta.test_reasons_non_elenco",
     "test_models.LaSezioneDiFedelta.test_un_campo_mancante_e_un_errore",
     "test_models.LaSezioneDiFedelta.test_una_ragione_localizzata_porta_i_due_indici",
