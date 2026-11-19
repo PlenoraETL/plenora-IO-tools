@@ -161,7 +161,8 @@ fn tutti_i_tipi_scritti_e_rifiuti_numerici() {
         Arc::new(LargeStringArray::from(vec!["x"])) as ArrayRef,
         Arc::new(BinaryArray::from(vec![b"x".as_slice()])) as ArrayRef,
     ] {
-        assert!(scritto(array).is_err());
+        let supported = matches!(array.data_type(), arrow_schema::DataType::LargeUtf8);
+        assert_eq!(scritto(array).is_ok(), supported);
     }
     let bytes = scritto(Arc::new(Int64Array::from(vec![None::<i64>]))).unwrap();
     assert!(!xml(&bytes, "xl/worksheets/sheet1.xml").contains("<c "));

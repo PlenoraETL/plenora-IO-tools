@@ -335,6 +335,11 @@ usano l'unico oggetto leggibile; con zero o più oggetti leggibili restituiscono
 `convert` verso GPKG o FileGDB copia tutti gli oggetti leggibili e dichiara gli
 esclusi con `source_object_not_readable`, conteggio, indice e motivo tipizzato.
 `--layer` seleziona l'indice mostrato dall'elenco, inclusi gli oggetti rifiutati.
+`xls.sheet` seleziona il foglio per nome esatto anche nella conversione verso
+contenitori; un `--layer` diverso e' un errore di configurazione.
+KML sceglie automaticamente il documento aggregato: Document, Folder e Placemark
+sono viste annidate selezionabili esplicitamente, non copie aggiuntive da esportare.
+I nomi delle viste sono univoci anche ignorando le maiuscole ASCII.
 
 Gli indici sono a base zero: GPKG ordina i nomi con confronto binario SQLite;
 FileGDB segue gli identificatori del catalogo interno; XLSX l'ordine del workbook.

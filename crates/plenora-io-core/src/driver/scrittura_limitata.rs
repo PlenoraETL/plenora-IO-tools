@@ -356,7 +356,7 @@ impl FormatWriter for LimitedWriter {
         result
     }
 
-    fn finish(self: Box<Self>) -> Result<Published> {
+    fn finish(mut self: Box<Self>) -> Result<Published> {
         check_cancelled(&self.cancellation, ErrorPhase::Finalize)?;
         self.budget.context().ensure_active()?;
         if self.failed {
@@ -384,6 +384,7 @@ impl FormatWriter for LimitedWriter {
             .finish()
             .map_err(|errore| super::limite_o_scadenza(&contesto, errore, ErrorPhase::Finalize))?;
         published.loss.merge(&self.planned_loss);
+        self.fidelity.merge(&published.fidelity);
         published.fidelity = self.fidelity.with_loss_report(&published.loss);
         Ok(published)
     }

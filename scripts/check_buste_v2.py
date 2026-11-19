@@ -167,6 +167,13 @@ def forma(valore: Any, prefisso: str = "", out: dict[str, set[str]] | None = Non
 #: come le altre, quindi tutti i suoi percorsi tornerebbero. Il caso sparirebbe
 #: dalla matrice in silenzio, e con lui la copertura che porta.
 MATRICE: tuple[dict[str, Any], ...] = (
+    {"nome": "read-native-field-index", "busta": "plenora-io-read-result-v2",
+     "argomenti": ["read", "{uscita}/native-field.csv", "--opt", "wkt_column=shape", "--assume-crs", "EPSG:4326"],
+     "perche": "Il nome della colonna WKT consumata cambia: esempio nativo con field_index."},
+    {"nome": "convert-native-field-index", "busta": "plenora-io-convert-v1",
+     "argomenti": ["convert", "{uscita}/native-field.csv", "{uscita}/native-field.arrow", "--from", "csv", "--to", "ipc", "--in-opt", "wkt_column=shape", "--assume-crs", "EPSG:4326"],
+     "perche": "Perdita di lettura nativa con indice di campo nella conversione."},
+
     {
         "nome": "catalogo",
         "busta": "plenora-io-catalog-v2",
@@ -389,6 +396,12 @@ MATRICE: tuple[dict[str, Any], ...] = (
     {'nome': 'read-property-plan', 'busta': 'plenora-io-read-result-v2', 'argomenti': ['read', '{uscita}/property-plan.gpkg'], 'perche': 'IO-a: inventario completo per campo/chiave, valori nullable e provenienza write/source_write.'},
     {'nome': 'convert-property-write', 'busta': 'plenora-io-convert-v1', 'argomenti': ['convert', '{proprieta}', '{uscita}/converted-property.gpkg', '--from', 'ipc', '--to', 'gpkg'], 'perche': 'IO-a: inventario completo per campo/chiave, valori nullable e provenienza write/source_write.'},
     {'nome': 'convert-property-read', 'busta': 'plenora-io-convert-v1', 'argomenti': ['convert', '{uscita}/property-plan.gpkg', '{uscita}/property-read.arrow', '--from', 'gpkg', '--to', 'ipc'], 'perche': 'IO-a: inventario completo per campo/chiave, valori nullable e provenienza write/source_write.'},
+    {"nome": "write-type-class", "busta": "plenora-io-write-result-v2",
+     "argomenti": ["write", "{uscita}/native-field.arrow", "{uscita}/type-class.xlsx", "--to", "xls"],
+     "perche": "Interi ricostruiti come Float64: esempio di perdita con type_class."},
+    {"nome": "convert-type-class", "busta": "plenora-io-convert-v1",
+     "argomenti": ["convert", "{uscita}/native-field.csv", "{uscita}/type-class-convert.xlsx", "--from", "csv", "--to", "xls", "--in-opt", "wkt_column=shape", "--assume-crs", "EPSG:4326"],
+     "perche": "Coercizione numerica verificata sul writer XLSX."},
     {
         "nome": "errore-semplice",
         "busta": "plenora-error-v1",
@@ -504,6 +517,7 @@ def esegui(percorso_binario: str, uscita: Path) -> list[dict[str, Any]]:
     caso che non produce JSON su nessuno dei due e' un difetto e viene detto,
     non saltato.
     """
+    (uscita / "native-field.csv").write_text("shape,name,value\nPOINT (1 2),x,1\n", encoding="utf8")
     vista = uscita / "vista.gpkg"
     shutil.copyfile(CANONICHE / "canonico.gpkg", vista)
     with closing(sqlite3.connect(vista)) as conn:

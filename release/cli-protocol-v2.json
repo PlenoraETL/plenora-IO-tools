@@ -1403,13 +1403,13 @@
           "tipi": [
             "integer"
           ],
-          "sempre": true
+          "sempre": false
         },
         ".result.write_fidelity.reasons[].layer_index": {
           "tipi": [
             "integer"
           ],
-          "sempre": true
+          "sempre": false
         },
         ".result.write_fidelity.troncato": {
           "tipi": [
@@ -1714,6 +1714,30 @@
         ".result.read_loss.esempi[].field_index": {
           "tipi": [
             "integer"
+          ],
+          "sempre": false
+        },
+        ".result.conversion_fidelity.reasons[].type_class": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
+        },
+        ".result.read_fidelity.reasons[].field_index": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": false
+        },
+        ".result.read_fidelity.reasons[].layer_index": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": false
+        },
+        ".result.write_fidelity.reasons[].type_class": {
+          "tipi": [
+            "string"
           ],
           "sempre": false
         }
@@ -3571,6 +3595,18 @@
             "integer"
           ],
           "sempre": false
+        },
+        ".result.fidelity.reasons[].field_index": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": false
+        },
+        ".result.fidelity.reasons[].layer_index": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": false
         }
       },
       "semantica": {
@@ -3825,13 +3861,13 @@
           "tipi": [
             "integer"
           ],
-          "sempre": true
+          "sempre": false
         },
         ".result.fidelity.reasons[].layer_index": {
           "tipi": [
             "integer"
           ],
-          "sempre": true
+          "sempre": false
         },
         ".result.fidelity.troncato": {
           "tipi": [
@@ -4107,13 +4143,13 @@
           "tipi": [
             "integer"
           ],
-          "sempre": true
+          "sempre": false
         },
         ".result.write_fidelity.reasons[].layer_index": {
           "tipi": [
             "integer"
           ],
-          "sempre": true
+          "sempre": false
         },
         ".result.write_fidelity.troncato": {
           "tipi": [
@@ -4309,6 +4345,18 @@
             "string"
           ],
           "sempre": true
+        },
+        ".result.fidelity.reasons[].type_class": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
+        },
+        ".result.write_fidelity.reasons[].type_class": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
         }
       }
     }

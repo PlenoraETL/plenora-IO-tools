@@ -344,7 +344,7 @@ Non sono disponibili protocolli delle release Plenora precedenti.
 | shp | row_diagnostics.key_field | read | text | assente | campo DBF usato come chiave nelle diagnostiche di riga |
 | shp | row_diagnostics.key_policy | read | {"enum":["emit","redact"]} | assente | se emettere o redigere la chiave; richiede row_diagnostics.key_field |
 | xls | geometry_encoding | write | {"enum":["wkt","xy"]} | wkt | come scrivere la geometria: colonna WKT o colonne x/y |
-| xls | sheet | read | text | assente | nome del foglio da leggere; in assenza, il primo |
+| xls | sheet | read | text | assente | nome esatto del foglio da leggere; in assenza valgono le regole comuni di selezione |
 | xls | wkt_column | read | text | assente | colonna che contiene la geometria in WKT |
 | xls | x_column | read | text | assente | colonna dell'ascissa, da usare insieme a y_column |
 | xls | y_column | read | text | assente | colonna dell'ordinata, da usare insieme a x_column |

@@ -876,18 +876,12 @@ fn reader_uppercases_the_organization_in_ascii_only() {
     );
 }
 
-/// `OGC:CRS84` non ha un codice intero, e `gpkg_spatial_ref_sys` lo vuole:
-/// il writer non lo riscrive `EPSG:4326`, e lo rifiuta come limite del
-/// bersaglio. Fino alla rilettura 11 il rifiuto era `crs` («non risolto»)
-/// per un CRS risolto.
+/// RFC 7946 uses longitude/latitude WGS84; `GeoPackage` registers EPSG:4326.
 #[test]
-fn writer_does_not_relabel_crs84_as_epsg_4326() {
+fn writer_registers_crs84_as_native_wgs84() {
     let conn = Connection::open_in_memory().unwrap();
     init_gpkg(&conn).unwrap();
-    assert!(matches!(
-        register_srs(&conn, &crs("OGC:CRS84", None)),
-        Err(error) if error.category == plenora_io_model::ErrorCategory::Unsupported
-    ));
+    assert_eq!(register_srs(&conn, &crs("OGC:CRS84", None)).unwrap(), 4326);
 }
 
 /// La riga di WGS 84 porta il WKT canonico, che la regola dei lettori

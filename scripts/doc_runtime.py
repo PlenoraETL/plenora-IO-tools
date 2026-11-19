@@ -36,7 +36,7 @@ def cases(tables):
     add('MissingOptionColumn', ['csv'], 'colonna WKT assente', "colonna WKT assente dall'intestazione")
     add('ContradictedCrs', ['geojson', 'kml', 'shp', 'dxf', 'gpkg', 'geoparquet', 'ipc'], 'assunzione EPSG:3857 su WGS84')
     add('MissingGeometry', ['shp', 'kml', 'dxf'], 'schema senza geometria')
-    add('UnrepresentableWriteType', ['csv', 'shp', 'kml', 'geojson', 'gpkg', 'xls'], 'attributo Duration')
+    add('UnrepresentableWriteType', ['csv', 'shp', 'kml', 'geojson', 'gpkg', 'xls'], 'attributo Duration', 'tipo Arrow non rappresentabile in fase write, classe: temporal')
     add('UnrepresentableWriteValue', ['gpkg'], 'UInt64 oltre INTEGER', 'UInt64 oltre i64::MAX non rappresentabile come INTEGER GeoPackage')
     add('NonFiniteWriteValue', ['geojson'], 'attributo NaN', 'Float64 non finito non rappresentabile in GeoJSON')
     add('ReadMemoryExceeded', ['ipc'], 'memoria 1 byte')
@@ -181,6 +181,7 @@ def verify(binary, tables):
                 code, response = run(binary, args)
                 if rule == 'Rejected':
                     expected = next(r for r in tables['errors'] if r['situation'] == 'UnrepresentableWriteType')
+                    expected = dict(expected, message='tipo Arrow non rappresentabile in fase write, classe: ' + {'Binary': 'binary', 'Decimal': 'decimal', 'NestedDictionary': 'nested'}[element])
                     error = response.get('error', {})
                     if code != expected['exit'] or any(error.get(k) != expected[k] for k in ('category', 'phase', 'code', 'message')) or output.exists():
                         errors.append(f'loss {driver}/{element}: rifiuto diverso dal documentato: {response}')

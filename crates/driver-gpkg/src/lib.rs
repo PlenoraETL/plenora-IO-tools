@@ -1497,7 +1497,9 @@ fn arrow_cell_to_sql_ref(array: &ArrayRef, row: usize) -> Result<BorrowedSqlValu
     if let Some(x) = a.downcast_ref::<FixedSizeBinaryArray>() {
         return Ok(BorrowedSqlValue::Blob(x.value(row)));
     }
-    Err(plenora_io_model::error_table::Situation::UnrepresentableWriteType.error())
+    Err(plenora_io_core::capabilities::unsupported_arrow_type(
+        array.data_type(),
+    ))
 }
 
 // --- helpers comuni --------------------------------------------------------
@@ -2663,7 +2665,8 @@ fn register_srs(conn: &Connection, crs: &LayerCrs) -> Result<i32> {
     // canonico: `EPSG:04326` o `EPSG:+4326` diventerebbero 4326 e si
     // rileggerebbero `EPSG:4326`, un'altra identita' (GEO-005 confronta i
     // codici come testo). Un codice cosi' non e' rappresentabile, e si rifiuta.
-    let Some((auth, code_i)) = id.split_once(':').and_then(|(auth, code)| {
+    let native_id = if id == "OGC:CRS84" { "EPSG:4326" } else { id };
+    let Some((auth, code_i)) = native_id.split_once(':').and_then(|(auth, code)| {
         Some((
             auth.to_ascii_uppercase(),
             plenora_io_model::crs::codice_intero_canonico(code)?,

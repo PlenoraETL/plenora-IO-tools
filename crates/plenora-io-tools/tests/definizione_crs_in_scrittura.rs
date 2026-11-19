@@ -643,9 +643,9 @@ fn un_crs_che_il_file_rilegge_non_risolto_non_si_scrive_in_silenzio() {
 /// F6: un `GeoPackage` in WGS 84 scritto da noi si converte in Shapefile e si
 /// rilegge `EPSG:4326` (su `db1307d` la riga portava `GEOGCS["WGS 84"]`, e lo
 /// Shapefile si rileggeva non risolto); un `GeoJSON` (`OGC:CRS84`) verso
-/// `GeoPackage` e' `unsupported`, non `crs`.
+/// `GeoPackage` conserva le coordinate WGS84 senza richiedere un'assunzione.
 #[test]
-fn gpkg_porta_wgs84_intero_e_rifiuta_crs84_come_limite() {
+fn gpkg_porta_wgs84_intero_e_accetta_crs84() {
     let dir = directory();
     let sorgente = sorgente_solo_id(dir.path(), "wgs84.arrow", "EPSG:4326", "lon_lat");
     let gpkg = dir.path().join("wgs84.gpkg");
@@ -660,9 +660,8 @@ fn gpkg_porta_wgs84_intero_e_rifiuta_crs84_come_limite() {
     assert!(converti(&crs84, &geojson, &[]).riuscita);
     let uscita = dir.path().join("crs84.gpkg");
     let esito = converti(&geojson, &uscita, &[]);
-    assert!(!esito.riuscita, "{}", esito.busta);
-    assert_eq!(esito.categoria(), "unsupported");
-    assert!(!uscita.exists());
+    assert!(esito.riuscita, "{}", esito.busta);
+    assert_eq!(geometria_riletta(&uscita)["crs"], "EPSG:4326");
 
     // Stessa classe: il DXF con il solo identificatore e' un limite del
     // bersaglio, non un CRS sbagliato (su `db1307d` era `crs`).

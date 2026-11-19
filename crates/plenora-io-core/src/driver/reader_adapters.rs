@@ -154,6 +154,10 @@ impl OpenDatasetHandle for BudgetedDataset {
         self.dataset.layers()
     }
 
+    fn explicit_layer(&self) -> Option<LayerId> {
+        self.dataset.explicit_layer()
+    }
+
     fn default_layer(&self) -> Option<LayerId> {
         self.dataset.default_layer()
     }

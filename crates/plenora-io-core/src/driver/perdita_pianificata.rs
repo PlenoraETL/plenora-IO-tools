@@ -7,8 +7,8 @@ use crate::descriptor::CrsRepresentationCapabilities;
 use super::{
     is_geometry_field, saturating_u64, AttributeWriteSupport, CrsDerivation,
     CrsRepresentationState, CrsResolution, FidelityAssessment, FidelityReasonCode,
-    FormatDescriptor, GeometryType, LossExample, LossReport, NullabilitySupport, Posizione,
-    TypeCoercionPolicy, WritePlan,
+    FormatDescriptor, GeometryType, LossExample, LossReport, Posizione, TypeCoercionPolicy,
+    WritePlan,
 };
 
 /// # Errors
@@ -474,14 +474,6 @@ pub fn assess_write_contract(
                         type_class: Some(classe),
                         ..dove
                     },
-                );
-            }
-            if field.is_nullable() && capabilities.nullability == NullabilitySupport::FormatDefined
-            {
-                assessment.add_reason_redatta(
-                    FidelityReasonCode::NullabilityChanged,
-                    "la nullability dell'attributo la definisce il formato",
-                    dove,
                 );
             }
         }

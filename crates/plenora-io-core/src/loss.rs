@@ -413,9 +413,14 @@ impl FidelityAssessment {
         }
         self.level = Fidelity::Approximating;
         for (category, count) in &loss.counts {
-            self.add_reason(
+            let position = loss
+                .esempi_canonici()
+                .find(|example| &example.category == category)
+                .map_or_else(Posizione::default, |example| example.posizione);
+            self.add_reason_redatta(
                 reason_code_for_loss(category),
                 format!("{category}: {count} occorrenze"),
+                position,
             );
         }
         self

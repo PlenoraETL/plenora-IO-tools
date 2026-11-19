@@ -127,3 +127,47 @@ fn output_keeps_requested_case() {
         assert_eq!(output_companion(Path::new(main), "shp"), Path::new(main));
     }
 }
+
+#[test]
+fn case_sensitive_filesystem_keeps_exact_names_and_rejects_ambiguous_fallback() {
+    let directory = tempfile::tempdir().unwrap();
+    let lower = directory.path().join("a.prj");
+    let upper = directory.path().join("a.PRJ");
+    std::fs::write(&lower, b"lower").unwrap();
+    if upper.exists() {
+        return;
+    } // Windows case-insensitive volume; exercised on Linux.
+    std::fs::write(&upper, b"upper").unwrap();
+    assert_eq!(resolve(&lower).unwrap(), Some(lower.clone()));
+    assert_eq!(resolve(&upper).unwrap(), Some(upper.clone()));
+    assert!(resolve(&directory.path().join("a.PrJ")).is_err());
+    assert_eq!(std::fs::read(lower).unwrap(), b"lower");
+    assert_eq!(std::fs::read(upper).unwrap(), b"upper");
+    std::fs::write(directory.path().join("a.shp"), b"first").unwrap();
+    std::fs::write(directory.path().join("A.shp"), b"second").unwrap();
+    assert_eq!(
+        required(&directory.path().join("a.shp")).unwrap(),
+        directory.path().join("a.shp")
+    );
+    assert_eq!(
+        required(&directory.path().join("A.shp")).unwrap(),
+        directory.path().join("A.shp")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn directory_symlink_is_rejected_before_the_structural_decoder() {
+    let directory = tempfile::tempdir().unwrap();
+    let real = directory.path().join("real");
+    std::fs::create_dir(&real).unwrap();
+    std::fs::write(real.join("data.gpkg"), b"data").unwrap();
+    let link = directory.path().join("link");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    let error = GPKG
+        .input_validated(&link.join("data.gpkg"), |_| {
+            panic!("decoder must not follow link")
+        })
+        .unwrap_err();
+    assert!(error.message.contains("symlink"));
+}

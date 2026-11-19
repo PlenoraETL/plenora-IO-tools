@@ -38,7 +38,9 @@ fn violation(
         error.category = rule.category;
         error.phase = rule.phase;
         error.code = rule.code;
-        rule.message.clone_into(&mut error.message);
+        if reason != CapabilityReason::TypeNotRepresentable {
+            rule.message.clone_into(&mut error.message);
+        }
     }
     error
 }
@@ -240,8 +242,21 @@ pub const fn arrow_type_class(data_type: &DataType) -> ArrowTypeClass {
         | Struct(_)
         | Union(_, _)
         | Map(_, _) => ArrowTypeClass::Nested,
-        _ => ArrowTypeClass::Other,
+        DataType::Null | DataType::Dictionary(_, _) | DataType::RunEndEncoded(_, _) => {
+            ArrowTypeClass::Other
+        }
     }
+}
+
+/// Rifiuto di tipo con classe e fase, senza nomi o valori Arrow.
+#[must_use]
+pub fn unsupported_arrow_type(data_type: &DataType) -> PlenoraIoError {
+    plenora_io_model::error_table::Situation::UnrepresentableWriteType.error_with(
+        &PublicMessage::CuratedPair(
+            "tipo Arrow non rappresentabile in fase write, classe:",
+            arrow_type_class(data_type).nome(),
+        ),
+    )
 }
 
 /// Valida tutto ciò che è determinabile dal contratto statico. Vincoli che
@@ -465,10 +480,9 @@ pub fn validate_write(
                     driver,
                     campo.as_ref(),
                     CapabilityReason::TypeNotRepresentable,
-                    &PublicMessage::Curated(
-                        plenora_io_model::error_table::Situation::UnrepresentableWriteType
-                            .rule()
-                            .message,
+                    &PublicMessage::CuratedPair(
+                        "tipo Arrow non rappresentabile in fase write, classe:",
+                        arrow_type_class(field.data_type()).nome(),
                     ),
                 ));
             }
@@ -481,7 +495,7 @@ pub fn validate_write(
                     campo.as_ref(),
                     CapabilityReason::TypeNotRepresentable,
                     &PublicMessage::CuratedPair(
-                        "tipo Arrow non rappresentabile dal writer, classe:",
+                        "tipo Arrow non rappresentabile in fase write, classe:",
                         class.nome(),
                     ),
                 ));

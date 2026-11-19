@@ -5317,7 +5317,7 @@ fn n1_write_nomina_la_causa_di_ogni_riga_che_non_sa_scrivere() {
         (error.category, error.phase, error.code),
         (rule.category, rule.phase, rule.code)
     );
-    assert_eq!(error.message, rule.message);
+    assert!(error.message.contains("classe: temporal"));
     assert!(!dir.path().join("cella.shp").exists());
 
     // Il controllo positivo: un lotto interamente scrivibile passa, e senza

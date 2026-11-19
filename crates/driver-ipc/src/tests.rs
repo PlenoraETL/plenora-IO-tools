@@ -7,7 +7,9 @@
 use super::*;
 use plenora_io_model::crs::CrsKind;
 use plenora_io_model::crs::ResolvedCrs;
-use plenora_io_model::geometry::GEO_CRS_KEY;
+use plenora_io_model::geometry::{
+    with_contract_version, with_geometry_contract_metadata, GEO_CRS_KEY,
+};
 
 mod arrow_60_1;
 mod buffer_ipc;

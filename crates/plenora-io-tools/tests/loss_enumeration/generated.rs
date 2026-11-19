@@ -853,10 +853,7 @@ fn generated_product_requires_operational_evidence() {
                                     failures.push(json!({"variant":variant,"read_failed":read}));
                                     continue;
                                 }
-                                let after = without_external_crs(
-                                    native_batch(&output, &back, driver.driver),
-                                    driver.driver,
-                                );
+                                let after = without_external_crs(super::load(&back), driver.driver);
                                 let differences = compare(&before, &after);
                                 let mut observed = BTreeMap::<String, u64>::new();
                                 for difference in &differences {

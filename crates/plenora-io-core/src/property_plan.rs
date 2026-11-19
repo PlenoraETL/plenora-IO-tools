@@ -460,13 +460,18 @@ impl NativeMetadataCheck {
         let mut report = crate::LossReport::default();
         for (index, source) in self.contracts.iter().enumerate() {
             let before = &source.schema;
-            let after = (if self.contracts.len() > 1 {
+            let after = (if native == crate::loss_table::NativeDriver::FileGdb {
+                dataset.layers().get(index)
+            } else {
                 dataset
                     .layers()
                     .iter()
                     .find(|layer| layer.name == self.names[index])
-            } else {
-                dataset.layers().first()
+                    .or_else(|| {
+                        (self.contracts.len() == 1)
+                            .then(|| dataset.layers().first())
+                            .flatten()
+                    })
             })
             .ok_or_else(|| {
                 plenora_io_model::PlenoraIoError::contratto_redatto(
@@ -475,6 +480,22 @@ impl NativeMetadataCheck {
                     ),
                 )
             })?;
+            if matches!(
+                native,
+                crate::loss_table::NativeDriver::FileGdb | crate::loss_table::NativeDriver::Gpkg
+            ) && after.name != self.names[index]
+            {
+                report.record("native_layer_metadata_not_preserved", 1);
+                report.add_example(crate::loss::LossExample {
+                    category: "native_layer_metadata_not_preserved".to_owned(),
+                    posizione: crate::loss::Posizione {
+                        layer_index: Some(index as u64),
+                        field_index: None,
+                        type_class: None,
+                    },
+                    context: "nome del layer diverso alla rilettura; fase write".to_owned(),
+                });
+            }
             let mut actual = after.contract.clone();
             if assumed_for_decoding {
                 if let Some(geometry) = &mut actual.geometry {
@@ -511,8 +532,8 @@ impl NativeMetadataCheck {
                 driver.descriptor(),
                 index as u64,
             )?);
-            let changes =
-                metadata_changes(native, TransportDirection::Write, before, &actual.schema);
+            let delivered = plenora_io_model::geometry::interchange_schema(&actual)?;
+            let changes = metadata_changes(native, TransportDirection::Write, before, &delivered);
             for (category, count) in &changes.counts {
                 report.record(category, *count);
             }

@@ -552,9 +552,9 @@ impl FormatDriver for CsvDriver {
                     continue;
                 }
                 if !csv_attribute_type(field.data_type()) {
-                    return Err(
-                        plenora_io_model::error_table::Situation::UnrepresentableWriteType.error(),
-                    );
+                    return Err(plenora_io_core::capabilities::unsupported_arrow_type(
+                        field.data_type(),
+                    ));
                 }
             }
         }

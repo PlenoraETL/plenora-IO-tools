@@ -612,8 +612,17 @@ fn selected_layer_id(
     cli: &Cli,
     dataset: &dyn plenora_io_core::driver::OpenDatasetHandle,
 ) -> Result<u32, (i32, Value)> {
+    let explicit = dataset.explicit_layer();
     if let Some(id) = cli.layer {
+        if explicit.is_some_and(|selected| selected.0 != id) {
+            return Err(usage_err(&PublicMessage::Curated(
+                "selezione oggetto in fase validate: opzione di formato e layer indicano oggetti diversi",
+            )));
+        }
         return Ok(id);
+    }
+    if let Some(id) = explicit.or_else(|| dataset.default_layer()) {
+        return Ok(id.0);
     }
     let readable: Vec<_> = dataset
         .layers()
@@ -756,7 +765,6 @@ fn legge_senza_consegnare(
     ds: &dyn plenora_io_core::driver::OpenDatasetHandle,
     driver: &dyn FormatDriver,
     contract: &LayerContract,
-    fidelity_iniziale: &FidelityAssessment,
     layer_id: u32,
     scopo: ReadScope,
 ) -> CliResult {
@@ -779,10 +787,11 @@ fn legge_senza_consegnare(
         batches += 1;
     }
     let perdita = reader.loss_report();
+    let fidelity_iniziale = ds.fidelity_assessment();
     Ok(json!({
         "format": driver.descriptor().id(),
         "fidelity": fidelity_doc(&fidelity_iniziale.clone().with_loss_report(&perdita))?,
-        "loss": loss_doc(fidelity_iniziale, &perdita)?,
+        "loss": loss_doc(&fidelity_iniziale, &perdita)?,
         "layer": layer_json(contract),
         "rows_read": rows,
         "batches": batches,
@@ -1020,7 +1029,6 @@ fn cmd_write_inner(cli: &Cli) -> CliResult {
     let ds = sorgente
         .open(Source::Path(in_path), ropts)
         .map_err(map_err)?;
-    let fedelta_ingresso = ds.fidelity_assessment();
 
     let selezionati =
         strati_da_pubblicare(ds.layers(), Some(selected_layer_id(cli, ds.as_ref())?))?;
@@ -1065,7 +1073,9 @@ fn cmd_write_inner(cli: &Cli) -> CliResult {
         rapporti.push(json!({"name": strato.name, "rows": righe, "batches": batch}));
     }
     let pubblicato = writer.finish().map_err(map_err)?;
-    let fedelta_ingresso = fedelta_ingresso.with_loss_report(&perdita_in_ingresso);
+    let fedelta_ingresso = ds
+        .fidelity_assessment()
+        .with_loss_report(&perdita_in_ingresso);
     let combinata = combined_fidelity(&fedelta_ingresso, &pubblicato.fidelity);
 
     let ingresso = fidelity_doc(&fedelta_ingresso)?;
@@ -1132,7 +1142,6 @@ pub fn cmd_read(cli: &Cli) -> CliResult {
     let (driver, path) = open_source(cli)?;
     let ropts = read_options(cli).map_err(map_err)?;
     let ds = driver.open(Source::Path(path), ropts).map_err(map_err)?;
-    let fidelity_iniziale = ds.fidelity_assessment();
     let layer_id = selected_layer_id(cli, ds.as_ref())?;
     let contract = ds
         .layers()
@@ -1207,7 +1216,6 @@ pub fn cmd_read(cli: &Cli) -> CliResult {
             ds.as_ref(),
             driver.as_ref(),
             &contract,
-            &fidelity_iniziale,
             layer_id,
             scopo,
         );
@@ -1256,6 +1264,7 @@ pub fn cmd_read(cli: &Cli) -> CliResult {
     // di questa operazione, ed e' anche il caso che non si presenta -- Arrow e'
     // la rappresentazione, non una traduzione. Riportare una fedelta' combinata
     // attribuirebbe alla lettura qualcosa che la lettura non ha fatto.
+    let fidelity_iniziale = ds.fidelity_assessment();
     let fedelta = fidelity_iniziale.clone().with_loss_report(&perdita);
     // I byte del file consegnato. `map_or` e non `map().unwrap_or()`: la
     // seconda forma costruisce un `Result` intermedio per buttarlo via.
@@ -1419,9 +1428,12 @@ pub fn cmd_convert(cli: &Cli) -> CliResult {
     // la stessa opzione, come dichiarato dal README.
     ropts.format_options = opts_uniti(&cli.opts, &cli.in_opts);
     let ds = src.open(Source::Path(in_path), ropts).map_err(map_err)?;
-    let initial_read_fidelity = ds.fidelity_assessment();
 
-    let selected = if cli.layer.is_none() && dst.descriptor().multi_layer() {
+    let selected = if cli.layer.is_none()
+        && ds.explicit_layer().is_none()
+        && ds.default_layer().is_none()
+        && dst.descriptor().multi_layer()
+    {
         let layers: Vec<_> = ds
             .layers()
             .iter()
@@ -1461,7 +1473,11 @@ pub fn cmd_convert(cli: &Cli) -> CliResult {
     let mut layer_reports = Vec::new();
     let mut total_rows = 0usize;
     let mut read_loss = LossReport::default();
-    if cli.layer.is_none() && dst.descriptor().multi_layer() {
+    if cli.layer.is_none()
+        && ds.explicit_layer().is_none()
+        && ds.default_layer().is_none()
+        && dst.descriptor().multi_layer()
+    {
         for layer in ds.layers() {
             if let Some(reason) = ds.rifiuto_del_layer(layer.id) {
                 read_loss.record("source_object_not_readable", 1);
@@ -1503,7 +1519,7 @@ pub fn cmd_convert(cli: &Cli) -> CliResult {
         layer_reports.push(json!({"name": l.name, "rows": rows, "batches": batches}));
     }
     let published = writer.finish().map_err(map_err)?;
-    let read_fidelity = initial_read_fidelity.with_loss_report(&read_loss);
+    let read_fidelity = ds.fidelity_assessment().with_loss_report(&read_loss);
     let conversion_fidelity = combined_fidelity(&read_fidelity, &published.fidelity);
 
     let outcome = esito_di_pubblicazione(published.outcome);

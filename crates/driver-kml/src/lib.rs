@@ -353,6 +353,7 @@ impl FormatDriver for KmlDriver {
         &DESCRIPTOR
     }
 
+    #[allow(clippy::too_many_lines)] // Catalog and spool are discovered in one bounded pass.
     fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
         let path = driver_common::structure::preflight(self.descriptor(), source, &mut opts)?;
         let mut stream = PlacemarkStream::open(&path)?;
@@ -419,12 +420,18 @@ impl FormatDriver for KmlDriver {
             contract: contract.clone(),
         }];
         let mut ranges = vec![(0, rows)];
-        for (name, start, end) in stream.objects {
+        for (mut name, start, end) in stream.objects {
             let end = end.max(start).min(rows as u64);
             let id = LayerId(u32::try_from(layers.len()).map_err(|_| {
                 plenora_io_model::quota::Quota::InputEntries
                     .exceeded(plenora_io_model::ErrorPhase::Read)
             })?);
+            while layers
+                .iter()
+                .any(|layer| layer.name.eq_ignore_ascii_case(&name))
+            {
+                name = format!("{name}_{}", id.0);
+            }
             layers.push(LayerContract {
                 id,
                 name,
@@ -549,6 +556,10 @@ struct KmlDataset {
 }
 
 impl OpenDatasetHandle for KmlDataset {
+    fn default_layer(&self) -> Option<LayerId> {
+        Some(LayerId(0))
+    }
+
     fn rifiuto_del_layer(&self, layer: LayerId) -> Option<PlenoraIoError> {
         self.rifiuti.get(&layer.0).cloned()
     }

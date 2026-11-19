@@ -215,12 +215,21 @@ fn tipi_non_convertibili_rifiutati_senza_null_implicito() {
         Arc::new(IntervalYearMonthArray::from(vec![1])),
     ];
     for a in arrays {
-        assert!(cell_to_field(
-            &ValidatedArray::new(&a).unwrap(),
-            0,
-            DbfKind::from(a.data_type())
-        )
-        .is_err());
+        let supported = matches!(
+            a.data_type(),
+            arrow_schema::DataType::LargeUtf8
+                | arrow_schema::DataType::Utf8View
+                | arrow_schema::DataType::Float16
+        );
+        assert_eq!(
+            cell_to_field(
+                &ValidatedArray::new(&a).unwrap(),
+                0,
+                DbfKind::from(a.data_type())
+            )
+            .is_ok(),
+            supported
+        );
     }
 }
 

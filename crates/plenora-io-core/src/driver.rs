@@ -30,7 +30,7 @@ use plenora_io_model::{ContractIdentifier, IoErrorCode, NumeroStrutturale, Publi
 
 use crate::descriptor::{
     AttributeWriteSupport, CrsDerivation, CrsRepresentationState, FormatDescriptor,
-    GeometryWriteSupport, NullabilitySupport, TypeCoercionPolicy,
+    GeometryWriteSupport, TypeCoercionPolicy,
 };
 use crate::loss::{FidelityAssessment, FidelityReasonCode, LossExample, LossReport, Posizione};
 #[cfg(test)]
@@ -720,9 +720,15 @@ pub trait OpenDatasetHandle: Send + Sync {
         false
     }
 
+    /// Selection explicitly supplied through a format option.
+    /// It must agree with an explicit layer index at the public boundary.
+    fn explicit_layer(&self) -> Option<LayerId> {
+        None
+    }
+
     /// Oggetto scelto quando la richiesta non specifica un indice.
     fn default_layer(&self) -> Option<plenora_io_model::contract::LayerId> {
-        self.layers().first().map(|layer| layer.id)
+        None
     }
 
     /// Valutazione di fedeltà concreta per il dataset aperto (`PRODUCT.md § LossReport`).

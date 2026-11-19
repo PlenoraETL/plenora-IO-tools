@@ -293,6 +293,18 @@ impl FileSet {
         path: &Path,
         validate: impl FnOnce(&Path) -> Result<()>,
     ) -> Result<Vec<PathBuf>> {
+        // Reject directory links in the lexical path before any native decoder opens it.
+        // Checking only the final component would allow a link to bypass the footprint.
+        for ancestor in path.ancestors().filter(|part| !part.as_os_str().is_empty()) {
+            if std::fs::symlink_metadata(ancestor)?
+                .file_type()
+                .is_symlink()
+            {
+                return Err(PlenoraIoError::non_supportato_redatto(
+                    &PublicMessage::Curated("symlink di sorgente non ammesso in fase read"),
+                ));
+            }
+        }
         let main = required(path)?;
         let metadata = std::fs::symlink_metadata(&main)?;
         let shapefile_directory = self.directory_main.is_some()

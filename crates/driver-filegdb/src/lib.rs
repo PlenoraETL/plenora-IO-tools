@@ -569,12 +569,64 @@ mod backend {
     };
 
     pub fn runtime_available() -> bool {
+        install_diagnostics();
         let Ok(driver) = DriverManager::get_driver_by_name("OpenFileGDB") else {
             return false;
         };
         ["DCAP_VECTOR", "DCAP_OPEN", "DCAP_CREATE"]
             .into_iter()
             .all(|capability| driver.metadata_item(capability, "") == Some("YES".to_owned()))
+    }
+
+    #[derive(Clone, Default)]
+    struct Diagnostics(std::sync::Arc<std::sync::atomic::AtomicU64>);
+    thread_local! {
+        static DIAGNOSTICS: std::cell::RefCell<Option<Diagnostics>> = const { std::cell::RefCell::new(None) };
+    }
+    struct DiagnosticScope(Option<Diagnostics>);
+    impl Drop for DiagnosticScope {
+        fn drop(&mut self) {
+            DIAGNOSTICS.with(|slot| *slot.borrow_mut() = self.0.take());
+        }
+    }
+    impl Diagnostics {
+        fn enter(&self) -> DiagnosticScope {
+            install_diagnostics();
+            DiagnosticScope(DIAGNOSTICS.with(|slot| slot.replace(Some(self.clone()))))
+        }
+        fn assessment(&self) -> plenora_io_core::FidelityAssessment {
+            let mut assessment = plenora_io_core::FidelityAssessment::lossless();
+            let count = self.0.load(std::sync::atomic::Ordering::Relaxed);
+            if count != 0 {
+                assessment.add_reason(
+                    plenora_io_core::loss::FidelityReasonCode::FormatConstraint,
+                    format!("diagnostica libreria GDAL: classe warning; conteggio {count}; testo nativo redatto"),
+                );
+            }
+            assessment
+        }
+    }
+    fn with_native_diagnostics<T>(operation: impl FnOnce() -> T) -> T {
+        install_diagnostics();
+        operation()
+    }
+    fn install_diagnostics() {
+        static INSTALL: std::sync::Once = std::sync::Once::new();
+        INSTALL.call_once(|| {
+            gdal::config::set_error_handler(|severity, _, _| {
+                if severity == gdal::errors::CplErrType::Warning {
+                    DIAGNOSTICS.with(|slot| {
+                        if let Some(diagnostics) = slot.borrow().as_ref() {
+                            let _ = diagnostics.0.fetch_update(
+                                std::sync::atomic::Ordering::Relaxed,
+                                std::sync::atomic::Ordering::Relaxed,
+                                |count| Some(count.saturating_add(1)),
+                            );
+                        }
+                    });
+                }
+            });
+        });
     }
 
     // --- scrittura (tier GDB via GDAL OpenFileGDB) --------------------------
@@ -618,7 +670,7 @@ mod backend {
                 DataType::Utf8 => Self::Utf8,
                 _ => {
                     let mut error =
-                        plenora_io_model::error_table::Situation::UnrepresentableWriteType.error();
+                        plenora_io_core::capabilities::unsupported_arrow_type(field.data_type());
                     error.driver = Some("filegdb".to_owned());
                     error.capability_reason = Some(CapabilityReason::TypeNotRepresentable);
                     return Err(error);
@@ -742,6 +794,7 @@ mod backend {
     }
 
     struct GdbWriter {
+        diagnostics: Diagnostics,
         metadata_check: plenora_io_core::property_plan::NativeMetadataCheck,
         loss: LossReport,
         ds: Option<Dataset>,
@@ -1062,6 +1115,8 @@ mod backend {
         plan: &WritePlan,
         opts: &WriteOptions,
     ) -> Result<Box<dyn FormatWriter>> {
+        let diagnostics = Diagnostics::default();
+        let _scope = diagnostics.enter();
         if path.exists() {
             return Err(PlenoraIoError::destinazione_esistente());
         }
@@ -1222,6 +1277,7 @@ mod backend {
         }
 
         Ok(Box::new(GdbWriter {
+            diagnostics,
             metadata_check: plenora_io_core::property_plan::NativeMetadataCheck::new(plan, opts),
             loss: native_write_report(NativeDriver::FileGdb, plan),
             ds: Some(ds),
@@ -1404,6 +1460,7 @@ mod backend {
         }
 
         fn write_to_layer(&mut self, layer: LayerId, batch: &RecordBatch) -> Result<()> {
+            let _scope = self.diagnostics.enter();
             let li = layer.0 as usize;
             if li >= self.layers.len() {
                 return Err(plenora_io_model::error_table::Situation::MissingLayer.error());
@@ -1505,6 +1562,7 @@ mod backend {
         }
 
         fn finish(mut self: Box<Self>) -> Result<Published> {
+            let _scope = self.diagnostics.enter();
             let ds = self
                 .ds
                 .take()
@@ -1550,7 +1608,7 @@ mod backend {
             Ok(Published {
                 bytes,
                 loss: self.loss.clone(),
-                fidelity: plenora_io_core::FidelityAssessment::lossless(),
+                fidelity: self.diagnostics.assessment(),
                 outcome,
             })
         }
@@ -1677,7 +1735,7 @@ mod backend {
     /// le regole di un altro formato. Ora o e' un `FileGDB`, o l'apertura
     /// fallisce.
     fn apri_solo_filegdb(path: &std::path::Path) -> gdal::errors::Result<Dataset> {
-        gdal::config::with_quiet_errors(|| {
+        with_native_diagnostics(|| {
             Dataset::open_ex(
                 path,
                 gdal::DatasetOptions {
@@ -1743,7 +1801,8 @@ mod backend {
         path: &std::path::Path,
         assume_crs: Option<&str>,
     ) -> Result<Box<dyn OpenDatasetHandle>> {
-        gdal::config::with_quiet_errors(|| open_objects(path, assume_crs))
+        install_diagnostics();
+        with_native_diagnostics(|| open_objects(path, assume_crs))
     }
 
     #[allow(clippy::too_many_lines)]
@@ -1751,6 +1810,8 @@ mod backend {
         path: &std::path::Path,
         assume_crs: Option<&str>,
     ) -> Result<Box<dyn OpenDatasetHandle>> {
+        let diagnostics = Diagnostics::default();
+        let _scope = diagnostics.enter();
         // Schema dai def GDAL, SENZA leggere feature (poi il reader streamma).
         let ds = apri_solo_filegdb(path)
             .map_err(|_| err(&PublicMessage::Curated("apertura GDAL fallita")))?;
@@ -1997,6 +2058,7 @@ mod backend {
             metas.push(meta);
         }
         Ok(Box::new(GdbDataset {
+            diagnostics,
             path: path.to_owned(),
             layers,
             metas,
@@ -2324,6 +2386,7 @@ mod backend {
     }
 
     struct GdbDataset {
+        diagnostics: Diagnostics,
         path: PathBuf,
         layers: Vec<LayerContract>,
         metas: Vec<LayerMeta>,
@@ -2342,10 +2405,12 @@ mod backend {
             self.rifiuti.get(&layer.0).cloned()
         }
         fn fidelity_assessment(&self) -> plenora_io_core::FidelityAssessment {
-            plenora_io_core::FidelityAssessment::for_format(
+            let mut assessment = plenora_io_core::FidelityAssessment::for_format(
                 DESCRIPTOR.id(),
                 DESCRIPTOR.fidelity_class(),
-            )
+            );
+            assessment.merge(&self.diagnostics.assessment());
+            assessment
         }
         fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
             if !self.layers.iter().any(|layer| layer.id == request.layer) {
@@ -2394,6 +2459,7 @@ mod backend {
             );
             let reader = self.reader_gate.open(request.layer, || {
                 spawn_reader(
+                    self.diagnostics.clone(),
                     self.path.clone(),
                     m.gdal_idx,
                     layer_contract.contract.schema.clone(),
@@ -2494,7 +2560,9 @@ mod backend {
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn spawn_reader(
+        diagnostics: Diagnostics,
         path: PathBuf,
         gdal_idx: usize,
         schema: SchemaRef,
@@ -2510,7 +2578,8 @@ mod backend {
             contract,
             2,
             move |emitter: BatchEmitter| {
-                gdal::config::with_quiet_errors(|| {
+                let _scope = diagnostics.enter();
+                with_native_diagnostics(|| {
                     let ds = apri_solo_filegdb(&path).map_err(|_| {
                         err(&PublicMessage::Curated("apertura del FileGDB fallita"))
                     })?;

@@ -226,7 +226,8 @@ const SCHEMA_OPZIONI: SchemaOpzioniFormato = SchemaOpzioniFormato::nuovo(&[
         fase: FaseOpzione::Lettura,
         valore: ValoreAmmesso::Testo,
         predefinito: None,
-        descrizione: "nome del foglio da leggere; in assenza, il primo",
+        descrizione:
+            "nome esatto del foglio da leggere; in assenza valgono le regole comuni di selezione",
     },
     OpzioneFormato {
         chiave: "wkt_column",
@@ -363,10 +364,7 @@ impl FormatDriver for XlsDriver {
                         )
                     })?,
             ),
-            None => sheets.iter().position(|sheet| {
-                sheet.typ == calamine::SheetType::WorkSheet
-                    && sheet.visible == calamine::SheetVisible::Visible
-            }),
+            None => None,
         };
         let mut layers = Vec::new();
         let mut contents = Vec::new();
@@ -832,7 +830,7 @@ impl OpenDatasetHandle for XlsDataset {
     fn preserves_unreadable_objects(&self) -> bool {
         true
     }
-    fn default_layer(&self) -> Option<LayerId> {
+    fn explicit_layer(&self) -> Option<LayerId> {
         self.default_layer
     }
     fn rifiuto_del_layer(&self, layer: LayerId) -> Option<PlenoraIoError> {

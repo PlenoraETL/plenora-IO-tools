@@ -320,3 +320,65 @@ fn known_crs_values_disagree_ignores_missing_values_and_order() {
     assert!(known_crs_values_disagree([Some(4_326), None, Some(3_003)]));
     assert!(known_crs_values_disagree([Some(3_003), Some(4_326), None]));
 }
+
+/// Every physical Arrow variant belongs to exactly one public family.
+/// The production match has no wildcard, so new Arrow variants also fail compilation.
+#[test]
+fn every_arrow_variant_has_one_family() {
+    use arrow_schema::{IntervalUnit, TimeUnit, UnionFields, UnionMode};
+    use ArrowTypeClass as C;
+    use DataType as D;
+    let field = Arc::new(Field::new("item", D::Int32, true));
+    let cases = vec![
+        (D::Null, C::Other),
+        (D::Boolean, C::Boolean),
+        (D::Int8, C::SignedInteger),
+        (D::Int16, C::SignedInteger),
+        (D::Int32, C::SignedInteger),
+        (D::Int64, C::SignedInteger),
+        (D::UInt8, C::UnsignedInteger),
+        (D::UInt16, C::UnsignedInteger),
+        (D::UInt32, C::UnsignedInteger),
+        (D::UInt64, C::UnsignedInteger),
+        (D::Float16, C::Floating),
+        (D::Float32, C::Floating),
+        (D::Float64, C::Floating),
+        (D::Timestamp(TimeUnit::Second, None), C::Temporal),
+        (D::Date32, C::Temporal),
+        (D::Date64, C::Temporal),
+        (D::Time32(TimeUnit::Second), C::Temporal),
+        (D::Time64(TimeUnit::Nanosecond), C::Temporal),
+        (D::Duration(TimeUnit::Second), C::Temporal),
+        (D::Interval(IntervalUnit::YearMonth), C::Temporal),
+        (D::Binary, C::Binary),
+        (D::FixedSizeBinary(1), C::Binary),
+        (D::LargeBinary, C::Binary),
+        (D::BinaryView, C::Binary),
+        (D::Utf8, C::Utf8),
+        (D::LargeUtf8, C::Utf8),
+        (D::Utf8View, C::Utf8),
+        (D::List(field.clone()), C::Nested),
+        (D::ListView(field.clone()), C::Nested),
+        (D::FixedSizeList(field.clone(), 1), C::Nested),
+        (D::LargeList(field.clone()), C::Nested),
+        (D::LargeListView(field.clone()), C::Nested),
+        (D::Struct(vec![field.clone()].into()), C::Nested),
+        (D::Union(UnionFields::empty(), UnionMode::Sparse), C::Nested),
+        (
+            D::Dictionary(Box::new(D::Int32), Box::new(D::Utf8)),
+            C::Other,
+        ),
+        (D::Decimal32(9, 0), C::Decimal),
+        (D::Decimal64(18, 0), C::Decimal),
+        (D::Decimal128(38, 0), C::Decimal),
+        (D::Decimal256(76, 0), C::Decimal),
+        (D::Map(field.clone(), false), C::Nested),
+        (D::RunEndEncoded(field.clone(), field), C::Other),
+    ];
+    assert_eq!(cases.len(), 41);
+    let mut seen = std::collections::HashSet::new();
+    for (data_type, family) in cases {
+        assert!(seen.insert(std::mem::discriminant(&data_type)));
+        assert_eq!(arrow_type_class(&data_type), family, "{data_type:?}");
+    }
+}

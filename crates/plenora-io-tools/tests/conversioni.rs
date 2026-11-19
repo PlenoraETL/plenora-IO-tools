@@ -741,7 +741,7 @@ fn filegdb_tabella_non_spaziale_diventa_un_csv_di_attributi() {
     assert!(esito.riuscito, "{}", esito.stderr);
     assert_eq!(
         esito.perdite(),
-        perdite(&[("arrow_metadata_not_preserved", 10)]),
+        perdite(&[("arrow_metadata_not_preserved", 9)]),
         "una tabella senza geometria non ha un CRS da perdere"
     );
     let testo = std::fs::read_to_string(&uscita).expect("il CSV si legge");
@@ -853,7 +853,7 @@ fn csv_con_booleano_a_filegdb_rifiuta_il_tipo() {
     assert_eq!(esito.errore()["phase"], "write");
     assert_eq!(
         esito.messaggio(),
-        "tipo non rappresentabile nel formato di destinazione"
+        "tipo Arrow non rappresentabile in fase write, classe: boolean"
     );
 }
 

@@ -845,11 +845,16 @@ impl OpenDatasetHandle for ShpDataset {
         &self.layers
     }
     fn fidelity_assessment(&self) -> plenora_io_core::FidelityAssessment {
-        plenora_io_core::FidelityAssessment::for_format(
+        let mut assessment = plenora_io_core::FidelityAssessment::for_format(
             DESCRIPTOR.id(),
             DESCRIPTOR.fidelity_class(),
         )
-        .with_loss_report(&self.loss)
+        .with_loss_report(&self.loss);
+        assessment.add_reason(
+            plenora_io_core::loss::FidelityReasonCode::FormatConstraint,
+            "DBF in fase read: la codepage dichiarata e' applicata; l'appartenenza del companion CPG al dataset non e' attestabile dai byte",
+        );
+        assessment
     }
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
         if !self.layers.iter().any(|layer| layer.id == request.layer) {
@@ -907,18 +912,11 @@ enum DbfKind {
 
 impl DbfKind {
     const fn from(dt: &arrow_schema::DataType) -> Self {
-        use arrow_schema::DataType as D;
-        match dt {
-            D::Int8
-            | D::Int16
-            | D::Int32
-            | D::Int64
-            | D::UInt8
-            | D::UInt16
-            | D::UInt32
-            | D::UInt64 => Self::Int,
-            D::Float16 | D::Float32 | D::Float64 => Self::Float,
-            D::Boolean => Self::Logical,
+        use plenora_io_core::ArrowTypeClass as C;
+        match plenora_io_core::capabilities::arrow_type_class(dt) {
+            C::SignedInteger | C::UnsignedInteger => Self::Int,
+            C::Floating => Self::Float,
+            C::Boolean => Self::Logical,
             _ => Self::Char,
         }
     }

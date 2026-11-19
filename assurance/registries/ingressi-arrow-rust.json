@@ -1875,13 +1875,6 @@
         "driver_shp::ShpWriter"
       ]
     },
-    "driver-xls/src/lib.rs::driver_xls::XlsDataset[OpenDatasetHandle]::default_layer": {
-      "classificazione": "non riceve dati esterni",
-      "motivazione": "Metodo sullo stato interno del reader/writer; riceve solo self o indici/conteggi. Non accetta batch esterni: la scrittura passa da with_write_validation e la lettura dal confine comune.",
-      "tipi": [
-        "driver_xls::XlsDataset"
-      ]
-    },
     "driver-xls/src/lib.rs::driver_xls::XlsDataset[OpenDatasetHandle]::preserves_unreadable_objects": {
       "classificazione": "non riceve dati esterni",
       "motivazione": "Metodo sullo stato interno del reader/writer; riceve solo self o indici/conteggi. Non accetta batch esterni: la scrittura passa da with_write_validation e la lettura dal confine comune.",
@@ -2001,6 +1994,48 @@
       "tipi": [
         "plenora_io_core::request::WritePlan"
       ]
+    },
+    "driver-kml/src/lib.rs::driver_kml::KmlDataset[OpenDatasetHandle]::default_layer": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Selezione di un identificatore strutturale dal dataset gia aperto; non riceve nuovi buffer Arrow.",
+      "tipi": [
+        "driver_kml::KmlDataset"
+      ]
+    },
+    "driver-xls/src/lib.rs::driver_xls::XlsDataset[OpenDatasetHandle]::explicit_layer": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Selezione di un identificatore strutturale dal dataset gia aperto; non riceve nuovi buffer Arrow.",
+      "tipi": [
+        "driver_xls::XlsDataset"
+      ]
+    },
+    "plenora-io-core/src/capabilities.rs::plenora_io_core::capabilities::unsupported_arrow_type": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Classifica un DataType dello schema senza leggere array o buffer; messaggio statico per famiglia.",
+      "tipi": [
+        "arrow_schema::DataType"
+      ]
+    },
+    "plenora-io-core/src/driver/reader_adapters.rs::plenora_io_core::driver::reader_adapters::BudgetedDataset[OpenDatasetHandle]::explicit_layer": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Selezione di un identificatore strutturale dal dataset gia aperto; non riceve nuovi buffer Arrow.",
+      "tipi": [
+        "plenora_io_core::driver::reader_adapters::BudgetedDataset"
+      ]
+    },
+    "plenora-io-core/src/driver.rs::plenora_io_core::driver::OpenDatasetHandle::explicit_layer": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Selezione di un identificatore strutturale dal dataset gia aperto; non riceve nuovi buffer Arrow.",
+      "tipi": [
+        "plenora_io_core::driver::OpenDatasetHandle"
+      ]
+    },
+    "plenora-io-model/src/geometry.rs::plenora_io_model::geometry::interchange_schema": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricostruisce soltanto metadati dello schema del contratto gia validato; non legge buffer Arrow, con la stessa funzione usata dalla consegna IPC.",
+      "tipi": [
+        "plenora_io_model::contract::DataContract"
+      ]
     }
   },
   "macro_items": {
@@ -2063,6 +2098,10 @@
     "plenora-io-core/src/publish.rs::plenora_io_core::publish::4abe8418f8e77b62b7490dea64a96047cfaaecbcfba2aab065c50a061fcde239": {
       "classificazione": "non riceve dati esterni",
       "motivazione": "compile_error! rifiuta in compilazione le piattaforme diverse da Linux e Windows. Non genera API, tipi o ingressi Arrow; nessun dato runtime."
+    },
+    "driver-filegdb/src/lib.rs::driver_filegdb::backend::d5cbf14516e14201ae4b97e3c46ec61595a86afebdbc6c6a3cfafb950b92c9b2": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Storage thread-local privato del contatore di warning GDAL; nessun testo nativo e nessun dato Arrow."
     }
   },
   "reexports": {

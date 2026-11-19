@@ -25,8 +25,10 @@ pub(super) fn rejection(driver: &str, batch: &RecordBatch) -> Option<(Situation,
                     .metadata()
                     .get("plenora.geometry.crs_id")
                     .is_some_and(|id| {
-                        id.split_once(':')
-                            .is_none_or(|(_, code)| code.parse::<i32>().is_err())
+                        id != "OGC:CRS84"
+                            && id
+                                .split_once(':')
+                                .is_none_or(|(_, code)| code.parse::<i32>().is_err())
                     })
             {
                 return Some((

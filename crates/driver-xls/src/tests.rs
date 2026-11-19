@@ -3829,7 +3829,7 @@ fn r2_fogli_visibili_nascosti_vuoti_e_grafici() {
         .open(Source::Path(path), opzioni_lettura_wkt())
         .unwrap();
     assert_eq!(ds.layers().len(), 6);
-    assert_eq!(ds.default_layer(), Some(LayerId(1)));
+    assert_eq!(ds.default_layer(), None);
     assert_eq!(
         ds.layers()[0].contract.schema.metadata()["xlsx.visibility"],
         "hidden"

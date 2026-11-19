@@ -126,7 +126,7 @@ fn validate(id: &str, path: &Path, opts: &ReadOptions) -> Result<()> {
             let envelope = <GeoJsonEnvelope as serde::Deserialize>::deserialize(&mut deserializer)
                 .map_err(|_| invalid(id))?;
             if !envelope.0 {
-                return Err(Situation::InvalidContent.error_with(&PublicMessage::Curated("GeoJSON: richiesta FeatureCollection; una geometria nuda non e' un dataset")));
+                return Err(Situation::InvalidContent.error_with(&PublicMessage::Curated("classe GeoJSON non supportata in fase read: richiesta FeatureCollection; Feature singola e geometria nuda non sono dataset")));
             }
             deserializer.end().map_err(|_| invalid(id))
         }
@@ -374,7 +374,7 @@ impl<'de> serde::Deserialize<'de> for GeoJsonEnvelope {
                 while let Some(key) = map.next_key::<String>()? {
                     if key == "type" {
                         let kind = map.next_value::<String>()?;
-                        recognized |= matches!(kind.as_str(), "Feature" | "FeatureCollection");
+                        recognized |= kind == "FeatureCollection";
                     } else {
                         map.next_value::<serde::de::IgnoredAny>()?;
                     }

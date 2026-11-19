@@ -8,7 +8,6 @@
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Write as _};
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use arrow_array::RecordBatch;
 use arrow_ipc::reader::{FileReader, StreamReader};
@@ -41,8 +40,7 @@ use plenora_io_model::contract::{
 use plenora_io_model::crs::CrsResolution;
 use plenora_io_model::geometry::{
     is_geometry_field, read_geometry_contract_metadata, validate_contract_version,
-    validate_geometry_field_identity, with_contract_version, with_field_identity,
-    with_geometry_contract_metadata, PLENORA_CONTRACT_VERSION_KEY,
+    validate_geometry_field_identity, PLENORA_CONTRACT_VERSION_KEY,
 };
 use plenora_io_model::{PlenoraIoError, PublicMessage, Result};
 
@@ -329,38 +327,7 @@ impl FormatDriver for IpcDriver {
             ));
         }
         let layer = &plan.layers[0].contract;
-        let fields = layer
-            .schema
-            .fields()
-            .iter()
-            .map(|field| {
-                layer
-                    .geometry
-                    .as_ref()
-                    .filter(|geometry| geometry.name.as_str() == field.name().as_str())
-                    .map_or_else(
-                        || field.as_ref().clone(),
-                        |geometry| with_geometry_contract_metadata(field, geometry),
-                    )
-            })
-            .collect::<Vec<_>>();
-        // ARROW-003: l'identita' dei campi deve sopravvivere al round trip, e
-        // il round trip e' una forma di prima classe -- `io.read` e `io.write`
-        // sono dichiarate l'una l'inversa dell'altra. Gli id che arrivano dalla
-        // sorgente non vengono riscritti: e' cio' che distingue una
-        // conservazione da un ricalcolo.
-        let fields = with_field_identity(fields);
-        // Le chiavi di schema che IO non possiede passano (ARROW-010), anche un
-        // `geo` che contraddice il campo: limite dichiarato in docs/PRODUCT.md
-        // («un `geo` di schema passa tale e quale»).
-        let schema = with_contract_version(Arc::new(arrow_schema::Schema::new_with_metadata(
-            fields,
-            layer.schema.metadata().clone(),
-        )));
-        let schema = plenora_io_model::primary::emit(
-            &schema,
-            layer.geometry.as_ref().map(|g| g.field_id.0 as usize),
-        )?;
+        let schema = plenora_io_model::geometry::interchange_schema(layer)?;
         // Guardia del produttore: lo schema porta la versione, quindi vale la
         // verifica di `open` (REJ-001/002), qui prima dello staging: un file che
         // IO stesso rifiuterebbe in lettura non si produce in silenzio.

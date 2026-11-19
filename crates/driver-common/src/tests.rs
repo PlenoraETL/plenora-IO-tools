@@ -52,7 +52,7 @@ fn i_vocabolari_statici_sono_distinti_e_coprono_le_famiglie() {
         // Il ramo di riserva esiste e va raggiunto: se sparisse, un tipo
         // nuovo di arrow non avrebbe piu' nome e il match non
         // compilerebbe — ma finche' c'e', va provato che risponde.
-        (DataType::Null, "altro"),
+        (DataType::Null, "other"),
     ];
     for (tipo, atteso) in campioni {
         assert_eq!(classe_arrow(&tipo), atteso, "classe di {tipo:?}");
@@ -298,10 +298,7 @@ fn le_durate_non_sono_istanti_e_restano_un_rifiuto() {
         panic!("una durata non ha una forma testuale decisa: deve essere rifiutata");
     };
     assert!(
-        errore.message
-            == plenora_io_model::error_table::Situation::UnrepresentableWriteType
-                .rule()
-                .message,
+        errore.message.contains("classe: temporal") && errore.message.contains("fase write"),
         "il rifiuto deve nominare la classe, arrivato «{}»",
         errore.message
     );
@@ -357,22 +354,16 @@ fn renderer_validato_riusabile_e_indici_controllati() {
 }
 
 #[test]
-fn large_utf8_rejection_names_the_base_class() {
-    let array: arrow_array::ArrayRef =
-        std::sync::Arc::new(arrow_array::LargeStringArray::from(vec![
-            Some("SECRET"),
-            None,
-        ]));
-    let error = json_from_array(&array, 0).unwrap_err();
-    let rule = plenora_io_model::error_table::Situation::UnrepresentableWriteType.rule();
-    assert_eq!(
-        (error.category, error.phase, error.code),
-        (rule.category, rule.phase, rule.code)
-    );
-    assert_eq!(error.message, rule.message);
-    assert!(!error.message.contains("large_utf8"));
-    assert!(!error.message.contains("SECRET"));
-    assert_eq!(json_from_array(&array, 1).unwrap(), serde_json::Value::Null);
+fn string_family_preserves_values_and_nulls() {
+    let arrays: Vec<arrow_array::ArrayRef> = vec![
+        Arc::new(arrow_array::StringArray::from(vec![Some("x"), None])),
+        Arc::new(arrow_array::LargeStringArray::from(vec![Some("x"), None])),
+        Arc::new(arrow_array::StringViewArray::from(vec![Some("x"), None])),
+    ];
+    for array in arrays {
+        assert_eq!(json_from_array(&array, 0).unwrap(), serde_json::json!("x"));
+        assert_eq!(json_from_array(&array, 1).unwrap(), serde_json::Value::Null);
+    }
 }
 
 #[test]

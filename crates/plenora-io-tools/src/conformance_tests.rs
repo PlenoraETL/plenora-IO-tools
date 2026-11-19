@@ -2156,7 +2156,7 @@ fn large_and_view_write_rejections_use_base_classes_for_every_driver() {
         if id == "filegdb" && !cfg!(feature = "gdal-backend") {
             continue;
         }
-        for (index, (data_type, _class)) in variants.iter().enumerate() {
+        for (index, (data_type, class)) in variants.iter().enumerate() {
             let mut plan = valid_geometry_plan(driver.descriptor());
             let contract = &mut plan.layers[0].contract;
             let mut fields = contract
@@ -2194,7 +2194,7 @@ fn large_and_view_write_rejections_use_base_classes_for_every_driver() {
                     (rule.category, rule.phase, rule.code),
                     "{id} {data_type}: {error}"
                 );
-                assert_eq!(error.message, rule.message, "{id} {data_type}: {error}");
+                assert!(error.message.contains(class), "{id} {data_type}: {error}");
                 assert!(!error.message.contains("large_utf8"));
             }
         }
