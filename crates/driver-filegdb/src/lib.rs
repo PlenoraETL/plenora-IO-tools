@@ -590,6 +590,20 @@ mod backend {
         }
     }
     impl Diagnostics {
+        fn record_warning(&self) {
+            let mut count = self.0.load(Ordering::Relaxed);
+            while count != u64::MAX {
+                match self.0.compare_exchange_weak(
+                    count,
+                    count + 1,
+                    Ordering::Relaxed,
+                    Ordering::Relaxed,
+                ) {
+                    Ok(_) => break,
+                    Err(observed) => count = observed,
+                }
+            }
+        }
         fn enter(&self) -> DiagnosticScope {
             install_diagnostics();
             DiagnosticScope(DIAGNOSTICS.with(|slot| slot.replace(Some(self.clone()))))
@@ -617,11 +631,7 @@ mod backend {
                 if severity == gdal::errors::CplErrType::Warning {
                     DIAGNOSTICS.with(|slot| {
                         if let Some(diagnostics) = slot.borrow().as_ref() {
-                            let _ = diagnostics.0.fetch_update(
-                                std::sync::atomic::Ordering::Relaxed,
-                                std::sync::atomic::Ordering::Relaxed,
-                                |count| Some(count.saturating_add(1)),
-                            );
+                            diagnostics.record_warning();
                         }
                     });
                 }

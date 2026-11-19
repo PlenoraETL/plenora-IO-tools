@@ -476,19 +476,19 @@ class Omissions:
 class FidelityReason:
     """Una ragione per cui la fedelta' non e' esatta.
 
-    `field_index` e `layer_index` vengono **insieme** o non vengono: una ragione
-    che nomina un campo nomina anche il layer in cui sta. Quelle che riguardano
-    il formato nel suo insieme non ne hanno, ed e' perche' sono opzionali qui.
+    Gli indici sono opzionali e indipendenti: una ragione puo' riguardare
+    un layer intero o un campo. `type_class` conserva la classe Arrow, se nota.
     """
 
     code: str
     detail: str
     field_index: int | None = None
     layer_index: int | None = None
+    type_class: str | None = None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     _OBBLIGATORI = ("code", "detail")
-    _OPZIONALI = ("field_index", "layer_index")
+    _OPZIONALI = ("field_index", "layer_index", "type_class")
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "FidelityReason":
@@ -498,6 +498,7 @@ class FidelityReason:
             detail=documento["detail"],
             field_index=documento.get("field_index"),
             layer_index=documento.get("layer_index"),
+            type_class=documento.get("type_class"),
             raw=dict(documento),
         )
 

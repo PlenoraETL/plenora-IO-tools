@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import hashlib
 import shlex
 
 
@@ -39,7 +40,7 @@ def main():
         name: min(v for v, names in functions.items() if name in names)
         for name in used - functions[(3, 4)]
     }
-    # Cargo JSON identifies this invocation's artifact, avoiding stale .ll files.
+    # Preserve caller flags; Cargo JSON identifies this invocation's artifacts.
     env = os.environ.copy()
     flags = (env["CARGO_ENCODED_RUSTFLAGS"].split("\x1f")
              if "CARGO_ENCODED_RUSTFLAGS" in env
@@ -50,12 +51,28 @@ def main():
         "--features", "gdal-backend", "--message-format=json",
     ], text=True, env=env)
     artifacts = [json.loads(line) for line in output.splitlines() if line.startswith("{")]
-    artifact = next(a for a in artifacts if a.get("reason") == "compiler-artifact"
-                    and a["target"]["name"] == "gdal")
-    rlib = next(Path(f) for f in artifact["filenames"] if f.endswith(".rlib"))
-    ir = rlib.with_name(rlib.stem.removeprefix("lib") + ".ll").read_text(encoding="utf-8")
+    # Generic wrappers are instantiated in the caller, so audit both modules.
+    modules = []
+    for name in ("gdal", "driver_filegdb"):
+        artifact = next(a for a in artifacts if a.get("reason") == "compiler-artifact"
+                        and a["target"]["name"] == name)
+        rlib = next(Path(f) for f in artifact["filenames"] if f.endswith(".rlib"))
+        if rlib.parent.name != "deps":
+            # Cargo reports the top-level copy for the selected package. Match
+            # it to its exact hashed artifact, never to an arbitrary old .ll.
+            digest = hashlib.sha256(rlib.read_bytes()).digest()
+            matches = [p for p in (rlib.parent / "deps").glob(f"{rlib.stem}-*.rlib")
+                       if p.stat().st_size == rlib.stat().st_size
+                       and hashlib.sha256(p.read_bytes()).digest() == digest]
+            if len(matches) != 1:
+                raise SystemExit(f"Ambiguous or missing emitted artifact for {name}")
+            rlib = matches[0]
+        modules.append(rlib.with_name(rlib.stem.removeprefix("lib") + ".ll")
+                       .read_text(encoding="utf-8"))
+    ir = "\n".join(modules)
     references = set(re.findall(r"^declare\b[^\n]*@([A-Za-z0-9_]+)\(", ir, re.M)) & known
-    if not {"GDALOpenEx", "OGR_F_GetFieldAsDateTimeEx"} <= references:
+    if not {"GDALOpenEx", "OGR_F_GetFieldAsDateTimeEx",
+            "CPLSetErrorHandlerEx", "CPLGetErrorHandlerUserData"} <= references:
         raise SystemExit("Missing baseline references: invalid or incomplete LLVM audit")
     unsupported = references - functions[version]
     if unsupported:

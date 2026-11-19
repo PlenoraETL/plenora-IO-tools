@@ -320,8 +320,6 @@ class LaSezioneDiFedelta(unittest.TestCase):
                 self.assertEqual(getattr(fedelta.omesse, causa), 3)
 
     def test_una_ragione_localizzata_porta_i_due_indici(self) -> None:
-        """Vengono insieme o non vengono: una ragione che nomina un campo nomina
-        anche il layer in cui sta."""
         generica = FidelityReason.from_json({"code": "c", "detail": "d"})
         self.assertFalse(generica.localized)
         self.assertIsNone(generica.field_index)
@@ -331,6 +329,19 @@ class LaSezioneDiFedelta(unittest.TestCase):
         )
         self.assertTrue(precisa.localized)
         self.assertEqual((precisa.field_index, precisa.layer_index), (2, 0))
+
+    def test_ragione_con_classe_arrow_e_localizzazione_opzionale(self) -> None:
+        for location in ({}, {"layer_index": 0}, {"field_index": 2},
+                         {"layer_index": 0, "field_index": 2}):
+            document = dict(code="c", detail="d", type_class="temporal", **location)
+            reason = FidelityReason.from_json(document)
+            self.assertEqual(reason.type_class, "temporal")
+            self.assertEqual(reason.raw, document)
+            self.assertEqual(reason.localized, "field_index" in location)
+        self.assertIsNone(FidelityReason.from_json(dict(code="c", detail="d")).type_class)
+        for value in (None, 3, False, [], {}):
+            with self.subTest(value=value), self.assertRaises(ProtocolError):
+                FidelityReason.from_json(dict(code="c", detail="d", type_class=value))
 
     def test_un_campo_mancante_e_un_errore(self) -> None:
         for campo in Fidelity._OBBLIGATORI:

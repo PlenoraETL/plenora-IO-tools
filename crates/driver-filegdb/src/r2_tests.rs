@@ -1,6 +1,26 @@
 use super::*;
 
 #[test]
+fn diagnostic_counter_saturates_and_shares_worker_updates() {
+    let diagnostics = Diagnostics::default();
+    std::thread::scope(|scope| {
+        for _ in 0..4 {
+            let worker = diagnostics.clone();
+            scope.spawn(move || {
+                for _ in 0..1000 {
+                    worker.record_warning();
+                }
+            });
+        }
+    });
+    assert_eq!(diagnostics.0.load(Ordering::Relaxed), 4000);
+    diagnostics.0.store(u64::MAX - 1, Ordering::Relaxed);
+    diagnostics.record_warning();
+    diagnostics.record_warning();
+    assert_eq!(diagnostics.0.load(Ordering::Relaxed), u64::MAX);
+}
+
+#[test]
 fn native_field_order_reads_both_definition_vocabularies() {
     for tag in ["Field", "GPFieldInfoEx"] {
         let xml = format!("<Definition><Name>layer</Name><Fields><{tag}><Name>geometry</Name></{tag}><{tag}><Name>a&amp;b</Name></{tag}></Fields></Definition>");
