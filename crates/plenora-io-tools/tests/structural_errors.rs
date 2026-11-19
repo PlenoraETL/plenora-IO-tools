@@ -220,6 +220,18 @@ fn filegdb_members_and_geopackage_companions_precede_options() {
             }
             if name == "gdb" || name == "a00000001.gdbtable" {
                 assert_error(&path, "filegdb", "FileGDB", Situation::InvalidContent);
+            } else if !cfg!(feature = "gdal-backend") {
+                // Senza il tier GDB il catalogo sano supera la validazione
+                // strutturale e l'elenco dei layer richiede GDAL: errore di tier.
+                let (_, result) = plenora_io_tools::esegui(
+                    &["layers".to_owned(), path.to_str().unwrap().to_owned()],
+                    &CancellationToken::new(),
+                );
+                let (_, doc) = result.unwrap_err();
+                assert_eq!(
+                    doc["error"]["code"], "UNSUPPORTED",
+                    "{name}/{defect}: {doc}"
+                );
             } else {
                 let (_, result) = plenora_io_tools::esegui(
                     &["layers".to_owned(), path.to_str().unwrap().to_owned()],
