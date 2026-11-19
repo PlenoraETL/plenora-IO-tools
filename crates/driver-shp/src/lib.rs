@@ -3354,7 +3354,9 @@ fn shape_type_label(shape_type: Option<&str>) -> &str {
 fn open_shapes(path: &Path, row_limit: Option<u64>) -> Result<ShapeReader<BufReader<File>>> {
     valida_struttura_shp(path, row_limit)?;
     let source = BufReader::new(File::open(path)?);
-    let index = plenora_io_core::dataset_files::resolve(&path.with_extension("shx"))?;
+    let index = plenora_io_core::dataset_files::resolve_exact(
+        &plenora_io_core::dataset_files::companion(path, "shx")?,
+    )?;
     let result = match index {
         Some(index) => ShapeReader::with_shx(source, BufReader::new(File::open(index)?)),
         None => ShapeReader::new(source),

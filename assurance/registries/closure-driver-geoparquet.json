@@ -1386,14 +1386,14 @@
       "x86_64-unknown-linux-gnu",
       "x86_64-pc-windows-msvc"
     ],
-    "perche_questi_due": "sono le piattaforme che `distribuzione-matrice.json` dichiara distribuite. `aarch64-apple-darwin` sta fra le `piattaforme_non_distribuite`: la CI lo costruisce, ma non se ne promette artefatto ne' supporto, e una licenza si guarda per cio' che si spedisce.",
+    "perche_questi_due": "sono le piattaforme che `distribuzione-matrice.json` dichiara distribuite. le altre piattaforme non sono supportate, compilate o verificate in CI, e una licenza si guarda per cio' che si spedisce.",
     "comando": "cargo tree -p driver-geoparquet --edges normal,build --target <bersaglio>, unito sui due bersagli"
   },
   "perimetro_esteso": {
     "che_cos_e": "lo stesso conto con `--target all`, cioe' ogni piattaforma che Cargo riconosce.",
     "coppie": 188,
     "quante_in_piu": 42,
-    "che_cosa_aggiunge": "redox, haiku, wasm, wasi, android, apple e le architetture i686 e aarch64 di Windows: da `wasm-bindgen` a `iana-time-zone-haiku`.",
+    "che_cosa_aggiunge": "piattaforme non supportate e le architetture i686 e aarch64 di Windows: da `wasm-bindgen` a `iana-time-zone-haiku`.",
     "non_e_equivalente": "e' una domanda diversa, non una versione piu' prudente della stessa. Il censimento dichiara il perimetro distribuito; questo numero sta qui misurato -- il gate lo verifica, non lo ricorda -- perche' la differenza fra i due resti visibile invece di dover essere ricalcolata da chi se lo chiede."
   },
   "di_prodotto": 120,

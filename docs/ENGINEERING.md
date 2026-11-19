@@ -925,9 +925,9 @@ dell'artefatto installato su Ubuntu 22.04, e controllando le versioni
 `GLIBC_*` richieste dal binario e da ogni libreria spedita. Se la chiusura del
 lock pretenderà davvero una glibc successiva, a dirlo sarà quel controllo.
 
-macOS è fuori dal perimetro di distribuzione della v1: vedi «Il perimetro»
-in `RELEASE.md`. Il codice può compilare e essere provato lì, ma non si
-promettono artefatti né qualifica.
+macOS non è supportata: nessuna compilazione, prova CI o distribuzione.
+Le piattaforme supportate sono Linux e Windows; le altre producono un
+errore di compilazione esplicito in `plenora-io-core`.
 
 Su Windows lo smoke gira su Windows Server 2022 e dimostra quello. Windows 10
 22H2 e Windows 11 sono dichiarati sulla compatibilità dell'ABI Win32 e

@@ -541,8 +541,7 @@ def censimento_della_closure(
 
 #: I bersagli su cui il prodotto viene **distribuito**, non quelli su cui
 #: compila. `assurance/registries/distribuzione-matrice.json` ne dichiara due,
-#: e mette `aarch64-apple-darwin` fra le `piattaforme_non_distribuite`: la CI lo
-#: costruisce, ma non se ne promette artefatto ne' supporto.
+#: macOS e' non supportata: nessuna compilazione, prova CI o distribuzione.
 TARGET_DISTRIBUITI = ("x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc")
 
 
@@ -606,7 +605,7 @@ def closure_con_versioni() -> set[tuple[str, str]] | None:
 
     L'ultima e' una correzione del 2026-09-10. Prima qui c'era `--target all`,
     motivato con «distribuiamo per Linux e per Windows»: un non-sequitur, perche'
-    `all` comprende anche redox, haiku, wasm, android, apple e le architetture
+    `all` comprende anche piattaforme non supportate e le architetture
     i686 e aarch64 di Windows. Sono quarantadue coppie in piu' -- da
     `wasm-bindgen` a `iana-time-zone-haiku` -- che descrivono un perimetro
     piu' largo di cio' che spediamo. Un censimento di licenze che le comprende

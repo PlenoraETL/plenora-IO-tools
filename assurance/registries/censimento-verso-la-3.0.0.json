@@ -794,10 +794,10 @@
         "cargo metadata --format-version 1 --locked --filter-platform <triplo>"
       ],
       "l_albero_e_il_lockfile_non_sono_la_stessa_cosa": "il primo conteggio, fatto su `cargo metadata`, dava undici nomi in piu' versioni. L'albero ne da' **sette**. La differenza non e' un errore di lettura: `resolve` di `cargo metadata` tiene nel grafo anche le dipendenze **opzionali non attivate**, e il lockfile le blocca a una versione. `cargo tree` mostra invece cio' che viene davvero compilato. Il caso limite e' `rstar`: cinque versioni nel `Cargo.lock` -- 0.8.4, 0.9.3, 0.10.0, 0.11.0, 0.12.2 -- tutte dietro le feature `rstar_0_*` di `geo-types`, che **nessuno attiva**. `cargo tree -i rstar@0.8.4` risponde «nothing to print». Con loro cadono `heapless` (tre versioni), `generic-array` (tre), `hash32` (tre) e `as-slice`: sono nel lockfile e non nel binario. **Un crate nel `Cargo.lock` non e' un crate compilato**, e un censimento che confondesse le due cose gonfierebbe il problema del 60%.",
-      "perche_l_unione_delle_piattaforme": "le tre piattaforme si compilano da un solo lockfile: un conteggio su una sola di esse non descrive cio' che va tenuto compilabile. Le misure sono percio' prese per piattaforma e poi unite, e le differenze sono elencate."
+      "perche_l_unione_delle_piattaforme": "le piattaforme supportate si compilano da un solo lockfile: un conteggio su una sola di esse non descrive cio' che va tenuto compilabile. Le misure sono percio' prese per piattaforma e poi unite, e le differenze sono elencate."
     },
     "piattaforme": {
-      "nota": "due distribuite -- linux-x86_64-gnu e windows-x86_64-msvc, vedi `distribuzione-matrice.json` -- e una terza compilata e verificata in CI ma non distribuita: aarch64-apple-darwin, dove il job `macos-publish` prova il percorso di pubblicazione esclusiva di `plenora-io-core`.",
+      "nota": "Piattaforme supportate: Linux e Windows. Decisione del titolare 2026-11-19: nessuna compilazione o distribuzione per altre piattaforme. I conteggi rimanenti sono storici.",
       "conteggi": {
         "x86_64-unknown-linux-gnu": {
           "senza_gdal_backend": 199,
@@ -805,11 +805,7 @@
         },
         "x86_64-pc-windows-msvc": {
           "con_gdal_backend": 203
-        },
-        "aarch64-apple-darwin": {
-          "con_gdal_backend": 203
-        },
-        "unione_delle_tre": 210
+        }
       },
       "solo_su_una_piattaforma": {
         "windows": {
@@ -830,20 +826,11 @@
             "nix 0.30.1",
             "rustix 1.1.4"
           ],
-          "da_dove": "`rustix` e' dichiarato da noi sotto `cfg(any(linux, android, apple))` e su linux si appoggia a `linux-raw-sys`; `nix` arriva da `ctrlc` nella CLI, e c'e' anche su macos; `iana-time-zone` da `chrono`, e c'e' anche su macos."
-        },
-        "macos": {
-          "crate": [
-            "core-foundation-sys 0.8.7",
-            "dispatch 0.2.0",
-            "errno 0.3.14"
-          ],
-          "da_dove": "`dispatch` da `ctrlc`; `core-foundation-sys` da `iana-time-zone`, cioe' da `chrono`; `errno` da `rustix`, che su macos non ha `linux-raw-sys` sotto di se'."
+          "da_dove": "`rustix` e' dichiarato sotto `cfg(target_os = linux)` e si appoggia a `linux-raw-sys`; `nix` arriva da `ctrlc` nella CLI e `iana-time-zone` da `chrono`."
         }
       },
       "asimmetrie_da_notare": [
-        "`rustix` e `nix` sono entrambi presenti su linux e su macos: due binding POSIX distinti nello stesso binario. Non e' un difetto -- il secondo entra da `ctrlc`, non da noi -- ma e' una duplicazione di superficie unsafe da guardare quando si tocchera' la CLI.",
-        "delle otto piattaforme-per-feature misurate, la sola differenza fra windows e macos nel numero di crate e' una coincidenza: 203 entrambe, ma con insiemi diversi."
+        "`rustix` e `nix` sono entrambi presenti su Linux: due binding POSIX distinti; il secondo entra da `ctrlc` nella CLI."
       ]
     },
     "feature": {
@@ -870,7 +857,7 @@
       ]
     },
     "duplicazioni_reali": {
-      "nota": "sette nomi in piu' versioni su linux e macos, otto su windows. Ciascuno ha un proprietario e una rotta; nessuno e' un difetto in se'.",
+      "nota": "sette nomi in piu' versioni su linux, otto su windows. Ciascuno ha un proprietario e una rotta; nessuno e' un difetto in se'.",
       "voci": [
         {
           "crate": "zip",
@@ -1435,7 +1422,7 @@
           "primo_esito": "rossa su tutti e nove i job di build, il 2026-09-09. Un lint solo: `clippy::items_after_test_module`, `src/spatial_ref/srs.rs:638`. `patch -p1` aveva appeso i due wrapper in fondo al file, quindi dopo `mod tests`, e georust/gdal nega quel lint.",
           "perche_non_l_avevo_visto": "la mia verifica lanciava `cargo clippy -p gdal --all-targets` e guardava solo il codice d'uscita. Senza `-D warnings` il lint resta un avviso e l'uscita e' zero. E' la stessa lezione gia' registrata sul clippy dell'L1, applicata questa volta a un progetto altrui: la severita' del controllo va presa da chi lo esegue, non da noi.",
           "correzione": "e280c595646ee7af4793e31c3ef011b209c4af4f -- gli stessi due wrapper spostati sopra `mod tests`, nessun'altra modifica. Riverificato con `-D warnings`, piu' le due prove nuove e le 281+57 della suite.",
-          "esito_dopo_la_correzione": "dieci controlli su dieci verdi il 2026-09-09: i sei job versionati (GDAL 3.8.5, 3.9.3, 3.10.3, 3.11.5, 3.12.1, 3.13.1), i tre `gdal-static` (ubuntu, macos, windows) e il controllo ortografico. La PR resta OPEN e MERGEABLE, in attesa del manutentore."
+          "esito_dopo_la_correzione": "dieci controlli su dieci verdi il 2026-09-09: i sei job versionati (GDAL 3.8.5, 3.9.3, 3.10.3, 3.11.5, 3.12.1, 3.13.1), i tre `gdal-static` upstream (inclusi target non supportati dal prodotto) e il controllo ortografico. La PR resta OPEN e MERGEABLE, in attesa del manutentore."
         }
       }
     ],
@@ -1509,8 +1496,8 @@
         "giudizio": "il piu' piccolo dei sei e il primo da cui partire. Interno alla CLI, non attraversa nessun confine.",
         "esito": {
           "eseguito_il": "2026-09-08",
-          "che_cosa_cambia_nel_crate": "diciassette righe in un file solo, `platform/unix/mod.rs`: su macOS il semaforo passa dal crate `dispatch` a `dispatch2`, e i confronti sui gestori installati passano da `!=` a `!matches!`. MSRV ed edizione invariate.",
-          "che_cosa_cambia_nel_grafo": "piu' di quanto le diciassette righe lascino intendere, e **solo su macOS**: `dispatch 0.2.0` esce, ed entrano `dispatch2 0.3.1`, `objc2 0.6.4`, `objc2-encode 4.1.0` e `block2 0.6.2`. Su tutte le piattaforme `nix` sale da 0.30.1 a 0.31.3, tirato da `ctrlc`. Nodi: linux 200, windows 202, macos 205.",
+          "che_cosa_cambia_nel_crate": "Aggiornamento upstream di `platform/unix/mod.rs`: i confronti sui gestori installati passano da `!=` a `!matches!`. MSRV ed edizione invariate; omessi i dettagli relativi alle piattaforme non supportate.",
+          "che_cosa_cambia_nel_grafo": "`nix` sale da 0.30.1 a 0.31.3, tirato da `ctrlc`. Conteggi storici delle piattaforme supportate: linux 200, windows 202.",
           "il_giudizio": "uno contro quattro non e' un affare in astratto, ma il crate che esce e' fermo al **2020-01-19**, e quello che entra e' del 2026-02. **Nessun advisory RUSTSEC** su `dispatch`: e' manutenzione, non sicurezza, e va detto cosi'. I tre crate in piu' pesano su una piattaforma che compiliamo e non distribuiamo.",
           "verifiche": [
             "clippy pulito con `-D warnings`",
@@ -1532,7 +1519,7 @@
           "eseguito_il": "2026-09-09",
           "perche_isolato": "attraversa **nove** crate del workspace -- geojson, geoparquet, gpkg, ipc, kml, shp, bench, fuzz e il modello -- ed e' il tipo geometrico condiviso con gli altri componenti. Piccolo di numero, largo di superficie.",
           "che_cosa_cambia_nel_crate": "l'errore passa da un `Display` scritto a mano al derive di `thiserror`, e arriva una feature opzionale `rstar_0_13`. MSRV ed edizione invariate.",
-          "che_cosa_cambia_nel_grafo": "**niente**: 200 nodi su linux, 202 su windows, 205 su macos, gli stessi di prima. Nel lockfile entra `rstar 0.13.0` -- il **sesto** -- e `cargo tree -i rstar@0.13.0` risponde «nothing to print»: e' dietro una feature che nessuno attiva, come gli altri cinque.",
+          "che_cosa_cambia_nel_grafo": "**niente**: 200 nodi su linux, 202 su windows, gli stessi di prima. Nel lockfile entra `rstar 0.13.0` -- il **sesto** -- e `cargo tree -i rstar@0.13.0` risponde «nothing to print»: e' dietro una feature che nessuno attiva, come gli altri cinque.",
           "verifiche": [
             "clippy pulito con `-D warnings`",
             "40 suite verdi",
@@ -1729,10 +1716,10 @@
     "il_censimento": "da 154 nomi a **128 coppie su 122 nomi**, di cui 119 di prodotto e 9 di sola build. Sei nomi sono raggiungibili in piu' versioni sui bersagli distribuiti e ora il censimento le dichiara tutte. Le licenze vengono da `cargo metadata`, che le legge dai manifesti, non scritte a mano.",
     "un_terzo_riassunto_mai_ricalcolato": "l'istogramma `licenze` sommava 178 voci su un elenco di 154: derivato una volta e poi mai piu' guardato, come le versioni e per la stessa ragione. Adesso il gate lo ricalcola dall'elenco e pretende che coincida.",
     "la_controprova": "falsata la sola versione di `jsonschema` nel censimento -- da 0.55.1 a 0.51.0, nome invariato -- il gate esce 1 e dice: «jsonschema: il censimento dichiara ['0.51.0'], la closure porta ['0.55.1']». Lo diagnostica come divergenza di versione, non come una crate entrata o uscita, che sarebbe una diagnosi diversa dal fatto.",
-    "le_sonde": "trentadue, otto nuove: la versione sbagliata col nome giusto; una crate raggiungibile in due versioni che ne dichiara una sola; che l'attraversamento distingua davvero due versioni dello stesso nome; che i bersagli siano quelli distribuiti e non ne comprendano di apple; che il perimetro esteso sia dichiarato piu' largo e non equivalente; che un numero esteso ricordato male sia rosso; che entrambe le origini siano popolate; e che una dipendenza di build spacciata per prodotto sia rossa. Nessuna scrive un numero di versione a mano.",
+    "le_sonde": "trentadue, otto nuove: la versione sbagliata col nome giusto; una crate raggiungibile in due versioni che ne dichiara una sola; che l'attraversamento distingua davvero due versioni dello stesso nome; che i bersagli siano esattamente quelli supportati; che il perimetro esteso sia dichiarato piu' largo e non equivalente; che un numero esteso ricordato male sia rosso; che entrambe le origini siano popolate; e che una dipendenza di build spacciata per prodotto sia rossa. Nessuna scrive un numero di versione a mano.",
     "una_motivazione_sbagliata_e_corretta": {
       "che_cosa_avevo_scritto": "che `--target all` fosse giustificato perche' «distribuiamo per Linux e per Windows».",
-      "perche_e_un_non_sequitur": "`all` non e' l'unione delle piattaforme distribuite: comprende redox, haiku, wasm, wasi, android, apple e le architetture i686 e aarch64 di Windows. Sono quarantadue coppie in piu' delle centoventotto distribuite, da `wasm-bindgen` a `iana-time-zone-haiku`.",
+      "perche_e_un_non_sequitur": "`all` non e' l'unione delle piattaforme distribuite: comprende piattaforme non supportate e le architetture i686 e aarch64 di Windows. Sono quarantadue coppie in piu' delle centoventotto distribuite, da `wasm-bindgen` a `iana-time-zone-haiku`.",
       "perche_non_bastava_dire_che_e_prudente": "un censimento di licenze che comprende cio' che non spediamo non e' una versione piu' cauta della stessa risposta: e' una risposta a un'altra domanda, col titolo della prima. E quarantadue voci che nessuno deve rivedere rendono meno riconoscibili le centoventotto che invece si'.",
       "che_cosa_resta_del_perimetro_esteso": "il numero, misurato dal gate e non ricordato: `perimetro_esteso.coppie` = 170, con la dichiarazione esplicita che non e' equivalente. Cosi' la differenza fra i due resta visibile senza doverla ricalcolare."
     },

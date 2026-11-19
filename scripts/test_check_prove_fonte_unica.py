@@ -1,5 +1,6 @@
 """Controprove: deriva degli insiemi e raccolta oltre il primo guasto."""
 import copy
+import io
 import json
 import os
 from pathlib import Path
@@ -9,6 +10,7 @@ import shutil
 import tempfile
 import unittest
 from unittest import mock
+from contextlib import redirect_stdout
 
 from scripts import check_prove_fonte_unica as gate
 from scripts import check_footer_field_conflicts as footer
@@ -131,6 +133,18 @@ class CollectionTests(unittest.TestCase):
             (root / 'test_empty.py').write_text('value = 1\n')
             results = gate.run_all([[sys.executable, '-m', 'unittest', 'test_empty']], root, root)
             self.assertEqual(results[0]['exit'], 126)
+
+    def test_failed_command_diagnostic_is_visible_in_ci_log(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = io.StringIO()
+            with redirect_stdout(output):
+                results = gate.run_all([
+                    [sys.executable, '-c', 'print("failure detail"); raise SystemExit(7)'],
+                    [sys.executable, '-c', 'print("success detail")'],
+                ], Path(directory))
+            self.assertEqual([r['exit'] for r in results], [7, 0])
+            self.assertIn('\nfailure detail\n', output.getvalue())
+            self.assertNotIn('\nsuccess detail\n', output.getvalue())
 
     def test_release_launch_error_does_not_hide_second_gate(self):
         document = {'invarianti': [

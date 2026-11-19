@@ -287,7 +287,7 @@ Ciò che la CI misura, e nient'altro.
 |---|---|---|
 | Linux x86-64 | suite completa, fuzz, copertura, tutti i gate | è la piattaforma di riferimento; FileGDB in scrittura richiede GDAL ≥ quella di Ubuntu 24.04 |
 | Windows x86-64 | `cargo test --workspace --all-targets`, FileGDB con GDAL nativo, publish cross-volume | il gestore di Ctrl+C c'è; la sonda che invia il segnale no, perché su Windows si applica a un gruppo di console e non a un PID |
-| macOS | le sole prove di publish e i lint di sicurezza | il resto non è misurato su questa piattaforma, e non è dichiarato |
+| macOS | non supportata | nessuna compilazione, prova CI o distribuzione |
 
 Il **recovery** di un publish Shapefile interrotto è in
 [docs/PRODUCT.md § Publish](docs/PRODUCT.md#publish-che-cosa-diventa-visibile-e-quando).

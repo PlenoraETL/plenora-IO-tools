@@ -6224,6 +6224,74 @@ fn r1_directory_set_uses_actual_internal_case_and_container_layer_name() {
 }
 
 #[test]
+fn r1_mixed_extensions_use_the_same_members_in_preflight_and_reader() {
+    for directory in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("Requested.ShP.D");
+        std::fs::create_dir(&root).unwrap();
+        let main = root.join("DaTa.ShP");
+        r1_fixture(&main);
+        for (extension, mixed) in [
+            ("shx", "sHx"),
+            ("dbf", "dBf"),
+            ("prj", "pRj"),
+            ("cpg", "cPg"),
+        ] {
+            let source = plenora_io_core::dataset_files::output_companion(&main, extension);
+            let temporary = root.join("rename.tmp");
+            std::fs::rename(source, &temporary).unwrap();
+            std::fs::rename(temporary, main.with_extension(mixed)).unwrap();
+        }
+        let dataset = ShpDriver
+            .open(
+                Source::Path(if directory { root } else { main }),
+                read_opts(),
+            )
+            .unwrap();
+        assert_eq!(
+            dataset.layers()[0].name,
+            if directory { "Requested" } else { "DaTa" }
+        );
+        assert_eq!(
+            dataset
+                .open_layer_reader(&req())
+                .unwrap()
+                .next_batch()
+                .unwrap()
+                .unwrap()
+                .num_rows(),
+            2
+        );
+    }
+}
+
+#[test]
+fn r1_index_of_a_distinct_stem_is_not_used_for_sequential_reading() {
+    let dir = tempfile::tempdir().unwrap();
+    let main = dir.path().join("vec.shp");
+    r1_fixture(&main);
+    std::fs::remove_file(main.with_extension("shx")).unwrap();
+    std::fs::write(dir.path().join("VEC.SHX"), b"foreign index").unwrap();
+    // On a case-insensitive host this is the same dataset's malformed index.
+    let result = ShpDriver.open(Source::Path(main.clone()), read_opts());
+    if main.with_extension("shx").exists() {
+        assert!(result.is_err());
+    } else {
+        assert_eq!(
+            result
+                .unwrap()
+                .open_layer_reader(&req())
+                .unwrap()
+                .next_batch()
+                .unwrap()
+                .unwrap()
+                .num_rows(),
+            2
+        );
+    }
+}
+
+#[test]
 fn r1_foreign_companion_after_create_blocks_the_entire_loose_set() {
     let dir = tempfile::tempdir().unwrap();
     let main = dir.path().join("VEC.SHP");

@@ -494,13 +494,12 @@ fn rename_noclobber(source: &Path, destination: &Path) -> Result<()> {
         .map_err(|error| publish_rename_error(error, destination))
 }
 
-#[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+#[cfg(target_os = "linux")]
 fn rename_noclobber_os(source: &Path, destination: &Path) -> std::io::Result<()> {
     use rustix::fs::{renameat_with, RenameFlags, CWD};
 
-    // Linux/Android usano renameat2(RENAME_NOREPLACE); sulle piattaforme Apple
-    // rustix traduce la stessa API in renameatx_np(RENAME_EXCL). Entrambe le
-    // primitive sono atomiche anche per directory e rifiutano un nome apparso
+    // Linux usa renameat2(RENAME_NOREPLACE): la primitiva e' atomica
+    // anche per directory e rifiuta un nome apparso
     // dopo il preflight.
     renameat_with(CWD, source, CWD, destination, RenameFlags::NOREPLACE).map_err(Into::into)
 }
@@ -510,23 +509,8 @@ fn rename_noclobber_os(source: &Path, destination: &Path) -> std::io::Result<()>
     atomicwrites::move_atomic(source, destination)
 }
 
-#[cfg(not(any(
-    target_os = "linux",
-    target_os = "android",
-    target_vendor = "apple",
-    windows
-)))]
-fn rename_noclobber_os(source: &Path, destination: &Path) -> std::io::Result<()> {
-    let metadata = std::fs::symlink_metadata(source)?;
-    if !metadata.is_file() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "publish directory no-clobber non supportato su questa piattaforma",
-        ));
-    }
-    std::fs::hard_link(source, destination)?;
-    std::fs::remove_file(source)
-}
+#[cfg(not(any(target_os = "linux", windows)))]
+compile_error!("plenora-io-core: piattaforma non supportata; usare Linux o Windows");
 
 fn ensure_same_filesystem(staging: &Path, destination_parent: &Path) -> Result<()> {
     if same_filesystem(staging, destination_parent)? {

@@ -2059,6 +2059,10 @@
     "plenora-io-model/src/error_table.rs::plenora_io_model::error_table::348e229050e8a81f3c7ef7c9267355474c3adc7fbc253a72a36d613154debd28": {
       "classificazione": "non riceve dati esterni",
       "motivazione": "Espansione riesaminata: native_elements! genera NativeElement, NATIVE_ELEMENTS e rules(self)->[NativeRule;20]; rules! genera Situation, ERROR_RULES e rule(self)->ErrorRule. I token delle invocazioni sono soltanto regole costanti; nessun parametro Arrow, alias o ingresso dati esterni."
+    },
+    "plenora-io-core/src/publish.rs::plenora_io_core::publish::4abe8418f8e77b62b7490dea64a96047cfaaecbcfba2aab065c50a061fcde239": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "compile_error! rifiuta in compilazione le piattaforme diverse da Linux e Windows. Non genera API, tipi o ingressi Arrow; nessun dato runtime."
     }
   },
   "reexports": {

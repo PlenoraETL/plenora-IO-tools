@@ -30,12 +30,14 @@
         "test_client.ConIlModuloNativo.test_i_due_comandi_concordano_sullo_stesso_file",
         "test_client.ConIlModuloNativo.test_il_catalogo_si_decodifica_intero",
         "test_client.ConIlModuloNativo.test_il_conteggio_di_validate_e_quello_di_inspect",
-        "test_client.ConIlModuloNativo.test_il_limite_e_per_batch_e_truncated_dice_perche_si_e_fermato",
+        "test_client.ConIlModuloNativo.test_il_limite_e_esatto_e_truncated_indica_limite_raggiunto",
         "test_client.ConIlModuloNativo.test_inspect_si_decodifica_intero",
         "test_client.ConIlModuloNativo.test_la_fedelta_arriva_strutturata",
         "test_client.ConIlModuloNativo.test_la_versione_e_quella_del_pacchetto",
         "test_client.ConIlModuloNativo.test_la_versione_si_decodifica",
         "test_client.ConIlModuloNativo.test_layers_riassume_senza_lo_schema",
+        "test_client.ConIlModuloNativo.test_r4_sorgente_assente_e_quota_zero_hanno_categorie_precise",
+        "test_client.ConIlModuloNativo.test_r4c_tutte_le_quote_sdk_rifiutano_zero_e_negativi",
         "test_client.ConIlModuloNativo.test_sigint_predefinito_e_personalizzato",
         "test_client.ConIlModuloNativo.test_timeout_reale_inferiore_a_50_ms",
         "test_client.ConIlModuloNativo.test_un_comando_che_fallisce_porta_la_busta",
@@ -49,11 +51,13 @@
         "test_client.ContrIlBinarioVero.test_i_due_comandi_concordano_sullo_stesso_file",
         "test_client.ContrIlBinarioVero.test_il_catalogo_si_decodifica_intero",
         "test_client.ContrIlBinarioVero.test_il_conteggio_di_validate_e_quello_di_inspect",
-        "test_client.ContrIlBinarioVero.test_il_limite_e_per_batch_e_truncated_dice_perche_si_e_fermato",
+        "test_client.ContrIlBinarioVero.test_il_limite_e_esatto_e_truncated_indica_limite_raggiunto",
         "test_client.ContrIlBinarioVero.test_inspect_si_decodifica_intero",
         "test_client.ContrIlBinarioVero.test_la_fedelta_arriva_strutturata",
         "test_client.ContrIlBinarioVero.test_la_versione_si_decodifica",
         "test_client.ContrIlBinarioVero.test_layers_riassume_senza_lo_schema",
+        "test_client.ContrIlBinarioVero.test_r4_sorgente_assente_e_quota_zero_hanno_categorie_precise",
+        "test_client.ContrIlBinarioVero.test_r4c_tutte_le_quote_sdk_rifiutano_zero_e_negativi",
         "test_client.ContrIlBinarioVero.test_sigint_predefinito_e_personalizzato",
         "test_client.ContrIlBinarioVero.test_un_comando_che_fallisce_porta_la_busta",
         "test_client.ContrIlBinarioVero.test_un_crs_che_non_si_risolve_e_un_rifiuto_tipizzato",
@@ -100,7 +104,7 @@
         "test_convert.LaScritturaDiWriteNativa.test_le_tre_fedelta_arrivano_distinte",
         "test_convert.LaScritturaDiWriteNativa.test_un_sink_che_non_regge_i_dati_non_lascia_una_destinazione"
       ],
-      "quante": 73
+      "quante": 77
     },
     {
       "id": "contratto-del-protocollo",
@@ -232,8 +236,8 @@
   ],
   "generato_da": "scripts/check_sonde_saltate.py --misurato <elenca-sonde-saltate.json> --write",
   "conteggi": "Aspettative della discovery, non attestazioni di esecuzione: totale ed eseguite_nella_sdist escludono i salti specifici di piattaforma. Il gate applica anche le condizioni della piattaforma osservata. I nomi eseguiti sono confrontati, non solo il numero.",
-  "totale": 126,
-  "eseguite_nella_sdist": 325,
+  "totale": 130,
+  "eseguite_nella_sdist": 331,
   "sonde_eseguite": [
     "test_async_client.AsyncClientTests.test_cancellation_waits_for_worker",
     "test_async_client.AsyncClientTests.test_construction_and_execution_are_off_loop",
@@ -463,7 +467,7 @@
     "test_discovery.LaScoperta.test_path_stat_distingue_assenza_da_guasti",
     "test_discovery.LaScoperta.test_senza_niente_dice_dove_ha_cercato",
     "test_discovery.LaScoperta.test_stat_negato_non_passa_al_binario_successivo",
-    "test_discovery.LaScoperta.test_un_esplicito_inesistente_non_zittisce_l_ambiente",
+    "test_discovery.LaScoperta.test_un_esplicito_inesistente_non_ripiega_sull_ambiente",
     "test_discovery.LaScoperta.test_una_directory_bin_qualunque_non_e_un_albero",
     "test_limits.ITetti.test_l_ordine_e_stabile",
     "test_limits.ITetti.test_la_durata_diventa_millisecondi",
@@ -509,6 +513,7 @@
     "test_models.StratiSenzaGeometriaOSenzaCrs.test_un_riassunto_senza_crs_si_legge",
     "test_models.StratiSenzaGeometriaOSenzaCrs.test_una_geometria_senza_crs_si_legge",
     "test_primary_geometry.StructuralRoute.test_write_calls_shared_arrow_boundary",
+    "test_process.IMessaggiNonPortanoDati.test_identita_della_busta_nativa_obbligatoria",
     "test_process.IMessaggiNonPortanoDati.test_il_rifiuto_del_prodotto",
     "test_process.IMessaggiNonPortanoDati.test_il_timeout_del_modulo_nativo",
     "test_process.IMessaggiNonPortanoDati.test_un_binario_che_non_si_esegue_non_dice_dove",
@@ -559,6 +564,11 @@
     "test_tipi_esatti_e_copie.SoloTipiJsonEsatti.test_un_dizionario_che_mente_su_kind_non_passa",
     "test_tipi_esatti_e_copie.SoloTipiJsonEsatti.test_una_stringa_che_finge_none_non_passa",
     "test_tipi_esatti_e_copie.TuttoIlDocumentoETipizzato.test_i_messaggi_non_portano_le_chiavi_del_documento",
-    "test_tipi_esatti_e_copie.TuttoIlDocumentoETipizzato.test_i_rami_ignorati_sono_controllati_lo_stesso"
+    "test_tipi_esatti_e_copie.TuttoIlDocumentoETipizzato.test_i_rami_ignorati_sono_controllati_lo_stesso",
+    "test_wire_identity.WireIdentity.test_every_envelope_requires_exact_identity",
+    "test_wire_identity.WireIdentity.test_explicit_and_environment_never_fall_back",
+    "test_wire_identity.WireIdentity.test_layer_local_error_is_an_envelope_too",
+    "test_wire_identity.WireIdentity.test_native_violation_after_write_retains_unknown",
+    "test_wire_identity.WireIdentity.test_read_status_is_derived_without_changing_raw"
   ]
 }

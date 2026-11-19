@@ -273,7 +273,7 @@ class SondeDelGate(unittest.TestCase):
         distribuite = {p["id"] for p in matrice["piattaforme"]}
         non_distribuite = {p["id"] for p in matrice["piattaforme_non_distribuite"]}
         self.assertEqual(len(gate.TARGET_DISTRIBUITI), len(distribuite), distribuite)
-        # `macos-aarch64` e' fra le non distribuite: nessun bersaglio apple.
+        # `macos-aarch64` e' dichiarata non supportata: nessun bersaglio apple.
         self.assertIn("macos-aarch64", non_distribuite)
         self.assertFalse(
             [t for t in gate.TARGET_DISTRIBUITI if "apple" in t],

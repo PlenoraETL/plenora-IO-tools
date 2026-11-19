@@ -16,7 +16,7 @@ dichiarare verificato cio' che non lo e'.
 
 E' uscito con macOS dal perimetro della v1. Un lettore che nessun artefatto
 esercita invecchia senza che nessuno se ne accorga -- e quando servisse, gli
-strumenti Apple e il formato saranno cambiati. La storia git lo conserva.
+strumenti della piattaforma e il formato saranno cambiati. La storia git lo conserva.
 
 # Perche' binari sintetici e non file di prova scaricati
 

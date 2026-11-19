@@ -9,7 +9,7 @@
 # quando smette non lo dice. Nessun gate lo vedeva, perche' la forzatura
 # mascherava proprio la condizione che avrebbe fatto fermare la build.
 #
-# Ora Windows usa la stessa catena di Linux e di macOS: conda-forge, GDAL 3.9.3,
+# Ora Windows usa la stessa catena di Linux: conda-forge, GDAL 3.9.3,
 # binding 3.9 **veri**, e la versione dichiarata a `gdal-sys` e' quella spedita.
 # Un artefatto che porta la stessa versione da tre catene diverse non ha la
 # stessa identita'; con una catena sola quella domanda non si pone.

@@ -32,11 +32,9 @@ RADICE = pathlib.Path(__file__).resolve().parent.parent
 MATRICE = RADICE / "assurance" / "registries" / "distribuzione-matrice.json"
 LOCK_LINUX = RADICE / "scripts" / "linux-gdal-lock.json"
 LOCK_WINDOWS = RADICE / "scripts" / "windows-gdal-lock.json"
-LOCK_MACOS = RADICE / "scripts" / "macos-gdal-lock.json"
 LOCK_PER_PIATTAFORMA = {
     "linux-x86_64": LOCK_LINUX,
     "windows-x86_64": LOCK_WINDOWS,
-    "macos-aarch64": LOCK_MACOS,
 }
 
 CHECKER = RADICE / "scripts" / "check-linux-gdal-runtime.py"
@@ -509,11 +507,39 @@ class SondeMatrice(unittest.TestCase):
                             "deve dirlo."
                         )
 
+    def test_piattaforme_non_supportate_non_hanno_implementazioni_o_job(self) -> None:
+        voce = next(
+            p for p in self.matrice["piattaforme_non_distribuite"]
+            if p["id"] == "macos-aarch64"
+        )
+        self.assertIn("non supportata", voce["decisione"])
+        for percorso in (RADICE / ".github" / "workflows").iterdir():
+            if percorso.suffix not in {".yml", ".yaml"}:
+                continue
+            codice = "\n".join(
+                r for r in percorso.read_text(encoding="utf-8").splitlines()
+                if not r.lstrip().startswith("#")
+            )
+            self.assertNotRegex(codice.lower(), r"macos|darwin|apple")
+        for percorso in (RADICE / "crates").rglob("*"):
+            if percorso.suffix not in {".rs", ".toml"}:
+                continue
+            self.assertNotRegex(
+                percorso.read_text(encoding="utf-8"),
+                r'target_vendor\s*=\s*"apple"|target_os\s*=\s*"macos"',
+            )
+        pubblicazione = (
+            RADICE / "crates/plenora-io-core/src/publish.rs"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            'compile_error!("plenora-io-core: piattaforma non supportata;', pubblicazione
+        )
+
     def test_nessun_documento_promette_una_piattaforma_fuori_perimetro(self) -> None:
         """Una promessa verso chi installa non si ritira dai registri e si
         lascia nei documenti.
 
-        macOS e' uscito dal perimetro della v1 come **decisione di prodotto**.
+        macOS e' una piattaforma non supportata come **decisione di prodotto**.
         Un documento che continuasse a promettere artefatti, installazione o
         qualifica per macOS direbbe a chi legge una cosa che il progetto non
         mantiene -- ed e' peggio di non averla mai detta, perche' ha l'aria di
@@ -584,7 +610,7 @@ class SondeMatrice(unittest.TestCase):
 
         Erano il pezzo piu' costoso della catena -- un certificato Apple, un
         servizio esterno da interrogare, e una ricevuta che sul deliverable non
-        si poteva nemmeno attaccare al file -- e con macOS fuori scope non
+        si poteva nemmeno attaccare al file -- e con macOS non supportata non
         c'e' piu' nulla da decidere li'."""
         import importlib.util
 
@@ -701,7 +727,7 @@ class SondeMatrice(unittest.TestCase):
         La pretesa vale dove il contratto **non** e' stato scritto insieme al
         primo lock: Linux e' stato misurato prima che questa regola esistesse,
         e riscriverne la storia sarebbe peggio che dichiararlo."""
-        for piattaforma in ("windows-x86_64", "macos-aarch64"):
+        for piattaforma in ("windows-x86_64",):
             percorso = LOCK_PER_PIATTAFORMA[piattaforma]
             if not percorso.exists():
                 continue

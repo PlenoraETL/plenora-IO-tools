@@ -116,14 +116,14 @@ class CiLocaleTests(unittest.TestCase):
     def test_matrix_include_exclude_semantics(self):
         matrix = {"os": ["windows-latest", "ubuntu-latest"], "version": ["a", "b"],
                   "exclude": [{"os": "ubuntu-latest", "version": "b"}],
-                  "include": [{"os": "windows-latest", "extra": "x"}, {"os": "macos-latest", "version": "c"}]}
+                  "include": [{"os": "windows-latest", "extra": "x"}, {"os": "ubuntu-24.04", "version": "c"}]}
         self.workflow([{"run": "echo ${{ matrix.version }}", "env": {"OS": "${{ matrix.os }}"}}],
                       **{"strategy": {"matrix": matrix}, "runs-on": "${{ matrix.os }}"})
         jobs = ci.derive(self.root)["jobs"]
         self.assertEqual([j["matrix"] for j in jobs], [
             {"os": "windows-latest", "version": "a", "extra": "x"},
             {"os": "windows-latest", "version": "b", "extra": "x"},
-            {"os": "ubuntu-latest", "version": "a"}, {"os": "macos-latest", "version": "c"}])
+            {"os": "ubuntu-latest", "version": "a"}, {"os": "ubuntu-24.04", "version": "c"}])
         self.assertEqual([j["steps"][0]["run"] for j in jobs], ["echo a", "echo b", "echo a", "echo c"])
 
     def test_local_reusable_and_nested_composite(self):

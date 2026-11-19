@@ -26,7 +26,7 @@ il gate deve nascondere.
 
 # Il perimetro della v1
 
-Due piattaforme: Linux x86-64 e Windows x86-64. macOS e' fuori scope -- una
+Due piattaforme: Linux x86-64 e Windows x86-64. macOS non e' supportata -- una
 decisione di prodotto registrata in `distribuzione-matrice.json` -- e con esso
 sono usciti Developer ID, la notarizzazione e la questione dello stapling, che
 erano il pezzo piu' costoso di questa catena.

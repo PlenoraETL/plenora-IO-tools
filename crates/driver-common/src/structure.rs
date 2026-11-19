@@ -277,14 +277,15 @@ fn shp_header(path: &Path) -> Result<()> {
     )
 }
 fn shapefile(path: &Path) -> Result<()> {
-    use plenora_io_core::dataset_files::{companion, required, resolve};
+    use plenora_io_core::dataset_files::{companion, required, resolve, resolve_exact};
     let main = if path.is_dir() {
-        required(&path.join("data.shp"))?
+        resolve(&path.join("data.shp"))?
+            .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::NotFound))?
     } else {
         path.to_owned()
     };
     shp_header(&main)?;
-    if let Some(index) = resolve(&companion(&main, "shx")?)? {
+    if let Some(index) = resolve_exact(&companion(&main, "shx")?)? {
         shp_header(&index)?;
     }
     let dbf = required(&companion(&main, "dbf")?)?;
