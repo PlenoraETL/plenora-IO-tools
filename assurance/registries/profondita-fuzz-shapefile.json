@@ -243,7 +243,7 @@
     {
       "id": "rifiuto.conteggi-all-apertura",
       "file": "crates/driver-shp/src/lib.rs",
-      "ancora": "\"numero di geometrie diverso dal numero di record DBF\",",
+        "ancora": "                \"numero di geometrie diverso dal numero di record DBF\",",
       "perche": "la difesa piu' economica del reader: con il `.shx` il disallineamento si vede prima di decodificare una geometria. Che `shape_count` sia coperta non basta -- dice che il conteggio e' stato letto, non che il rifiuto sia scattato."
     },
     {

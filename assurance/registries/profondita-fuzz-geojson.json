@@ -99,7 +99,7 @@
     {
       "id": "tetto.annidamento",
       "file": "crates/driver-geojson/src/geometria_progressiva.rs",
-      "ancora": "\"annidamento della geometria GeoJSON oltre il limite di\",",
+      "ancora": "plenora_io_model::quota::Quota::WkbDepth",
       "perche": "il rifiuto per annidamento oltre il tetto. E' l'unico dei tre budget raggiungibile da un input piu' corto del cap del harness, e un seme lo supera apposta."
     },
     {
