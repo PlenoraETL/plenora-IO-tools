@@ -1,0 +1,14 @@
+name: Python per le matrici di enumerazione
+description: Interprete qualificato e PyArrow per i test nativi
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+      with:
+        python-version-file: .python-version
+    - name: Prepara il venv delle matrici
+      shell: bash
+      run: |
+        python -m venv "$RUNNER_TEMP/enumeration-venv"
+        "$RUNNER_TEMP/enumeration-venv/bin/python" -m pip install --only-binary=:all: pyarrow==25.0.1
+        echo "PLENORA_ENUM_PYTHON=$RUNNER_TEMP/enumeration-venv/bin/python" >> "$GITHUB_ENV"

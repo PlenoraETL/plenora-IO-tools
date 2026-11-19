@@ -1094,6 +1094,16 @@ cargo test --workspace
 cargo test --workspace --all-features --doc
 ```
 
+La matrice `filegdb_enumeration` di `plenora-io-tools` con `gdal-backend`
+richiede il runtime GDAL e Python con `pyarrow` (in CI, versione 25.0.1).
+`PLENORA_ENUM_PYTHON` seleziona l'interprete del venv; in sua assenza si usa
+`python3` su Linux e `python` su Windows. Su Linux occorre un utente **non
+root**, affinché `chmod 000` neghi realmente la lettura; su Windows la prova
+usa un lock esclusivo. PyArrow mancante o esecuzione come root fanno fallire
+la matrice con `ambiente non adatto: …`, senza saltare le prove.
+La CI prepara l'interprete da `.python-version` e il venv tramite
+`.github/actions/setup-enumeration-python`.
+
 Le due configurazioni sono entrambe necessarie: `--all-features` abilita
 `gdal-backend`, e il ramo stub di `driver-filegdb` **non viene compilato** con
 quella feature attiva.

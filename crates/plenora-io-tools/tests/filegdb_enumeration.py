@@ -201,10 +201,17 @@ def execute(binary, output, index, case):
 
 
 def main():
+    if hasattr(os, 'geteuid') and os.geteuid() == 0:
+        print('ambiente non adatto: eseguire come utente non root; chmod 000 deve negare la lettura', file=sys.stderr)
+        return 2
+    try:
+        import pyarrow as pa
+    except ImportError:
+        print('ambiente non adatto: manca pyarrow; impostare PLENORA_ENUM_PYTHON al Python del venv con pyarrow', file=sys.stderr)
+        return 2
     binary = str(Path(sys.argv[1]).resolve())
     output = Path(os.environ.get('PLENORA_FILEGDB_ENUM_OUTPUT', ROOT/'target/filegdb-enumeration'))
     output.mkdir(parents=True, exist_ok=True)
-    import pyarrow as pa
     with tempfile.TemporaryDirectory(prefix='baseline-', dir=output) as baseline_folder:
         for layer in range(5):
             destination = Path(baseline_folder)/f'{layer}.arrow'

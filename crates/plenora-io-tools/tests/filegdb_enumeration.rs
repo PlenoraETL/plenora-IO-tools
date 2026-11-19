@@ -9,13 +9,19 @@ fn generated_filegdb_ownership_matrix() {
             "python3".into()
         }
     });
-    let status = std::process::Command::new(python)
+    let output = std::process::Command::new(python)
         .arg(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/tests/filegdb_enumeration.py"
         ))
         .arg(env!("CARGO_BIN_EXE_plenora-io"))
-        .status()
+        .output()
         .expect("launch FileGDB ownership matrix");
-    assert!(status.success(), "FileGDB ownership matrix failed");
+    assert!(
+        output.status.success(),
+        "FileGDB ownership matrix failed ({}):\n{}\n{}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
 }
