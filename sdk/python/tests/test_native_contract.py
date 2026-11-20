@@ -6,12 +6,11 @@ from _nativo import binario_nativo
 
 
 class NativeBoundaryContract(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
+    def setUp(self):
         if binario_nativo() is None:
-            raise unittest.SkipTest("native extension not installed")
+            self.skipTest("serve il backend plenora-io")
         from plenora_io import _native
-        cls.native = _native
+        self.native = _native
 
     def test_unrepresentable_timeout_is_rejected_before_dispatch(self):
         for timeout in (-1.0, float("nan"), float("inf")):

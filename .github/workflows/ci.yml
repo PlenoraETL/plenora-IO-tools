@@ -731,7 +731,9 @@ jobs:
       # The cdylib has test=false: Rust tests alone never execute its binding.
       # Reuse the SDK's behavioral suite with instrumented native/CLI backends.
       - name: Measure Python SDK and native binding coverage
-        run: '"$PLENORA_ENUM_PYTHON" scripts/coverage_sdk.py'
+        run: |
+          "$PLENORA_ENUM_PYTHON" -m unittest scripts.test_coverage_sdk
+          "$PLENORA_ENUM_PYTHON" scripts/coverage_sdk.py
       # Il report esportato porta le stesse esclusioni della soglia. Prima non
       # le portava, e l'artefatto pubblicato come "coverage" descriveva un
       # perimetro diverso da quello su cui la soglia veniva applicata: due

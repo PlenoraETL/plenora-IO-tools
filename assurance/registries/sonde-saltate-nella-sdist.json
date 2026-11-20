@@ -15,9 +15,13 @@
         "test_arrow_60_1.StructBitmapCorta.test_bitmap_padre_corta_non_consegna_batch",
         "test_arrow_60_1.StructBitmapCorta.test_matrice_ipc_non_consegna_batch",
         "test_arrow_60_1.StructBitmapCortaNativa.test_bitmap_padre_corta_non_consegna_batch",
-        "test_arrow_60_1.StructBitmapCortaNativa.test_matrice_ipc_non_consegna_batch"
+        "test_arrow_60_1.StructBitmapCortaNativa.test_matrice_ipc_non_consegna_batch",
+        "test_native_contract.NativeBoundaryContract.test_callback_exception_is_preserved_after_command_stops",
+        "test_native_contract.NativeBoundaryContract.test_catalog_returns_protocol_document_without_timeout",
+        "test_native_contract.NativeBoundaryContract.test_expired_deadline_is_reported_even_when_command_finishes",
+        "test_native_contract.NativeBoundaryContract.test_unrepresentable_timeout_is_rejected_before_dispatch"
       ],
-      "quante": 4
+      "quante": 8
     },
     {
       "id": "fixture-canoniche",
@@ -236,8 +240,8 @@
   ],
   "generato_da": "scripts/check_sonde_saltate.py --misurato <elenca-sonde-saltate.json> --write",
   "conteggi": "Aspettative della discovery, non attestazioni di esecuzione: totale ed eseguite_nella_sdist escludono i salti specifici di piattaforma. Il gate applica anche le condizioni della piattaforma osservata. I nomi eseguiti sono confrontati, non solo il numero.",
-  "totale": 130,
-  "eseguite_nella_sdist": 332,
+  "totale": 134,
+  "eseguite_nella_sdist": 334,
   "sonde_eseguite": [
     "test_async_client.AsyncClientTests.test_cancellation_waits_for_worker",
     "test_async_client.AsyncClientTests.test_construction_and_execution_are_off_loop",
@@ -544,6 +548,8 @@
     "test_process.LaGerarchiaDegliErrori.test_ogni_categoria_ha_la_propria_classe",
     "test_process.LaGerarchiaDegliErrori.test_un_ritentativo_cieco_non_e_sicuro_in_tre_stati",
     "test_process.LaGerarchiaDegliErrori.test_una_categoria_sconosciuta_non_e_un_guasto",
+    "test_repository.RepositoryFixtureDiscovery.test_exported_source_checkout_keeps_its_fixture_root",
+    "test_repository.RepositoryFixtureDiscovery.test_extracted_sdist_does_not_inherit_an_outer_checkout",
     "test_tipi_esatti_e_copie.IModelliNonCondividonoNiente.test_cambiare_il_documento_dopo_non_cambia_il_modello",
     "test_tipi_esatti_e_copie.IlJsonDelFilo.test_chiavi_ripetute_e_costanti_non_json_sono_rifiutate",
     "test_tipi_esatti_e_copie.IlManifesto.test_i_campi_testuali_sono_stringhe_esatte",
