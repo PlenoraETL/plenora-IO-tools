@@ -227,7 +227,7 @@
       "verifica": "il gate rifiuta un artefatto in cui un file di `lib/` non abbia una licenza corrispondente in `LICENSES/`"
     },
     "versione_nota": "la versione e' 3.9 e non l'ultima disponibile perche' `gdal-sys 0.12.0` spedisce binding pre-costruiti soltanto per 3.5-3.9. `bindgen` non e' una libreria in piu': e' un **generatore di codice** che va fissato e qualificato insieme a cio' che gli serve -- `libclang`, gli header di GDAL, e la versione di clang che li interpreta. Sono tre nuovi input di costruzione, ciascuno capace di cambiare i binding senza che nessuna riga del repository cambi, e ciascuno da fissare come si e' fissato il runtime. I binding pre-generati tolgono quel problema alla radice: sono byte nel crate, gia' dentro il perimetro fissato.",
-    "risoluzione_riproducibile": "i pacchetti virtuali con cui si risolve sono **dichiarati** nel lock, non ereditati dalla macchina del solver. Conda deduce `__glibc`, `__osx` e `__win` da chi esegue la risoluzione: senza dichiararli, lo stesso comando su due macchine puo' dare due chiusure diverse e il lock non direbbe quale delle due e' la sua. I valori sono la soglia dichiarata della piattaforma."
+    "risoluzione_riproducibile": "i pacchetti virtuali con cui si risolve sono **dichiarati** nel lock, non ereditati dalla macchina del solver. Conda deduce `__glibc` e `__win` da chi esegue la risoluzione: senza dichiararli, lo stesso comando su due macchine puo' dare due chiusure diverse e il lock non direbbe quale delle due e' la sua. I valori sono la soglia dichiarata della piattaforma."
   },
   "cosa_deve_rifiutare_il_gate": [
     "un archivio a cui manchi una delle voci dichiarate nel layout del suo profilo",
@@ -330,14 +330,16 @@
   "piattaforme_non_distribuite": [
     {
       "id": "macos-aarch64",
-      "decisione": "fuori dallo scope dei deployment server della v1",
-      "che_cosa_significa": "non si promettono artefatti, installazione, supporto operativo ne' qualifica. Il codice puo' continuare a compilare e a essere provato su macOS -- nessuno lo impedisce -- ma cio' non e' una promessa verso chi installa, ed e' la differenza che questa voce esiste per fissare.",
+      "decisione": "non supportata (decisione del titolare, 2026-11-19)",
+      "che_cosa_significa": "macOS non supportata: nessuna compilazione, prova CI o distribuzione; plenora-io-core rifiuta le piattaforme diverse da Linux e Windows con compile_error!.",
       "perche": "il prodotto e' destinato a deployment server, e la v1 copre le due piattaforme su cui quei deployment stanno. Non e' un'affermazione sul mondo -- esistono server macOS -- ma sullo scope di questa release.",
       "che_cosa_e_stato_tolto": [
         "il job `macos` da `.github/workflows/distribuzione.yml`",
         "`scripts/macos-gdal-lock.json`",
         "`scripts/check-macos-runtime.py` e le sonde sul lettore Mach-O",
-        "la politica di firma Developer ID, la notarizzazione e la questione dello stapling"
+        "la politica di firma Developer ID, la notarizzazione e la questione dello stapling",
+        "il job macos-publish da .github/workflows/ci.yml",
+        "i rami di pubblicazione Apple e il fallback per piattaforme non supportate"
       ],
       "perche_tolto_e_non_sospeso": "un verificatore che non verifica niente invecchia senza che nessuno se ne accorga: quando servisse, gli strumenti Apple, il formato e la GDAL saranno cambiati, e quel codice darebbe l'impressione di un punto di partenza che non e'. La storia git lo conserva -- l'ultimo commit che lo contiene e' quello che introduce questa decisione -- e ripartire di li' e' piu' onesto che tenere in vita qualcosa che non e' esercitato da nulla.",
       "che_cosa_la_ribalterebbe": "una decisione di prodotto che porti macOS nel perimetro. Non un runner che si libera, non un pomeriggio disponibile: le piattaforme distribuite sono una promessa verso chi installa, e si aggiungono decidendo."

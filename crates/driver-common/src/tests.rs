@@ -30,6 +30,9 @@ fn i_vocabolari_statici_sono_distinti_e_coprono_le_famiglie() {
         (DataType::Float64, "floating"),
         (DataType::Utf8, "utf8"),
         (DataType::LargeUtf8, "utf8"),
+        (DataType::Utf8View, "utf8"),
+        (DataType::LargeBinary, "binary"),
+        (DataType::BinaryView, "binary"),
         (DataType::Binary, "binary"),
         (DataType::FixedSizeBinary(4), "binary"),
         (DataType::Date32, "temporal"),
@@ -49,7 +52,7 @@ fn i_vocabolari_statici_sono_distinti_e_coprono_le_famiglie() {
         // Il ramo di riserva esiste e va raggiunto: se sparisse, un tipo
         // nuovo di arrow non avrebbe piu' nome e il match non
         // compilerebbe — ma finche' c'e', va provato che risponde.
-        (DataType::Null, "altro"),
+        (DataType::Null, "other"),
     ];
     for (tipo, atteso) in campioni {
         assert_eq!(classe_arrow(&tipo), atteso, "classe di {tipo:?}");
@@ -131,11 +134,11 @@ fn json_conversion_never_conflates_unsupported_or_non_finite_with_null() {
 
     assert!(matches!(
         json_from_array(&unsupported, 0),
-        Err(error) if error.code == plenora_io_model::IoErrorCode::Unsupported
+        Err(error) if error.code == plenora_io_model::error_table::Situation::UnrepresentableWriteType.rule().code
     ));
     assert!(matches!(
         json_from_array(&non_finite, 0),
-        Err(error) if error.code == plenora_io_model::IoErrorCode::Schema
+        Err(error) if error.code == plenora_io_model::IoErrorCode::Format
     ));
     assert_eq!(json_from_array(&absent, 0).unwrap(), JsonValue::Null);
 }
@@ -295,7 +298,7 @@ fn le_durate_non_sono_istanti_e_restano_un_rifiuto() {
         panic!("una durata non ha una forma testuale decisa: deve essere rifiutata");
     };
     assert!(
-        errore.message.contains("temporal"),
+        errore.message.contains("classe: temporal") && errore.message.contains("fase write"),
         "il rifiuto deve nominare la classe, arrivato «{}»",
         errore.message
     );
@@ -348,4 +351,45 @@ fn renderer_validato_riusabile_e_indici_controllati() {
     assert!(cells.text(3).is_err());
     assert!(json_from_array(&array, usize::MAX).is_err());
     assert!(cell_string(&array, usize::MAX).is_err());
+}
+
+#[test]
+fn string_family_preserves_values_and_nulls() {
+    let arrays: Vec<arrow_array::ArrayRef> = vec![
+        Arc::new(arrow_array::StringArray::from(vec![Some("x"), None])),
+        Arc::new(arrow_array::LargeStringArray::from(vec![Some("x"), None])),
+        Arc::new(arrow_array::StringViewArray::from(vec![Some("x"), None])),
+    ];
+    for array in arrays {
+        assert_eq!(json_from_array(&array, 0).unwrap(), serde_json::json!("x"));
+        assert_eq!(json_from_array(&array, 1).unwrap(), serde_json::Value::Null);
+    }
+}
+
+#[test]
+fn large_and_view_types_share_the_base_public_class() {
+    use arrow_schema::Field;
+    let item = Arc::new(Field::new("item", DataType::Int32, true));
+    for (base, variants) in [
+        (
+            DataType::Utf8,
+            vec![DataType::LargeUtf8, DataType::Utf8View],
+        ),
+        (
+            DataType::Binary,
+            vec![DataType::LargeBinary, DataType::BinaryView],
+        ),
+        (
+            DataType::List(item.clone()),
+            vec![
+                DataType::LargeList(item.clone()),
+                DataType::ListView(item.clone()),
+                DataType::LargeListView(item),
+            ],
+        ),
+    ] {
+        for variant in variants {
+            assert_eq!(classe_arrow(&base), classe_arrow(&variant));
+        }
+    }
 }

@@ -22,7 +22,7 @@ differenza fra «verificato» e «non verificato», e sono le due cose che quest
 gate esiste per distinguere.
 
 Il perimetro non e' cablato qui: viene dalla matrice, dove macOS e' registrato
-come **fuori scope della v1**. Un artefatto in meno perche' qualcuno ha tolto un
+come **non supportata**. Un artefatto in meno perche' qualcuno ha tolto un
 job e' un buco; un artefatto in meno perche' una piattaforma e' fuori scope e'
 una decisione.
 
@@ -101,6 +101,9 @@ def perimetro() -> tuple[tuple[str, ...], dict[str, dict]]:
                     "Dichiararlo costa dire perche', altrimenti la decisione e' un modo di non "
                     "prenderla."
                 )
+    for identita in set(PIATTAFORME_NOTE) - set(distribuite):
+        if "non supportata" not in fuori[identita]["decisione"]:
+            raise SystemExit(f"{identita}: la decisione deve dichiarare non supportata")
     return distribuite, fuori
 
 # Le verifiche che ogni artefatto deve portare, e la misura che ciascuna deve
@@ -364,7 +367,7 @@ def verifica(
     # Uno stato che venisse da «il materiale c'era» direbbe soltanto che il
     # costruttore ha avuto un certificato fra le mani. In quel caso si pretende che i
     # verificatori nativi abbiano letto i byte finali: firma presente, identita'
-    # del firmatario, timestamp, e su macOS l'accettazione notarile.
+    # del firmatario, timestamp.
     # La firma riguarda i soli artefatti **nativi**: e' una proprieta' dei
     # binari che una piattaforma esegue, e un pacchetto Python puro non ne ha.
     for piattaforma in piattaforme:
@@ -407,8 +410,8 @@ def verifica(
             if firma.get("smoke_prima_della_firma"):
                 errori.append(
                     f"{piattaforma}/{profilo}: lo smoke e' stato eseguito prima della firma. "
-                    "Un binario firmato -- con una sezione in piu' su Windows, con "
-                    "`LC_CODE_SIGNATURE` su macOS -- e' un altro file: lo smoke va rifatto."
+                    "Un binario firmato -- con "
+                    "una firma incorporata -- e' un altro file: lo smoke va rifatto."
                 )
 
     return errori

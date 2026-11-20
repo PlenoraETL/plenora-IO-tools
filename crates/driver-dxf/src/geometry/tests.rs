@@ -278,3 +278,9 @@ fn arc_segment_count_scales_with_sweep() {
     let small = tessellate_arc([0.0, 0.0], 1.0, 350.0, 10.0, 36);
     assert_eq!(small.len(), 3); // 2 segmenti + 1
 }
+#[test]
+fn identity_preserves_signed_zero_ordinates() {
+    let point = [-0.0_f64, 1.25, -0.0];
+    let received = super::Transform3::IDENTITY.apply(point);
+    assert_eq!(received.map(f64::to_bits), point.map(f64::to_bits));
+}

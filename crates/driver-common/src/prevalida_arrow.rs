@@ -267,6 +267,18 @@ fn valida_metadati_del_footer(driver: &'static str, footer: &arrow_ipc::Footer<'
 /// formato che entra da una porta meno sorvegliata e' il modo normale in cui
 /// una difesa si aggira, e qui le due porte hanno la stessa serratura.
 pub fn valida_flusso_ipc(driver: &'static str, percorso: &Path) -> Result<()> {
+    valida_flusso_ipc_prefix(driver, percorso, None)
+}
+
+/// Validate only blocks needed for a row prefix.
+/// # Errors
+/// Invalid container, schema or required block.
+#[allow(clippy::too_many_lines)] // Framing, schema and block bounds share one streaming cursor.
+pub fn valida_flusso_ipc_prefix(
+    driver: &'static str,
+    percorso: &Path,
+    row_limit: Option<u64>,
+) -> Result<()> {
     let mut file = std::fs::File::open(percorso)?;
     let dimensione = file.seek(SeekFrom::End(0))?;
     file.seek(SeekFrom::Start(0))?;
@@ -284,7 +296,11 @@ pub fn valida_flusso_ipc(driver: &'static str, percorso: &Path) -> Result<()> {
     let mut byte_schema: Option<Vec<u8>> = None;
     let mut posizione = 0_u64;
 
+    let mut rows = 0_u64;
     loop {
+        if row_limit.is_some_and(|n| rows >= n) {
+            break;
+        }
         if posizione + 8 > dimensione {
             break;
         }
@@ -375,6 +391,12 @@ pub fn valida_flusso_ipc(driver: &'static str, percorso: &Path) -> Result<()> {
                 inizio: inizio_metadati + lunghezza_metadati as u64,
             },
         )?;
+        if let Some(batch) = messaggio.header_as_record_batch() {
+            rows = rows.saturating_add(
+                u64::try_from(batch.length())
+                    .map_err(|_| errore(driver, "conteggio righe IPC negativo"))?,
+            );
+        }
         posizione = termine;
 
         messaggi += 1;
@@ -398,6 +420,17 @@ pub fn valida_flusso_ipc(driver: &'static str, percorso: &Path) -> Result<()> {
 /// Restituisce `PlenoraIoError::format` se il contenitore, il footer, lo
 /// schema o i buffer dichiarati non sono conformi; propaga gli errori di I/O.
 pub fn valida_file_ipc(driver: &'static str, percorso: &Path) -> Result<()> {
+    valida_file_ipc_prefix(driver, percorso, None)
+}
+
+/// Validate only blocks needed for a row prefix.
+/// # Errors
+/// Invalid container, schema or required block.
+pub fn valida_file_ipc_prefix(
+    driver: &'static str,
+    percorso: &Path,
+    row_limit: Option<u64>,
+) -> Result<()> {
     let mut file = std::fs::File::open(percorso)?;
     let dimensione = file.seek(SeekFrom::End(0))?;
 
@@ -447,14 +480,18 @@ pub fn valida_file_ipc(driver: &'static str, percorso: &Path) -> Result<()> {
     valida_schema(driver, schema)?;
     valida_metadati_del_footer(driver, &footer)?;
 
+    let mut rows = 0_u64;
     for blocchi in [footer.dictionaries(), footer.recordBatches()] {
         let Some(blocchi) = blocchi else { continue };
         if blocchi.len() > MAX_BLOCCHI {
             return Err(errore(driver, "troppi blocchi dichiarati nel footer Arrow"));
         }
         for indice in 0..blocchi.len() {
+            if row_limit.is_some_and(|n| rows >= n) {
+                break;
+            }
             let blocco = blocchi.get(indice);
-            valida_blocco(
+            let count = valida_blocco(
                 driver,
                 schema,
                 &mut file,
@@ -463,6 +500,7 @@ pub fn valida_file_ipc(driver: &'static str, percorso: &Path) -> Result<()> {
                 blocco.metaDataLength(),
                 blocco.bodyLength(),
             )?;
+            rows = rows.saturating_add(count);
         }
     }
     Ok(())
@@ -477,7 +515,7 @@ fn valida_blocco(
     offset: i64,
     lunghezza_metadati: i32,
     lunghezza_corpo: i64,
-) -> Result<()> {
+) -> Result<u64> {
     let offset = u64::try_from(offset).map_err(|_| errore(driver, "offset di blocco negativo"))?;
     let lunghezza_metadati = usize::try_from(lunghezza_metadati)
         .map_err(|_| errore(driver, "lunghezza dei metadati negativa"))?;
@@ -548,7 +586,10 @@ fn valida_blocco(
             file,
             inizio: offset + lunghezza_metadati as u64,
         },
-    )
+    )?;
+    messaggio.header_as_record_batch().map_or(Ok(0), |batch| {
+        u64::try_from(batch.length()).map_err(|_| errore(driver, "conteggio righe IPC negativo"))
+    })
 }
 
 /// Un solo controllo per file, flussi, dizionari completi e delta.

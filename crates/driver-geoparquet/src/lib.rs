@@ -32,6 +32,8 @@ use plenora_io_core::driver::{
     Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
+use plenora_io_core::loss_table::{self, NativeDriver, NativeElement, TransportDirection};
+
 use plenora_io_core::publish::StagedFile;
 use plenora_io_core::request::{
     Bbox, ProjectionMode, PruningComparison, PruningPredicate, PruningScalar, ReadRequest,
@@ -40,7 +42,7 @@ use plenora_io_core::{
     validate_write, with_write_validation, AttributeWriteSupport, CrsDerivation,
     CrsRepresentationCapabilities, CrsRepresentationState, CrsWriteSupport,
     FormatWriteCapabilities, NullabilitySupport, SinkPathConstraint, TypeCoercionPolicy, WritePlan,
-    ALL_ARROW_TYPES, UTF8_FIELD_NAMES, WKB_PASSTHROUGH_GEOMETRY,
+    UTF8_FIELD_NAMES, WKB_PASSTHROUGH_GEOMETRY,
 };
 use plenora_io_model::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
@@ -782,15 +784,29 @@ fn valida_lunghezza_del_footer(file: &File, dimensione: u64, tetto: u64) -> Resu
         .map_err(|_| illeggibile())?;
     let [l0, l1, l2, l3, ..] = coda;
     let lunghezza = u64::from(u32::from_le_bytes([l0, l1, l2, l3]));
+    // Prima la struttura: byte arbitrari non sono una richiesta di memoria.
+    let mut magic = [0_u8; 4];
+    lettore
+        .seek(SeekFrom::Start(0))
+        .and_then(|_| lettore.read_exact(&mut magic))
+        .map_err(|_| illeggibile())?;
+    if magic != *b"PAR1"
+        || coda[4..] != *b"PAR1"
+        || lunghezza == 0
+        || lunghezza > inizio_coda.saturating_sub(4)
+    {
+        return Err(illeggibile());
+    }
     if lunghezza.saturating_mul(2) > tetto {
-        return Err(fmt_err(&PublicMessage::Curated(MSG_FOOTER_OLTRE_IL_TETTO)));
+        return Err(plenora_io_model::error_table::Situation::ReadMemoryExceeded
+            .error_with(&PublicMessage::Curated(MSG_FOOTER_OLTRE_IL_TETTO)));
     }
     Ok(())
 }
 
 /// Il footer chiede piu' memoria di quanta la lettura ne abbia.
 pub const MSG_FOOTER_OLTRE_IL_TETTO: &str =
-    "footer Parquet che dichiara piu' metadati della memoria disponibile";
+    plenora_io_model::quota::Quota::MemoryBytes.rule().message;
 
 fn valida_schema_arrow_incorporato(file: File, dimensione: u64, tetto: u64) -> Result<()> {
     use base64::Engine as _;
@@ -993,6 +1009,7 @@ const SCHEMA_OPZIONI: SchemaOpzioniFormato = SchemaOpzioniFormato::nuovo(&[Opzio
 
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     "geoparquet",
+    &plenora_io_core::dataset_files::FILE_SETS[8],
     Direction::Bidirectional,
     ReadMode::StreamingColumnar,
     // INV-7: row group indirizzabili, `SeekFrom::Start` sugli offset del footer.
@@ -1023,10 +1040,13 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     Some("1.1.0"),
     Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
-        allowed_types: ALL_ARROW_TYPES,
+        allowed_types: plenora_io_core::loss_table::GEOPARQUET.allowed_types,
         type_coercion: TypeCoercionPolicy::Reject,
         attributes: AttributeWriteSupport::All,
-        geometry: WKB_PASSTHROUGH_GEOMETRY,
+        geometry: plenora_io_core::GeometryWriteSupport {
+            dimensions: plenora_io_core::loss_table::GEOPARQUET.dimensions,
+            ..WKB_PASSTHROUGH_GEOMETRY
+        },
         // Un CRS risolto, oppure `crs: null` per un `missing`: e' cosi' che
         // GeoParquet 1.1 dice «CRS ignoto». Il dichiarato ma non risolto non
         // ha un modo conforme di essere scritto, e si rifiuta.
@@ -1078,7 +1098,7 @@ pub struct GeoParquetDriver;
 /// unificato e rimozione dei controlli legacy — dovra' avvenire in un punto
 /// solo per driver, non sparso nel corpo di `open`.
 fn percorso_verificato(source: Source, opts: &mut ReadOptions) -> Result<PathBuf> {
-    plenora_io_core::preflight_source(&DESCRIPTOR, source, opts)
+    driver_common::structure::preflight(&DESCRIPTOR, source, opts)
 }
 
 // Un Parquet con schema Arrow geometrico non usa il fallback legacy per nome.
@@ -1122,6 +1142,7 @@ fn open_arrow_parquet(
         .to_owned();
     plenora_io_core::with_read_budget(
         Box::new(GeoParquetDataset {
+            loss: LossReport::default(),
             path,
             visible_to_physical: (0..out_schema.fields().len()).collect(),
             out_schema,
@@ -1146,6 +1167,14 @@ impl FormatDriver for GeoParquetDriver {
 
     fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
         let path = percorso_verificato(source, &mut opts)?;
+        if path.is_dir() {
+            return Err(PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated(
+                    "directory Parquet non supportata; fornire un singolo file Parquet",
+                ),
+            ));
+        }
+
         // Il footer Parquet puo' portare la chiave `ARROW:schema`, che e' un
         // messaggio Arrow IPC deserializzato qui dentro: un `.parquet` ostile
         // raggiunge quindi lo stesso panico di un `.arrow`. Vedi
@@ -1205,6 +1234,21 @@ impl FormatDriver for GeoParquetDriver {
         let visible_to_physical = mappa_campi_fisici(&out_schema, &parquet_schema)?;
         let (contract, altre_geometrie) =
             contract_from_footer(&out_schema, geom_name, crs, geo.as_ref())?;
+        // Format metadata reconstructed without changing its meaning is not lost.
+        let mut comparable_metadata = parquet_schema.metadata().clone();
+        if let Some(raw) = comparable_metadata.get("geo") {
+            if reconstructed_geo_matches(raw, &contract)? {
+                comparable_metadata.remove("geo");
+            }
+        }
+        let comparable_schema =
+            Schema::new_with_metadata(parquet_schema.fields().clone(), comparable_metadata);
+        let loss = loss_table::metadata_changes(
+            NativeDriver::GeoParquet,
+            TransportDirection::Read,
+            &comparable_schema,
+            &contract.schema,
+        );
         let out_schema = contract.schema.clone();
         let name = path
             .file_stem()
@@ -1218,6 +1262,7 @@ impl FormatDriver for GeoParquetDriver {
         };
         plenora_io_core::with_read_budget(
             Box::new(GeoParquetDataset {
+                loss,
                 path,
                 out_schema: out_schema.clone(),
                 bbox_covering,
@@ -1237,6 +1282,7 @@ impl FormatDriver for GeoParquetDriver {
         )
     }
 
+    #[allow(clippy::too_many_lines)] // Schema reconciliation and writer construction share the validated plan.
     fn create(
         &self,
         sink: Sink,
@@ -1250,6 +1296,7 @@ impl FormatDriver for GeoParquetDriver {
             &opts.format_options,
         )?;
         let Sink::Path(path) = sink;
+        self.descriptor().files().ensure_absent(&path)?;
         if path.exists() {
             return Err(PlenoraIoError::destinazione_esistente());
         }
@@ -1342,7 +1389,8 @@ impl FormatDriver for GeoParquetDriver {
             opts.durable,
             opts.max_output_bytes(),
             opts.budget().context(),
-        )?;
+        )?
+        .for_dataset(*DESCRIPTOR.files())?;
         // Row group da 64k righe: statistiche min/max abbastanza granulari da
         // rendere efficace il row-group pruning in lettura (Fase 2C).
         let props = WriterProperties::builder()
@@ -1363,6 +1411,9 @@ impl FormatDriver for GeoParquetDriver {
                 })?;
         with_write_validation(
             Box::new(GeoParquetWriter {
+                metadata_check: plenora_io_core::property_plan::NativeMetadataCheck::new(
+                    plan, opts,
+                ),
                 staging,
                 writer: Some(writer),
                 write_schema,
@@ -1415,7 +1466,7 @@ fn senza_chiavi_del_formato(metadati: &arrow_schema::Metadata) -> arrow_schema::
 /// alla chiusura, con i tipi visti; `ArrowWriter` fissa lo schema
 /// all'apertura, quindi il writer salta il proprio e lo codifica qui, con la
 /// stessa funzione della libreria.
-fn schema_arrow_con_geo(schema: &Schema, geo: &str) -> Result<String> {
+fn completed_schema_with_geo(schema: &Schema, geo: &str) -> Result<Schema> {
     let mut metadati = schema.metadata().clone();
     metadati.insert(plenora_io_model::geometry::GEO_METADATA_KEY, geo);
     // Il footer finale e il campo incorporato descrivono gli stessi tipi osservati.
@@ -1459,7 +1510,11 @@ fn schema_arrow_con_geo(schema: &Schema, geo: &str) -> Result<String> {
             Ok(field.as_ref().clone().with_metadata(field_keys))
         })
         .collect::<Result<Vec<_>>>()?;
-    let con_geo = Schema::new_with_metadata(fields, metadati);
+    Ok(Schema::new_with_metadata(fields, metadati))
+}
+
+fn schema_arrow_con_geo(schema: &Schema, geo: &str) -> Result<String> {
+    let con_geo = completed_schema_with_geo(schema, geo)?;
     let mut proprieta = WriterProperties::builder().build();
     parquet::arrow::add_encoded_arrow_schema_to_metadata(&con_geo, &mut proprieta);
     proprieta
@@ -1820,6 +1875,7 @@ fn identificatore_del_documento(documento: &serde_json::Value) -> Option<String>
 }
 
 struct GeoParquetDataset {
+    loss: LossReport,
     path: PathBuf,
     out_schema: SchemaRef,
     /// Nomi delle colonne bbox del covering spaziale, se il file dichiara
@@ -1932,6 +1988,10 @@ impl OpenDatasetHandle for GeoParquetDataset {
     }
 
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
+        if !self.layers.iter().any(|layer| layer.id == request.layer) {
+            return Err(plenora_io_model::error_table::Situation::MissingLayer.error());
+        }
+
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
         // Prima di riaprire il file: il rifiuto viene prima di ogni effetto.
         rifiuta_le_altre_geometrie(&self.altre_geometrie, request.projected_fields.as_deref())?;
@@ -1951,10 +2011,7 @@ impl OpenDatasetHandle for GeoParquetDataset {
         // lette. Ricalcolarla la' sarebbe una seconda verita' che diverge.
         let (builder, out_schema, layer, maschera) = match &request.projected_fields {
             None if self.bbox_covering.is_some() => {
-                let mask = ProjectionMask::roots(
-                    builder.parquet_schema(),
-                    self.visible_to_physical.iter().copied(),
-                );
+                let mask = ProjectionMask::all();
                 (
                     builder.with_projection(mask.clone()),
                     self.out_schema.clone(),
@@ -2019,6 +2076,7 @@ impl OpenDatasetHandle for GeoParquetDataset {
         // **intersezione**: un row group viene letto solo se entrambi i criteri
         // lo tengono.
         let gruppi = self.gruppi_da_leggere(&builder, request);
+        let gruppi = prefix_row_groups(builder.metadata(), gruppi, request.scope);
 
         prevalida_cio_che_il_decoder_leggera(
             &sorgente,
@@ -2033,6 +2091,12 @@ impl OpenDatasetHandle for GeoParquetDataset {
             None => builder,
         };
 
+        let builder = match request.scope {
+            plenora_io_core::ReadScope::Complete => builder,
+            plenora_io_core::ReadScope::AcceptedRows(limit) => {
+                builder.with_limit(usize::try_from(limit).unwrap_or(usize::MAX))
+            }
+        };
         let reader = builder
             .build()
             .map_err(|_| fmt_err(&PublicMessage::Curated("lettura Parquet fallita")))?;
@@ -2040,9 +2104,16 @@ impl OpenDatasetHandle for GeoParquetDataset {
             reader,
             out_schema,
             layer,
+            covering: if request.projected_fields.is_none() {
+                self.bbox_covering.clone()
+            } else {
+                None
+            },
+            loss: LossReport::default(),
+            observed_covering: std::collections::BTreeSet::new(),
         });
         Ok(plenora_io_core::with_cancellation(
-            reader,
+            loss_table::with_native_report(reader, self.loss.clone()),
             request.cancellation.clone(),
         ))
     }
@@ -2052,9 +2123,16 @@ struct GeoParquetReader {
     reader: ParquetRecordBatchReader,
     out_schema: SchemaRef,
     layer: LayerContract,
+    covering: Option<[Vec<String>; 4]>,
+    loss: LossReport,
+    observed_covering: std::collections::BTreeSet<usize>,
 }
 
 impl LayerReader for GeoParquetReader {
+    fn loss_report(&self) -> LossReport {
+        self.loss.clone()
+    }
+
     fn contract(&self) -> &LayerContract {
         &self.layer
     }
@@ -2079,12 +2157,65 @@ impl LayerReader for GeoParquetReader {
         match prossimo {
             None => Ok(None),
             Some(batch) => {
+                if let Some(paths) = &self.covering {
+                    if let Some(geometry) = &self.layer.contract.geometry {
+                        if let Some(column) = batch
+                            .column_by_name(&geometry.name)
+                            .and_then(|a| a.as_any().downcast_ref::<BinaryArray>())
+                        {
+                            let expected = build_bbox_columns(column, geometry.nullable)?;
+                            let expected = expected[0]
+                                .as_any()
+                                .downcast_ref::<arrow_array::StructArray>()
+                                .ok_or_else(|| {
+                                    fmt_err(&PublicMessage::Curated(
+                                        "covering ricostruito non strutturato",
+                                    ))
+                                })?;
+                            for (edge, path) in paths.iter().enumerate() {
+                                let root = batch.schema().index_of(&path[0]).map_err(|_| {
+                                    fmt_err(&PublicMessage::Curated("covering assente"))
+                                })?;
+                                let actual = batch
+                                    .column(root)
+                                    .as_any()
+                                    .downcast_ref::<arrow_array::StructArray>();
+                                if actual.is_none_or(|a| {
+                                    covering_edge_differs(a, &path[1], expected, edge)
+                                }) && self.observed_covering.insert(root)
+                                {
+                                    loss_table::observe_native(
+                                        &mut self.loss,
+                                        (NativeDriver::GeoParquet, TransportDirection::Read),
+                                        NativeElement::Covering,
+                                        1,
+                                        0,
+                                        Some(root as u64),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                let columns = if self.covering.is_some() {
+                    self.out_schema
+                        .fields()
+                        .iter()
+                        .map(|field| {
+                            batch.column_by_name(field.name()).cloned().ok_or_else(|| {
+                                fmt_err(&PublicMessage::Curated("colonna proiettata assente"))
+                            })
+                        })
+                        .collect::<Result<Vec<_>>>()?
+                } else {
+                    batch.columns().to_vec()
+                };
                 // Ri-etichetta lo schema (geometria -> geoarrow.wkb) senza toccare
                 // i buffer: pass-through delle colonne.
                 let options = RecordBatchOptions::new().with_row_count(Some(batch.num_rows()));
                 let retagged = RecordBatch::try_new_with_options(
                     self.out_schema.clone(),
-                    batch.columns().to_vec(),
+                    columns,
                     &options,
                 )
                 .map_err(|_| fmt_err(&PublicMessage::Curated("re-tag dello schema fallito")))?;
@@ -2094,7 +2225,40 @@ impl LayerReader for GeoParquetReader {
     }
 }
 
+fn covering_edge_differs(
+    actual: &arrow_array::StructArray,
+    name: &str,
+    expected: &arrow_array::StructArray,
+    edge: usize,
+) -> bool {
+    if actual.num_columns() != 4 {
+        return true;
+    }
+    let Some(column) = actual.column_by_name(name) else {
+        return true;
+    };
+    let value = |array: &ArrayRef, row: usize| {
+        if array.is_null(row) {
+            return None;
+        }
+        if let Some(array) = array.as_any().downcast_ref::<arrow_array::Float64Array>() {
+            return Some(array.value(row).to_bits());
+        }
+        array
+            .as_any()
+            .downcast_ref::<arrow_array::Float32Array>()
+            .map(|array| f64::from(array.value(row)).to_bits())
+    };
+    (0..actual.len()).any(|row| {
+        if actual.is_null(row) || expected.is_null(row) {
+            return actual.is_null(row) != expected.is_null(row);
+        }
+        value(column, row) != value(expected.column(edge), row)
+    })
+}
+
 struct GeoParquetWriter {
+    metadata_check: plenora_io_core::property_plan::NativeMetadataCheck,
     staging: StagedFile,
     writer: Option<ArrowWriter<File>>,
     write_schema: SchemaRef,
@@ -2182,10 +2346,15 @@ impl FormatWriter for GeoParquetWriter {
                 "chiusura del writer Parquet fallita",
             ))
         })?;
+        let loss = self.metadata_check.compare(
+            &GeoParquetDriver,
+            NativeDriver::GeoParquet,
+            self.staging.path()?,
+        )?;
         let (bytes, outcome) = self.staging.publish()?;
         Ok(Published {
             bytes,
-            loss: LossReport::default(),
+            loss,
             fidelity: plenora_io_core::FidelityAssessment::lossless(),
             outcome,
         })
@@ -3455,6 +3624,35 @@ fn accumulate_geometry_types(
     Ok(())
 }
 
+fn reconstructed_geo_matches(raw: &str, contract: &DataContract) -> Result<bool> {
+    let Some(geometry) = &contract.geometry else {
+        return Ok(false);
+    };
+    let Some(version) = geometry.native_metadata.get("geoparquet.version") else {
+        return Ok(false);
+    };
+    let mut columns = serde_json::Map::new();
+    for field in contract.schema.fields() {
+        if let Some(column) = field
+            .metadata()
+            .get("plenora.geometry.native.geoparquet.column")
+        {
+            columns.insert(
+                field.name().clone(),
+                serde_json::from_str::<serde_json::Value>(column).map_err(|_| {
+                    fmt_err(&PublicMessage::Curated(
+                        "metadati geo ricostruiti non validi",
+                    ))
+                })?,
+            );
+        }
+    }
+    let value: serde_json::Value = serde_json::from_str(raw)
+        .map_err(|_| fmt_err(&PublicMessage::Curated("metadati geo non validi")))?;
+    let reconstructed = serde_json::json!({"version": version, "primary_column": geometry.name, "columns": columns});
+    Ok(value == reconstructed)
+}
+
 fn build_geo_metadata(
     geom_name: &str,
     types: &BTreeSet<(GeometryType, CoordinateDimensions)>,
@@ -3587,3 +3785,30 @@ mod multigeometria;
 
 #[cfg(test)]
 mod tests;
+
+fn prefix_row_groups(
+    metadata: &parquet::file::metadata::ParquetMetaData,
+    gruppi: Option<Vec<usize>>,
+    scope: plenora_io_core::ReadScope,
+) -> Option<Vec<usize>> {
+    if let plenora_io_core::ReadScope::AcceptedRows(limit) = scope {
+        let mut remaining = limit;
+        Some(
+            gruppi
+                .unwrap_or_else(|| (0..metadata.num_row_groups()).collect())
+                .into_iter()
+                .take_while(|&index| {
+                    if remaining == 0 {
+                        return false;
+                    }
+                    remaining = remaining.saturating_sub(
+                        u64::try_from(metadata.row_group(index).num_rows()).unwrap_or(u64::MAX),
+                    );
+                    true
+                })
+                .collect::<Vec<_>>(),
+        )
+    } else {
+        gruppi
+    }
+}

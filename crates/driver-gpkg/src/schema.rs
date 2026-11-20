@@ -1,8 +1,8 @@
 //! Metadati SQL conservabili e normalizzazioni dello schema.
 use super::{
     err, geometry_field, sql_err, sqlite_type, Arc, Connection, DataType, Field, LossReport,
-    PlenoraIoError, PublicMessage, ResolvedCrs, Result, Schema, SchemaRef, DECLARED_TYPE,
-    PRIMARY_KEY, SCHEMA_NORMALIZED,
+    PublicMessage, ResolvedCrs, Result, Schema, SchemaRef, DECLARED_TYPE, PRIMARY_KEY,
+    SCHEMA_NORMALIZED,
 };
 
 /// Vocabolario chiuso: nessun frammento SQL proveniente dal file entra nel DDL.
@@ -29,6 +29,13 @@ pub fn recognized_declared_type(declared: &str) -> Option<&'static str> {
 pub fn validate_sqlite_metadata(schema: &Schema) -> Result<()> {
     let mut keys = 0;
     for field in schema.fields() {
+        if field.metadata().contains_key("gpkg.identifier")
+            || field.metadata().contains_key("gpkg.description")
+        {
+            return Err(err(&PublicMessage::Curated(
+                "identifier e description GeoPackage sono metadati di schema, non di campo",
+            )));
+        }
         if let Some(declared) = field.metadata().get(DECLARED_TYPE) {
             if recognized_declared_type(declared).is_none()
                 || sqlite_declared_to_arrow(declared) != *field.data_type()
@@ -210,12 +217,18 @@ pub fn build_schema(
             attribute_fields.push(field);
         }
     }
-    let crs_id = crs.id.as_deref().ok_or_else(|| {
-        PlenoraIoError::crs_redatto(&PublicMessage::Curated(
-            "GeoPackage: CRS risolto senza identificatore; vietato assumere OGC:CRS84",
-        ))
-    })?;
-    let mut fields = vec![geometry_field(geom_col, crs_id).with_nullable(geometry_nullable)];
+    let geometry = crs.id.as_deref().map_or_else(
+        || {
+            Field::new(geom_col, DataType::Binary, true).with_metadata(
+                std::collections::HashMap::from([(
+                    "ARROW:extension:name".to_owned(),
+                    "geoarrow.wkb".to_owned(),
+                )]),
+            )
+        },
+        |id| geometry_field(geom_col, id),
+    );
+    let mut fields = vec![geometry.with_nullable(geometry_nullable)];
     if let Some((name, dt, field)) = primary {
         attrs.push((name, dt));
         attribute_fields.push(field);
@@ -243,14 +256,29 @@ fn finish_schema(
     attrs: Vec<(String, DataType)>,
     normalized: std::collections::BTreeSet<&str>,
 ) -> Result<ReadSchema> {
+    let (fields, properties) = super::contract_plan::restore_with_properties(conn, table, fields)?;
     let mut metadata = std::collections::HashMap::new();
+    let (identifier, description): (Option<String>, Option<String>) = conn
+        .query_row(
+            "SELECT identifier, description FROM gpkg_contents WHERE table_name=?1",
+            [table],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(sql_err)?;
+    for (key, value) in [
+        ("gpkg.identifier", identifier),
+        ("gpkg.description", description),
+    ] {
+        if let Some(value) = value {
+            metadata.insert(key.to_owned(), value);
+        }
+    }
     if !normalized.is_empty() {
         metadata.insert(
             "gpkg.schema_normalized".to_owned(),
             normalized.into_iter().collect::<Vec<_>>().join(","),
         );
     }
-    let (fields, properties) = super::contract_plan::restore_with_properties(conn, table, fields)?;
     Ok(ReadSchema {
         schema: Arc::new(Schema::new_with_metadata(fields, metadata)),
         attrs,
@@ -266,27 +294,25 @@ fn has_unrepresented_sql(conn: &Connection, table: &str) -> Result<bool> {
             |r| r.get(0),
         )
         .map_err(sql_err)?;
-    // SQL non ricostruito: segnalarlo anche se la parola compare in un
-    // identificatore quotato e' conservativo, mai una promessa di conservazione.
-    let constraints = ddl
-        .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
-        .any(|word| {
-            [
-                "CHECK",
-                "UNIQUE",
-                "REFERENCES",
-                "COLLATE",
-                "GENERATED",
-                "DEFAULT",
-                "AUTOINCREMENT",
-                "CONFLICT",
-                "STRICT",
-                "WITHOUT",
-                "DESC",
-            ]
-            .iter()
-            .any(|keyword| word.eq_ignore_ascii_case(keyword))
-        });
+    // Quoted identifiers, literals and comments are not SQL constraints.
+    let tokens = sql_keywords(&ddl);
+    let constraints = tokens.iter().any(|word| {
+        [
+            "CHECK",
+            "UNIQUE",
+            "REFERENCES",
+            "COLLATE",
+            "GENERATED",
+            "DEFAULT",
+            "AUTOINCREMENT",
+            "CONFLICT",
+            "STRICT",
+            "WITHOUT",
+            "DESC",
+        ]
+        .iter()
+        .any(|keyword| word.eq_ignore_ascii_case(keyword))
+    });
     let indices = conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE tbl_name = ?1 COLLATE NOCASE AND type IN ('index', 'trigger'))",
         [table], |r| r.get::<_, bool>(0),
@@ -294,12 +320,58 @@ fn has_unrepresented_sql(conn: &Connection, table: &str) -> Result<bool> {
     Ok(constraints || indices)
 }
 
+fn sql_keywords(sql: &str) -> Vec<String> {
+    let mut chars = sql.chars().peekable();
+    let mut words = Vec::new();
+    while let Some(c) = chars.next() {
+        if matches!(c, '\'' | '"' | '`' | '[') {
+            let end = if c == '[' { ']' } else { c };
+            while let Some(next) = chars.next() {
+                if next == end {
+                    if chars.peek() == Some(&end) {
+                        chars.next();
+                    } else {
+                        break;
+                    }
+                }
+            }
+        } else if c == '-' && chars.peek() == Some(&'-') {
+            for next in chars.by_ref() {
+                if next == '\n' {
+                    break;
+                }
+            }
+        } else if c == '/' && chars.peek() == Some(&'*') {
+            chars.next();
+            while let Some(next) = chars.next() {
+                if next == '*' && chars.peek() == Some(&'/') {
+                    chars.next();
+                    break;
+                }
+            }
+        } else if c.is_ascii_alphanumeric() || c == '_' {
+            let mut word = String::from(c);
+            while let Some(next) = chars.next_if(|c| c.is_ascii_alphanumeric() || *c == '_') {
+                word.push(next);
+            }
+            words.push(word);
+        }
+    }
+    words
+}
+
+#[cfg(test)]
+#[test]
+fn sql_constraint_observation_ignores_quoted_payload_and_comments() {
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch("CREATE TABLE plain (id INTEGER PRIMARY KEY, \"CHECK\" TEXT, [DEFAULT] TEXT, `UNIQUE` TEXT /* COLLATE */); -- GENERATED\nCREATE TABLE constrained (id INTEGER PRIMARY KEY, value INTEGER CHECK(value > 0));").unwrap();
+    assert!(!has_unrepresented_sql(&conn, "plain").unwrap());
+    assert!(has_unrepresented_sql(&conn, "constrained").unwrap());
+}
+
 pub fn columns_ddl(schema: &Schema, geom_idx: usize) -> Vec<String> {
     let geom_name = schema.field(geom_idx).name();
     let mut cols_ddl = Vec::new();
-    if let Some(generated) = super::contract_plan::generated_primary_name(schema) {
-        cols_ddl.push(format!("\"{generated}\" INTEGER PRIMARY KEY AUTOINCREMENT"));
-    }
     cols_ddl.push(format!(
         "\"{}\" BLOB{}",
         geom_name.replace('"', "\"\""),
@@ -309,7 +381,19 @@ pub fn columns_ddl(schema: &Schema, geom_idx: usize) -> Vec<String> {
             " NOT NULL"
         }
     ));
-    for (i, f) in schema.fields().iter().enumerate() {
+    for (i, f) in schema
+        .fields()
+        .iter()
+        .enumerate()
+        .filter(|(_, f)| !f.metadata().contains_key(PRIMARY_KEY))
+        .chain(
+            schema
+                .fields()
+                .iter()
+                .enumerate()
+                .filter(|(_, f)| f.metadata().contains_key(PRIMARY_KEY)),
+        )
+    {
         if i == geom_idx {
             continue;
         }
@@ -327,5 +411,64 @@ pub fn columns_ddl(schema: &Schema, geom_idx: usize) -> Vec<String> {
             },
         ));
     }
+    if let Some(generated) = super::contract_plan::generated_primary_name(schema) {
+        cols_ddl.push(format!("\"{generated}\" INTEGER PRIMARY KEY"));
+    }
     cols_ddl
+}
+
+/// Layer accessories that do not travel in the Arrow contract.
+pub fn native_layer_loss(
+    conn: &Connection,
+    table: &str,
+    layer: u64,
+    restored_identity: bool,
+) -> Result<LossReport> {
+    use super::{loss_table, NativeDriver, NativeElement, TransportDirection};
+    let mut report = LossReport::default();
+    let mut observe = |element, count| {
+        loss_table::observe_native(
+            &mut report,
+            (NativeDriver::Gpkg, TransportDirection::Read),
+            element,
+            count,
+            layer,
+            None,
+        );
+    };
+    for (accessory, column, element) in [
+        (
+            "gpkg_data_columns",
+            "table_name",
+            NativeElement::DataColumns,
+        ),
+        ("layer_styles", "f_table_name", NativeElement::Styles),
+        ("gpkg_extensions", "table_name", NativeElement::Extensions),
+        (
+            "gpkg_metadata_reference",
+            "table_name",
+            NativeElement::LayerMetadata,
+        ),
+    ] {
+        let exists: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",
+                [accessory],
+                |row| row.get(0),
+            )
+            .map_err(sql_err)?;
+        if exists {
+            let sql = format!("SELECT count(*) FROM \"{accessory}\" WHERE \"{column}\" = ?1 OR \"{column}\" IS NULL");
+            let sql = if restored_identity && accessory == "gpkg_metadata_reference" {
+                "SELECT count(*) FROM gpkg_metadata_reference r JOIN gpkg_metadata m ON m.id=r.md_file_id WHERE (r.table_name=?1 OR r.table_name IS NULL) AND m.md_standard_uri <> 'urn:plenora:gpkg:field-identity:1'".to_owned()
+            } else {
+                sql
+            };
+            let count: i64 = conn
+                .query_row(&sql, [table], |row| row.get(0))
+                .map_err(sql_err)?;
+            observe(element, count.unsigned_abs());
+        }
+    }
+    Ok(report)
 }

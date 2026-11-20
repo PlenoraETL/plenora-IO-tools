@@ -113,6 +113,22 @@ pub fn clear_thread_local_config_option(key: &str) -> Result<()> {
 }
 
 type ErrorCallbackType = dyn FnMut(CplErrType, i32, &str) + 'static + Send;
+
+/// Runs an operation with GDAL's quiet error handler on the calling thread.
+/// The previous handler is restored on both return and unwinding.
+pub fn with_quiet_errors<T>(operation: impl FnOnce() -> T) -> T {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            // The guard balances the push on this same thread.
+            unsafe { gdal_sys::CPLPopErrorHandler() };
+        }
+    }
+    // GDAL owns this static callback and keeps the handler stack thread-local.
+    unsafe { gdal_sys::CPLPushErrorHandler(Some(gdal_sys::CPLQuietErrorHandler)) };
+    let _restore = Restore;
+    operation()
+}
 // We have to double-`Box` the type because we need two things:
 // 1. A stable pointer for moving the data in and out of the `Mutex`. This is done by the outer `Box`.
 // 2. A thin pointer to our Trait-`FnMut`. This is done by the inner (sized) `Box`. We cannot use `*mut dyn FnMut`

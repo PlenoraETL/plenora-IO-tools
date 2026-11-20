@@ -129,8 +129,9 @@ def scrittura_sana() -> dict:
     }
 
 
-def busta_ok(risultato: dict) -> str:
-    return json.dumps({"status": "ok", "protocol_version": 2, "result": risultato})
+def busta_ok(risultato: dict, comando: str = "write") -> str:
+    return json.dumps({"status": "ok", "protocol_version": 2,
+                       "contract": f"plenora-io-{comando}-result-v2", "result": risultato})
 
 
 class LaVersioneEQuellaInstallata(unittest.TestCase):
@@ -377,7 +378,7 @@ class LAdattatoreContrUnFinto(unittest.TestCase):
             "argv = sys.argv[1:]\n"
             "if argv[0] == 'read':\n"
             f"    shutil.copyfile({str(self.preparato)!r}, argv[argv.index('--output') + 1])\n"
-            f"    print({busta_ok(lettura)!r})\n"
+            f"    print({busta_ok(lettura, 'read')!r})\n"
             "else:\n"
             f"    shutil.copyfile(argv[1], {str(self.ricevuto)!r})\n"
             f"    print({busta_ok(scrittura_sana())!r})\n"

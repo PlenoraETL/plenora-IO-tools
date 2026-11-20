@@ -5,6 +5,8 @@
 //! una riga la superficie pubblica del crate.
 
 use super::*;
+use driver_common::geometry_field;
+use plenora_io_model::geometry::is_geometry_field;
 
 /// Opzioni di lettura sul modello unificato.
 ///
@@ -58,7 +60,7 @@ fn il_wkb_codificato_non_supera_il_tetto_anche_se_il_testo_ci_sta() {
     assert!(
         matches!(
             esito,
-            Err(ref errore) if errore.message.contains("oltre il limite")
+            Err(ref errore) if errore.message.contains("max_wkb_cell_bytes")
         ),
         "la codifica WKB deve fermarsi al tetto: {esito:?}"
     );
@@ -159,7 +161,11 @@ fn con_byte(cella: usize) -> WkbLimits {
 }
 
 fn quote_con_cella(cella_wkt: WkbLimits, righe: usize) -> QuoteInferenza {
-    QuoteInferenza { cella_wkt, righe }
+    QuoteInferenza {
+        cella_wkt,
+        righe,
+        row_limit: None,
+    }
 }
 
 fn csv_con_righe(dir: &tempfile::TempDir, quante: u32) -> std::path::PathBuf {
@@ -406,7 +412,7 @@ fn inference_respects_max_rows_before_materialising() {
     };
     assert_eq!(errore.code, plenora_io_model::IoErrorCode::LimitExceeded);
     assert!(
-        errore.message.contains("inferenza"),
+        errore.message.contains("max_rows"),
         "il messaggio deve dire dove ci si e' fermati: {}",
         errore.message
     );
@@ -950,6 +956,11 @@ fn la_decodifica_difensiva_del_writer_dichiara_la_fase_di_scrittura() {
     .expect("lo staging si crea");
     let writer = wire::Writer::new(staging.reopen().expect("lo staging si riapre"), b',');
     let mut sotto_prova = CsvWriter {
+        metadata_check: plenora_io_core::property_plan::NativeMetadataCheck::new(
+            &WritePlan { layers: Vec::new() },
+            &opzioni_scrittura(),
+        ),
+        loss: LossReport::default(),
         staging,
         writer: Some(writer),
         xy: false,
@@ -1015,6 +1026,11 @@ fn una_scadenza_durante_la_finalizzazione_non_pubblica() {
     let mut writer = wire::Writer::new(staging.reopen().expect("lo staging si riapre"), b',');
     writer.write_record(["id"]).expect("intestazione");
     let sotto_prova = Box::new(CsvWriter {
+        metadata_check: plenora_io_core::property_plan::NativeMetadataCheck::new(
+            &WritePlan { layers: Vec::new() },
+            &opzioni_scrittura(),
+        ),
+        loss: LossReport::default(),
         staging,
         writer: Some(writer),
         xy: false,
@@ -1094,3 +1110,71 @@ fn il_genere_dell_opzione_segue_la_regola_comune() {
 }
 
 mod presenza;
+
+#[test]
+fn native_columns_names_order_and_xy_precision_are_reported() {
+    let dir = tempfile::tempdir().unwrap();
+    for (text, options, names, precision) in [
+        (
+            "label,secret_wkt\nkeep,POINT (1 2)\n",
+            vec![("wkt_column", "secret_wkt")],
+            1,
+            0,
+        ),
+        (
+            "label,east,north\nkeep,1.1234567890123456789,2\n",
+            vec![("x_column", "east"), ("y_column", "north")],
+            2,
+            1,
+        ),
+    ] {
+        let path = dir.path().join("native.csv");
+        std::fs::write(&path, text).unwrap();
+        let mut opts = opzioni_lettura();
+        opts.assume_crs = Some("EPSG:4326".into());
+        opts.format_options = options
+            .into_iter()
+            .map(|(a, b)| (a.into(), b.into()))
+            .collect();
+        let dataset = CsvDriver.open(Source::Path(path), opts).unwrap();
+        let mut reader = dataset
+            .open_layer_reader(&ReadRequest {
+                layer: LayerId(0),
+                projected_fields: None,
+                projection_mode: ProjectionMode::BestEffort,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                scope: ReadScope::Complete,
+                batch_target: BatchTarget::default(),
+                cancellation: CancellationToken::default(),
+            })
+            .unwrap();
+        let batch = reader.next_batch().unwrap().unwrap();
+        assert_eq!(batch.schema().field(0).name(), "geometry");
+        assert_eq!(batch.schema().field(0).metadata()["crs"], "EPSG:4326");
+        assert_eq!(batch.schema().field(1).name(), "label");
+        assert_eq!(
+            batch
+                .column(1)
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap()
+                .value(0),
+            "keep"
+        );
+        assert!(reader.next_batch().unwrap().is_none());
+        let loss = reader.loss_report();
+        assert_eq!(loss.counts.get("native_fields_reconstructed"), Some(&names));
+        assert_eq!(loss.counts.get("native_field_order_changed"), Some(&1));
+        assert_eq!(
+            loss.counts
+                .get("native_number_precision")
+                .copied()
+                .unwrap_or(0),
+            precision
+        );
+        let examples = serde_json::to_string(&loss.esempi_canonici().collect::<Vec<_>>()).unwrap();
+        assert!(!examples.contains("secret_wkt"));
+        assert!(!examples.contains("1.123456"));
+    }
+}

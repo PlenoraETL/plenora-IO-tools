@@ -111,7 +111,7 @@ def load_json(data):
 
 
 def property_keys(root):
-    source = (root / 'crates/plenora-io-core/src/property_plan.rs').read_text(encoding='utf-8')
+    source = (root / 'crates/plenora-io-core/src/loss_table.rs').read_text(encoding='utf-8')
     table = source.split('pub const PROPERTIES:', 1)[1].split('];', 1)[0]
     pairs = re.findall(r'\(\s*"([a-z_]+)",\s*"([^"]+)"', table)
     require(bool(pairs) and len(dict(pairs)) == len(pairs), 'tabella proprieta non valida')

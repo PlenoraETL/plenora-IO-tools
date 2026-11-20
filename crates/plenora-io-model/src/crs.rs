@@ -367,6 +367,7 @@ pub fn verifica_crs_assunto(
     let Some(assunto) = assunto else {
         return Ok(());
     };
+    valida_crs_assunto(assunto)?;
     let identificatore = match dichiarato {
         CrsResolution::Resolved(crs) => crs.id.as_deref(),
         CrsResolution::DeclaredButUnresolved(raw) => raw.authority_hint.as_deref(),
@@ -386,11 +387,7 @@ pub fn verifica_crs_assunto(
     };
     match identificatore {
         Some(dichiarato) if stesso_identificatore(assunto, dichiarato) => Ok(()),
-        Some(_) => Err(crate::PlenoraIoError::crs_redatto(
-            &crate::PublicMessage::Curated(
-                "--assume-crs contraddice il CRS che la sorgente dichiara",
-            ),
-        )),
+        Some(_) => Err(crate::error_table::Situation::ContradictedCrs.error()),
         None => Err(crate::PlenoraIoError::crs_redatto(
             &crate::PublicMessage::Curated(
                 "--assume-crs non confrontabile: la sorgente dichiara un CRS senza identificatore",
@@ -605,6 +602,27 @@ impl From<ResolvedCrs> for CrsResolution {
     fn from(value: ResolvedCrs) -> Self {
         Self::Resolved(value)
     }
+}
+
+/// Verifica la forma dell'identificatore assunto senza consultare registri.
+///
+/// # Errors
+/// Configurazione non valida per un codice EPSG non canonico.
+pub fn valida_crs_assunto(assunto: &str) -> crate::Result<()> {
+    if assunto
+        .split_once(':')
+        .is_some_and(|(authority, _)| authority.eq_ignore_ascii_case("EPSG"))
+        && authority_srid(assunto).is_none_or(|code| code == 0)
+    {
+        return Err(
+            crate::error_table::Situation::InvalidConfiguration.error_with(
+                &crate::PublicMessage::Curated(
+                    "--assume-crs richiede EPSG seguito da un codice intero positivo canonico",
+                ),
+            ),
+        );
+    }
+    Ok(())
 }
 
 #[cfg(test)]

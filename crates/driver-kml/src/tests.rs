@@ -5,6 +5,7 @@
 //! una riga la superficie pubblica del crate.
 
 use super::*;
+use plenora_io_model::contract::GeometryType;
 
 /// Opzioni di lettura sul modello unificato.
 ///
@@ -41,6 +42,62 @@ const SAMPLE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
       <Placemark><name>B</name>
         <LineString><coordinates>0,0,0 1,1,0</coordinates></LineString></Placemark>
     </Document></kml>"#;
+
+#[test]
+fn scrittura_z_assoluta_e_vuote_rifiutate() {
+    let point = |x, y| WkbCoordinate {
+        x,
+        y,
+        z: Some(3.0),
+        m: None,
+    };
+    for value in [
+        WkbValue::Point(point(1.0, 2.0)),
+        WkbValue::LineString(vec![point(1.0, 2.0), point(4.0, 5.0)]),
+        WkbValue::Polygon(vec![vec![
+            point(0.0, 0.0),
+            point(1.0, 0.0),
+            point(1.0, 1.0),
+            point(0.0, 0.0),
+        ]]),
+    ] {
+        let geometry = WkbGeometry {
+            value,
+            dimensions: CoordinateDimensions::Xyz,
+            srid: None,
+        };
+        let output = kml_geometry_from_wkb(&geometry).unwrap();
+        let mode = match output {
+            KmlGeometry::Point(point) => point.altitude_mode,
+            KmlGeometry::LineString(line) => line.altitude_mode,
+            KmlGeometry::Polygon(polygon) => polygon.altitude_mode,
+            _ => panic!("geometria inattesa"),
+        };
+        assert_eq!(mode, kml::types::AltitudeMode::Absolute);
+    }
+    for value in [
+        WkbValue::Point(WkbCoordinate {
+            x: f64::NAN,
+            y: f64::NAN,
+            z: None,
+            m: None,
+        }),
+        WkbValue::LineString(vec![]),
+        WkbValue::MultiPoint(vec![]),
+        WkbValue::MultiLineString(vec![]),
+        WkbValue::MultiPolygon(vec![]),
+        WkbValue::GeometryCollection(vec![]),
+    ] {
+        let geometry = WkbGeometry {
+            value,
+            dimensions: CoordinateDimensions::Xy,
+            srid: None,
+        };
+        let error = kml_geometry_from_wkb(&geometry).unwrap_err();
+        assert_eq!(error.category, plenora_io_model::ErrorCategory::DataMapping);
+        assert_eq!(error.message, "geometria vuota non rappresentabile in KML");
+    }
+}
 
 const FUZZ_TIMEOUT_REGRESSION: &[u8] = br#"<kml xmlns="http://www.opengis.net/kml/2.2"><Placemark><MultiGeomgis.net/kml/2.2"><Placemark><MultiGeometry>></LikeString></MultiGww.opengis.net/kml/2.2etry>></LikeString></MultiGww.opengis.net/kml/2.2"><>"#;
 const FUZZ_EMPTY_POINT_REGRESSION: &[u8] =
@@ -123,13 +180,90 @@ fn event_parser_rejects_model_track_and_multitrack() {
         let xml = format!(
             r#"<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2"><Placemark>{geometry}</Placemark></kml>"#
         );
-        let error = event_parser_error(&xml);
-        assert_eq!(error.category, plenora_io_model::ErrorCategory::DataMapping);
-        assert!(error.message.contains("geometria KML non supportata"));
-        let diagnostics = error.row_diagnostics.as_deref().unwrap();
-        assert_eq!(diagnostics.examples[0].source_index, 0);
-        assert_eq!(diagnostics.counts["kml.invalid_placemark"], 1);
-        assert!(diagnostics.validate().is_ok());
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("unsupported.kml");
+        std::fs::write(&path, xml).unwrap();
+        let mut stream = PlacemarkStream::open(&path).unwrap();
+        let placemark = stream
+            .next_placemark(&CancellationToken::default(), 0)
+            .unwrap()
+            .unwrap();
+        assert!(placemark.geometry.is_none());
+        assert_eq!(stream.unsupported, 1);
+    }
+}
+
+#[test]
+fn r2_documento_cartella_placemark_non_supportati() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("objects.kml");
+    std::fs::write(&path, r#"<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2"><Document><Folder>
+        <Placemark><Point><coordinates>1,2</coordinates></Point></Placemark>
+        <Placemark><Model><Location/></Model></Placemark>
+        <Placemark><gx:Track><when>2026</when></gx:Track></Placemark>
+        <Placemark><gx:MultiTrack><gx:Track/></gx:MultiTrack></Placemark>
+        <Placemark><gx:Foo><gx:Bar/></gx:Foo></Placemark>
+        </Folder></Document></kml>"#).unwrap();
+    let ds = KmlDriver
+        .open(Source::Path(path), opzioni_lettura())
+        .unwrap();
+    assert_eq!(ds.layers().len(), 8);
+    for (index, layer) in ds.layers().iter().enumerate() {
+        assert_eq!(layer.id.0 as usize, index);
+        assert!(ds.rifiuto_del_layer(layer.id).is_none());
+        let mut reader = ds
+            .open_layer_reader(&ReadRequest {
+                layer: layer.id,
+                projected_fields: None,
+                projection_mode: ProjectionMode::BestEffort,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                scope: ReadScope::Complete,
+                batch_target: BatchTarget::default(),
+                cancellation: CancellationToken::default(),
+            })
+            .unwrap();
+        let batch = reader.next_batch().unwrap().unwrap();
+        assert_eq!(batch.num_rows(), if index < 3 { 5 } else { 1 });
+        if index >= 4 {
+            assert!(batch.column(0).is_null(0));
+        }
+        if index == 0 {
+            assert_eq!(reader.loss_report().counts["kml.unsupported_geometry"], 4);
+        }
+    }
+}
+
+#[test]
+fn r2_placemark_danneggiato_non_impedisce_il_successivo() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("damaged.kml");
+    std::fs::write(&path, "<kml><Document><Placemark><Point><coordinates>1,2 3,4</coordinates></Point></Placemark><Placemark><Point><coordinates>5,6</coordinates></Point></Placemark></Document></kml>").unwrap();
+    let ds = KmlDriver
+        .open(Source::Path(path), opzioni_lettura())
+        .unwrap();
+    assert_eq!(ds.layers().len(), 4);
+    assert!(ds.rifiuto_del_layer(LayerId(2)).is_some());
+    for id in [0, 2, 3] {
+        let result = ds.open_layer_reader(&ReadRequest {
+            layer: LayerId(id),
+            projected_fields: None,
+            projection_mode: ProjectionMode::BestEffort,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: ReadScope::Complete,
+            batch_target: BatchTarget::default(),
+            cancellation: CancellationToken::default(),
+        });
+        if id == 2 {
+            let listed = ds.rifiuto_del_layer(LayerId(id)).unwrap();
+            let error = result.err().unwrap();
+            assert_eq!(error.code, listed.code);
+            assert_eq!(error.message, listed.message);
+            continue;
+        }
+        let mut reader = result.unwrap();
+        assert!(reader.next_batch().unwrap().is_some());
     }
 }
 
@@ -478,10 +612,7 @@ fn write_then_read_round_trip() {
         .unwrap();
     w.write(&batch).unwrap();
     let published = w.finish().unwrap();
-    assert_eq!(
-        published.loss.counts.get("coercion tipo attributo"),
-        Some(&1)
-    );
+    assert_eq!(published.loss.counts.get("coercion tipo attributo"), None);
     assert_eq!(
         published.fidelity.level,
         plenora_io_core::Fidelity::Approximating
@@ -771,5 +902,205 @@ fn coordinate_testuali_non_finite_sono_rifiutate() {
                 "{geometry}"
             );
         }
+    }
+}
+
+#[test]
+fn native_metadata_is_scoped_to_selected_objects() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("native.kml");
+    std::fs::write(&path, r#"<kml><Document><name>secret_document</name><description>secret_description</description><Style id="secret_style"/>
+    <NetworkLink><Link><href>https://invalid.example/secret</href></Link></NetworkLink><GroundOverlay/>
+    <Folder><name>secret_folder</name><Placemark id="secret_id"><name>A</name><visibility>0</visibility><TimeSpan><begin>2000</begin></TimeSpan><styleUrl>#secret_style</styleUrl>
+    <ExtendedData><Data name="secret_field"><value>secret_value</value></Data><SchemaData><SimpleData name="secret_typed">7</SimpleData></SchemaData></ExtendedData>
+    <Point><altitudeMode>relativeToGround</altitudeMode><coordinates>1,2,3</coordinates></Point></Placemark>
+    <Placemark><name>B</name><Point><coordinates>4,5,6</coordinates><altitudeMode>absolute</altitudeMode></Point></Placemark>
+    </Folder></Document></kml>"#).unwrap();
+    let dataset = KmlDriver
+        .open(Source::Path(path), opzioni_lettura())
+        .unwrap();
+    assert_eq!(dataset.layers().len(), 5);
+    for (index, layer) in dataset.layers().iter().enumerate() {
+        let mut reader = dataset
+            .open_layer_reader(&ReadRequest {
+                layer: layer.id,
+                projected_fields: None,
+                projection_mode: ProjectionMode::BestEffort,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                scope: ReadScope::Complete,
+                batch_target: BatchTarget::default(),
+                cancellation: CancellationToken::default(),
+            })
+            .unwrap();
+        let batch = reader.next_batch().unwrap().unwrap();
+        let loss = reader.loss_report();
+        if index == 0 {
+            assert_eq!(loss.counts["native_external_reference_not_followed"], 2);
+            assert_eq!(loss.counts["kml_extended_data_not_preserved"], 1);
+            assert_eq!(loss.counts["kml_hierarchy_flattened"], 1);
+            assert_eq!(loss.counts["native_layer_metadata_not_preserved"], 3);
+            assert_eq!(loss.counts["kml_feature_metadata_not_preserved"], 2);
+        }
+        if index == 3 {
+            assert_eq!(loss.counts["native_feature_id_not_preserved"], 1);
+            assert_eq!(loss.counts["kml_altitude_mode_not_preserved"], 1);
+            assert!(!loss
+                .counts
+                .contains_key("native_external_reference_not_followed"));
+            let array = batch
+                .column(0)
+                .as_any()
+                .downcast_ref::<BinaryArray>()
+                .unwrap();
+            let geometry = decode_wkb(
+                array.value(0),
+                &WkbLimits {
+                    max_cell_bytes: 1024,
+                    max_components: 100,
+                    max_depth: 8,
+                },
+            )
+            .unwrap();
+            let WkbValue::Point(point) = geometry.value else {
+                panic!("point")
+            };
+            assert_eq!(point.z, Some(3.0));
+        }
+        if index == 4 {
+            assert!(!loss.counts.contains_key("kml_altitude_mode_not_preserved"));
+            assert!(!loss.counts.contains_key("kml_extended_data_not_preserved"));
+            assert!(!loss.counts.contains_key("native_feature_id_not_preserved"));
+        }
+        for example in loss.esempi_canonici() {
+            assert_eq!(example.posizione.layer_index, Some(index as u64));
+        }
+        assert!(loss
+            .esempi_canonici()
+            .all(|example| !example.context.contains("secret")));
+    }
+}
+
+#[test]
+fn native_inventory_kml_reproduction() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("native.kml");
+    std::fs::write(&path, include_str!("tests/native_inventory.kml")).unwrap();
+    let dataset = KmlDriver
+        .open(Source::Path(path), opzioni_lettura())
+        .unwrap();
+    let mut reader = dataset
+        .open_layer_reader(&ReadRequest {
+            layer: LayerId(0),
+            projected_fields: None,
+            projection_mode: ProjectionMode::BestEffort,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: ReadScope::Complete,
+            batch_target: BatchTarget::default(),
+            cancellation: CancellationToken::default(),
+        })
+        .unwrap();
+    let batch = reader.next_batch().unwrap().unwrap();
+    assert_eq!(batch.num_rows(), 5);
+    assert!(batch.column(0).is_null(1));
+    assert!(batch.column(0).is_null(4));
+    assert_eq!(batch.schema().fields().len(), 3);
+    let loss = reader.loss_report();
+    for (category, count) in [
+        ("native_external_reference_not_followed", 2),
+        ("kml_extended_data_not_preserved", 2), // Schema definition and ExtendedData instance.
+        ("kml_hierarchy_flattened", 1),
+        ("kml_altitude_mode_not_preserved", 1),
+        ("native_geometry_type_changed", 1),
+        ("kml.unsupported_geometry", 1),
+    ] {
+        assert_eq!(loss.counts[category], count, "{category}");
+    }
+}
+
+#[test]
+fn native_object_children_are_not_additional_foreign_omissions() {
+    for (extra, category) in [
+        (
+            "<TimeStamp><when>1970-01-02T00:00:00Z</when></TimeStamp>",
+            "kml_feature_metadata_not_preserved",
+        ),
+        (
+            "<TimeSpan><begin>1970-01-02</begin><end>1970-01-03</end></TimeSpan>",
+            "kml_feature_metadata_not_preserved",
+        ),
+        (
+            "<ExtendedData><Data name=\"value\"><value>payload</value></Data></ExtendedData>",
+            "kml_extended_data_not_preserved",
+        ),
+        (
+            "<NetworkLink><Link><href>relative.kml</href></Link></NetworkLink>",
+            "native_external_reference_not_followed",
+        ),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("native.kml");
+        std::fs::write(&path, format!("<kml><Placemark>{extra}<Point><altitudeMode>absolute</altitudeMode><coordinates>1,2</coordinates></Point></Placemark></kml>")).unwrap();
+        let dataset = KmlDriver
+            .open(Source::Path(path), opzioni_lettura())
+            .unwrap();
+        let mut reader = dataset
+            .open_layer_reader(&ReadRequest {
+                layer: LayerId(0),
+                projected_fields: None,
+                projection_mode: ProjectionMode::BestEffort,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                scope: ReadScope::Complete,
+                batch_target: BatchTarget::default(),
+                cancellation: CancellationToken::default(),
+            })
+            .unwrap();
+        let batch = reader.next_batch().unwrap().unwrap();
+        assert_eq!(batch.num_rows(), 1);
+        assert_eq!(batch.num_columns(), 3);
+        let report = reader.loss_report();
+        assert_eq!(report.counts.get(category), Some(&1));
+        assert_eq!(report.counts.len(), 1, "{report:?}");
+    }
+}
+
+#[test]
+fn native_fourth_ordinate_is_not_silently_discarded() {
+    let error = event_parser_error(
+        "<kml><Placemark><Point><coordinates>1,2,3,4</coordinates></Point></Placemark></kml>",
+    );
+    assert_eq!(error.category, plenora_io_model::ErrorCategory::DataMapping);
+    assert!(!error.message.contains("1,2,3,4"));
+}
+
+#[test]
+fn native_altitude_modes_and_empty_text_are_declared() {
+    for (mode, expected) in [
+        ("absolute", 0),
+        ("relativeToGround", 1),
+        ("clampToGround", 1),
+        ("", 1),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("native.kml");
+        std::fs::write(&path, format!("<kml><Placemark><name/><MultiGeometry><Polygon><outerBoundaryIs><LinearRing><coordinates>0,0,3 1,0,3 1,1,3 0,0,3</coordinates></LinearRing></outerBoundaryIs><altitudeMode>{mode}</altitudeMode></Polygon></MultiGeometry></Placemark></kml>")).unwrap();
+        let mut stream = PlacemarkStream::open(&path).unwrap();
+        let placemark = stream
+            .next_isolated_placemark(
+                &CancellationToken::default(),
+                0,
+                &mut std::collections::BTreeMap::new(),
+            )
+            .unwrap()
+            .unwrap();
+        assert!(placemark.geometry.is_some());
+        let loss = &stream.native_losses[&0];
+        assert_eq!(
+            loss.counts.get("kml_altitude_mode_not_preserved").copied(),
+            (expected != 0).then_some(expected)
+        );
+        assert_eq!(loss.counts["native_missing_as_null"], 1);
     }
 }

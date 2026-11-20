@@ -118,7 +118,7 @@ rivendicarlo mancano la wheel con `api_modes` fra gli artefatti del manifesto e
 | 2 | `version()` = metadati = nome della wheel | conforme: lo smoke installato lo verifica |
 | 3 | PEP 561, nomi pubblici intenzionali, risultati strutturati | conforme: `py.typed`, `__all__`, dataclass |
 | 3 | Arrow al confine tabellare (SHOULD) | conforme: file Arrow IPC, e oggetti PyArrow con l'extra |
-| 4 | parita' sync/async | solo sync, nessun metodo asincrono nominale; `api_modes: ["sync"]` quando l'artefatto entrera' nel manifesto |
+| 4 | parita' sync/async | `Client` sync e `AsyncClient` async; cancellazione asincrona cooperativa |
 | 5 | ciclo di vita | non applicabile: `Client` non tiene risorse aperte, ogni chiamata attende fino alla fine il processo o il worker nativo |
 | 6 | radice `PlenoraError`, cinque assi su ogni eccezione | conforme dalla 4.2.0: prima li portava solo `CommandFailed` |
 | 6 | redazione dei segreti | non applicabile: nessuna credenziale; i messaggi non riportano contenuti dei documenti |
@@ -143,14 +143,10 @@ speculativo; resta il residuo descritto. Rientro: ripristinare le risorse
 dell'interprete e verificare e chiudere gli eventuali processi figli e le
 risorse rimaste; la garanzia riprende nelle condizioni ordinarie.
 
-**La cancellazione non e' un parametro.** Regola: PYTHON-SDK-1.0 §8 (SHOULD).
-Ambito: tutti i metodi. Un Ctrl-C e' inoltrato al prodotto soltanto dal thread
-principale e fuori da Windows (`Client.cancellable`); non c'e' un token che il
-chiamante possa armare da un altro thread. Hazard: un lavoro lungo avviato da
-un thread secondario o su Windows si ferma solo con `Client(timeout=...)`, che
-uccide il processo e rende `ProtocolError` con `remote_effect: unknown` se il
-comando scriveva. Rientro: un token di cancellazione dell'SDK inoltrato al
-processo su entrambe le piattaforme.
+`Client.cancellable` descrive la disponibilità dell’inoltro di Ctrl-C:
+nel backend subprocess richiede il thread principale e una piattaforma POSIX.
+`AsyncClient` supporta la cancellazione delle operazioni asincrone; il backend
+nativo usa il token cooperativo. `timeout` resta distinto dalla deadline del prodotto.
 
 Con `backend == "native"`, Ctrl-C e' raccolto dal thread principale anche
 su Windows: annulla cooperativamente e attende il worker Rust. Anche il
@@ -612,16 +608,18 @@ intero -- ogni geometria decodificata, ogni tetto applicato -- e restituisce
 quante righe ha letto, in quanti batch, con quale fedelta'. Non una riga di dati.
 Chiamarlo `read()` avrebbe promesso righe che non arrivano.
 
-Due semantiche che i nomi non suggeriscono, e che il contratto ora ratifica in
-`envelopes.read.semantica`: `limit` e' una soglia verificata **fra un batch e il
-successivo**, quindi `rows_read` puo' superarlo della parte residua del batch
-corrente; e `truncated` significa **arresto per limite con EOF non accertato**,
-non «ci sono altre righe».
+`limit=N` arresta la lettura alla riga N: `rows_read` non supera N.
+`truncated=True` significa **limite raggiunto, coda non esaminata**, anche
+quando il file contiene esattamente N righe. `complete` è il contrario di
+`truncated`: è vero quando EOF è stato osservato prima del limite o senza
+limite. I formati a blocchi possono leggere il blocco contenente N, ma la
+validazione dei valori riguarda solo il prefisso. La semantica è descritta
+in `release/cli-protocol-v2.json`, `envelopes.read.semantica`.
 
 ## La deadline non e' il timeout
 
 `Limits(deadline=...)` e' un budget che il **prodotto** rispetta: quando scade
-risponde con una busta che descrive il lavoro fatto. `Client(timeout=...)`
+risponde con una busta `timeout` che dichiara gli assi dell’errore e l’effetto remoto; non è un resoconto del progresso. `Client(timeout=...)`
 uccide il processo da fuori, e quel che resta e' un `ProtocolError` che dice che
 non si sa.
 
@@ -689,7 +687,7 @@ bisogno solo dei nomi dei layer chieda `layers()`, che non paga quell'inferenza.
 
 `assume_crs` non e' una preferenza: alcuni file dichiarano un CRS che non si
 risolve, e il driver rifiuta chiuso invece di indovinare. Passarlo e' dire «lo so
-io», e resta distinguibile -- `crs_resolution.status` dice da dove il CRS viene.
+io». Il campo `crs_resolution.status` descrive la risoluzione, non distingue da solo un CRS assunto da uno letto.
 
 ## Niente download impliciti
 
@@ -702,7 +700,7 @@ all'SDK si dice dove sta.
 
 ## La lingua dei nomi
 
-L'API pubblica e' in **inglese**, come il wire che riflette: `version()`,
+L'API usa i nomi del wire, inclusi i campi italiani della diagnostica: `version()`,
 `catalog()`, `Driver.hostile_input_hardened` sono i nomi che stanno nelle buste,
 e tradurli costringerebbe chi legge il contratto a tenere due vocabolari.
 Commenti e messaggi d'errore sono in italiano, come il resto del repository.
@@ -721,7 +719,7 @@ in entrambi i casi.
 from plenora_io import Client
 
 client = Client()                     # cerca il binario, fail-closed
-print(client.version().version)       # "2.0.0"
+print(client.version().component_version)  # versione del componente installato
 
 catalog = client.catalog()
 for driver in catalog.drivers:
@@ -730,7 +728,7 @@ for driver in catalog.drivers:
 
 info = client.inspect("dati.gpkg")
 for layer in info.layers:
-    print(layer.name, layer.geometry.crs)
+    print(layer.name, layer.geometry.crs if layer.geometry else None)
     for campo in layer.attributes:
         print("  ", campo.name, campo.type)
 ```
@@ -762,5 +760,24 @@ Il limite deliberato, con ambito, hazard e condizione di rientro, e' registrato 
 
 Input invalidi rilevabili producono `invalid_configuration/validate` senza dati
 nel messaggio e senza chiamare il backend; consegne IPC invalide producono
-`protocol/finalize`. L'SDK offre solo API sync; non introduce API async in questa
-correttiva. Il backend nativo e quello subprocess condividono questo ingresso.
+`protocol/finalize`. L'SDK offre `Client` sincrono e `AsyncClient` asincrono, con cancellazione. Il backend nativo e quello subprocess condividono questo ingresso.
+
+
+### Stato dei layer e identità delle risposte
+
+`Layer.status` e `LayerSummary.status` conservano lo stato di R2: `readable`,
+l’eventuale errore locale `error` e la visibilità del foglio quando presente.
+Un layer rifiutato resta nell’elenco con lo stesso indice; non viene saltato.
+Nel risultato di una lettura riuscita il modello ricava `readable=True` dal
+successo: la busta `read` non trasporta un inventario degli stati dei layer.
+
+Ogni risposta subprocess o nativa deve avere `protocol_version=2` (intero) e
+il contratto dell’operazione invocata; ogni fallimento usa `plenora-error-v1`.
+Campo mancante, tipo errato, versione o contratto diverso sono `ProtocolError`.
+Dopo l’avvio di una scrittura la violazione conserva `remote_effect=unknown`.
+
+`binary=` e `PLENORA_IO_BIN` sono selezioni vincolanti. Se indicano un file
+inesistente, `BinaryNotFound` interrompe la ricerca; anche una variabile vuota
+è una selezione invalida. Senza selezione esplicita si prova `_native`, poi
+l’albero installato e infine PATH. Il backend nativo non ha MANIFEST.json:
+`require_profile()` solleva `ProfileError`; per le capacità usare `catalog()`.

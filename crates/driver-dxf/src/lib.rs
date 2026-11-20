@@ -9,6 +9,7 @@
 //! esplicitamente quando il metadato è assente o non risolvibile.
 #![forbid(unsafe_code)]
 
+use plenora_io_model::diagnostics::DiagnosticCause;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
@@ -38,14 +39,18 @@ use plenora_io_core::driver::{
     Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
+use plenora_io_core::loss_table::{
+    native_write_report, observe_native, NativeDriver, NativeElement, TransportDirection,
+};
+
 use plenora_io_core::publish::{create_staged_file, publish_file_atomic_limited};
 use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
     check_cancelled, check_cancelled_periodically, read_row_error, validate_write,
     with_write_validation, write_row_rejection, AttributeWriteSupport, CrsDerivation,
     CrsRepresentationCapabilities, CrsRepresentationState, CrsWriteSupport,
-    FormatWriteCapabilities, NullabilitySupport, SingleReaderGate, SinkPathConstraint,
-    TypeCoercionPolicy, WritePlan, SCALAR_TYPES, UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
+    FormatWriteCapabilities, SingleReaderGate, SinkPathConstraint, TypeCoercionPolicy, WritePlan,
+    UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
 };
 use plenora_io_model::budget::{OperationBudget, SpillLease};
 use plenora_io_model::contract::{
@@ -357,9 +362,7 @@ fn resolve_dxf_crs_testuale(definition: &str, assunta: Option<&str>) -> Result<R
     if assunta
         .is_some_and(|assunta| !plenora_io_model::crs::stesso_identificatore(assunta, &dichiarato))
     {
-        return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
-            "DXF: --assume-crs contraddice il CRS dichiarato dal GEODATA",
-        )));
+        return Err(plenora_io_model::error_table::Situation::ContradictedCrs.error());
     }
     // La regola del WKT (`identificatore_wkt`, passo 5): senza opzione si
     // risolve solo un codice EPSG canonico; con l'opzione uguale come testo
@@ -451,6 +454,7 @@ fn embed_dxf_crs(drawing: &mut Drawing, geometry: &GeometryColumnContract) -> Re
 
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     "dxf",
+    &plenora_io_core::dataset_files::FILE_SETS[6],
     Direction::Bidirectional,
     ReadMode::StreamingSequential,
     // INV-7: il parser riversa l'intera sorgente in uno spool all'apertura.
@@ -480,10 +484,13 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     None,
     Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
-        allowed_types: SCALAR_TYPES,
+        allowed_types: plenora_io_core::loss_table::DXF.allowed_types,
         type_coercion: TypeCoercionPolicy::LossReported,
         attributes: AttributeWriteSupport::LossReported,
-        geometry: WKB_XY_XYZ_GEOMETRY,
+        geometry: plenora_io_core::GeometryWriteSupport {
+            dimensions: plenora_io_core::loss_table::DXF.dimensions,
+            ..WKB_XY_XYZ_GEOMETRY
+        },
         crs: CrsWriteSupport::Embedded,
         crs_representations: CrsRepresentationCapabilities::new(
             // L'identificatore si rilegge dal GEODATA incorporato. A
@@ -503,7 +510,9 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
             GRAMMATICHE_DEL_GEODATA,
             CrsRepresentationState::Derived(CrsDerivation::FromIdentifier),
         ),
-        nullability: NullabilitySupport::FormatDefined,
+        nullability: plenora_io_core::loss_table::native_nullability(
+            plenora_io_core::loss_table::NativeDriver::Dxf,
+        ),
         multi_layer: false,
         sink_path: SinkPathConstraint::Free,
     }),
@@ -523,8 +532,9 @@ impl FormatDriver for DxfDriver {
         &DESCRIPTOR
     }
 
+    #[allow(clippy::too_many_lines)] // Scansione e spool condividono il budget e la vita del contenitore.
     fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = plenora_io_core::preflight_source(self.descriptor(), source, &mut opts)?;
+        let path = driver_common::structure::preflight(self.descriptor(), source, &mut opts)?;
         let mut stream = DrawingEntityReader::load_file(&path).map_err(|_| {
             err(&PublicMessage::Curated(
                 "apertura progressiva del DXF fallita",
@@ -539,58 +549,122 @@ impl FormatDriver for DxfDriver {
         let mut stats = DxfContractStats::default();
         let mut spool_writer = DxfSpoolWriter::new(opts.max_input_bytes(), opts.budget().clone());
         let mut source_index = 0_u64;
-        while let Some(entity) = stream.next_entity().map_err(|_| {
-            read_row_error(
-                err(&PublicMessage::Curated("lettura di un'entità DXF fallita")),
-                None,
-                "dxf.entity_decode_failed",
-                Some(GEOMETRY),
-            )
-        })? {
+        let mut model_error = None;
+        while opts
+            .row_limit
+            .is_none_or(|n| (walker.emitted_rows as u64) < n)
+        {
+            let Some(entity) = stream.next_entity().map_err(|_| {
+                read_row_error(
+                    err(&PublicMessage::Curated("lettura di un'entità DXF fallita")),
+                    None,
+                    DiagnosticCause::DxfEntityDecodeFailed,
+                    Some(GEOMETRY),
+                )
+            })?
+            else {
+                break;
+            };
             opts.ensure_active()?;
             let mut visiting = HashSet::new();
-            walker
-                .walk_entity(&entity, Transform3::IDENTITY, "0", 0, &mut visiting)
-                .map_err(|error| {
-                    read_row_error(
+            if model_error.is_none() {
+                let result = walker
+                    .walk_entity(&entity, Transform3::IDENTITY, "0", 0, &mut visiting)
+                    .and_then(|()| stats.observe(&walker, opts.cancellation()))
+                    .and_then(|()| spool_writer.write_and_clear(&mut walker, opts.cancellation()));
+                if let Err(error) = result {
+                    if matches!(
+                        error.category,
+                        plenora_io_model::ErrorCategory::ResourceLimit
+                            | plenora_io_model::ErrorCategory::Cancelled
+                            | plenora_io_model::ErrorCategory::Timeout
+                    ) {
+                        return Err(error);
+                    }
+                    model_error = Some(read_row_error(
                         error,
                         Some(source_index),
-                        "dxf.entity_not_representable",
+                        DiagnosticCause::DxfEntityNotRepresentable,
                         Some(GEOMETRY),
-                    )
-                })?;
-            stats.observe(&walker, opts.cancellation())?;
-            spool_writer.write_and_clear(&mut walker, opts.cancellation())?;
+                    ));
+                }
+            }
             source_index = source_index.checked_add(1).ok_or_else(|| {
-                PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppe entita DXF"))
+                plenora_io_model::quota::Quota::InputEntries
+                    .exceeded(plenora_io_model::ErrorPhase::Read)
             })?;
         }
         let spool = spool_writer.finish()?;
-        let drawing = stream.finish().map_err(|_| {
-            err(&PublicMessage::Curated(
-                "chiusura della scansione DXF fallita",
-            ))
-        })?;
-        rifiuta_entita_non_supportate_nel_modello(&drawing)?;
+        let drawing = if opts
+            .row_limit
+            .is_some_and(|n| (walker.emitted_rows as u64) >= n)
+        {
+            stream.drawing().clone()
+        } else {
+            stream.finish().map_err(|_| {
+                err(&PublicMessage::Curated(
+                    "chiusura della scansione DXF fallita",
+                ))
+            })?
+        };
+        if let Err(error) = rifiuta_entita_non_supportate_nel_modello(&drawing) {
+            model_error = Some(error);
+        }
         let crs = resolve_dxf_crs(&drawing, &opts)?;
         let loss = walker.loss.clone();
-        let contract = dxf_contract(crs, stats.dimensions(), stats.geometry_types)?;
+        let contract = dxf_contract(crs.clone(), stats.dimensions(), stats.geometry_types)?;
         let name = path
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("layer")
             .to_owned();
+        let mut layers = vec![LayerContract {
+            id: LayerId(0),
+            name,
+            contract,
+        }];
+        let mut objects = vec![Some((spool, walker.emitted_rows, loss))];
+        let mut rifiuti = std::collections::BTreeMap::new();
+        if let Some(error) = model_error {
+            rifiuti.insert(0, error);
+        }
+        for block in drawing.blocks() {
+            opts.ensure_active()?;
+            let id = LayerId(u32::try_from(layers.len()).map_err(|_| {
+                plenora_io_model::quota::Quota::InputEntries
+                    .exceeded(plenora_io_model::ErrorPhase::Read)
+            })?);
+            let result = read_block_object(&drawing, block, &opts, &crs, u64::from(id.0));
+            let (contract, content) = match result {
+                Ok((contract, spool, rows, loss)) => (contract, Some((spool, rows, loss))),
+                Err(error)
+                    if matches!(
+                        error.category,
+                        plenora_io_model::ErrorCategory::ResourceLimit
+                            | plenora_io_model::ErrorCategory::Cancelled
+                            | plenora_io_model::ErrorCategory::Timeout
+                    ) =>
+                {
+                    return Err(error)
+                }
+                Err(error) => {
+                    rifiuti.insert(id.0, error);
+                    (DataContract::new(Arc::new(Schema::empty()), None), None)
+                }
+            };
+            layers.push(LayerContract {
+                id,
+                name: block.name.clone(),
+                contract,
+            });
+            objects.push(content);
+        }
         plenora_io_core::with_read_budget(
             Box::new(DxfDataset {
-                layers: vec![LayerContract {
-                    id: LayerId(0),
-                    name,
-                    contract,
-                }],
-                spool,
-                rows: walker.emitted_rows,
+                layers,
+                objects,
+                rifiuti,
                 wkb_limits: opts.wkb_limits(),
-                loss,
                 reader_gate: SingleReaderGate::new(DESCRIPTOR.id()),
             }),
             &opts,
@@ -611,6 +685,7 @@ impl FormatDriver for DxfDriver {
             &opts.format_options,
         )?;
         let Sink::Path(path) = sink;
+        self.descriptor().files().ensure_absent(&path)?;
         if path.exists() {
             return Err(PlenoraIoError::destinazione_esistente());
         }
@@ -644,14 +719,15 @@ impl FormatDriver for DxfDriver {
         embed_dxf_crs(&mut drawing, geometry)?;
         with_write_validation(
             Box::new(DxfWriterState {
+                metadata_check: plenora_io_core::property_plan::NativeMetadataCheck::new(
+                    plan, opts,
+                ),
                 drawing,
                 path,
                 durable: opts.durable,
-                loss: LossReport::default(),
-                dropped_cols: Vec::new(),
+                loss: native_write_report(NativeDriver::Dxf, plan),
                 rows: 0,
                 input_total: None,
-                first: true,
                 wkb_limits: opts.wkb_limits(),
                 max_output_bytes: opts.max_output_bytes(),
                 contesto: opts.budget().context().clone(),
@@ -666,14 +742,13 @@ impl FormatDriver for DxfDriver {
 // --- scrittura (fedeltà Approximating: solo geometria + layer) -------------
 
 struct DxfWriterState {
+    metadata_check: plenora_io_core::property_plan::NativeMetadataCheck,
     drawing: Drawing,
     path: PathBuf,
     durable: bool,
     loss: LossReport,
-    dropped_cols: Vec<String>,
     rows: u64,
     input_total: Option<u64>,
-    first: bool,
     wkb_limits: WkbLimits,
     max_output_bytes: u64,
     /// Scadenza e cancellazione, per l'ultimo controllo prima del rename.
@@ -748,20 +823,13 @@ impl FormatWriter for DxfWriterState {
             .downcast_ref::<BinaryArray>()
             .ok_or_else(|| err(&PublicMessage::Curated("colonna geometria non binaria")))?;
         let layer_idx = schema.index_of("layer").ok();
-        if self.first {
-            for (i, f) in schema.fields().iter().enumerate() {
-                if i != geom_idx && Some(i) != layer_idx {
-                    self.dropped_cols.push(f.name().clone());
-                }
-            }
-            self.first = false;
-        }
+
         let limits = self.wkb_limits;
         let mut decoded = Vec::with_capacity(batch.num_rows());
         let mut rejections = Vec::new();
         for row in 0..batch.num_rows() {
             if geom_col.is_null(row) {
-                rejections.push((row, "dxf.null_geometry_unsupported", GEOMETRY));
+                rejections.push((row, DiagnosticCause::DxfNullGeometryUnsupported, GEOMETRY));
                 decoded.push(None);
                 continue;
             }
@@ -771,14 +839,14 @@ impl FormatWriter for DxfWriterState {
             let geometry = decode_wkb(geom_col.value(row), &limits)
                 .map_err(|errore| errore.during(plenora_io_model::ErrorPhase::Write))?;
             let cause = if geometry.srid.is_some() {
-                Some("dxf.embedded_srid_unsupported")
+                Some(DiagnosticCause::DxfEmbeddedSridUnsupported)
             } else if matches!(
                 geometry.dimensions,
                 CoordinateDimensions::Xym
                     | CoordinateDimensions::Xyzm
                     | CoordinateDimensions::Unknown
             ) {
-                Some("dxf.coordinate_dimensions_unsupported")
+                Some(DiagnosticCause::DxfCoordinateDimensionsUnsupported)
             } else {
                 dxf_geometry_rejection_cause(&geometry.value)
             };
@@ -792,7 +860,7 @@ impl FormatWriter for DxfWriterState {
             if let Ok(layer) = layer_idx.map(|index| cells[index].text(row)).transpose() {
                 layers.push(layer.flatten());
             } else {
-                rejections.push((row, "dxf.layer_not_representable", "layer"));
+                rejections.push((row, DiagnosticCause::DxfLayerNotRepresentable, "layer"));
                 layers.push(None);
             }
         }
@@ -805,46 +873,51 @@ impl FormatWriter for DxfWriterState {
                 self.input_total,
             ));
         }
+        self.metadata_check.observe_attributes(batch)?;
         for (geometry, layer) in decoded.iter().zip(&layers) {
             let g = geometry
                 .as_ref()
                 .ok_or_else(|| err(&PublicMessage::Curated("geometria DXF validata ma assente")))?;
+            observe_native(
+                &mut self.loss,
+                (NativeDriver::Dxf, TransportDirection::Write),
+                NativeElement::CoordinatePrecision,
+                u64::from(dxf_decimal_changes(&g.value)),
+                0,
+                Some(geom_idx as u64),
+            );
             add_geometry(&mut self.drawing, g, layer.as_deref(), &mut self.loss)?;
         }
         self.rows = self
             .rows
             .checked_add(u64::try_from(batch.num_rows()).map_err(|_| {
-                PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppe righe DXF"))
+                plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Read)
             })?)
             .ok_or_else(|| {
-                PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppe righe DXF"))
+                plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Read)
             })?;
         Ok(())
     }
 
     fn finish(mut self: Box<Self>) -> Result<Published> {
-        // Gli attributi non rappresentabili in DXF sono dichiarati come perdita.
-        for c in &self.dropped_cols {
-            self.loss.record(
-                &format!("attributo non rappresentato in DXF: {c}"),
-                self.rows,
-            );
-        }
         let mut temp = create_staged_file(&self.path)?;
         let buffered = BufWriter::with_capacity(1024 * 1024, temp.as_file_mut());
         let mut output = BoundedOutput::new(buffered, self.max_output_bytes);
         let save_result = self.drawing.save(&mut output);
         if output.exceeded() {
-            return Err(PlenoraIoError::limite_redatto(&PublicMessage::CuratedWith(
-                "output DXF oltre il limite di byte:",
-                NumeroStrutturale::Limite(self.max_output_bytes),
-            )));
+            return Err(plenora_io_model::quota::Quota::OutputBytes
+                .exceeded(plenora_io_model::ErrorPhase::Write));
         }
         save_result.map_err(|_| err(&PublicMessage::Curated("serializzazione DXF fallita")))?;
         output.flush()?;
         let mut buffered = output.into_inner();
         buffered.flush()?;
         drop(buffered);
+        self.loss.merge(&self.metadata_check.compare(
+            &DxfDriver,
+            plenora_io_core::loss_table::NativeDriver::Dxf,
+            temp.path(),
+        )?);
         let (bytes, outcome) = publish_file_atomic_limited(
             temp,
             &self.path,
@@ -961,15 +1034,38 @@ fn add_polyline(
     Ok(())
 }
 
-fn dxf_geometry_rejection_cause(value: &WkbValue) -> Option<&'static str> {
-    fn coordinate_cause(coordinate: &WkbCoordinate) -> Option<&'static str> {
+// The DXF serializer emits twelve decimal places. Identity WCS mappings now
+// preserve signed zero, so compare the parsed token without canonicalizing it.
+fn dxf_decimal_changes(value: &WkbValue) -> bool {
+    let changed = |c: &WkbCoordinate| {
+        [Some(c.x), Some(c.y), c.z]
+            .into_iter()
+            .flatten()
+            .any(|v| format!("{v:.12}").parse::<f64>().unwrap_or(v).to_bits() != v.to_bits())
+    };
+    match value {
+        WkbValue::Point(c) => changed(c),
+        WkbValue::LineString(points) => points.iter().any(changed),
+        WkbValue::Polygon(rings) => rings.iter().flatten().any(changed),
+        WkbValue::MultiPoint(children)
+        | WkbValue::MultiLineString(children)
+        | WkbValue::MultiPolygon(children)
+        | WkbValue::GeometryCollection(children) => {
+            children.iter().any(|g| dxf_decimal_changes(&g.value))
+        }
+        _ => false, // Other types are rejected before this observer.
+    }
+}
+
+fn dxf_geometry_rejection_cause(value: &WkbValue) -> Option<DiagnosticCause> {
+    fn coordinate_cause(coordinate: &WkbCoordinate) -> Option<DiagnosticCause> {
         if !coordinate.x.is_finite()
             || !coordinate.y.is_finite()
             || coordinate.z.is_some_and(|value| !value.is_finite())
         {
-            Some("dxf.non_finite_coordinate")
+            Some(DiagnosticCause::DxfNonFiniteCoordinate)
         } else if coordinate.m.is_some() {
-            Some("dxf.measure_ordinate_unsupported")
+            Some(DiagnosticCause::DxfMeasureOrdinateUnsupported)
         } else {
             None
         }
@@ -1002,14 +1098,16 @@ fn dxf_geometry_rejection_cause(value: &WkbValue) -> Option<&'static str> {
     }
     match value {
         WkbValue::Point(_) => None,
-        WkbValue::LineString(line) => (line.len() < 2).then_some("dxf.degenerate_geometry"),
+        WkbValue::LineString(line) => {
+            (line.len() < 2).then_some(DiagnosticCause::DxfDegenerateGeometry)
+        }
         WkbValue::Polygon(rings) => {
             if rings.is_empty() || rings.iter().any(|ring| ring.len() < 4) {
-                Some("dxf.degenerate_geometry")
+                Some(DiagnosticCause::DxfDegenerateGeometry)
             } else if rings.iter().any(|ring| ring.first() != ring.last()) {
-                Some("dxf.unclosed_polygon_ring")
+                Some(DiagnosticCause::DxfUnclosedPolygonRing)
             } else if rings.len() > 1 {
-                Some("dxf.interior_rings_unsupported")
+                Some(DiagnosticCause::DxfInteriorRingsUnsupported)
             } else {
                 None
             }
@@ -1019,7 +1117,7 @@ fn dxf_geometry_rejection_cause(value: &WkbValue) -> Option<&'static str> {
         | WkbValue::MultiPolygon(values)
         | WkbValue::GeometryCollection(values) => {
             if values.is_empty() {
-                Some("dxf.empty_geometry_unsupported")
+                Some(DiagnosticCause::DxfEmptyGeometryUnsupported)
             } else {
                 values
                     .iter()
@@ -1033,7 +1131,7 @@ fn dxf_geometry_rejection_cause(value: &WkbValue) -> Option<&'static str> {
         | WkbValue::MultiSurface(_)
         | WkbValue::PolyhedralSurface(_)
         | WkbValue::Tin(_)
-        | WkbValue::Triangle(_) => Some("dxf.geometry_type_unsupported"),
+        | WkbValue::Triangle(_) => Some(DiagnosticCause::DxfGeometryTypeUnsupported),
     }
 }
 
@@ -1299,9 +1397,8 @@ impl DxfSpoolWriter {
         let length = match value {
             None => DXF_SPOOL_NULL,
             Some(bytes) => u32::try_from(bytes.len()).map_err(|_| {
-                PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                    "valore DXF troppo grande per lo spool",
-                ))
+                plenora_io_model::quota::Quota::InputBytes
+                    .exceeded(plenora_io_model::ErrorPhase::Read)
             })?,
         };
         output.write_all(&length.to_le_bytes())?;
@@ -1356,14 +1453,8 @@ impl DxfSpoolWriter {
             ))
         })?;
         if next > self.limit {
-            return Err(PlenoraIoError::limite_redatto(
-                &PublicMessage::CuratedBetween(
-                    "spool DXF di",
-                    NumeroStrutturale::Conteggio(next),
-                    "byte oltre il limite di",
-                    NumeroStrutturale::Limite(self.limit),
-                ),
-            ));
+            return Err(plenora_io_model::quota::Quota::InputBytes
+                .exceeded(plenora_io_model::ErrorPhase::Read));
         }
         let memory_bytes = dxf_spool_row_memory(&row);
         let spill = matches!(
@@ -1567,16 +1658,56 @@ fn read_dxf_spool_string(input: &mut impl Read) -> Result<Option<String>> {
         .map_err(|_| err(&PublicMessage::Curated("testo dello spool DXF non UTF-8")))
 }
 
+fn read_block_object(
+    drawing: &Drawing,
+    block: &Block,
+    opts: &ReadOptions,
+    crs: &ResolvedCrs,
+    layer_index: u64,
+) -> Result<(DataContract, DxfSpoolStorage, usize, LossReport)> {
+    if block.is_xref()
+        || block.is_xref_overlay()
+        || drawing.block_has_unsupported_entities(&block.name)
+    {
+        return Err(PlenoraIoError::capability_redatta(
+            "dxf",
+            None,
+            plenora_io_model::CapabilityReason::TypeNotRepresentable,
+            &PublicMessage::Curated("blocco DXF esterno o con entita non supportate"),
+        ));
+    }
+    let mut walker = Walker::new(
+        drawing,
+        DxfQuote::from_read_options(opts),
+        opts.cancellation(),
+    )?;
+    walker.layer_index = layer_index;
+    let mut stats = DxfContractStats::default();
+    let mut output = DxfSpoolWriter::new(opts.max_input_bytes(), opts.budget().clone());
+    for entity in &block.entities {
+        walker.walk_entity(entity, Transform3::IDENTITY, "0", 0, &mut HashSet::new())?;
+        stats.observe(&walker, opts.cancellation())?;
+        output.write_and_clear(&mut walker, opts.cancellation())?;
+    }
+    let contract = dxf_contract(crs.clone(), stats.dimensions(), stats.geometry_types)?;
+    Ok((contract, output.finish()?, walker.emitted_rows, walker.loss))
+}
+
 struct DxfDataset {
     layers: Vec<LayerContract>,
-    spool: DxfSpoolStorage,
-    rows: usize,
+    objects: Vec<Option<(DxfSpoolStorage, usize, LossReport)>>,
+    rifiuti: std::collections::BTreeMap<u32, PlenoraIoError>,
     wkb_limits: WkbLimits,
-    loss: LossReport,
     reader_gate: SingleReaderGate,
 }
 
 impl OpenDatasetHandle for DxfDataset {
+    fn preserves_unreadable_objects(&self) -> bool {
+        true
+    }
+    fn rifiuto_del_layer(&self, layer: LayerId) -> Option<PlenoraIoError> {
+        self.rifiuti.get(&layer.0).cloned()
+    }
     fn layers(&self) -> &[LayerContract] {
         &self.layers
     }
@@ -1585,19 +1716,33 @@ impl OpenDatasetHandle for DxfDataset {
             DESCRIPTOR.id(),
             DESCRIPTOR.fidelity_class(),
         )
-        .with_loss_report(&self.loss)
     }
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
+        if !self.layers.iter().any(|layer| layer.id == request.layer) {
+            return Err(plenora_io_model::error_table::Situation::MissingLayer.error());
+        }
+
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
+        if let Some(error) = self.rifiuto_del_layer(request.layer) {
+            return Err(error);
+        }
+        let index = self
+            .layers
+            .iter()
+            .position(|layer| layer.id == request.layer)
+            .ok_or_else(|| plenora_io_model::error_table::Situation::MissingLayer.error())?;
+        let (spool, rows, loss) = self.objects[index]
+            .as_ref()
+            .ok_or_else(|| err(&PublicMessage::Curated("blocco DXF non leggibile")))?;
         let reader = self.reader_gate.open(request.layer, || {
             Ok(Box::new(DxfReader {
-                input: self.spool.reader()?,
-                remaining_rows: self.rows,
+                input: spool.reader()?,
+                remaining_rows: *rows,
                 wkb_limits: self.wkb_limits,
-                layer: self.layers[0].clone(),
-                loss: self.loss.clone(),
+                layer: self.layers[index].clone(),
+                loss: loss.clone(),
                 batch_sizer: plenora_io_core::AdaptiveBatchSizer::new(
-                    self.layers[0].contract.schema.as_ref(),
+                    self.layers[index].contract.schema.as_ref(),
                     request.batch_target,
                 ),
                 cancellation: request.cancellation.clone(),
@@ -1712,7 +1857,7 @@ fn rifiuta_entita_non_supportate_nel_modello(drawing: &Drawing) -> Result<()> {
         return Err(read_row_error(
             err(&PublicMessage::Curated("entità DXF non gestita")),
             None,
-            "dxf.entity_not_representable",
+            DiagnosticCause::DxfEntityNotRepresentable,
             Some(GEOMETRY),
         ));
     }
@@ -1743,7 +1888,9 @@ struct Walker {
     remaining_vertices: usize,
     cancellation: CancellationToken,
     visited_entities: usize,
+    layer_index: u64,
     emitted_rows: usize,
+    row_limit: Option<u64>,
 }
 
 impl Walker {
@@ -1773,8 +1920,89 @@ impl Walker {
             remaining_vertices: quote.vertici,
             cancellation: cancellation.clone(),
             visited_entities: 0,
+            layer_index: 0,
             emitted_rows: 0,
+            row_limit: quote.row_limit,
         })
+    }
+
+    fn observe_entity(&mut self, entity: &Entity) {
+        let common = &entity.common;
+        let thickness = match &entity.specific {
+            EntityType::Line(value) => value.thickness,
+            EntityType::LwPolyline(value) => value.thickness,
+            EntityType::Polyline(value) => value.thickness,
+            EntityType::Circle(value) => value.thickness,
+            EntityType::Arc(value) => value.thickness,
+            EntityType::ModelPoint(value) => value.thickness,
+            EntityType::Text(value) => value.thickness,
+            _ => 0.0,
+        };
+        let width = match &entity.specific {
+            EntityType::LwPolyline(value) => {
+                value.constant_width != 0.0
+                    || value
+                        .vertices
+                        .iter()
+                        .any(|v| v.starting_width != 0.0 || v.ending_width != 0.0)
+            }
+            EntityType::Polyline(value) => {
+                value.default_starting_width != 0.0
+                    || value.default_ending_width != 0.0
+                    || value
+                        .vertices()
+                        .any(|v| v.starting_width != 0.0 || v.ending_width != 0.0)
+            }
+            _ => false,
+        };
+        for (element, count) in [
+            (
+                NativeElement::Handle,
+                u64::from(common.handle != dxf::Handle::empty()),
+            ),
+            (
+                NativeElement::Color,
+                u64::from(
+                    common.color != dxf::Color::by_layer()
+                        || common.color_24_bit != 0
+                        || !common.color_name.is_empty(),
+                ),
+            ),
+            (
+                NativeElement::Linetype,
+                u64::from(common.line_type_name != "BYLAYER"),
+            ),
+            (
+                NativeElement::Lineweight,
+                u64::from(common.lineweight_enum_value != 0),
+            ),
+            (NativeElement::Thickness, u64::from(thickness != 0.0)),
+            (NativeElement::Width, u64::from(width)),
+            (
+                NativeElement::Xdata,
+                common.x_data.len() as u64 + common.extension_data_groups.len() as u64,
+            ),
+            (
+                NativeElement::PaperSpace,
+                u64::from(common.is_in_paper_space),
+            ),
+            (
+                NativeElement::TextStyle,
+                u64::from(matches!(
+                    entity.specific,
+                    EntityType::Text(_) | EntityType::MText(_)
+                )),
+            ),
+        ] {
+            observe_native(
+                &mut self.loss,
+                (NativeDriver::Dxf, TransportDirection::Read),
+                element,
+                count,
+                self.layer_index,
+                None,
+            );
+        }
     }
 
     /// Il layer "0" (o vuoto) eredita quello del contesto (blocco padre).
@@ -1794,20 +2022,18 @@ impl Walker {
         text: Option<String>,
     ) -> Result<()> {
         if self.emitted_rows >= self.max_rows {
-            return Err(PlenoraIoError::limite_redatto(&PublicMessage::CuratedWith(
-                "righe DXF oltre il limite di",
-                NumeroStrutturale::Limite(driver_common::saturating_u64(self.max_rows)),
-            )));
+            return Err(plenora_io_model::quota::Quota::Rows.exceeded_measured(
+                plenora_io_model::ErrorPhase::Read,
+                driver_common::saturating_u64(self.emitted_rows).saturating_add(1),
+                driver_common::saturating_u64(self.max_rows),
+            ));
         }
         self.emitted_rows = self.emitted_rows.saturating_add(1);
         let vertices = value_coordinate_count(&value);
         if vertices > self.remaining_vertices {
-            return Err(PlenoraIoError::limite_redatto(&PublicMessage::CuratedWith(
-                "vertici DXF oltre il limite residuo di",
-                NumeroStrutturale::Limite(driver_common::saturating_u64(self.remaining_vertices)),
-            )));
+            return Err(plenora_io_model::quota::Quota::Vertices
+                .exceeded(plenora_io_model::ErrorPhase::Read));
         }
-        self.remaining_vertices -= vertices;
         self.geometries.push(Some(WkbGeometry {
             value,
             dimensions: CoordinateDimensions::Xyz,
@@ -1831,6 +2057,12 @@ impl Walker {
         depth: usize,
         visiting: &mut HashSet<String>,
     ) -> Result<()> {
+        if self
+            .row_limit
+            .is_some_and(|n| (self.emitted_rows as u64) >= n)
+        {
+            return Ok(());
+        }
         check_cancelled_periodically(&self.cancellation, ErrorPhase::Read, self.visited_entities)?;
         self.visited_entities = self.visited_entities.saturating_add(1);
         self.budget = self.budget.saturating_sub(1);
@@ -1841,6 +2073,7 @@ impl Walker {
             )));
         }
         let layer = Self::effective_layer(&entity.common.layer, context);
+        self.observe_entity(entity);
         match &entity.specific {
             EntityType::Line(l) => {
                 // LINE è già in WCS: nessun OCS.
@@ -2143,13 +2376,15 @@ impl Walker {
         value: &str,
         kind: &'static str,
     ) -> Result<()> {
-        let cleaned = value.trim();
-        let text = if cleaned.is_empty() {
-            None
-        } else {
-            Some(cleaned.to_owned())
-        };
-        self.push(WkbValue::Point(coordinate(at)), layer, kind, text)
+        // TEXT/MTEXT carry a present string, including empty strings and
+        // significant leading/trailing whitespace. NULL belongs to entities
+        // that have no text property.
+        self.push(
+            WkbValue::Point(coordinate(at)),
+            layer,
+            kind,
+            Some(value.to_owned()),
+        )
     }
 
     fn walk_insert(
@@ -2221,6 +2456,18 @@ impl Walker {
             insert.z_scale_factor,
         ));
         if let Some(block) = self.blocks.get(&insert.name).cloned() {
+            if block.is_xref() || block.is_xref_overlay() {
+                observe_native(
+                    &mut self.loss,
+                    (NativeDriver::Dxf, TransportDirection::Read),
+                    NativeElement::ExternalReference,
+                    1,
+                    self.layer_index,
+                    None,
+                );
+                visiting.remove(&insert.name);
+                return Ok(());
+            }
             self.loss.record("blocco INSERT esploso", 1);
             for entity in &block.entities {
                 self.walk_entity(entity, composed, layer, depth + 1, visiting)?;
@@ -2475,6 +2722,7 @@ fn batch_from_walker(
 /// migrazione.
 #[derive(Clone, Copy)]
 struct DxfQuote {
+    row_limit: Option<u64>,
     colonne: usize,
     righe: usize,
     vertici: usize,
@@ -2492,6 +2740,7 @@ impl DxfQuote {
     /// modello. Qui servono soltanto bound stabili che impediscano un OOM.
     const fn predefinite() -> Self {
         Self {
+            row_limit: None,
             colonne: 4_096,
             righe: 10_000_000,
             vertici: 50_000_000,
@@ -2500,6 +2749,7 @@ impl DxfQuote {
 
     fn from_read_options(opts: &ReadOptions) -> Self {
         Self {
+            row_limit: opts.row_limit,
             colonne: opts.max_columns(),
             righe: opts.max_rows(),
             vertici: opts.max_vertices(),

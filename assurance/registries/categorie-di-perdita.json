@@ -5,6 +5,11 @@
   "limite_di_lunghezza_byte": 128,
   "categorie": [
     {
+      "id": "arrow_metadata_not_preserved",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
       "id": "gpkg_incompatible_storage_discarded",
       "superficie": "driver-gpkg",
       "forma": "costante"
@@ -178,16 +183,139 @@
       "id": "geometry_representation_normalized",
       "superficie": "plenora-io-core",
       "forma": "literal"
-    }
-  ],
-  "vie_dinamiche_ammesse": [
+    },
     {
-      "file": "crates/driver-dxf/src/lib.rs",
-      "espressione": "&format!(\"attributo non rappresentato in DXF: {c}\")",
-      "perche": "e' il difetto che il lotto wire.loss-report chiude, non una scelta: `c` e' `f.name()` dello schema di origine, cioe' un identificatore che decide chi fornisce il file. In una conversione verso DXF la busta echeggia l'intestazione del file, una chiave per colonna scartata, fino a `max_columns` chiavi di lunghezza libera.",
-      "destino": "il modello nuovo registra la categoria chiusa `dxf_attribute_not_represented` e tiene l'identita' dell'attributo fuori dalla categoria; la chiave dinamica sopravvive **solo** dentro l'adattatore del protocollo v1, che e' congelato byte per byte. Questa voce si sposta li' quando l'adattatore esiste, e non deve mai diventare due."
+      "id": "kml.unsupported_geometry",
+      "superficie": "driver-kml",
+      "forma": "literal"
+    },
+    {
+      "id": "native_not_null_not_preserved",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "native_field_order_changed",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "native_feature_id_not_preserved",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "native_bbox_not_preserved",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "native_foreign_members_not_preserved",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "native_type_inference",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "native_number_precision",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "native_structured_value_rewritten",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "native_missing_as_null",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "native_dimensions_not_declared",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "kml_extended_data_not_preserved",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "kml_feature_metadata_not_preserved",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "native_layer_metadata_not_preserved",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "kml_styles_not_preserved",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "kml_hierarchy_flattened",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "native_external_reference_not_followed",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "native_geometry_type_changed",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "kml_altitude_mode_not_preserved",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "native_fields_reconstructed",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "native_ring_orientation_changed",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "native_coordinate_precision",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "native_styles_not_preserved",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "native_hierarchy_flattened",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "dxf_attribute_not_represented",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "source_object_not_readable",
+      "superficie": "plenora-io-tools",
+      "forma": "letterale"
     }
   ],
+  "vie_dinamiche_ammesse": [],
   "esclusi_dal_censimento": {
     "ShpRowDiagnostics::record": "omonimo con quattro argomenti, non scrive in `LossReport::counts`. Il gate distingue per arieta': `LossReport::record` ne prende due.",
     "LossReport::record dentro i propri metodi": "in `plenora-io-core/src/loss.rs` la chiamata con ricevente `self` e' la primitiva stessa e la propagazione di `merge`, non un produttore di categorie."

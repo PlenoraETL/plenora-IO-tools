@@ -69,8 +69,11 @@ tiene il verso inverso, che rende visibile ogni dichiarazione non esercitata.
 from __future__ import annotations
 
 import argparse
+from contextlib import closing
 import json
 import os
+import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -164,6 +167,13 @@ def forma(valore: Any, prefisso: str = "", out: dict[str, set[str]] | None = Non
 #: come le altre, quindi tutti i suoi percorsi tornerebbero. Il caso sparirebbe
 #: dalla matrice in silenzio, e con lui la copertura che porta.
 MATRICE: tuple[dict[str, Any], ...] = (
+    {"nome": "read-native-field-index", "busta": "plenora-io-read-result-v2",
+     "argomenti": ["read", "{uscita}/native-field.csv", "--opt", "wkt_column=shape", "--assume-crs", "EPSG:4326"],
+     "perche": "Il nome della colonna WKT consumata cambia: esempio nativo con field_index."},
+    {"nome": "convert-native-field-index", "busta": "plenora-io-convert-v1",
+     "argomenti": ["convert", "{uscita}/native-field.csv", "{uscita}/native-field.arrow", "--from", "csv", "--to", "ipc", "--in-opt", "wkt_column=shape", "--assume-crs", "EPSG:4326"],
+     "perche": "Perdita di lettura nativa con indice di campo nella conversione."},
+
     {
         "nome": "catalogo",
         "busta": "plenora-io-catalog-v2",
@@ -367,15 +377,31 @@ MATRICE: tuple[dict[str, Any], ...] = (
             "geojson",
         ],
         "perche": (
-            "la stessa conversione senza perdita di CRS: `write_loss.counts` "
-            "resta vuoto, ed e' cio' che rende osservabile che i suoi percorsi "
-            "interni non ci sono sempre."
+            "il giro GeoJSON dichiara anche le normalizzazioni dello schema nativo."
         ),
+    },
+    {
+        "nome": "write-ipc-lossless",
+        "busta": "plenora-io-write-result-v2",
+        "argomenti": ["write", "{canoniche}/canonico_senza_geometria.arrow", "{uscita}/lossless.arrow", "--to", "ipc"],
+        "perche": "Una scrittura senza perdite esercita conteggi e ragioni vuoti.",
+    },
+    {
+        "nome": "convert-ipc-lossless",
+        "busta": "plenora-io-convert-v1",
+        "argomenti": ["convert", "{canoniche}/canonico_senza_geometria.arrow", "{uscita}/lossless-convert.arrow", "--from", "ipc", "--to", "ipc"],
+        "perche": "Una conversione senza perdite esercita conteggi e ragioni vuoti.",
     },
     {'nome': 'write-property-plan', 'busta': 'plenora-io-write-result-v2', 'argomenti': ['write', '{proprieta}', '{uscita}/property-plan.gpkg', '--to', 'gpkg'], 'perche': 'IO-a: inventario completo per campo/chiave, valori nullable e provenienza write/source_write.'},
     {'nome': 'read-property-plan', 'busta': 'plenora-io-read-result-v2', 'argomenti': ['read', '{uscita}/property-plan.gpkg'], 'perche': 'IO-a: inventario completo per campo/chiave, valori nullable e provenienza write/source_write.'},
     {'nome': 'convert-property-write', 'busta': 'plenora-io-convert-v1', 'argomenti': ['convert', '{proprieta}', '{uscita}/converted-property.gpkg', '--from', 'ipc', '--to', 'gpkg'], 'perche': 'IO-a: inventario completo per campo/chiave, valori nullable e provenienza write/source_write.'},
     {'nome': 'convert-property-read', 'busta': 'plenora-io-convert-v1', 'argomenti': ['convert', '{uscita}/property-plan.gpkg', '{uscita}/property-read.arrow', '--from', 'gpkg', '--to', 'ipc'], 'perche': 'IO-a: inventario completo per campo/chiave, valori nullable e provenienza write/source_write.'},
+    {"nome": "write-type-class", "busta": "plenora-io-write-result-v2",
+     "argomenti": ["write", "{uscita}/native-field.arrow", "{uscita}/type-class.xlsx", "--to", "xls"],
+     "perche": "Interi ricostruiti come Float64: esempio di perdita con type_class."},
+    {"nome": "convert-type-class", "busta": "plenora-io-convert-v1",
+     "argomenti": ["convert", "{uscita}/native-field.csv", "{uscita}/type-class-convert.xlsx", "--from", "csv", "--to", "xls", "--in-opt", "wkt_column=shape", "--assume-crs", "EPSG:4326"],
+     "perche": "Coercizione numerica verificata sul writer XLSX."},
     {
         "nome": "errore-semplice",
         "busta": "plenora-error-v1",
@@ -383,9 +409,27 @@ MATRICE: tuple[dict[str, Any], ...] = (
         "perche": "la busta d'errore nella sua forma minima: sei chiavi.",
     },
     {
+        "nome": "errore-capability",
+        "busta": "plenora-error-v1",
+        "argomenti": ["read", "{uscita}/vista.gpkg", "--layer", "0"],
+        "perche": "Il motivo tipizzato del rifiuto in details.capability_reason.",
+    },
+    {
+        "nome": "layers-xlsx",
+        "busta": "plenora-io-layers-v1",
+        "argomenti": ["layers", "{canoniche}/canonico.xlsx", "--assume-crs", "EPSG:3003", "--opt", "wkt_column=geometry"],
+        "perche": "La visibilita del foglio nello stato dell'oggetto.",
+    },
+    {
+        "nome": "inspect-xlsx",
+        "busta": "plenora-io-inspect-v1",
+        "argomenti": ["inspect", "{canoniche}/canonico.xlsx", "--assume-crs", "EPSG:3003", "--opt", "wkt_column=geometry"],
+        "perche": "La visibilita del foglio nello stato dell'oggetto.",
+    },
+    {
         "nome": "errore-con-diagnostica-di-riga",
         "busta": "plenora-error-v1",
-        "argomenti": ["read", "{ostili}/lettura.kml"],
+        "argomenti": ["read", "{ostili}/lettura.kml", "--layer", "3"],
         "perche": (
             "la busta d'errore con `row_diagnostics`, la settima chiave. Il "
             "manifesto affermava sei chiavi «e nessuna in piu'»: questo caso "
@@ -473,6 +517,12 @@ def esegui(percorso_binario: str, uscita: Path) -> list[dict[str, Any]]:
     caso che non produce JSON su nessuno dei due e' un difetto e viene detto,
     non saltato.
     """
+    (uscita / "native-field.csv").write_text("shape,name,value\nPOINT (1 2),x,1\n", encoding="utf8")
+    vista = uscita / "vista.gpkg"
+    shutil.copyfile(CANONICHE / "canonico.gpkg", vista)
+    with closing(sqlite3.connect(vista)) as conn:
+        conn.execute('CREATE VIEW "000_vista" AS SELECT * FROM gpkg_contents')
+        conn.commit()
     sostituzioni = {
         "canoniche": CANONICHE.as_posix(),
         "ostili": OSTILI.as_posix(),

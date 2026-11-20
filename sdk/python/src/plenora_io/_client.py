@@ -4,7 +4,7 @@
 
 Qui c'e' un metodo per comando, e ciascuno fa due cose: costruire la riga di
 argomenti e dire quale tipo si aspetta. L'esecuzione, la scelta del flusso e la
-decodifica stanno in `process.py`, perche' sono le stesse per tutti e cinque i
+decodifica stanno in `_process.py`, perche' sono le stesse per tutti i
 comandi -- e perche' un difetto in quella catena si ripara in un posto solo.
 
 # Perche' nessun comando ha un timeout predefinito
@@ -151,7 +151,7 @@ class Client:
     ) -> None:
         timeout = arg.timeout(timeout)
         nativo = None
-        if binary is None and not os.environ.get(VARIABILE):
+        if binary is None and VARIABILE not in os.environ:
             nativo = modulo_nativo()
         self._runner: Runner
         if nativo is not None:
@@ -211,16 +211,15 @@ class Client:
         """Solleva `ProfileError` se l'artefatto non ha quel profilo.
 
         Da chiamare **prima** del lavoro. Il driver FileGDB vuole il profilo
-        `filegdb`, e scoprirlo dal fallimento di una conversione a meta' costa
-        un file di uscita parziale e un errore che parla di un driver invece che
-        di un pacchetto.
+        `filegdb`. Senza manifesto, anche sul backend nativo, solleva
+        `ProfileError`; le capacità effettive si interrogano con `catalog()`.
         """
         verifica_profilo(self._manifest, profile)
 
     # --- le buste che l'SDK copre -----------------------------------------
 
     def version(self) -> Version:
-        """La busta di bootstrap.
+        """La versione del componente e del protocollo CLI.
 
         E' la prima chiamata che ha senso fare: dice che binario si ha in mano,
         e lo dice senza pretendere di conoscere il protocollo.
@@ -305,7 +304,7 @@ class Client:
         options: dict[str, str] | None = None,
         limits: Limits | None = None,
     ) -> Validation:
-        """Legge il file per intero, conta, e **non restituisce le righe**.
+        """Valida e conta il prefisso richiesto, oppure l’intero file senza limite.
 
         E' il comando `read` della CLI, con il nome che dice che cosa fa: la
         busta porta il conteggio delle righe, dei batch, il troncamento e la
@@ -314,20 +313,17 @@ class Client:
 
         Serve a rispondere «questo file si legge?» pagando una lettura vera:
         ogni geometria decodificata, ogni tetto applicato, ogni perdita
-        registrata. Un file che passa di qui e' un file che `convert` puo'
-        leggere, e le ragioni in `fidelity` dicono che cosa costerebbe.
+        registrata. Solo una lettura completa attesta tutta la sorgente;
+        con un limite non si attesta la coda. `fidelity` descrive quanto osservato.
 
-        `limit` e' un limite **per batch**, e questo e' il comportamento
-        misurato e non quello che il nome suggerisce: la lettura si ferma dopo
-        il primo batch che raggiunge o supera il limite, quindi `rows_read` puo'
-        essere maggiore di `limit`. Su un file di cinque righe lette in un
-        batch, `limit=1` restituisce cinque.
+        `limit=N` ferma la lettura alla riga N, anche durante l'inferenza.
+        `rows_read` non supera N. I formati a blocchi possono acquisire il
+        blocco contenente N, ma non validano i valori delle righe successive.
 
-        `truncated` dice che **la lettura si e' fermata per il limite**, non che
-        ci fossero altre righe: con `limit` pari al numero di righe del file
-        esce `True` pur avendole lette tutte. Chi vuole sapere se il file abbia
-        altro oltre quel punto non lo trova qui, e nessun campo della busta lo
-        dice.
+        `truncated=True` significa limite raggiunto, coda non esaminata:
+        vale anche quando il file contiene esattamente N righe.
+        `truncated=False` e `complete=True` attestano EOF osservato prima
+        del limite, oppure una lettura senza limite arrivata a EOF.
 
         Entrambe sono ora ratificate in `release/cli-protocol-v2.json`, sotto
         `envelopes.read.semantica`, ciascuna con la sonda che la esercita: sono
@@ -509,8 +505,9 @@ class Client:
         Un `WriteResult` con le tre fedelta' distinte, le due perdite,
         `rows_written`, `bytes_written` e `publish_outcome`. Le eccezioni sono
         quelle di sempre, tipizzate per categoria: un formato che non sa
-        esprimere questi dati fallisce, e il fallimento non lascia una
-        destinazione a meta'.
+        esprimere questi dati fallisce prima della pubblicazione. Il set SHP
+        sciolto, se accettato esplicitamente, conserva il limite del rollback
+        best-effort: `remote_effect` guida il recupero dopo un guasto.
 
         # Le tre famiglie di opzioni, come in `convert()`
 
@@ -520,8 +517,8 @@ class Client:
         # Un oggetto Arrow al posto del percorso
 
         Con l'extra `plenora-io[pyarrow]`, `source` puo' essere un oggetto che
-        espone `__arrow_c_stream__` -- `pa.Table`, `pa.RecordBatchReader` -- o
-        un `pa.RecordBatch`. Si scrive a batch in un file IPC temporaneo, in
+        espone `__arrow_c_stream__` o `__arrow_c_array__` (RecordBatch Struct),
+        oppure un `pa.Table`, `pa.RecordBatchReader` o `pa.RecordBatch`. Si scrive a batch in un file IPC temporaneo, in
         `temp_dir` se indicata, e da li' la CLI lo legge come qualunque altro:
         il contratto, la fedelta' e gli errori sono gli stessi. Il file si
         cancella al ritorno, riuscito o no. Senza pyarrow la chiamata e'
@@ -604,7 +601,7 @@ class Client:
 
         # La cancellazione
 
-        Un Ctrl-C durante la conversione viene **inoltrato** al prodotto, che al
+        Se `cancellable` è vero, Ctrl-C viene inoltrato al prodotto, che al
         primo segnale arma un token cooperativo: la pipeline lo osserva ai propri
         punti di verifica e torna un `CancelledError` con la destinazione
         ripulita. Al secondo segnale il processo esce.
@@ -613,12 +610,11 @@ class Client:
         cui `Client(timeout=...)` resta una difesa diversa: quello uccide, e
         quel che resta non e' descritto.
 
-        # Il successo non e' la pubblicazione
+        # Pubblicazione e durabilità
 
-        Il metodo torna anche quando `publish_outcome` non e' `published`: e' il
-        campo a dirlo, con il proprio vocabolario, e trattare ogni ritorno come
-        una pubblicazione perderebbe la differenza. `ConvertResult.published` la
-        legge.
+        Un ritorno riuscito implica `ConvertResult.published == True`.
+        `publish_outcome` distingue la durabilità confermata da
+        `published_durability_unconfirmed`, che è comunque pubblicato.
         """
         argomenti = [
             "convert",

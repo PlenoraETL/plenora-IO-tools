@@ -12,6 +12,7 @@
 const DESCRITTORE_DI_PROVA: crate::descriptor::FormatDescriptor =
     crate::descriptor::FormatDescriptor::const_new(
         "prova",
+        &crate::dataset_files::FILEGDB,
         crate::descriptor::Direction::Read,
         crate::descriptor::ReadMode::StreamingSequential,
         // I tre assi di INV-7: il descrittore di prova dichiara la
@@ -124,7 +125,7 @@ fn entry_cap_is_checked_before_the_byte_sum() {
         .with_max_input_bytes(u64::MAX);
     let error = scan_dir_with(8, limits).expect_err("il tetto entry deve intervenire");
     assert!(
-        error.message.contains("entry"),
+        error.message.contains("max_input_entries"),
         "messaggio: {}",
         error.message
     );
@@ -1231,6 +1232,59 @@ fn runtime_geometry_validation_enforces_nullability() {
 }
 
 #[test]
+fn write_validation_reports_srid_then_type_then_dimensions() {
+    // REJ-002: a CRS contradiction must not be hidden by a type/dimension
+    // disagreement in the same otherwise well-formed geometry.
+    let point = WkbGeometry {
+        value: WkbValue::Point(WkbCoordinate {
+            x: 1.0,
+            y: 2.0,
+            z: None,
+            m: None,
+        }),
+        dimensions: CoordinateDimensions::Xy,
+        srid: Some(4326),
+    };
+    let bytes = encode_wkb(&point, WkbFlavor::Ewkb).unwrap();
+    let batch = geometry_batch(Some(&bytes));
+    let mut contract = xy_contract(true);
+    contract.encoding = GeometryEncoding::Ewkb;
+    contract.srid = Some(3857);
+    contract.geometry_types = vec![GeometryType::LineString];
+    contract.dimensions = CoordinateDimensions::Xyz;
+    let validate = |contract: &GeometryColumnContract| {
+        validate_geometry_batch_at(
+            "test",
+            WKB_XY_GEOMETRY,
+            Some(contract),
+            &batch,
+            PipelineLimits::default().wkb_limits(),
+            0,
+            Some(1),
+        )
+    };
+    let error = validate(&contract).unwrap_err();
+    assert_eq!(error.category, ErrorCategory::Crs);
+    assert_eq!(
+        error.capability_reason,
+        Some(CapabilityReason::CrsRepresentationsInconsistent)
+    );
+    assert!(!error.message.contains("4326"));
+    contract.srid = Some(4326);
+    assert_eq!(
+        validate(&contract).unwrap_err().capability_reason,
+        Some(CapabilityReason::MixedGeometry)
+    );
+    contract.geometry_types = vec![GeometryType::Point];
+    assert_eq!(
+        validate(&contract).unwrap_err().capability_reason,
+        Some(CapabilityReason::CoordinateDimensions)
+    );
+    contract.dimensions = CoordinateDimensions::Xy;
+    assert!(validate(&contract).is_ok());
+}
+
+#[test]
 fn runtime_write_rejections_have_bounded_global_row_diagnostics() {
     let schema = Arc::new(Schema::new(vec![Field::new(
         "geometry",
@@ -1277,13 +1331,23 @@ fn runtime_write_rejections_have_bounded_global_row_diagnostics() {
 /// ragione di capability.
 #[test]
 fn row_scoped_write_rejection_without_input_total_keeps_the_primary_cause() {
-    let error = write_row_rejection("test", 0, 1, &[(0, "test.rejected", "value")], None);
+    let error = write_row_rejection(
+        "test",
+        0,
+        1,
+        &[(
+            0,
+            plenora_io_model::diagnostics::DiagnosticCause::DriverInvalidAttribute,
+            "value",
+        )],
+        None,
+    );
 
     assert_eq!(error.category, ErrorCategory::DataMapping);
     assert_eq!(error.phase, ErrorPhase::Write);
     assert_eq!(error.driver.as_deref(), Some("test"));
     assert!(
-        error.message.contains("test.rejected"),
+        error.message.contains("driver.invalid_attribute"),
         "senza report la causa deve stare nel messaggio: {error}"
     );
     assert!(
@@ -1294,10 +1358,20 @@ fn row_scoped_write_rejection_without_input_total_keeps_the_primary_cause() {
     assert!(error.row_diagnostics.is_none());
 
     // Controprova: con il totale il report c'e', e porta la stessa causa.
-    let con_totale = write_row_rejection("test", 0, 1, &[(0, "test.rejected", "value")], Some(1));
+    let con_totale = write_row_rejection(
+        "test",
+        0,
+        1,
+        &[(
+            0,
+            plenora_io_model::diagnostics::DiagnosticCause::DriverInvalidAttribute,
+            "value",
+        )],
+        Some(1),
+    );
     let report = con_totale.row_diagnostics.as_deref().unwrap();
     assert_eq!(report.input_total, Some(1));
-    assert_eq!(report.counts["test.rejected"], 1);
+    assert_eq!(report.counts["driver.invalid_attribute"], 1);
     assert_eq!(con_totale.category, ErrorCategory::DataMapping);
 }
 
@@ -1308,11 +1382,15 @@ fn row_diagnostics_hide_unattestable_columns_without_losing_causes() {
             "test",
             0,
             1,
-            &[(0, "test.cell_not_representable", invalid.as_str())],
+            &[(
+                0,
+                plenora_io_model::diagnostics::DiagnosticCause::DriverInvalidAttribute,
+                invalid.as_str(),
+            )],
             Some(1),
         );
         let diagnostics = error.row_diagnostics.as_deref().unwrap();
-        assert_eq!(diagnostics.counts["test.cell_not_representable"], 1);
+        assert_eq!(diagnostics.counts["driver.invalid_attribute"], 1);
         assert_eq!(diagnostics.examples[0].column, None);
         assert!(diagnostics
             .knowledge_limits
@@ -1327,7 +1405,11 @@ fn row_diagnostics_hide_unattestable_columns_without_losing_causes() {
         "test",
         0,
         1,
-        &[(0, "test.cell_not_representable", unicode)],
+        &[(
+            0,
+            plenora_io_model::diagnostics::DiagnosticCause::DriverInvalidAttribute,
+            unicode,
+        )],
         Some(1),
     );
     let diagnostics = error.row_diagnostics.as_deref().unwrap();
@@ -1340,7 +1422,7 @@ fn read_row_error_emits_examples_only_for_attestable_indices() {
     let attested = read_row_error(
         PlenoraIoError::formato_redatto("test", &PublicMessage::Curated("bad row")),
         Some(7),
-        "test.invalid_row",
+        plenora_io_model::diagnostics::DiagnosticCause::DriverInvalidAttribute,
         Some("value"),
     );
     let diagnostics = attested.row_diagnostics.as_deref().unwrap();
@@ -1354,7 +1436,7 @@ fn read_row_error_emits_examples_only_for_attestable_indices() {
     let unknown = read_row_error(
         PlenoraIoError::formato_redatto("test", &PublicMessage::Curated("bad row")),
         None,
-        "test.invalid_row",
+        plenora_io_model::diagnostics::DiagnosticCause::DriverInvalidAttribute,
         Some("value"),
     );
     let diagnostics = unknown.row_diagnostics.as_deref().unwrap();
@@ -1377,7 +1459,11 @@ fn non_geometry_row_rejection_uses_a_non_geometry_capability_reason() {
         "test",
         0,
         1,
-        &[(0, "test.cell_not_representable", "value")],
+        &[(
+            0,
+            plenora_io_model::diagnostics::DiagnosticCause::KmlCellNotRepresentable,
+            "value",
+        )],
         Some(1),
     );
     assert_eq!(
@@ -1402,6 +1488,7 @@ fn geoarrow_field(name: &str, dimensions: Option<&str>) -> Field {
 fn descrittore_che_dichiara_perdite() -> crate::descriptor::FormatDescriptor {
     crate::descriptor::FormatDescriptor::const_new(
         "prova-con-perdite",
+        &crate::dataset_files::FILEGDB,
         crate::descriptor::Direction::Bidirectional,
         crate::descriptor::ReadMode::StreamingSequential,
         crate::descriptor::NativeReadMode::StreamingSequential,
@@ -1916,6 +2003,7 @@ fn il_preflight_applica_le_quote_e_pubblica_il_footprint() {
 #[test]
 fn il_preflight_spende_il_permit_e_non_osserva_due_volte() {
     let file = tempfile::NamedTempFile::new().expect("tempfile");
+    std::fs::write(file.path(), b"content").unwrap();
     let mut opts = opzioni_pipeline(plenora_io_model::budget::PipelineLimits::default());
 
     assert!(preflight_source(
@@ -2142,5 +2230,125 @@ fn bbox_e_orientamento_perduti_sono_dichiarati_tranne_in_ipc() {
             dove,
         );
         assert!(senza.is_empty());
+    }
+}
+
+#[test]
+fn every_dataset_member_is_charged_and_identified() {
+    use crate::dataset_files::{ReadMember, FILE_SETS};
+    for spec in FILE_SETS {
+        for member in spec.members {
+            let dir = tempfile::tempdir().unwrap();
+            let main = dir.path().join("set.main");
+            std::fs::write(&main, b"x").unwrap();
+            for required in spec
+                .members
+                .iter()
+                .filter(|m| m.read == ReadMember::Required)
+            {
+                std::fs::write(required.path(&main), b"").unwrap();
+            }
+            let accessory = member.path(&main);
+            std::fs::write(&accessory, b"123456789").unwrap();
+            let mut small = opzioni_pipeline(PipelineLimits::default().with_max_input_bytes(9));
+            let error = Source::Path(main.clone())
+                .into_paths_observed(&mut small, Some(&spec), None)
+                .unwrap_err();
+            assert_eq!(error.code, IoErrorCode::LimitExceeded);
+            let mut adequate = opzioni_pipeline(PipelineLimits::default().with_max_input_bytes(10));
+            Source::Path(main.clone())
+                .into_paths_observed(&mut adequate, Some(&spec), None)
+                .unwrap();
+            assert_eq!(
+                adequate.budget().context().observed_input(),
+                plenora_io_model::budget::ObservedInput::Bytes(10)
+            );
+            let snapshot = || {
+                let mut opts = opzioni_pipeline(PipelineLimits::default());
+                let permit = opts.take_input_permit().unwrap();
+                for path in spec.input(&main).unwrap() {
+                    scopri(opts.budget().context(), &path).unwrap();
+                }
+                opts.budget()
+                    .context()
+                    .observe_input(permit)
+                    .unwrap()
+                    .snapshot()
+            };
+            let before = snapshot();
+            std::fs::write(&accessory, b"1234567890").unwrap();
+            assert!(!before.matches(&snapshot()));
+        }
+    }
+}
+
+#[test]
+fn every_dataset_member_rejects_symlinks_when_supported() {
+    use crate::dataset_files::{ReadMember, FILE_SETS};
+    for spec in FILE_SETS {
+        for member in spec.members {
+            let dir = tempfile::tempdir().unwrap();
+            let main = dir.path().join("set.main");
+            std::fs::write(&main, b"x").unwrap();
+            for required in spec
+                .members
+                .iter()
+                .filter(|m| m.read == ReadMember::Required)
+            {
+                std::fs::write(required.path(&main), b"").unwrap();
+            }
+            let accessory = member.path(&main);
+            if accessory.exists() {
+                std::fs::remove_file(&accessory).unwrap();
+            }
+            #[cfg(windows)]
+            let linked = std::os::windows::fs::symlink_file(&main, &accessory);
+            #[cfg(unix)]
+            let linked = std::os::unix::fs::symlink(&main, &accessory);
+            if let Err(error) = linked {
+                assert!(
+                    error.kind() == std::io::ErrorKind::PermissionDenied
+                        || error.raw_os_error() == Some(1314),
+                    "{error:?}"
+                );
+                eprintln!("symlink non creabile: privilegi insufficienti");
+                return;
+            }
+            let mut opts = opzioni_pipeline(PipelineLimits::default());
+            let error = Source::Path(main)
+                .into_paths_observed(&mut opts, Some(&spec), None)
+                .unwrap_err();
+            assert!(error.message.contains("symlink"));
+        }
+    }
+}
+
+#[test]
+fn every_primary_and_directory_tree_is_charged() {
+    for spec in crate::dataset_files::FILE_SETS {
+        let dir = tempfile::tempdir().unwrap();
+        let main = dir.path().join("data");
+        if spec.tree {
+            std::fs::create_dir(&main).unwrap();
+            std::fs::write(main.join("a.gdbtable"), b"123456").unwrap();
+            std::fs::write(main.join("b.lock"), b"123456").unwrap();
+        } else {
+            std::fs::write(&main, b"123456789012").unwrap();
+            for required in spec
+                .members
+                .iter()
+                .filter(|m| m.read == crate::dataset_files::ReadMember::Required)
+            {
+                std::fs::write(required.path(&main), b"").unwrap();
+            }
+        }
+        let mut opts = opzioni_pipeline(PipelineLimits::default().with_max_input_bytes(11));
+        assert_eq!(
+            Source::Path(main)
+                .into_paths_observed(&mut opts, Some(&spec), None)
+                .unwrap_err()
+                .code,
+            IoErrorCode::LimitExceeded
+        );
     }
 }

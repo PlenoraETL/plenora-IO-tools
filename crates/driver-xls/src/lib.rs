@@ -1,8 +1,10 @@
 //! driver-xls — XLSX ↔ `RecordBatch`. Foglio tabellare: la
 //! geometria è dichiarata via `format_options` (`x_column`+`y_column` XY o
 //! `wkt_column` XY/XYZ/XYM/XYZM), il CRS via `assume_crs` (`PRODUCT.md § CRS`). Foglio scelto con
-//! `format_options["sheet"]` o il primo. Multi-foglio: incremento futuro.
+//! `format_options["sheet"]` o il primo worksheet visibile; tutti i fogli sono enumerati.
 #![forbid(unsafe_code)]
+
+mod empty_strings;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufReader, BufWriter, Read, Seek, Write as _};
@@ -33,13 +35,15 @@ use plenora_io_core::driver::{
     Published, ReadOptions, Sink, Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
-use plenora_io_core::publish::{create_staged_file, publish_file_atomic_limited};
+use plenora_io_core::loss_table::{self, NativeDriver, NativeElement, TransportDirection};
+
+use plenora_io_core::publish::publish_file_atomic_limited;
 use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
     check_cancelled, check_cancelled_periodically, validate_write, with_write_validation,
     AttributeWriteSupport, CrsRepresentationCapabilities, CrsRepresentationState, CrsWriteSupport,
     FormatWriteCapabilities, NullabilitySupport, SingleReaderGate, SinkPathConstraint,
-    TypeCoercionPolicy, WritePlan, SCALAR_TYPES, UTF8_FIELD_NAMES, WKB_PASSTHROUGH_GEOMETRY,
+    TypeCoercionPolicy, WritePlan, UTF8_FIELD_NAMES, WKB_PASSTHROUGH_GEOMETRY,
 };
 use plenora_io_model::budget::{OperationBudget, SpillLease};
 use plenora_io_model::contract::{
@@ -222,7 +226,8 @@ const SCHEMA_OPZIONI: SchemaOpzioniFormato = SchemaOpzioniFormato::nuovo(&[
         fase: FaseOpzione::Lettura,
         valore: ValoreAmmesso::Testo,
         predefinito: None,
-        descrizione: "nome del foglio da leggere; in assenza, il primo",
+        descrizione:
+            "nome esatto del foglio da leggere; in assenza valgono le regole comuni di selezione",
     },
     OpzioneFormato {
         chiave: "wkt_column",
@@ -249,6 +254,7 @@ const SCHEMA_OPZIONI: SchemaOpzioniFormato = SchemaOpzioniFormato::nuovo(&[
 
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     "xls",
+    &plenora_io_core::dataset_files::FILE_SETS[7],
     Direction::Bidirectional,
     ReadMode::StreamingSequential,
     // INV-7: `infer_layout` restituisce lo spool completo prima che `open` costruisca il dataset.
@@ -260,7 +266,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     plenora_io_core::DeterminismLevel::Semantic,
     Some(WriteMode::Buffered),
     Some(plenora_io_core::DeterminismLevel::Semantic),
-    false, // primo foglio nella v1; multi-foglio futuro
+    false, // Il writer produce un solo foglio; il reader enumera l'intero workbook.
     false,
     ReaderConcurrency::SingleActiveReader,
     plenora_io_core::ProjectionSupport::None,
@@ -276,10 +282,13 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     None,
     Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
-        allowed_types: SCALAR_TYPES,
-        type_coercion: TypeCoercionPolicy::ExplicitText,
+        allowed_types: plenora_io_core::loss_table::XLS.allowed_types,
+        type_coercion: TypeCoercionPolicy::Reject,
         attributes: AttributeWriteSupport::All,
-        geometry: WKB_PASSTHROUGH_GEOMETRY,
+        geometry: plenora_io_core::GeometryWriteSupport {
+            dimensions: plenora_io_core::loss_table::XLS.dimensions,
+            ..WKB_PASSTHROUGH_GEOMETRY
+        },
         crs: CrsWriteSupport::None,
         crs_representations: CrsRepresentationCapabilities::new(
             CrsRepresentationState::Absent,
@@ -304,8 +313,9 @@ impl FormatDriver for XlsDriver {
         &DESCRIPTOR
     }
 
+    #[allow(clippy::too_many_lines)] // Il workbook resta posseduto fino alla chiusura di tutti gli spool.
     fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = plenora_io_core::preflight_source(self.descriptor(), source, &mut opts)?;
+        let path = driver_common::structure::preflight(self.descriptor(), source, &mut opts)?;
         if !path
             .extension()
             .and_then(|extension| extension.to_str())
@@ -318,52 +328,123 @@ impl FormatDriver for XlsDriver {
             ));
         }
         validate_archive_ratio(&path, opts.budget())?;
+        // Calamine and metadata readers receive only the selected row prefix.
+        // ZIP members are decompressed incrementally; the suffix is never parsed.
+        let prefix = opts
+            .row_limit
+            .map(|limit| prefix_workbook(&path, limit, &opts))
+            .transpose()?;
+        let path = prefix
+            .as_ref()
+            .map_or(path, |file| file.path().to_path_buf());
         // FZ-0: il panico di calamine sui riferimenti di cella e' impedito
         // qui, prima che la libreria veda il foglio. La barriera resta sotto,
         // ma un panico catturato e' pur sempre un panico avvenuto.
-        valida_riferimenti_cella(&path, opts.budget())?;
+        valida_riferimenti_selezionati(&path, opts.budget(), Some("xl/workbook.xml"))?;
         let mut wb: Xlsx<_> = leggendo_calamine(|| {
             open_workbook(&path).map_err(|_| err(&PublicMessage::Curated("apertura XLSX fallita")))
         })?;
         check_cancelled(opts.cancellation(), ErrorPhase::Read)?;
-        let sheet = match opts.format_options.get("sheet").cloned() {
-            Some(dichiarato) => dichiarato,
-            None => leggendo_calamine(|| Ok(wb.sheet_names().first().cloned()))?
-                .ok_or_else(|| err(&PublicMessage::Curated("nessun foglio nel workbook")))?,
+        let sheets = wb.sheets_metadata().to_vec();
+        let selected = match opts.format_options.get("sheet") {
+            Some(name) => Some(
+                sheets
+                    .iter()
+                    .position(|sheet| &sheet.name == name)
+                    .ok_or_else(|| {
+                        PlenoraIoError::redatto(
+                            plenora_io_model::IoErrorCode::Format,
+                            plenora_io_model::ErrorCategory::InvalidConfiguration,
+                            ErrorPhase::Validate,
+                            plenora_io_model::RemoteEffect::None,
+                            plenora_io_model::RetryDisposition::Never,
+                            &PublicMessage::Curated(
+                                "foglio XLSX inesistente; sheet distingue maiuscole e minuscole",
+                            ),
+                        )
+                    })?,
+            ),
+            None => None,
         };
-        let crs = opts.assume_crs.clone().ok_or_else(|| {
-            PlenoraIoError::crs_redatto(&PublicMessage::Curated(
-                "XLSX con geometria richiede --assume-crs",
-            ))
-        })?;
-        // Il workbook viene lasciato cadere **prima** di propagare l'esito, non
-        // dopo: se `infer_layout` e' rientrato per un panico di calamine, lo
-        // stato attraversato dal panico smette di esistere qui, e non c'e' un
-        // ramo d'errore che possa ancora toccarlo. E' la meta' che riguarda il
-        // workbook della promessa di `leggendo_calamine`; l'altra meta', il
-        // lettore di celle, se la impone da solo.
-        let styles = NativeStyles::read(&path, &sheet, opts.budget())?;
-        let inferenza = infer_layout(
-            &mut wb,
-            &sheet,
-            &opts.format_options,
-            &crs,
-            opts.cancellation(),
-            XlsxQuote::from_read_options(&opts),
-            &styles,
-            opts.budget(),
-        );
+        let mut layers = Vec::new();
+        let mut contents = Vec::new();
+        let mut rifiuti = BTreeMap::new();
+        for (index, sheet) in sheets.iter().enumerate() {
+            opts.ensure_active()?;
+            let id = LayerId(u32::try_from(index).map_err(|_| {
+                plenora_io_model::quota::Quota::InputEntries
+                    .exceeded(plenora_io_model::ErrorPhase::Read)
+            })?);
+            let result = (|| {
+                if sheet.typ != calamine::SheetType::WorkSheet {
+                    return Err(sheet_error(
+                        plenora_io_model::CapabilityReason::ObjectChartSheet,
+                    ));
+                }
+                let crs = opts.assume_crs.as_deref().unwrap_or("");
+                let styles = NativeStyles::read(&path, &sheet.name, opts.budget())?;
+                infer_layout(
+                    &mut wb,
+                    &sheet.name,
+                    &opts.format_options,
+                    crs,
+                    opts.cancellation(),
+                    XlsxQuote {
+                        layer: u64::from(id.0),
+                        ..XlsxQuote::from_read_options(&opts)
+                    },
+                    &styles,
+                    opts.budget(),
+                )
+            })();
+            let (mut contract, content) = match result {
+                Ok((layout, contract, spool)) => (contract, Some((layout, spool))),
+                Err(error)
+                    if matches!(
+                        error.category,
+                        plenora_io_model::ErrorCategory::ResourceLimit
+                            | plenora_io_model::ErrorCategory::Cancelled
+                            | plenora_io_model::ErrorCategory::Timeout
+                    ) =>
+                {
+                    return Err(error)
+                }
+                Err(error) => {
+                    rifiuti.insert(id.0, error);
+                    (DataContract::new(Arc::new(Schema::empty()), None), None)
+                }
+            };
+            let mut metadata = contract.schema.metadata().clone();
+            metadata.insert(
+                "xlsx.visibility".to_owned(),
+                match sheet.visible {
+                    calamine::SheetVisible::Visible => "visible",
+                    calamine::SheetVisible::Hidden => "hidden",
+                    calamine::SheetVisible::VeryHidden => "very_hidden",
+                }
+                .to_owned(),
+            );
+            contract.schema = Arc::new(Schema::new_with_metadata(
+                contract.schema.fields().clone(),
+                metadata,
+            ));
+            layers.push(LayerContract {
+                id,
+                name: sheet.name.clone(),
+                contract,
+            });
+            contents.push(content);
+        }
+        let default_layer = selected
+            .and_then(|index| layers.get(index))
+            .map(|layer| layer.id);
         drop(wb);
-        let (layout, contract, spool) = inferenza?;
         plenora_io_core::with_read_budget(
             Box::new(XlsDataset {
-                layers: vec![LayerContract {
-                    id: LayerId(0),
-                    name: sheet.clone(),
-                    contract,
-                }],
-                layout,
-                spool,
+                layers,
+                contents,
+                rifiuti,
+                default_layer,
                 reader_gate: SingleReaderGate::new(DESCRIPTOR.id()),
             }),
             &opts,
@@ -384,6 +465,7 @@ impl FormatDriver for XlsDriver {
             &opts.format_options,
         )?;
         let Sink::Path(path) = sink;
+        self.descriptor().files().ensure_absent(&path)?;
         if path.exists() {
             return Err(PlenoraIoError::destinazione_esistente());
         }
@@ -428,6 +510,10 @@ impl FormatDriver for XlsDriver {
         };
         with_write_validation(
             Box::new(XlsWriterState {
+                metadata_check: plenora_io_core::property_plan::NativeMetadataCheck::new(
+                    plan, opts,
+                ),
+                loss: loss_table::native_write_report(NativeDriver::Xls, plan),
                 path,
                 durable: opts.durable,
                 xy,
@@ -458,32 +544,20 @@ fn validate_archive_ratio(path: &PathBuf, budget: &OperationBudget) -> Result<()
         compressed = compressed
             .checked_add(entry.compressed_size())
             .ok_or_else(|| {
-                PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                    "overflow nel conteggio dei byte compressi XLSX",
-                ))
+                plenora_io_model::quota::Quota::DecompressionRatio
+                    .exceeded(plenora_io_model::ErrorPhase::Read)
             })?;
         expanded = expanded.checked_add(entry.size()).ok_or_else(|| {
-            PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                "overflow nel conteggio dei byte decompressi XLSX",
-            ))
+            plenora_io_model::quota::Quota::DecompressionRatio
+                .exceeded(plenora_io_model::ErrorPhase::Read)
         })?;
     }
-    let allowed = compressed.checked_mul(maximum_ratio).ok_or_else(|| {
-        PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-            "overflow nel calcolo del rapporto di decompressione XLSX",
-        ))
-    })?;
-    if expanded > 0 && (compressed == 0 || expanded > allowed) {
-        return Err(PlenoraIoError::limite_redatto(
-            &PublicMessage::CuratedBetween(
-                "XLSX:",
-                NumeroStrutturale::Conteggio(expanded),
-                "byte decompressi superano il rapporto massimo, moltiplicatore",
-                NumeroStrutturale::Limite(maximum_ratio),
-            ),
-        ));
-    }
-    Ok(())
+    plenora_io_model::quota::Quota::DecompressionRatio.check_ratio(
+        expanded,
+        compressed,
+        maximum_ratio,
+        plenora_io_model::ErrorPhase::Read,
+    )
 }
 
 /// Tetto sulla **lunghezza** di un token, ricavato dai massimi del formato
@@ -546,7 +620,16 @@ const MAX_MEMBRI_ARCHIVIO: usize = 4096;
 /// non torna, un XML malformato o piu' parti/byte dei tetti sopra fermano la
 /// lettura con un errore tipizzato. Non c'e' un ramo che, non riuscendo a
 /// controllare, prosegua lo stesso.
+#[cfg(test)]
 fn valida_riferimenti_cella(path: &PathBuf, budget: &OperationBudget) -> Result<()> {
+    valida_riferimenti_selezionati(path, budget, None)
+}
+
+fn valida_riferimenti_selezionati(
+    path: &PathBuf,
+    budget: &OperationBudget,
+    selected: Option<&str>,
+) -> Result<()> {
     let file = std::fs::File::open(path)?;
     let mut archive = zip::ZipArchive::new(file)
         .map_err(|_| err(&PublicMessage::Curated("contenitore XLSX non valido")))?;
@@ -592,7 +675,9 @@ fn valida_riferimenti_cella(path: &PathBuf, budget: &OperationBudget) -> Result<
             && std::path::Path::new(&minuscolo)
                 .extension()
                 .is_some_and(|estensione| estensione.eq_ignore_ascii_case("xml"));
-        if e_foglio || minuscolo == "xl/workbook.xml" {
+        if selected.map_or(e_foglio || minuscolo == "xl/workbook.xml", |part| {
+            nome == part
+        }) {
             indici_nel_perimetro.push(indice);
         }
     }
@@ -723,12 +808,34 @@ fn valida_valore_riferimento(valore: &[u8]) -> Result<()> {
 
 struct XlsDataset {
     layers: Vec<LayerContract>,
-    layout: XlsxLayout,
-    spool: Arc<tempfile::NamedTempFile>,
+    contents: Vec<Option<(XlsxLayout, Arc<tempfile::NamedTempFile>)>>,
+    rifiuti: BTreeMap<u32, PlenoraIoError>,
+    default_layer: Option<LayerId>,
     reader_gate: SingleReaderGate,
 }
 
+fn sheet_error(reason: plenora_io_model::CapabilityReason) -> PlenoraIoError {
+    let message = match reason {
+        plenora_io_model::CapabilityReason::ObjectEmpty => {
+            &PublicMessage::Curated("foglio vuoto; scegliere un altro oggetto con --layer o sheet")
+        }
+        _ => &PublicMessage::Curated(
+            "foglio XLSX non leggibile; scegliere un altro oggetto con --layer o sheet",
+        ),
+    };
+    PlenoraIoError::capability_redatta("xls", None, reason, message)
+}
+
 impl OpenDatasetHandle for XlsDataset {
+    fn preserves_unreadable_objects(&self) -> bool {
+        true
+    }
+    fn explicit_layer(&self) -> Option<LayerId> {
+        self.default_layer
+    }
+    fn rifiuto_del_layer(&self, layer: LayerId) -> Option<PlenoraIoError> {
+        self.rifiuti.get(&layer.0).cloned()
+    }
     fn layers(&self) -> &[LayerContract] {
         &self.layers
     }
@@ -739,10 +846,26 @@ impl OpenDatasetHandle for XlsDataset {
         )
     }
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
+        if !self.layers.iter().any(|layer| layer.id == request.layer) {
+            return Err(plenora_io_model::error_table::Situation::MissingLayer.error());
+        }
+
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
-        let layout = self.layout.clone();
-        let spool = Arc::clone(&self.spool);
-        let layer = self.layers[0].clone();
+        if let Some(error) = self.rifiuto_del_layer(request.layer) {
+            return Err(error);
+        }
+        let index = self
+            .layers
+            .iter()
+            .position(|layer| layer.id == request.layer)
+            .ok_or_else(|| plenora_io_model::error_table::Situation::MissingLayer.error())?;
+        let (layout, spool) = self.contents[index]
+            .as_ref()
+            .ok_or_else(|| sheet_error(plenora_io_model::CapabilityReason::ObjectEmpty))?;
+        let loss = layout.loss.clone();
+        let layout = layout.clone();
+        let spool = Arc::clone(spool);
+        let layer = self.layers[index].clone();
         let cancellation = request.cancellation.clone();
         let batch_sizer = plenora_io_core::AdaptiveBatchSizer::new(
             layer.contract.schema.as_ref(),
@@ -752,7 +875,7 @@ impl OpenDatasetHandle for XlsDataset {
             spawn_xlsx_reader(spool, layout, batch_sizer, layer, cancellation.clone())
         })?;
         Ok(plenora_io_core::with_cancellation(
-            reader,
+            loss_table::with_native_report(reader, loss),
             request.cancellation.clone(),
         ))
     }
@@ -760,12 +883,14 @@ impl OpenDatasetHandle for XlsDataset {
 
 #[derive(Clone, Copy)]
 enum XlsxGeomSpec {
+    None,
     Wkt(u32),
     Xy(u32, u32),
 }
 
 #[derive(Clone)]
 struct XlsxLayout {
+    loss: LossReport,
     attrs: Vec<(u32, ColType)>,
     schema: SchemaRef,
     data_rows: usize,
@@ -780,6 +905,8 @@ struct SheetBounds {
 // --- scrittura -------------------------------------------------------------
 
 struct XlsWriterState {
+    metadata_check: plenora_io_core::property_plan::NativeMetadataCheck,
+    loss: LossReport,
     path: PathBuf,
     durable: bool,
     xy: bool,
@@ -832,6 +959,7 @@ fn write_cell(
     c: u16,
     array: &ValidatedArray,
     row: usize,
+    empty_cells: &mut BTreeSet<String>,
 ) -> Result<()> {
     match array.json(row)? {
         JsonValue::Null => {}
@@ -863,6 +991,11 @@ fn write_cell(
             sheet.write_number(r, c, value).map_err(xls_err)?;
         }
         JsonValue::String(s) => {
+            if s.is_empty() {
+                empty_cells.insert(rust_xlsxwriter::utility::row_col_to_cell(r, c));
+                sheet.write_string(r, c, " ").map_err(xls_err)?;
+                return Ok(());
+            }
             if s.contains(['\u{fffe}', '\u{ffff}']) {
                 return Err(err(&PublicMessage::Curated(
                     "carattere XLSX non conservabile in rilettura",
@@ -886,33 +1019,41 @@ impl FormatWriter for XlsWriterState {
         Ok(())
     }
 
-    fn finish(self: Box<Self>) -> Result<Published> {
+    #[allow(clippy::too_many_lines)] // Serialization and verification precede the single publish point.
+    fn finish(mut self: Box<Self>) -> Result<Published> {
         let mut wb = Workbook::new();
         let sheet = wb.add_worksheet();
         let limits = self.wkb_limits;
         let mut wrote_header = false;
         let mut r: u32 = 0;
+        let mut empty_cells = BTreeSet::new();
 
         for batch in &self.batches {
             let cells = ValidatedArray::columns(batch.columns())?;
             let schema = batch.schema();
-            let geom_idx = geometry_index(&schema)
-                .ok_or_else(|| err(&PublicMessage::Curated("nessuna colonna geometria")))?;
-            let geom_col = batch
-                .column(geom_idx)
-                .as_any()
-                .downcast_ref::<BinaryArray>()
-                .ok_or_else(|| err(&PublicMessage::Curated("colonna geometria non binaria")))?;
+            let geom_idx = geometry_index(&schema);
+            let geom_col = geom_idx
+                .map(|index| {
+                    batch
+                        .column(index)
+                        .as_any()
+                        .downcast_ref::<BinaryArray>()
+                        .ok_or_else(|| {
+                            err(&PublicMessage::Curated("colonna geometria non binaria"))
+                        })
+                })
+                .transpose()?;
 
             if !wrote_header {
                 let mut col: u16 = 0;
                 for (i, f) in schema.fields().iter().enumerate() {
-                    if i != geom_idx {
+                    if Some(i) != geom_idx {
                         sheet.write_string(0, col, f.name()).map_err(xls_err)?;
                         col += 1;
                     }
                 }
-                if self.xy {
+                if geom_idx.is_none() {
+                } else if self.xy {
                     sheet.write_string(0, col, "x").map_err(xls_err)?;
                     sheet.write_string(0, col + 1, "y").map_err(xls_err)?;
                 } else {
@@ -925,12 +1066,18 @@ impl FormatWriter for XlsWriterState {
             for row in 0..batch.num_rows() {
                 let mut col: u16 = 0;
                 for (i, _) in schema.fields().iter().enumerate() {
-                    if i != geom_idx {
-                        write_cell(sheet, r, col, &cells[i], row)?;
+                    if Some(i) != geom_idx {
+                        write_cell(sheet, r, col, &cells[i], row, &mut empty_cells)?;
                         col += 1;
                     }
                 }
-                if !geom_col.is_null(row) {
+                // A null geometry still occupies a row. An omitted trailing
+                // cell disappears from the workbook range on read; whitespace
+                // is an explicit null WKT/XY token and keeps the row present.
+                if geom_col.is_some_and(|column| column.is_null(row)) {
+                    sheet.write_string(r, col, " ").map_err(xls_err)?;
+                }
+                if let Some(geom_col) = geom_col.filter(|column| !column.is_null(row)) {
                     // `Finalize` e non `Write`: il writer XLSX accumula i batch e
                     // materializza il foglio in `finish`, che e' dove siamo. E'
                     // la stessa fase che `scrittura_limitata` dichiara li'.
@@ -964,10 +1111,20 @@ impl FormatWriter for XlsWriterState {
             }
         }
 
-        let buf = wb.save_to_buffer().map_err(xls_err)?;
-        let mut temp = create_staged_file(&self.path)?;
+        let buf = empty_strings::encode(wb.save_to_buffer().map_err(xls_err)?, &empty_cells)?;
+        let mut temp = tempfile::Builder::new().suffix(".xlsx").tempfile_in(
+            self.path
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .unwrap_or_else(|| std::path::Path::new(".")),
+        )?;
         temp.as_file_mut().write_all(&buf)?;
         temp.as_file_mut().flush()?;
+        self.loss.merge(&self.metadata_check.compare(
+            &XlsDriver,
+            plenora_io_core::loss_table::NativeDriver::Xls,
+            temp.path(),
+        )?);
         let (bytes, outcome) = publish_file_atomic_limited(
             temp,
             &self.path,
@@ -977,7 +1134,7 @@ impl FormatWriter for XlsWriterState {
         )?;
         Ok(Published {
             bytes,
-            loss: LossReport::default(),
+            loss: self.loss,
             fidelity: plenora_io_core::FidelityAssessment::lossless(),
             outcome,
         })
@@ -1063,25 +1220,14 @@ where
         cornice.end.1 = cornice.end.1.max(colonna);
         let larghezza = data_row_width(*cornice)?;
         if larghezza > quote.colonne {
-            return Err(PlenoraIoError::limite_redatto(
-                &PublicMessage::CuratedBetween(
-                    "XLSX:",
-                    NumeroStrutturale::Conteggio(driver_common::saturating_u64(larghezza)),
-                    "colonne oltre il limite di",
-                    NumeroStrutturale::Limite(driver_common::saturating_u64(quote.colonne)),
-                ),
-            ));
+            return Err(plenora_io_model::quota::Quota::Columns
+                .exceeded(plenora_io_model::ErrorPhase::Read));
         }
         let righe = data_row_count(*cornice)?;
         if righe > quote.righe {
-            return Err(PlenoraIoError::limite_redatto(
-                &PublicMessage::CuratedBetween(
-                    "XLSX:",
-                    NumeroStrutturale::Conteggio(driver_common::saturating_u64(righe)),
-                    "righe oltre il limite di",
-                    NumeroStrutturale::Limite(driver_common::saturating_u64(quote.righe)),
-                ),
-            ));
+            return Err(
+                plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Read)
+            );
         }
     }
     // Nessuna cella: si restituisce la cornice degenere, e a dire che il foglio
@@ -1187,8 +1333,14 @@ fn resolve_geometry(
                         "indice colonna XLSX non rappresentabile",
                     ))
                 }),
-            ColonnaPerNome::Assente => Err(err(&PublicMessage::Curated(assente))),
-            ColonnaPerNome::Ambigua => Err(err(&PublicMessage::Curated(ambigua))),
+            ColonnaPerNome::Assente => Err(
+                plenora_io_model::error_table::Situation::MissingOptionColumn
+                    .error_with(&PublicMessage::Curated(assente)),
+            ),
+            ColonnaPerNome::Ambigua => Err(
+                plenora_io_model::error_table::Situation::InvalidConfiguration
+                    .error_with(&PublicMessage::Curated(ambigua)),
+            ),
         }
     };
     // Due dichiarazioni di geometria per lo stesso layer: vinceva `wkt_column`
@@ -1236,9 +1388,14 @@ fn resolve_geometry(
             BTreeSet::from([x_column, y_column]),
         ));
     }
-    Err(err(&PublicMessage::Curated(
-        "specificare wkt_column, oppure x_column con y_column, in format_options",
-    )))
+    if !opts.contains_key("x_column") && !opts.contains_key("y_column") {
+        return Ok((XlsxGeomSpec::None, BTreeSet::new()));
+    }
+    Err(
+        plenora_io_model::error_table::Situation::InvalidConfiguration.error_with(
+            &PublicMessage::Curated("specificare entrambe le opzioni x_column e y_column"),
+        ),
+    )
 }
 
 fn cell_at(row: &[Data], bounds: SheetBounds, column: u32) -> Result<&Data> {
@@ -1263,6 +1420,7 @@ fn encode_geometry_cell(
     wkb_buffer: &mut Vec<u8>,
 ) -> Result<bool> {
     match geom {
+        XlsxGeomSpec::None => return Ok(false),
         XlsxGeomSpec::Wkt(column) => {
             let text = data_to_string(cell_at(row, bounds, column)?);
             if text.trim().is_empty() {
@@ -1274,7 +1432,7 @@ fn encode_geometry_cell(
             // allocato, invece che dopo.
             // `infer_layout` gira dentro `open`, come l'inferenza del CSV.
             let geometry = parse_wkt_bounded(text.trim(), &cella_wkt)
-                .map_err(|errore| errore.during(plenora_io_model::ErrorPhase::Prepare))?;
+                .map_err(|errore| errore.during(plenora_io_model::ErrorPhase::Read))?;
             detected_dimensions.insert(geometry.dimensions);
             detected_types.insert(geometry.geometry_type());
             wkb_buffer.clear();
@@ -1394,14 +1552,8 @@ impl<'a> BoundedSpoolWriter<'a> {
             ))
         })?;
         if next > self.limit {
-            return Err(PlenoraIoError::limite_redatto(
-                &PublicMessage::CuratedBetween(
-                    "spool XLSX di",
-                    NumeroStrutturale::Conteggio(next),
-                    "byte oltre il limite di",
-                    NumeroStrutturale::Limite(self.limit),
-                ),
-            ));
+            return Err(plenora_io_model::quota::Quota::InputBytes
+                .exceeded(plenora_io_model::ErrorPhase::Read));
         }
         let lease = self.budget.context().lease_spill(length)?;
         self.writer.write_all(bytes)?;
@@ -1467,6 +1619,7 @@ impl<'a> BoundedSpoolWriter<'a> {
 /// insieme evita anche di allungare la lista dei parametri oltre il tetto.
 #[derive(Clone, Copy)]
 struct XlsxQuote {
+    layer: u64,
     colonne: usize,
     righe: usize,
     byte_ingresso: u64,
@@ -1479,6 +1632,7 @@ struct XlsxQuote {
 impl XlsxQuote {
     fn from_read_options(opts: &ReadOptions) -> Self {
         Self {
+            layer: 0,
             colonne: opts.max_columns(),
             righe: opts.max_rows(),
             byte_ingresso: opts.max_input_bytes(),
@@ -1549,30 +1703,36 @@ where
     let width = data_row_width(bounds)?;
     let row_count = data_row_count(bounds)?;
     if width > quote.colonne {
-        return Err(PlenoraIoError::limite_redatto(
-            &PublicMessage::CuratedBetween(
-                "XLSX:",
-                NumeroStrutturale::Conteggio(driver_common::saturating_u64(width)),
-                "colonne oltre il limite di",
-                NumeroStrutturale::Limite(driver_common::saturating_u64(quote.colonne)),
-            ),
-        ));
+        return Err(
+            plenora_io_model::quota::Quota::Columns.exceeded(plenora_io_model::ErrorPhase::Read)
+        );
     }
     if row_count > quote.righe {
-        return Err(PlenoraIoError::limite_redatto(
-            &PublicMessage::CuratedBetween(
-                "XLSX:",
-                NumeroStrutturale::Conteggio(driver_common::saturating_u64(row_count)),
-                "righe oltre il limite di",
-                NumeroStrutturale::Limite(driver_common::saturating_u64(quote.righe)),
-            ),
-        ));
+        return Err(
+            plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Read)
+        );
     }
 
+    let mut native_loss = LossReport::default();
+    for (element, count) in [
+        (NativeElement::Formula, styles.formulas),
+        (NativeElement::NumericFormat, styles.numeric_formats),
+        (NativeElement::NumberPrecision, styles.changed_numbers),
+    ] {
+        loss_table::observe_native(
+            &mut native_loss,
+            (NativeDriver::Xls, TransportDirection::Read),
+            element,
+            count,
+            quote.layer,
+            None,
+        );
+    }
     let mut headers: Option<Vec<String>> = None;
     let mut geom = None;
     let mut geom_columns = BTreeSet::new();
     let mut accumulators: Vec<TypeAccumulator> = Vec::new();
+    let mut non_text_cells: Vec<u64> = Vec::new();
     let mut temporal = vec![None; width];
     let mut ordinary = vec![false; width];
     let mut detected_dimensions = BTreeSet::new();
@@ -1585,10 +1745,14 @@ where
         for_each_dense_row(&mut reader, bounds, cancellation, |row_index, row| {
             budget.context().ensure_active()?;
             if row_index == bounds.start.0 {
+                if row.iter().all(|cell| matches!(cell, Data::Empty)) {
+                    return Err(sheet_error(plenora_io_model::CapabilityReason::ObjectEmpty));
+                }
                 let row_headers: Vec<String> = row.iter().map(data_to_string).collect();
                 let (resolved_geom, resolved_columns) =
                     resolve_geometry(&row_headers, bounds.start.1, opts)?;
                 accumulators = vec![TypeAccumulator::default(); width - resolved_columns.len()];
+                non_text_cells = vec![0; accumulators.len()];
                 geom = Some(resolved_geom);
                 geom_columns = resolved_columns;
                 headers = Some(row_headers);
@@ -1596,6 +1760,20 @@ where
             }
             let resolved_geom =
                 geom.ok_or_else(|| err(&PublicMessage::Curated("intestazione XLSX assente")))?;
+            if matches!(resolved_geom, XlsxGeomSpec::Xy(_, _)) {
+                for &column in &geom_columns {
+                    if let Data::String(text) = &row[(column - bounds.start.1) as usize] {
+                        loss_table::observe_native(
+                            &mut native_loss,
+                            (NativeDriver::Xls, TransportDirection::Read),
+                            NativeElement::CoordinatePrecision,
+                            u64::from(driver_common::decimal_value_changes(text)),
+                            quote.layer,
+                            Some(u64::from(column)),
+                        );
+                    }
+                }
+            }
             let has_geometry = encode_geometry_cell(
                 row,
                 bounds,
@@ -1649,7 +1827,11 @@ where
                             )));
                         }
                     }
-                    accumulators[attribute_index].observe(classify_data(data)?);
+                    let class = classify_data(data)?;
+                    if !matches!(class, ObservedValueClass::Null | ObservedValueClass::Text) {
+                        non_text_cells[attribute_index] += 1;
+                    }
+                    accumulators[attribute_index].observe(class);
                     spool_writer.data(data)?;
                 }
                 attribute_index += 1;
@@ -1658,13 +1840,24 @@ where
         })?;
     spool_writer.finish()?;
     if observed_cells == 0 {
-        return Err(err(&PublicMessage::Curated("foglio vuoto")));
+        return Err(sheet_error(plenora_io_model::CapabilityReason::ObjectEmpty));
     }
     let headers =
         headers.ok_or_else(|| err(&PublicMessage::Curated("intestazione XLSX assente")))?;
     let geom =
         geom.ok_or_else(|| err(&PublicMessage::Curated("geometria XLSX non configurata")))?;
 
+    let columns: Vec<_> = geom_columns
+        .iter()
+        .map(|column| (column - bounds.start.1) as usize)
+        .collect();
+    native_loss.merge(&loss_table::tabular_geometry_report(
+        NativeDriver::Xls,
+        &headers,
+        &columns,
+        matches!(geom, XlsxGeomSpec::Xy(_, _)),
+        quote.layer,
+    ));
     if matches!(geom, XlsxGeomSpec::Xy(_, _)) {
         detected_dimensions.insert(CoordinateDimensions::Xy);
         detected_types.insert(GeometryType::Point);
@@ -1681,31 +1874,44 @@ where
     // Il genere con la regola comune dei driver: prima un elenco proprio, che
     // distingueva le maiuscole (`epsg:4326` era ignoto) e non conosceva
     // `EPSG:3857`.
-    let kind = plenora_io_model::crs::crs_kind_for(Some(crs), None, "xls")?;
-    // Come il CSV: con le colonne di coordinate la x e' l'est; una colonna
-    // WKT non fissa l'ordine e la richiesta non lo dice (GEO-002).
-    let crs_dichiarato = ResolvedCrs::new(Some(crs.to_owned()), kind, None);
-    let crs_dichiarato = match geom {
-        XlsxGeomSpec::Xy(_, _) => crs_dichiarato.stored_east_first(),
-        XlsxGeomSpec::Wkt(_) => crs_dichiarato,
-    };
-    let mut geometry_contract =
-        GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, crs_dichiarato, true);
-    geometry_contract.dimensions = dimensions;
-    geometry_contract.set_exact_geometry_types(detected_types.into_iter().collect());
-    geometry_contract.native_metadata.insert(
-        "xlsx.geometry_encoding".to_owned(),
-        if matches!(geom, XlsxGeomSpec::Wkt(_)) {
-            "wkt"
-        } else {
-            "xy_columns"
+    let geometry_contract = if matches!(geom, XlsxGeomSpec::None) {
+        None
+    } else {
+        if crs.is_empty() {
+            return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+                "XLSX con geometria richiede --assume-crs",
+            )));
         }
-        .to_owned(),
-    );
-    let mut fields = vec![with_geometry_contract_metadata(
-        &geometry_field(GEOMETRY, crs),
-        &geometry_contract,
-    )];
+        let kind = plenora_io_model::crs::crs_kind_for(Some(crs), None, "xls")?;
+        // Come il CSV: con le colonne di coordinate la x e' l'est; una colonna
+        // WKT non fissa l'ordine e la richiesta non lo dice (GEO-002).
+        let crs_dichiarato = ResolvedCrs::new(Some(crs.to_owned()), kind, None);
+        let crs_dichiarato = match geom {
+            XlsxGeomSpec::Xy(_, _) => crs_dichiarato.stored_east_first(),
+            XlsxGeomSpec::Wkt(_) | XlsxGeomSpec::None => crs_dichiarato,
+        };
+        let mut geometry_contract =
+            GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, crs_dichiarato, true);
+        geometry_contract.dimensions = dimensions;
+        geometry_contract.set_exact_geometry_types(detected_types.into_iter().collect());
+        geometry_contract.native_metadata.insert(
+            "xlsx.geometry_encoding".to_owned(),
+            if matches!(geom, XlsxGeomSpec::Wkt(_)) {
+                "wkt"
+            } else {
+                "xy_columns"
+            }
+            .to_owned(),
+        );
+        Some(geometry_contract)
+    };
+    let mut fields = Vec::new();
+    if let Some(geometry) = &geometry_contract {
+        fields.push(with_geometry_contract_metadata(
+            &geometry_field(GEOMETRY, crs),
+            geometry,
+        ));
+    }
     let mut attrs = Vec::with_capacity(accumulators.len());
     let mut attribute_index = 0usize;
     for (offset, name) in headers.iter().enumerate() {
@@ -1725,6 +1931,18 @@ where
             continue;
         }
         let column_type = accumulators[attribute_index].column_type();
+        if column_type == ColType::Text && temporal[attribute_index].is_none() {
+            // The final column type, not the presence of inference, determines
+            // whether native numbers/booleans actually become strings.
+            loss_table::observe_native(
+                &mut native_loss,
+                (NativeDriver::Xls, TransportDirection::Read),
+                NativeElement::Inference,
+                non_text_cells[attribute_index],
+                quote.layer,
+                Some(u64::from(column)),
+            );
+        }
         fields.push(Field::new(
             name,
             temporal[attribute_index]
@@ -1736,13 +1954,18 @@ where
     }
 
     let schema: SchemaRef = Arc::new(Schema::new(fields));
-    let contract = DataContract::new(
-        plenora_io_model::geometry::schema_from_native_fields(&schema, &geometry_contract),
-        Some(geometry_contract),
-    );
+    let contract = if let Some(geometry) = geometry_contract {
+        DataContract::new(
+            plenora_io_model::geometry::schema_from_native_fields(&schema, &geometry),
+            Some(geometry),
+        )
+    } else {
+        DataContract::new(schema, None)
+    };
     let schema = contract.schema.clone();
     Ok((
         XlsxLayout {
+            loss: native_loss,
             attrs,
             schema,
             data_rows: row_count,
@@ -1759,7 +1982,11 @@ fn finish_read_batch(
     row_count: usize,
 ) -> Result<RecordBatch> {
     let mut arrays: Vec<ArrayRef> = Vec::with_capacity(1 + attributes.len());
-    arrays.push(Arc::new(geometry.finish()));
+    if schema.fields().len() > attributes.len() {
+        arrays.push(Arc::new(geometry.finish()));
+    } else {
+        let _ = geometry.finish();
+    }
     for builder in attributes {
         let array = builder.finish();
         arrays.push(date_native::restore(
@@ -1949,3 +2176,181 @@ fn coordinate_cell(cell: Option<&Data>, axis: &'static str) -> Result<Option<f64
 
 #[cfg(test)]
 mod tests;
+
+/// Materialize a bounded XML prefix before handing a worksheet to Calamine.
+#[allow(clippy::case_sensitive_file_extension_comparisons)] // OPC part names are case sensitive.
+fn prefix_workbook(
+    path: &std::path::Path,
+    limit: u64,
+    opts: &ReadOptions,
+) -> Result<tempfile::NamedTempFile> {
+    use quick_xml::events::Event;
+    let mut source = zip::ZipArchive::new(std::fs::File::open(path)?)
+        .map_err(|_| err(&PublicMessage::Curated("contenitore XLSX non valido")))?;
+    let temporary = tempfile::Builder::new()
+        .suffix(".xlsx")
+        .tempfile_in(plenora_io_core::driver::spool::spill_directory()?)?;
+    let mut output = zip::ZipWriter::new(temporary.reopen()?);
+    for index in 0..source.len() {
+        opts.ensure_active()?;
+        let member = source
+            .by_index(index)
+            .map_err(|_| err(&PublicMessage::Curated("membro XLSX non leggibile")))?;
+        let name = member
+            .name()
+            .map_err(|_| err(&PublicMessage::Curated("nome membro XLSX non valido")))?
+            .into_owned();
+        if !name.starts_with("xl/worksheets/") || !name.ends_with(".xml") {
+            output
+                .raw_copy_file(member)
+                .map_err(|_| err(&PublicMessage::Curated("copia metadati XLSX fallita")))?;
+            continue;
+        }
+        output
+            .start_file(name, zip::write::SimpleFileOptions::default())
+            .map_err(|_| err(&PublicMessage::Curated("spool XLSX non creabile")))?;
+        let mut reader = quick_xml::Reader::from_reader(quick_xml::encoding::DecodingReader::new(
+            BufReader::new(member),
+        ));
+        let mut writer = quick_xml::Writer::new(&mut output);
+        let mut buffer = Vec::new();
+        let mut stack: Vec<String> = Vec::new();
+        let mut rows = 0_u64;
+        let mut first_row = None;
+        let mut current_row = 0_u64;
+        let mut first_column = None;
+        loop {
+            opts.ensure_active()?;
+            let event = reader
+                .read_event_into(&mut buffer)
+                .map_err(|_| err(&PublicMessage::Curated("XML XLSX non valido nel prefisso")))?;
+            if matches!(event, Event::Eof) {
+                break;
+            }
+            // The original dimension includes the unobserved suffix. Let the
+            // existing layout scanner infer dimensions from the bounded copy.
+            if matches!(&event, Event::Empty(e) if e.local_name().as_ref() == "dimension") {
+                buffer.clear();
+                continue;
+            }
+            if let Event::Start(element) | Event::Empty(element) = &event {
+                if first_column.is_none() && element.local_name().as_ref() == "c" {
+                    first_column = prefix_cell_column(element)?;
+                }
+                if element.local_name().as_ref() == "row" {
+                    current_row = prefix_row_number(element, current_row.saturating_add(1))?;
+                    let first = *first_row.get_or_insert(current_row);
+                    if current_row > first.saturating_add(limit) {
+                        // Sparse worksheets contain implicit empty rows. Materialize
+                        // the final empty cell so dimension inference retains them.
+                        complete_sparse_prefix(
+                            &mut writer,
+                            first.saturating_add(limit),
+                            first_column.as_deref().unwrap_or("A"),
+                            &stack,
+                        )?;
+                        break;
+                    }
+                    rows = current_row.saturating_sub(first);
+                }
+            }
+            let row_end = match &event {
+                Event::Start(e) => {
+                    stack.push(e.name().as_ref().to_owned());
+                    false
+                }
+                Event::End(e) => {
+                    stack.pop();
+                    e.local_name().as_ref() == "row"
+                }
+                Event::Empty(e) => e.local_name().as_ref() == "row",
+                _ => false,
+            };
+            writer
+                .write_event(event)
+                .map_err(|_| err(&PublicMessage::Curated("scrittura prefisso XLSX fallita")))?;
+            if row_end {
+                rows += 1;
+            }
+            if rows >= limit.saturating_add(1) {
+                close_xml_prefix(&mut writer, &stack)?;
+                break;
+            }
+            buffer.clear();
+        }
+    }
+    let file = output
+        .finish()
+        .map_err(|_| err(&PublicMessage::Curated("chiusura spool XLSX fallita")))?;
+    if file.metadata()?.len() > opts.max_input_bytes() {
+        return Err(plenora_io_model::quota::Quota::InputBytes.exceeded(ErrorPhase::Read));
+    }
+    Ok(temporary)
+}
+
+fn prefix_row_number(element: &quick_xml::events::BytesStart<'_>, implicit: u64) -> Result<u64> {
+    for attribute in element.attributes() {
+        let attribute =
+            attribute.map_err(|_| err(&PublicMessage::Curated("attributo XML XLSX non valido")))?;
+        if attribute.key.as_ref() == "r" {
+            return attribute
+                .value
+                .parse::<u64>()
+                .map_err(|_| err(&PublicMessage::Curated("indice riga XLSX non valido")));
+        }
+    }
+    Ok(implicit)
+}
+
+fn complete_sparse_prefix<W: std::io::Write>(
+    writer: &mut quick_xml::Writer<W>,
+    last: u64,
+    column: &str,
+    stack: &[String],
+) -> Result<()> {
+    use quick_xml::events::{BytesEnd, BytesStart, Event};
+    let last = last.to_string();
+    let mut row = BytesStart::new("row");
+    row.push_attribute(("r", last.as_str()));
+    writer.write_event(Event::Start(row))?;
+    let reference = format!("{column}{last}");
+    let mut cell = BytesStart::new("c");
+    cell.push_attribute(("r", reference.as_str()));
+    writer.write_event(Event::Empty(cell))?;
+    writer.write_event(Event::End(BytesEnd::new("row")))?;
+    for name in stack.iter().rev() {
+        writer.write_event(Event::End(BytesEnd::new(name)))?;
+    }
+    Ok(())
+}
+
+fn prefix_cell_column(element: &quick_xml::events::BytesStart<'_>) -> Result<Option<String>> {
+    for attribute in element.attributes() {
+        let attribute =
+            attribute.map_err(|_| err(&PublicMessage::Curated("attributo XML XLSX non valido")))?;
+        if attribute.key.as_ref() == "r" {
+            return Ok(Some(
+                attribute
+                    .value
+                    .chars()
+                    .take_while(char::is_ascii_alphabetic)
+                    .collect(),
+            ));
+        }
+    }
+    Ok(None)
+}
+
+fn close_xml_prefix<W: std::io::Write>(
+    writer: &mut quick_xml::Writer<W>,
+    stack: &[String],
+) -> Result<()> {
+    for name in stack.iter().rev() {
+        writer
+            .write_event(quick_xml::events::Event::End(
+                quick_xml::events::BytesEnd::new(name),
+            ))
+            .map_err(|_| err(&PublicMessage::Curated("chiusura prefisso XLSX fallita")))?;
+    }
+    Ok(())
+}

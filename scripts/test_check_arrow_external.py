@@ -254,3 +254,14 @@ class RoutingArrow(unittest.TestCase):
                                 'plenora_io.probe.Thing.ingest'})
         with self.assertRaisesRegex(AssertionError, 'non_classificati'):
             check_entries({}, found, 'runtime')
+
+
+class IpcPrefixRouting(unittest.TestCase):
+    def test_current_decoders_limit_before_validation(self):
+        guard.check_ipc_prefix((guard.ROOT / "crates/driver-ipc/src/lib.rs").read_text(encoding="utf-8"))
+
+    def test_a_full_batch_validation_is_rejected(self):
+        source = (guard.ROOT / "crates/driver-ipc/src/lib.rs").read_text(encoding="utf-8")
+        source = source.replace("b.slice(0, b.num_rows().min(remaining))", "b", 1)
+        with self.assertRaisesRegex(AssertionError, "before value validation"):
+            guard.check_ipc_prefix(source)

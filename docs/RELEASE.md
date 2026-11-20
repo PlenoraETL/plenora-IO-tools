@@ -1,11 +1,12 @@
 # Rilascio — stato corrente
 
-La candidate 10.0.0 e congelata su
-`edb482d892da11ecb421d5441079209a65d61fa0`, distribuita e qualificata con
-replay finito e L2. Non e autorizzata alla pubblicazione.
-La decisione del titolare del 15 e 17 novembre 2026 elimina la compatibilita
-con release Plenora precedenti. La registrazione seguente riguarda soltanto
-la candidate congelata; non trasferisce la misura al commit di assurance.
+La candidate 10.0.0 `edb482d892da11ecb421d5441079209a65d61fa0` e ritirata
+su decisione del titolare per i difetti della raccolta indipendente.
+Il ritiro, i riferimenti ai tre elenchi e l'invalidazione di artefatti e bozza
+sono in [ritiro-candidate-1000.json](../assurance/evidence/ritiro-candidate-1000.json).
+Lo sviluppo riparte verso una nuova candidate 10.0.0 nello stato `iniziale`,
+non congelato. Le evidenze seguenti restano storiche: non qualificano le
+correzioni. Nessuna pubblicazione e autorizzata.
 
 ## Stato
 
@@ -44,15 +45,15 @@ la candidate congelata; non trasferisce la misura al commit di assurance.
 | capacità differite | 2 |
 | S9, qualificato su | `edb482d` |
 | candidate, versione del manifesto | `10.0.0` |
-| candidate, stato | attiva |
-| candidate, revisione congelata | `edb482d892da11ecb421d5441079209a65d61fa0` |
+| candidate, stato | iniziale |
+| candidate, revisione congelata | non congelata |
 | candidate, versione del workspace | `10.0.0` |
-| candidate, artefatti congelati | 7 |
+| candidate, artefatti congelati | non congelati |
 | candidate, tag previsto | `v10.0.0` |
 | candidate, tag creato | no |
 | candidate, revisione del tag | nessun tag |
 | candidate, tag sulla candidate | no |
-| candidate, assurance entro l'allowlist | sì |
+| candidate, assurance entro l'allowlist | non derivabile senza congelamento |
 | candidate, release_action consentita | no |
 | release_authorized | `false` |
 
@@ -62,8 +63,8 @@ I blocchi sono l'elenco esatto dei `release_blocking` del
 
 | Blocco | Sintesi |
 |---|---|
-| `release.candidate-non-valida-per-head` | 10.0.0: candidate e sette artefatti congelati, replay finito e L2 registrati; draft, decisione e tag da completare. |
-| `distribuzione.artefatti-qualificati` | Sette archivi 10.0.0 congelati su edb482d e 32 referti verificati; confronto con la draft ancora da eseguire. |
+| `release.candidate-non-valida-per-head` | 10.0.0 in sviluppo: candidate edb482d ritirata per difetti della raccolta; artefatti e bozza non validi per il rilascio. |
+| `distribuzione.artefatti-qualificati` | 10.0.0 in sviluppo: candidate edb482d ritirata per difetti della raccolta; artefatti e bozza non validi per il rilascio. |
 
 Le capacità **differite** non sono blocchi chiusi: non sono richieste
 da questa release e **non sono verificate**. Ciascuna dichiara che cosa
@@ -254,17 +255,18 @@ l'interno del GDAL di sistema non strumentato.
 Distribuzione GitHub Actions `44222062212`, canale `candidate`, esito `success`
 e revisione sopra comunicati dall'operatore; nessuna consultazione GitHub.
 I download originali in `target/rel1000/distribuzione-44222062212/` sono immutati.
-I sette artefatti in `candidate_release.artefatti` riportano nome, dimensione
+I sette artefatti ritirati, archiviati in `candidate_ritirata.artefatti` del
+verbale di ritiro, riportano nome, dimensione
 e SHA-256 ricalcolati dai download, con revisione verificata da provenance e
 manifesto sorgente. `check-deliverable.py` passa sui sette archivi, inclusi i
 due Python; `check-distribuzione-completa.py` passa sui 32 referti attesi e trovati.
 Fonti, dimensioni, digest e comandi sono in `distribuzione_candidate` dell'evidenza.
 Questa verifica non e il confronto dei byte della bozza o della release pubblicata.
 
-Restano, nell'ordine: manifesto di adozione e attestazioni del profilo pubblico
-della stessa corsa, bozza e confronto completo degli asset riscaricati, decisione
-del titolare e tag sulla candidate, registrazione dell'autorizzazione e gate
-finale, pubblicazione immutata e confronto dei byte pubblicati.
+La candidate descritta in questa registrazione e ritirata. Prima di riprendere
+quei passi occorrono le correzioni R1..R5, un nuovo congelamento 10.0.0 e nuove
+qualifiche e artefatti. La bozza e gli archivi di questa corsa non possono essere
+riutilizzati per autorizzare il nuovo rilascio.
 I due blocchi restano espliciti; `release_authorized` e
 `release_action_allowed` restano `false`. La qualifica cross-component e la
 conferma esterna della licenza first-party restano differite e non verificate.

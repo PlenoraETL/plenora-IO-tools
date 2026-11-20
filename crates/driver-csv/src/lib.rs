@@ -28,8 +28,8 @@ use serde_json::Value as JsonValue;
 
 use driver_common::wkt_lossless::{format_wkt_into, parse_wkt_bounded};
 use driver_common::{
-    classify_i64, geometry_field, geometry_index, ColType, InferredColumnBuilder,
-    ObservedValueClass, TypeAccumulator, ValidatedArray,
+    classify_i64, geometry_index, ColType, InferredColumnBuilder, ObservedValueClass,
+    TypeAccumulator, ValidatedArray,
 };
 use driver_common::{colonna_per_nome, ColonnaPerNome};
 use plenora_io_core::descriptor::{
@@ -41,6 +41,8 @@ use plenora_io_core::driver::{
     Published, ReadOptions, Sink, Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
+use plenora_io_core::loss_table::{self, NativeDriver, NativeElement, TransportDirection};
+
 use plenora_io_core::publish::StagedFile;
 use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
@@ -53,8 +55,58 @@ use plenora_io_model::contract::{
     LayerContract, LayerId,
 };
 use plenora_io_model::crs::ResolvedCrs;
-#[cfg(test)]
-use plenora_io_model::geometry::is_geometry_field;
+
+fn native_read_loss(
+    path: &Path,
+    delim: u8,
+    headers: &[String],
+    geom: Option<GeomSpec>,
+    opts: &ReadOptions,
+) -> Result<LossReport> {
+    let columns: Vec<_> = match geom {
+        Some(GeomSpec::Wkt(i)) => vec![i],
+        Some(GeomSpec::Xy(x, y)) => vec![x, y],
+        None => vec![],
+    };
+    let mut loss = loss_table::tabular_geometry_report(
+        NativeDriver::Csv,
+        headers,
+        &columns,
+        matches!(geom, Some(GeomSpec::Xy(_, _))),
+        0,
+    );
+    if let Some(GeomSpec::Xy(x, y)) = geom {
+        let mut reader = csv_reader(path, delim)?;
+        let mut row = csv::StringRecord::new();
+        while reader.read_record(&mut row).map_err(|_| {
+            err(&PublicMessage::Curated(
+                "CSV non valido: richiesti testo UTF-8 e quoting CSV valido",
+            ))
+        })? {
+            opts.ensure_active()?;
+            for index in [x, y] {
+                if row
+                    .get(index)
+                    .is_some_and(driver_common::decimal_value_changes)
+                {
+                    loss_table::observe_native(
+                        &mut loss,
+                        (NativeDriver::Csv, TransportDirection::Read),
+                        NativeElement::CoordinatePrecision,
+                        1,
+                        0,
+                        Some(index as u64),
+                    );
+                }
+            }
+        }
+    }
+    // infer_types accepts a scalar type only when every non-null token is
+    // reconstructed exactly (including quoting). A type inferred without a
+    // value change is not a loss; incompatible tokens stay Utf8.
+    Ok(loss)
+}
+
 use plenora_io_model::geometry::with_geometry_contract_metadata;
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::{
@@ -62,7 +114,7 @@ use plenora_io_model::wkb::{
 };
 use plenora_io_model::{NumeroStrutturale, PlenoraIoError, PublicMessage, Result};
 
-mod wire;
+use driver_common::csv_wire as wire;
 
 const GEOMETRY: &str = "geometry";
 
@@ -120,6 +172,7 @@ const SCHEMA_OPZIONI: SchemaOpzioniFormato = SchemaOpzioniFormato::nuovo(&[
 
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     "csv",
+    &plenora_io_core::dataset_files::FILE_SETS[0],
     Direction::Bidirectional,
     ReadMode::StreamingSequential,
     // INV-7: `read_record` riga per riga, canale a profondita' 2.
@@ -148,17 +201,13 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     None,
     Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
-        allowed_types: &[
-            plenora_io_core::ArrowTypeClass::Boolean,
-            plenora_io_core::ArrowTypeClass::SignedInteger,
-            plenora_io_core::ArrowTypeClass::UnsignedInteger,
-            plenora_io_core::ArrowTypeClass::Floating,
-            plenora_io_core::ArrowTypeClass::Utf8,
-            plenora_io_core::ArrowTypeClass::Temporal,
-        ],
+        allowed_types: plenora_io_core::loss_table::CSV.allowed_types,
         type_coercion: TypeCoercionPolicy::Reject,
         attributes: AttributeWriteSupport::All,
-        geometry: WKB_PASSTHROUGH_GEOMETRY,
+        geometry: plenora_io_core::GeometryWriteSupport {
+            dimensions: plenora_io_core::loss_table::CSV.dimensions,
+            ..WKB_PASSTHROUGH_GEOMETRY
+        },
         crs: CrsWriteSupport::None,
         crs_representations: CrsRepresentationCapabilities::new(
             CrsRepresentationState::Absent,
@@ -210,15 +259,21 @@ fn delimiter(opts: &std::collections::BTreeMap<String, String>) -> Option<u8> {
 fn colonne_geometriche(
     headers: &[String],
     format_options: &std::collections::BTreeMap<String, String>,
-) -> Result<(GeomSpec, HashSet<usize>)> {
+) -> Result<(Option<GeomSpec>, HashSet<usize>)> {
     // Un nome che l'intestazione ripete e' ambiguo: prendere la prima
     // occorrenza sceglieva in silenzio da quale colonna leggere la geometria.
     let idx = |name: &str, assente: &'static str, ambigua: &'static str| match colonna_per_nome(
         headers, name,
     ) {
         ColonnaPerNome::Unica(indice) => Ok(indice),
-        ColonnaPerNome::Assente => Err(err(&PublicMessage::Curated(assente))),
-        ColonnaPerNome::Ambigua => Err(err(&PublicMessage::Curated(ambigua))),
+        ColonnaPerNome::Assente => Err(
+            plenora_io_model::error_table::Situation::MissingOptionColumn
+                .error_with(&PublicMessage::Curated(assente)),
+        ),
+        ColonnaPerNome::Ambigua => Err(
+            plenora_io_model::error_table::Situation::InvalidConfiguration
+                .error_with(&PublicMessage::Curated(ambigua)),
+        ),
     };
     // Due dichiarazioni di geometria per lo stesso layer: vinceva `wkt_column`
     // e le colonne x/y uscivano come attributi, una scelta fatta al posto di
@@ -243,7 +298,7 @@ fn colonne_geometriche(
             "colonna WKT assente dall'intestazione",
             "colonna WKT ambigua: il nome compare piu' volte nell'intestazione",
         )?;
-        return Ok((GeomSpec::Wkt(wi), HashSet::from([wi])));
+        return Ok((Some(GeomSpec::Wkt(wi)), HashSet::from([wi])));
     }
     if let (Some(x), Some(y)) = (
         format_options.get("x_column"),
@@ -259,11 +314,16 @@ fn colonne_geometriche(
             "colonna Y assente dall'intestazione",
             "colonna Y ambigua: il nome compare piu' volte nell'intestazione",
         )?;
-        return Ok((GeomSpec::Xy(xi, yi), HashSet::from([xi, yi])));
+        return Ok((Some(GeomSpec::Xy(xi, yi)), HashSet::from([xi, yi])));
     }
-    Err(err(&PublicMessage::Curated(
-        "specificare wkt_column, oppure x_column con y_column, in format_options",
-    )))
+    if !format_options.contains_key("x_column") && !format_options.contains_key("y_column") {
+        return Ok((None, HashSet::new()));
+    }
+    Err(
+        plenora_io_model::error_table::Situation::InvalidConfiguration.error_with(
+            &PublicMessage::Curated("specificare entrambe le opzioni x_column e y_column"),
+        ),
+    )
 }
 
 /// Errore per un separatore che la validazione avrebbe dovuto respingere.
@@ -337,9 +397,11 @@ fn csv_reader(path: &Path, delim: u8) -> Result<wire::Reader<File>> {
         File::open(path).map_err(|_| err(&PublicMessage::Curated("apertura del CSV fallita")))?;
     let mut reader = wire::Reader::new(file, delim);
     let mut header = csv::StringRecord::new();
-    reader
-        .read_record(&mut header)
-        .map_err(|_| err(&PublicMessage::Curated("intestazione CSV non valida")))?;
+    reader.read_record(&mut header).map_err(|_| {
+        err(&PublicMessage::Curated(
+            "intestazione CSV non valida: richiesti testo UTF-8 e quoting CSV valido",
+        ))
+    })?;
     Ok(reader)
 }
 
@@ -355,13 +417,8 @@ impl FormatDriver for CsvDriver {
     }
 
     fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = plenora_io_core::preflight_source(self.descriptor(), source, &mut opts)?;
+        let path = driver_common::structure::preflight(self.descriptor(), source, &mut opts)?;
         let delim = delimiter(&opts.format_options).ok_or_else(delimiter_non_valido)?;
-        let crs = opts.assume_crs.clone().ok_or_else(|| {
-            PlenoraIoError::crs_redatto(&PublicMessage::Curated(
-                "CSV con geometria richiede --assume-crs",
-            ))
-        })?;
 
         // Intestazione (nomi colonna).
         let headers: Vec<String> = {
@@ -369,10 +426,11 @@ impl FormatDriver for CsvDriver {
                 .map_err(|_| err(&PublicMessage::Curated("apertura del CSV fallita")))?;
             let mut rdr = wire::Reader::new(file, delim);
             let mut first = csv::StringRecord::new();
-            if !rdr
-                .read_record(&mut first)
-                .map_err(|_| err(&PublicMessage::Curated("CSV non valido")))?
-            {
+            if !rdr.read_record(&mut first).map_err(|_| {
+                err(&PublicMessage::Curated(
+                    "CSV non valido: richiesti testo UTF-8 e quoting CSV valido",
+                ))
+            })? {
                 return Err(err(&PublicMessage::Curated("CSV vuoto")));
             }
             first.iter().map(str::to_owned).collect()
@@ -384,47 +442,68 @@ impl FormatDriver for CsvDriver {
         let quote = QuoteInferenza::from_read_options(&opts);
         let attrs = infer_types(&path, delim, &headers, &geom_cols, quote)?;
 
-        let (dimensions, geometry_types) = match geom {
-            GeomSpec::Wkt(wi) => infer_wkt_geometry(&path, delim, wi, quote)?,
-            GeomSpec::Xy(_, _) => (CoordinateDimensions::Xy, vec![GeometryType::Point]),
+        let geometry_contract = if let Some(geom) = geom {
+            let crs = opts.assume_crs.clone().ok_or_else(|| {
+                PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+                    "CSV con geometria richiede --assume-crs",
+                ))
+            })?;
+            let (dimensions, geometry_types) = match geom {
+                GeomSpec::Wkt(wi) => infer_wkt_geometry(&path, delim, wi, quote)?,
+                GeomSpec::Xy(_, _) => (CoordinateDimensions::Xy, vec![GeometryType::Point]),
+            };
+            // Il genere con la regola comune dei driver: prima un elenco proprio, che
+            // distingueva le maiuscole (`epsg:4326` era ignoto) e non conosceva
+            // `EPSG:3857`.
+            let kind = plenora_io_model::crs::crs_kind_for(Some(&crs), None, "csv")?;
+            // L'ordine memorizzato lo dichiara la richiesta (GEO-002): con
+            // `x_column`/`y_column` la x e' l'est, e i valori escono (x, y). Una
+            // colonna WKT non fissa l'ordine e la richiesta non lo dice: il
+            // produttore non lo sa, e dichiara `unknown`.
+            let crs_dichiarato = ResolvedCrs::new(Some(crs), kind, None);
+            let crs_dichiarato = match geom {
+                GeomSpec::Xy(_, _) => crs_dichiarato.stored_east_first(),
+                GeomSpec::Wkt(_) => crs_dichiarato,
+            };
+            let mut geometry_contract =
+                GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, crs_dichiarato, true);
+            geometry_contract.dimensions = dimensions;
+            geometry_contract.set_exact_geometry_types(geometry_types);
+            let native_encoding = match geom {
+                GeomSpec::Wkt(_) => "wkt",
+                GeomSpec::Xy(_, _) => "xy_columns",
+            };
+            geometry_contract.native_metadata.insert(
+                "csv.geometry_encoding".to_owned(),
+                native_encoding.to_owned(),
+            );
+            Some(geometry_contract)
+        } else {
+            None
         };
-        // Il genere con la regola comune dei driver: prima un elenco proprio, che
-        // distingueva le maiuscole (`epsg:4326` era ignoto) e non conosceva
-        // `EPSG:3857`.
-        let kind = plenora_io_model::crs::crs_kind_for(Some(&crs), None, "csv")?;
-        // L'ordine memorizzato lo dichiara la richiesta (GEO-002): con
-        // `x_column`/`y_column` la x e' l'est, e i valori escono (x, y). Una
-        // colonna WKT non fissa l'ordine e la richiesta non lo dice: il
-        // produttore non lo sa, e dichiara `unknown`.
-        let crs_dichiarato = ResolvedCrs::new(Some(crs.clone()), kind, None);
-        let crs_dichiarato = match geom {
-            GeomSpec::Xy(_, _) => crs_dichiarato.stored_east_first(),
-            GeomSpec::Wkt(_) => crs_dichiarato,
-        };
-        let mut geometry_contract =
-            GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, crs_dichiarato, true);
-        geometry_contract.dimensions = dimensions;
-        geometry_contract.set_exact_geometry_types(geometry_types);
-        let native_encoding = match geom {
-            GeomSpec::Wkt(_) => "wkt",
-            GeomSpec::Xy(_, _) => "xy_columns",
-        };
-        geometry_contract.native_metadata.insert(
-            "csv.geometry_encoding".to_owned(),
-            native_encoding.to_owned(),
-        );
-        let mut fields = vec![with_geometry_contract_metadata(
-            &geometry_field(GEOMETRY, &crs),
-            &geometry_contract,
-        )];
+        let mut fields = Vec::new();
+        if let Some(geometry) = &geometry_contract {
+            fields.push(with_geometry_contract_metadata(
+                &driver_common::geometry_field(
+                    GEOMETRY,
+                    opts.assume_crs.as_deref().unwrap_or_default(),
+                ),
+                geometry,
+            ));
+        }
         for (ci, ct) in &attrs {
             fields.push(Field::new(&headers[*ci], ct.arrow_data_type(), true));
         }
+        let loss = native_read_loss(&path, delim, &headers, geom, &opts)?;
         let schema: SchemaRef = Arc::new(Schema::new(fields));
-        let contract = DataContract::new(
-            plenora_io_model::geometry::schema_from_native_fields(&schema, &geometry_contract),
-            Some(geometry_contract),
-        );
+        let contract = if let Some(geometry) = geometry_contract {
+            DataContract::new(
+                plenora_io_model::geometry::schema_from_native_fields(&schema, &geometry),
+                Some(geometry),
+            )
+        } else {
+            DataContract::new(schema, None)
+        };
         let name = path
             .file_stem()
             .and_then(|s| s.to_str())
@@ -432,6 +511,7 @@ impl FormatDriver for CsvDriver {
             .to_owned();
         plenora_io_core::with_read_budget(
             Box::new(CsvDataset {
+                loss,
                 path,
                 delim,
                 geom,
@@ -472,13 +552,14 @@ impl FormatDriver for CsvDriver {
                     continue;
                 }
                 if !csv_attribute_type(field.data_type()) {
-                    return Err(PlenoraIoError::non_supportato_redatto(
-                        &PublicMessage::Curated("tipo attributo CSV non rappresentabile"),
+                    return Err(plenora_io_core::capabilities::unsupported_arrow_type(
+                        field.data_type(),
                     ));
                 }
             }
         }
         let Sink::Path(path) = sink;
+        self.descriptor().files().ensure_absent(&path)?;
         if path.exists() {
             return Err(PlenoraIoError::destinazione_esistente());
         }
@@ -535,13 +616,18 @@ impl FormatDriver for CsvDriver {
             opts.durable,
             opts.max_output_bytes(),
             opts.budget().context(),
-        )?;
+        )?
+        .for_dataset(*DESCRIPTOR.files())?;
         let writer = wire::Writer::new(
             staging.reopen()?,
             delimiter(&opts.format_options).ok_or_else(delimiter_non_valido)?,
         );
         with_write_validation(
             Box::new(CsvWriter {
+                metadata_check: plenora_io_core::property_plan::NativeMetadataCheck::new(
+                    plan, opts,
+                ),
+                loss: loss_table::native_write_report(NativeDriver::Csv, plan),
                 staging,
                 writer: Some(writer),
                 xy,
@@ -558,9 +644,10 @@ impl FormatDriver for CsvDriver {
 // --- lettura streaming -----------------------------------------------------
 
 struct CsvDataset {
+    loss: LossReport,
     path: PathBuf,
     delim: u8,
-    geom: GeomSpec,
+    geom: Option<GeomSpec>,
     /// Le quote WKB configurate, non i default del contratto: il dataset
     /// sopravvive alle opzioni, e senza portarsele dietro la lettura tornerebbe
     /// al default proprio dopo che l'inferenza ha rispettato il flag.
@@ -580,14 +667,18 @@ impl OpenDatasetHandle for CsvDataset {
         )
     }
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
+        if !self.layers.iter().any(|layer| layer.id == request.layer) {
+            return Err(plenora_io_model::error_table::Situation::MissingLayer.error());
+        }
+
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
         let (indices, layer) = plenora_io_core::project_layer_contract(&self.layers[0], request)?;
-        let include_geometry = indices.binary_search(&0).is_ok();
+        let include_geometry = self.geom.is_some() && indices.binary_search(&0).is_ok();
         let attrs = indices
             .iter()
             .filter_map(|&index| {
                 index
-                    .checked_sub(1)
+                    .checked_sub(usize::from(self.geom.is_some()))
                     .and_then(|attr_index| self.attrs.get(attr_index))
                     .copied()
             })
@@ -602,14 +693,18 @@ impl OpenDatasetHandle for CsvDataset {
                 delim: self.delim,
                 cella_wkt: self.wkb_limits,
             },
-            include_geometry.then_some(self.geom),
+            self.geom.filter(|_| include_geometry),
             attrs,
             layer.contract.schema.clone(),
             batch_sizer,
             layer,
+            match request.scope {
+                plenora_io_core::ReadScope::Complete => None,
+                plenora_io_core::ReadScope::AcceptedRows(limit) => Some(limit),
+            },
         )?;
         Ok(plenora_io_core::with_cancellation(
-            reader,
+            loss_table::with_native_report(reader, self.loss.clone()),
             request.cancellation.clone(),
         ))
     }
@@ -665,6 +760,7 @@ struct QuoteInferenza {
     /// predefinito — decine di migliaia, calibrato sui file di una directory —
     /// rifiuterebbe un CSV di dimensioni ordinarie.
     righe: usize,
+    row_limit: Option<u64>,
 }
 
 impl QuoteInferenza {
@@ -672,16 +768,14 @@ impl QuoteInferenza {
         Self {
             cella_wkt: opts.wkb_limits(),
             righe: opts.max_rows(),
+            row_limit: opts.row_limit,
         }
     }
 }
 
 /// Errore di una passata di inferenza che supera il tetto di righe.
-fn oltre_le_righe(righe: usize) -> PlenoraIoError {
-    PlenoraIoError::limite_redatto(&PublicMessage::CuratedWith(
-        "l'inferenza si e' fermata al tetto di righe:",
-        NumeroStrutturale::Limite(driver_common::saturating_u64(righe)),
-    ))
+fn oltre_le_righe(_righe: usize) -> PlenoraIoError {
+    plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Read)
 }
 
 fn infer_types(
@@ -698,9 +792,14 @@ fn infer_types(
     let mut rdr = csv_reader(path, delim)?;
     let mut rec = csv::StringRecord::new();
     let mut visitate = 0_usize;
-    while rdr
-        .read_record(&mut rec)
-        .map_err(|_| err(&PublicMessage::Curated("riga CSV non valida")))?
+    while quote
+        .row_limit
+        .is_none_or(|limit| (visitate as u64) < limit)
+        && rdr.read_record(&mut rec).map_err(|_| {
+            err(&PublicMessage::Curated(
+                "riga CSV non valida: richiesti testo UTF-8 e quoting CSV valido",
+            ))
+        })?
     {
         // Prima di osservare le celle: un CSV ostile con miliardi di record
         // rende la passata di inferenza illimitata nel tempo anche se ogni
@@ -739,9 +838,14 @@ fn infer_wkt_geometry(
     let mut dimensions = BTreeSet::new();
     let mut geometry_types = BTreeSet::new();
     let mut visitate = 0_usize;
-    while reader
-        .read_record(&mut record)
-        .map_err(|_| err(&PublicMessage::Curated("riga CSV non valida")))?
+    while quote
+        .row_limit
+        .is_none_or(|limit| (visitate as u64) < limit)
+        && reader.read_record(&mut record).map_err(|_| {
+            err(&PublicMessage::Curated(
+                "riga CSV non valida: richiesti testo UTF-8 e quoting CSV valido",
+            ))
+        })?
     {
         // Il tetto sulle righe si applica **prima** di leggere la cella:
         // fermarsi dopo averla parsata vorrebbe dire aver gia' allocato cio'
@@ -773,7 +877,7 @@ fn infer_wkt_geometry(
         // `projection_unsupported`, che nascono nello stesso `open`. `Probe`
         // etichetta la scoperta della sorgente, che viene prima.
         let geometry = parse_wkt_bounded(text, &quote.cella_wkt)
-            .map_err(|errore| errore.during(plenora_io_model::ErrorPhase::Prepare))?;
+            .map_err(|errore| errore.during(plenora_io_model::ErrorPhase::Read))?;
         dimensions.insert(geometry.dimensions);
         geometry_types.insert(geometry.geometry_type());
     }
@@ -807,6 +911,7 @@ fn spawn_parser(
     schema: SchemaRef,
     mut batch_sizer: plenora_io_core::AdaptiveBatchSizer,
     layer: LayerContract,
+    row_limit: Option<u64>,
 ) -> Result<Box<dyn LayerReader>> {
     let SorgenteCsv {
         path,
@@ -823,10 +928,14 @@ fn spawn_parser(
             .map(|(_, column_type)| InferredColumnBuilder::new(*column_type))
             .collect();
         let mut n = 0usize;
-        loop {
-            let more = rdr
-                .read_record(&mut rec)
-                .map_err(|_| err(&PublicMessage::Curated("riga CSV non valida")))?;
+        let mut remaining = row_limit.unwrap_or(u64::MAX);
+        while remaining > 0 {
+            remaining -= 1;
+            let more = rdr.read_record(&mut rec).map_err(|_| {
+                err(&PublicMessage::Curated(
+                    "riga CSV non valida: richiesti testo UTF-8 e quoting CSV valido",
+                ))
+            })?;
             if !more {
                 break;
             }
@@ -1000,6 +1109,8 @@ fn finish_batch(
 // --- scrittura streaming ---------------------------------------------------
 
 struct CsvWriter {
+    metadata_check: plenora_io_core::property_plan::NativeMetadataCheck,
+    loss: LossReport,
     staging: StagedFile,
     writer: Option<wire::Writer<File>>,
     xy: bool,
@@ -1137,10 +1248,15 @@ impl FormatWriter for CsvWriter {
         w.flush()
             .map_err(|_| err(&PublicMessage::Curated("flush del CSV fallito")))?;
         drop(w);
+        self.loss.merge(&self.metadata_check.compare(
+            &CsvDriver,
+            plenora_io_core::loss_table::NativeDriver::Csv,
+            self.staging.path()?,
+        )?);
         let (bytes, outcome) = self.staging.publish()?;
         Ok(Published {
             bytes,
-            loss: LossReport::default(),
+            loss: self.loss,
             fidelity: plenora_io_core::FidelityAssessment::lossless(),
             outcome,
         })

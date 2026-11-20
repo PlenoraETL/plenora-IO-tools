@@ -17,6 +17,8 @@ permissions:
 env:
   CARGO_BUILD_JOBS: "4"
   CARGO_INCREMENTAL: "0"
+  # Interprete installato da setup-python per i generatori nativi indipendenti.
+  PLENORA_ENUM_PYTHON: python
   CANDIDATE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
 jobs:
@@ -37,7 +39,7 @@ jobs:
           set -euo pipefail
           mkdir -p target
           cd .ci/plenora-dependencies
-          echo '09f47749e59fdf518e49386975b2f58fb8a61b9ade91da7db3136ab5f3bc78d0  plenora-dependencies.toml' | sha256sum -c -
+          echo 'f831d99135c5a6ae1d647fe1b8787d5257911427bf93be4a46abec55f5bf9eae  plenora-dependencies.toml' | sha256sum -c -
           sha256sum -c snapshot.sha256
           python3 controlla_dipendenze.py --repo ../.. --nome "$PLENORA_REPO" --json ../../target/dipendenze-report.json
       - name: Conserva il rapporto della politica comune
@@ -107,13 +109,12 @@ jobs:
           # sempre, per la ragione sbagliata. Gli altri job non leggono la
           # storia e restano a profondita' predefinita.
           fetch-depth: 0
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
-        with:
-          python-version-file: .python-version
+      - uses: ./.github/actions/setup-enumeration-python
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           toolchain: "1.98.1"
           components: rustfmt, clippy
+          cache: false
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1, Node 24
       # GDAL della distribuzione, senza versione fissata: non e' quella spedita,
       # che fissa `scripts/linux-gdal-lock.json`. Deviazione dichiarata in
@@ -126,7 +127,7 @@ jobs:
         run: cargo fetch --locked
       # Il release gate valida il manifest contro gli oggetti normativi al pin.
       - name: Dipendenze Python della qualifica
-        run: python3 -m pip install pyarrow==25.0.1 jsonschema==4.26.0
+        run: python3 -m pip install pyarrow==25.0.1 jsonschema==4.26.0 openpyxl==3.1.5
       - name: Leggi il pin dei contratti
         id: contracts-pin
         run: |
@@ -486,7 +487,7 @@ jobs:
           name: prove-native
           path: target/prove-native
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1, Node 24
-        if: always()
+        if: ${{ !cancelled() && hashFiles('target/ci-receipts/*.json') != '' }}
         with:
           name: ci-receipts-linux-${{ github.run_id }}
           path: target/ci-receipts/
@@ -518,6 +519,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           toolchain: "nightly-2026-07-21"
+          cache: false
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1, Node 24
         with:
           workspaces: fuzz
@@ -578,6 +580,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           toolchain: "1.98.1"
+          cache: false
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1, Node 24
       - name: Install pinned GDAL/OpenFileGDB
         shell: pwsh
@@ -642,18 +645,27 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
         with:
           ref: ${{ env.CANDIDATE_SHA }}
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
-        with:
-          python-version-file: .python-version
+      - uses: ./.github/actions/setup-enumeration-python
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           toolchain: "1.98.1"
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1, Node 24
+          # Only the cache below knows the distribution and native GDAL ABI.
+          cache: false
       # GDAL della distribuzione, senza versione fissata: non e' quella spedita,
       # che fissa `scripts/linux-gdal-lock.json`. Deviazione dichiarata in
       # docs/ENGINEERING.md, «La GDAL della distribuzione nelle prove».
       - name: Install distribution GDAL/OpenFileGDB
         run: sudo apt-get update && sudo apt-get install --yes libgdal-dev gdal-bin
+      # gdal-sys tracks GDAL_VERSION, not changes to the system .so/.pc.
+      - name: Detect build GDAL version
+        id: gdal-version
+        run: |
+          version="$(gdal-config --version)"
+          echo "GDAL_VERSION=$version" >> "$GITHUB_ENV"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1, Node 24
+        with:
+          shared-key: gdal-v2-${{ matrix.os }}-${{ steps.gdal-version.outputs.version }}
       - name: Record native dependency and filesystem identities
         run: |
           gdal-config --version
@@ -667,6 +679,10 @@ jobs:
           python3 scripts/check_filegdb_catalog.py \
             --expect-available ${{ matrix.filegdb_write_available }} \
             "$catalog_file"
+      - name: Verify compiled GDAL symbol compatibility
+        run: python3 scripts/check_gdal_symbols.py
+      - name: Test timezone fallback on every GDAL version
+        run: cargo test -p driver-filegdb --features gdal-backend --locked absent_schema_timezone
       - name: Test FileGDB against distribution GDAL
         if: matrix.filegdb_write_available
         run: cargo test -p driver-filegdb --features gdal-backend --locked
@@ -677,40 +693,13 @@ jobs:
           cargo test -p plenora-io-core publish::tests --locked
           cargo test -p plenora-io-core cross_filesystem_publish_is_rejected_before_any_output_is_visible --locked
 
-  macos-publish:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
-        with:
-          ref: ${{ env.CANDIDATE_SHA }}
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
-        with:
-          toolchain: "1.98.1"
-          components: clippy
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1, Node 24
-      - name: Test exclusive file and directory publish
-        run: cargo test -p plenora-io-core publish::tests --locked
-      - name: Check safety lints on the macOS publish implementation
-        run: >-
-          cargo clippy -p plenora-io-core --lib --locked --
-          -D warnings
-          -D unsafe-code
-          -D clippy::unwrap_used
-          -D clippy::expect_used
-          -D clippy::panic
-          -D clippy::unreachable
-          -D clippy::todo
-          -D clippy::unimplemented
-
   coverage:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
         with:
           ref: ${{ env.CANDIDATE_SHA }}
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
-        with:
-          python-version-file: .python-version
+      - uses: ./.github/actions/setup-enumeration-python
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           toolchain: "1.98.1"
@@ -731,10 +720,20 @@ jobs:
       # docs/ENGINEERING.md, «La GDAL della distribuzione nelle prove».
       - name: Install GDAL
         run: sudo apt-get update && sudo apt-get install --yes libgdal-dev gdal-bin
+      # A restored target can contain coverage mappings from older sources.
+      # Discard workspace artifacts before collecting profiles for this SHA.
+      - name: Clean previous workspace coverage artifacts
+        run: cargo llvm-cov clean --workspace
       - name: Measure coverage
         env:
           PLENORA_CROSS_FS_TEST_ROOT: /dev/shm
         run: cargo llvm-cov --workspace --all-targets --all-features --locked --no-report
+      # The cdylib has test=false: Rust tests alone never execute its binding.
+      # Reuse the SDK's behavioral suite with instrumented native/CLI backends.
+      - name: Measure Python SDK and native binding coverage
+        run: |
+          "$PLENORA_ENUM_PYTHON" -m unittest scripts.test_coverage_sdk
+          "$PLENORA_ENUM_PYTHON" scripts/coverage_sdk.py
       # Il report esportato porta le stesse esclusioni della soglia. Prima non
       # le portava, e l'artefatto pubblicato come "coverage" descriveva un
       # perimetro diverso da quello su cui la soglia veniva applicata: due
@@ -884,6 +883,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           toolchain: "1.98.1"
+          cache: false
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1, Node 24
 
       - name: Le sonde del verificatore
@@ -940,6 +940,10 @@ jobs:
             --contracts .plenora-contracts \
             --cli target/debug/plenora-io \
             --referto vettori-primary-geometry.json
+
+      - name: Dipendenza delle fixture dei conflitti footer e campo
+        if: ${{ !cancelled() }}
+        run: python3 -m pip install --only-binary=":all:" pyarrow==25.0.1
 
       - name: Conflitti footer e campo, tutte le celle anche dopo un errore
         if: ${{ !cancelled() }}

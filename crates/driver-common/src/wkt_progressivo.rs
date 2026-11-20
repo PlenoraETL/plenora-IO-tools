@@ -55,7 +55,7 @@
 use plenora_io_model::contract::CoordinateDimensions;
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::{WkbCoordinate, WkbGeometry, WkbValue};
-use plenora_io_model::{NumeroStrutturale, PlenoraIoError, PublicMessage, Result};
+use plenora_io_model::{PlenoraIoError, PublicMessage, Result};
 
 /// Il prefisso del sottosistema, lo stesso dell'adattatore.
 const PREFISSO: &str = "WKT:";
@@ -68,13 +68,8 @@ fn errore(messaggio: &'static str) -> PlenoraIoError {
 ///
 /// I numeri ammessi al bordo sono indici, conteggi, tetti e codici
 /// strutturali: un limite e' un tetto, e dirlo aiuta chi deve allargarlo.
-fn oltre_il_tetto(messaggio: &'static str, tetto: usize) -> PlenoraIoError {
-    PlenoraIoError::limite_redatto(&PublicMessage::CuratedBetween(
-        PREFISSO,
-        NumeroStrutturale::Limite(crate::saturating_u64(tetto)),
-        messaggio,
-        NumeroStrutturale::Limite(crate::saturating_u64(tetto)),
-    ))
+fn oltre_il_tetto(quota: plenora_io_model::quota::Quota) -> PlenoraIoError {
+    quota.exceeded(plenora_io_model::ErrorPhase::Read)
 }
 
 /// Lo stato dell'analisi: dove siamo nel testo, e quanto budget resta.
@@ -103,9 +98,10 @@ impl<'a> Analizzatore<'a> {
     /// budget cala **mentre** si legge, quindi il rifiuto arriva sulla
     /// coordinata che supera il tetto e non sull'albero finito.
     fn addebita(&mut self) -> Result<()> {
-        self.componenti_residui = self.componenti_residui.checked_sub(1).ok_or_else(|| {
-            oltre_il_tetto("componenti oltre il limite di", self.componenti_residui)
-        })?;
+        self.componenti_residui = self
+            .componenti_residui
+            .checked_sub(1)
+            .ok_or_else(|| oltre_il_tetto(plenora_io_model::quota::Quota::WkbComponents))?;
         Ok(())
     }
 
@@ -276,10 +272,7 @@ fn geometria(
     attese: Option<CoordinateDimensions>,
 ) -> Result<WkbGeometry> {
     if profondita > analizzatore.profondita_massima {
-        return Err(oltre_il_tetto(
-            "annidamento oltre il limite di",
-            analizzatore.profondita_massima,
-        ));
+        return Err(oltre_il_tetto(plenora_io_model::quota::Quota::WkbDepth));
     }
     let parola = analizzatore.parola();
     if parola.vuota() {

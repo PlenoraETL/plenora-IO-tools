@@ -1,6 +1,10 @@
 use std::{env, str::FromStr};
 
 fn main() {
+    // Native dependencies can change independently of Cargo.lock (for example
+    // when restoring a build cache on another distribution).
+    // Track the caller's detected version, not DEP_* (which Cargo supplies).
+    println!("cargo:rerun-if-env-changed=GDAL_VERSION");
     let gdal_version_string = env::var("DEP_GDAL_VERSION_NUMBER")
         .expect("The gdal-sys crate must emit the version of libgdal via cargo:version_number");
     println!("GDAL version string: \"{gdal_version_string}\"");
@@ -14,7 +18,7 @@ fn main() {
     let minor = (gdal_version - major * 1000000) / 10000;
     let patch = (gdal_version - major * 1000000 - minor * 10000) / 100;
 
-    if major < 3 || major == 4 && minor < 4 {
+    if major < 3 || major == 3 && minor < 4 {
         panic!("The GDAL crate requires a GDAL version >= 3.4.0. Found {major}.{minor}.{patch}");
     }
 

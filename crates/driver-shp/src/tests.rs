@@ -147,10 +147,7 @@ fn il_seme_di_polilinea_arriva_al_drenaggio() {
     assert_eq!(righe, 1);
 }
 
-/// Conteggi disallineati **con** indice: il `.shx` risponde a
-/// `shape_count()`, e il driver rifiuta all'apertura senza decodificare una
-/// sola geometria. E' la difesa piu' economica del reader, e senza un seme
-/// che porti l'indice sarebbe irraggiungibile da questo target.
+/// Il confronto strutturale dei conteggi precede l'inferenza anche con SHX.
 #[test]
 fn i_conteggi_disallineati_sono_rifiutati_all_apertura_quando_c_e_l_indice() {
     let errore = __fuzz_leggi_bundle(
@@ -164,21 +161,18 @@ fn i_conteggi_disallineati_sono_rifiutati_all_apertura_quando_c_e_l_indice() {
         );
 }
 
-/// Lo stesso disallineamento **senza** indice: `shape_count()` non risponde,
-/// il confronto anticipato non avviene, e l'incoerenza emerge durante il
-/// drenaggio. Due rami diversi dello stesso difetto del file — questo
-/// attraversa il parsing delle geometrie, l'altro no.
+/// Anche senza indice la catena dei record viene contata prima del drenaggio.
 #[test]
-fn i_conteggi_disallineati_emergono_nel_drenaggio_senza_indice() {
+fn i_conteggi_disallineati_sono_rifiutati_all_apertura_senza_indice() {
     let errore = __fuzz_leggi_bundle(
         &seme("disallineati-senza-indice.bundle"),
         opzioni_di_campagna().with_assume_crs("EPSG:4326"),
     )
     .expect_err("l'incoerenza va rilevata anche senza `.shx`");
     assert_eq!(
-            errore.message, "cardinalita' Shapefile cambiata durante la lettura",
-            "senza indice il rifiuto deve arrivare dalla lettura, non              dall'apertura: {errore:?}"
-        );
+        errore.message, "numero di geometrie diverso dal numero di record DBF",
+        "anche senza indice il confronto precede la lettura: {errore:?}"
+    );
 }
 
 /// I due punti di arresto di `shapefile`, e la loro regressione.
@@ -742,7 +736,7 @@ fn i_semi_validi_passano_la_verifica_strutturale() {
         let radice = temporanea.path().join(nome);
         std::fs::create_dir(&radice).expect("directory del seme");
         let principale = materializza_bundle(&radice, &parti).expect("materializzazione");
-        assert_eq!(valida_struttura_shp(&principale), Ok(()), "{nome}");
+        assert_eq!(valida_struttura_shp(&principale, None), Ok(()), "{nome}");
     }
 }
 
@@ -766,6 +760,20 @@ fn un_offset_del_primo_record_troppo_corto_e_un_errore_non_un_panico() {
     .expect_err("un offset sotto l'intestazione non e' un DBF leggibile");
     assert_eq!(
         errore.message,
+        "contenuto vuoto o struttura non valida; formato atteso: Shapefile"
+    );
+}
+
+/// Il preflight ammette l'offset fisico, il driver rifiuta quello utile.
+#[test]
+fn il_seme_offset_utile_corto_raggiunge_la_difesa_del_decoder() {
+    let errore = __fuzz_leggi_bundle(
+        &seme("dbf-offset-utile-corto.bundle"),
+        opzioni_di_campagna().with_assume_crs("EPSG:4326"),
+    )
+    .expect_err("zero byte utili non contengono il terminatore");
+    assert_eq!(
+        errore.message,
         "offset del primo record DBF piu' corto dell'intestazione"
     );
 }
@@ -778,8 +786,8 @@ fn un_visual_foxpro_piu_corto_del_backlink_e_un_errore_non_un_panico() {
     )
     .expect_err("263 byte di backlink non stanno in 100");
     assert_eq!(
-        errore.message, "header Visual FoxPro piu' corto del backlink",
-        "il rifiuto deve venire dal ramo Visual FoxPro: {errore:?}"
+        errore.message, "contenuto vuoto o struttura non valida; formato atteso: Shapefile",
+        "il contenitore incompleto deve precedere il decoder Visual FoxPro: {errore:?}"
     );
 }
 
@@ -1022,7 +1030,7 @@ fn la_fine_del_dbf_ammette_il_terminatore_e_niente_altro() {
         dbf.extend_from_slice(coda);
         let percorso = temporanea.path().join(format!("c{}.dbf", coda.len()));
         std::fs::write(&percorso, &dbf).expect("il DBF si scrive");
-        let esito = valida_intestazione_dbf(&percorso);
+        let esito = valida_intestazione_dbf(&percorso, None);
         match (atteso, esito) {
             (Ok(()), Ok(())) | (Err(_), Err(_)) => {}
             (Ok(()), Err(errore)) => {
@@ -1165,7 +1173,7 @@ fn le_tre_versioni_visual_foxpro_sono_tutte_prevalidate() {
         intestazione[8..10].copy_from_slice(&100_u16.to_le_bytes());
         std::fs::write(&percorso, intestazione).expect("scrittura del DBF");
 
-        let errore = valida_intestazione_dbf(&percorso)
+        let errore = valida_intestazione_dbf(&percorso, None)
             .expect_err("i 263 byte di backlink non stanno in 100");
         assert_eq!(
             errore.message, "header Visual FoxPro piu' corto del backlink",
@@ -1597,18 +1605,14 @@ fn invalid_polygon_rows_return_complete_bounded_diagnostics() {
             .key
             .as_ref()
             .and_then(|key| key.value.as_ref()),
-        Some(&plenora_io_model::RowDiagnosticKeyValue::String(
-            (key_base + 17).to_string()
-        ))
+        None
     );
     assert_eq!(
         diagnostics.examples[1]
             .key
             .as_ref()
             .and_then(|key| key.value.as_ref()),
-        Some(&plenora_io_model::RowDiagnosticKeyValue::String(
-            (key_base + 89).to_string()
-        ))
+        None
     );
 
     let mut attribute_only_request = req();
@@ -1643,13 +1647,10 @@ fn invalid_polygon_rows_return_complete_bounded_diagnostics() {
     let mut numeric_key_reader = numeric_key_dataset.open_layer_reader(&request).unwrap();
     let (_, numeric_key_error) = consume_until_error(numeric_key_reader.as_mut());
     let numeric_examples = numeric_key_error.row_diagnostics.unwrap().examples;
-    for (example, source_index) in numeric_examples.iter().zip([17_u64, 89]) {
+    for example in &numeric_examples {
         assert_eq!(
             example.key.as_ref().and_then(|key| key.value.as_ref()),
-            Some(&plenora_io_model::RowDiagnosticKeyValue::String(format!(
-                "{}.25",
-                numeric_key_base + source_index
-            )))
+            None
         );
     }
 
@@ -1766,7 +1767,9 @@ fn invalid_polygon_rows_return_complete_bounded_diagnostics() {
     assert_eq!(malformed.completeness, RowDiagnosticsCompleteness::Complete);
     assert_eq!(malformed.observed_total, 4);
     assert_eq!(
-        malformed.counts.get(ATTRIBUTE_NUMERIC_INVALID_CAUSE),
+        malformed
+            .counts
+            .get(ATTRIBUTE_NUMERIC_INVALID_CAUSE.as_str()),
         Some(&1)
     );
     assert!(malformed.examples.iter().any(|example| {
@@ -1831,7 +1834,10 @@ fn accepted_rows_stops_invalid_shapefile_scan_at_active_row_limit() {
     );
     assert_eq!(diagnostics.total, None);
     assert_eq!(diagnostics.observed_total, 1);
-    assert_eq!(diagnostics.counts[INNER_RING_WITHOUT_OUTER_CAUSE], 1);
+    assert_eq!(
+        diagnostics.counts[INNER_RING_WITHOUT_OUTER_CAUSE.as_str()],
+        1
+    );
     assert_eq!(diagnostics.examples[0].source_index, 17);
     assert_eq!(
         diagnostics.knowledge_limits.as_deref(),
@@ -1841,7 +1847,7 @@ fn accepted_rows_stops_invalid_shapefile_scan_at_active_row_limit() {
 }
 
 #[test]
-fn accepted_rows_preserves_valid_shapefile_batch_overshoot_and_skips_late_invalidity() {
+fn accepted_rows_stops_at_exact_prefix_and_skips_late_invalidity() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("late-invalid.shp");
     let id = shapefile::dbase::FieldName::try_from("ID").unwrap();
@@ -1888,7 +1894,7 @@ fn accepted_rows_preserves_valid_shapefile_batch_overshoot_and_skips_late_invali
     while let Some(batch) = reader.next_batch().unwrap() {
         rows.push(batch.num_rows());
     }
-    assert_eq!(rows, vec![8, 8]);
+    assert_eq!(rows, vec![8, 2]);
 
     let complete_dataset = ShpDriver
         .open(Source::Path(path), opzioni_lettura())
@@ -4028,35 +4034,13 @@ fn bundle_disallineato(dir: &Path, nome: &str, geometrie: usize, record: usize) 
     corto
 }
 
-/// `spawn_parser` si ferma quando le geometrie finiscono prima dei record,
-/// e i due contatori non possono traboccare.
-///
-/// # Perche' passa dalla costruzione diretta dell'ingresso
-///
-/// Dal driver questa difesa non ha input: `infer_geometry_info` confronta
-/// geometrie e record all'apertura e rifiuta prima. Resta nel parser perche'
-/// fra l'apertura e la lettura il file puo' cambiare, e allora la difesa e'
-/// l'ultima cosa che sta fra un troncamento e una riga con gli attributi di
-/// un'altra. `ShpParserInput` e' privato del modulo, quindi la sonda lo
-/// costruisce dove vive.
-///
-/// # I due contatori
-///
-/// «numero di record Shapefile fuori intervallo u64» e «numero di record DBF
-/// attivi fuori intervallo u64» non hanno input, e non serve una guardia per
-/// dirlo: il ciclo gira al piu' `record_count` volte, e `record_count` e' un
-/// `u32` letto dall'header. Un contatore `u64` che parte da zero e cresce di
-/// uno per giro arriva al massimo a `u32::MAX`.
-///
-/// La difesa simmetrica -- i record che finiscono prima delle geometrie --
-/// e' chiusa altrove: pretenderebbe che l'iteratore di `dbase` si esaurisse
-/// prima del lettore raw, e le due strade per farlo sono percorse e chiuse
-/// in `n1_le_due_letture_del_dbf_non_possono_divergere`.
+/// La prevalidazione confronta nuovamente SHP e DBF prima di avviare il thread.
+/// L'ingresso diretto esercita il rifiuto di un insieme cambiato dopo l'apertura.
 #[test]
 fn n1_spawn_parser_si_ferma_quando_le_geometrie_finiscono_prima_dei_record() {
     let dir = tempfile::tempdir().unwrap();
     let bundle = bundle_disallineato(dir.path(), "misto.shp", 1, 3);
-    let layout = read_dbf_layout(&bundle).expect("il dbf lungo e' ben formato");
+    let layout = read_dbf_layout(&bundle, None).expect("il dbf lungo e' ben formato");
     assert_eq!(layout.record_count, 3, "il dbf porta tre record");
 
     let schema: SchemaRef = Arc::new(Schema::new(vec![geometry_field(GEOMETRY, "EPSG:4326")]));
@@ -4083,67 +4067,58 @@ fn n1_spawn_parser_si_ferma_quando_le_geometrie_finiscono_prima_dei_record() {
         cancellation: plenora_io_model::CancellationToken::new(),
     };
 
-    let mut lettore = spawn_parser(ingresso).expect("le validazioni pre-thread passano");
-    let mut errore = None;
-    loop {
-        match lettore.next_batch() {
-            Ok(Some(_)) => {}
-            Ok(None) => break,
-            Err(e) => {
-                errore = Some(e);
-                break;
-            }
-        }
-    }
-    let Some(errore) = errore else {
-        panic!("tre record contro una geometria non sono un allineamento");
-    };
+    let errore = spawn_parser(ingresso)
+        .err()
+        .expect("il confronto precede il thread");
     assert_eq!(
-        errore.message, "numero di geometrie incoerente con i record DBF",
-        "il messaggio deve dire quale dei due file e' finito prima"
+        errore.message,
+        "numero di geometrie diverso dal numero di record DBF"
     );
+}
 
-    // I due contatori: il ciclo gira al piu' `record_count` volte, e quello
-    // e' un `u32`. Un `u64` che cresce di uno per giro non ci arriva.
-    assert!(
-        u64::from(u32::MAX).checked_add(1).is_some(),
-        "un contatore u64 che sale fino a u32::MAX non trabocca: e' la ragione per cui \
-             i due «fuori intervallo u64» non hanno input"
-    );
+/// Prova deterministica dello stato non costruibile dal bundle fuzz statico.
+#[test]
+fn cardinalita_cambiata_dopo_inferenza_e_rifiutata_nel_drenaggio() {
+    let dir = tempfile::tempdir().unwrap();
+    let bundle = bundle_di_righe(dir.path(), "stabile.shp", &["NOME"], 1, |_| {});
+    let layout = read_dbf_layout(&bundle, None).expect("il dbf e' ben formato");
+    assert_eq!(layout.record_count, 1);
 
-    // Il controllo positivo, con lo stesso parser: un bundle allineato si
-    // legge fino in fondo. Senza, «fallisce sempre» supererebbe la prova.
-    let allineato = bundle_di_righe(dir.path(), "allineato.shp", &["NOME"], 3, |_| {});
-    let layout = read_dbf_layout(&allineato).expect("il bundle e' conforme");
+    let schema: SchemaRef = Arc::new(Schema::new(vec![geometry_field(GEOMETRY, "EPSG:4326")]));
+    let layer = LayerContract {
+        id: LayerId(0),
+        name: "stabile".to_owned(),
+        contract: DataContract::new(schema.clone(), None),
+    };
     let ingresso = ShpParserInput {
-        path: allineato,
+        path: bundle,
         schema: schema.clone(),
         cols: Vec::new(),
         dbf_layout: layout.clone(),
         dimensions: CoordinateDimensions::Xy,
         expected_shape_type: Some("point-xy"),
-        expected_active_rows: u64::from(layout.record_count),
+        // Simula un conteggio inferito prima di una modifica delle righe attive.
+        expected_active_rows: 2,
         include_geometry: true,
         batch_sizer: plenora_io_core::AdaptiveBatchSizer::new(&schema, BatchTarget::default()),
-        layer: LayerContract {
-            id: LayerId(0),
-            name: "allineato".to_owned(),
-            contract: DataContract::from_schema(schema).unwrap(),
-        },
+        layer,
         loss: LossReport::default(),
         row_diagnostics: ShpRowDiagnosticsConfig::from_options(&BTreeMap::new(), &[], &layout)
             .expect("nessuna opzione di diagnostica"),
         scope: ReadScope::Complete,
         cancellation: plenora_io_model::CancellationToken::new(),
     };
-    let mut lettore = spawn_parser(ingresso).expect("le validazioni pre-thread passano");
-    let mut righe = 0_usize;
-    while let Some(lotto) = lettore.next_batch().expect("un bundle allineato si legge") {
-        righe += lotto.num_rows();
-    }
+
+    let mut reader = spawn_parser(ingresso).expect("i file statici sono coerenti");
+    let (righe, errore) = consume_until_error(reader.as_mut());
+    assert_eq!(righe, 0, "il lotto pendente non deve uscire");
     assert_eq!(
-        righe, 3,
-        "tre record allineati a tre geometrie fanno tre righe"
+        errore.message,
+        "cardinalita' Shapefile cambiata durante la lettura"
+    );
+    assert!(
+        errore.row_diagnostics.is_none(),
+        "nessuna riga scartata prima del rifiuto"
     );
 }
 
@@ -4214,7 +4189,7 @@ fn n1_righe_dopo_il_lotto_ferma_il_contatore_che_traboccherebbe() {
     let Err(errore) = righe_dopo_il_lotto(u64::MAX, 1) else {
         panic!("una riga oltre l'ultimo valore rappresentabile non si conta");
     };
-    assert_eq!(errore.message, "troppe righe Shapefile");
+    assert_eq!(errore.message, "max_rows quota superata");
     assert_eq!(
         errore.category,
         plenora_io_model::ErrorCategory::ResourceLimit
@@ -4251,6 +4226,11 @@ fn n1_il_contatore_che_trabocca_ferma_il_lotto_prima_di_scriverlo() {
     let writer = Writer::from_path(&percorso_shp, TableWriterBuilder::new())
         .expect("il writer dello staging si apre");
     let mut stato = ShpWriter {
+        metadata_check: plenora_io_core::property_plan::NativeMetadataCheck::new(
+            &WritePlan { layers: Vec::new() },
+            &opzioni_scrittura(),
+        ),
+        loss: LossReport::default(),
         staging: Some(staging),
         writer: Some(writer),
         dest: destinazione,
@@ -4273,7 +4253,7 @@ fn n1_il_contatore_che_trabocca_ferma_il_lotto_prima_di_scriverlo() {
     let Err(errore) = stato.write(&lotto) else {
         panic!("un lotto che fa traboccare il contatore non si scrive");
     };
-    assert_eq!(errore.message, "troppe righe Shapefile");
+    assert_eq!(errore.message, "max_rows quota superata");
     assert_eq!(
         std::fs::metadata(&percorso_shp)
             .expect("il file di staging esiste ancora")
@@ -4308,10 +4288,7 @@ fn n1_byte_dello_staging_non_trabocca_in_silenzio() {
     let Err(errore) = byte_dello_staging([u64::MAX, 1]) else {
         panic!("una somma oltre u64::MAX non e' un conteggio");
     };
-    assert_eq!(
-        errore.message,
-        "overflow nel conteggio dell'output Shapefile"
-    );
+    assert_eq!(errore.message, "max_output_bytes quota superata");
     assert_eq!(
         errore.category,
         plenora_io_model::ErrorCategory::ResourceLimit
@@ -4340,7 +4317,7 @@ fn n1_next_physical_rifiuta_il_campo_che_non_sta_nel_record() {
 
     // La meta' che vale come controllo: il layout che il lettore produce ha
     // ogni campo dentro il record.
-    let letto = read_dbf_layout(&bundle).expect("il bundle e' conforme");
+    let letto = read_dbf_layout(&bundle, None).expect("il bundle e' conforme");
     for campo in &letto.fields {
         assert!(
             campo.offset + campo.width <= letto.record_length,
@@ -4475,9 +4452,8 @@ fn n1_open_propaga_i_rifiuti_della_catena_e_nomina_il_layer_dal_file() {
         panic!("un header DBF incoerente non produce uno schema");
     };
     assert_eq!(
-        errore.message,
-        "lunghezza di record DBF dichiarata incoerente con i campi, byte richiesti 11",
-        "il messaggio del lettore deve uscire da `open` invariato"
+        errore.message, "contenuto vuoto o struttura non valida; formato atteso: Shapefile",
+        "il contenitore incompleto deve precedere l'inferenza"
     );
 }
 
@@ -4516,7 +4492,7 @@ fn n1_le_due_letture_del_dbf_non_possono_divergere() {
     // Il controllo positivo: due righe dichiarate, due presenti, schema
     // inferito. Senza, «rifiuta sempre» supererebbe la prova.
     let intatto = bundle_di_righe(dir.path(), "due.shp", &["NOME"], 2, |_| {});
-    let inferenza = infer_shp_schema(&intatto).expect("un bundle conforme si legge");
+    let inferenza = infer_shp_schema(&intatto, None).expect("un bundle conforme si legge");
     assert_eq!(inferenza.active_row_count, 2, "due righe attive");
     assert_eq!(inferenza.cols.len(), 1, "un campo oltre la geometria");
 
@@ -4526,7 +4502,7 @@ fn n1_le_due_letture_del_dbf_non_possono_divergere() {
         let lunghezza_record = usize::from(u16::from_le_bytes([byte[10], byte[11]]));
         byte.truncate(lunghezza_header + lunghezza_record);
     });
-    let Err(errore) = infer_shp_schema(&troncato) else {
+    let Err(errore) = infer_shp_schema(&troncato, None) else {
         panic!("un header che promette piu' record di quanti ce ne sono non e' affidabile");
     };
     assert_eq!(
@@ -4542,7 +4518,7 @@ fn n1_le_due_letture_del_dbf_non_possono_divergere() {
         let lunghezza_record = usize::from(u16::from_le_bytes([byte[10], byte[11]]));
         byte[lunghezza_header + 2 * lunghezza_record] = 0x1A;
     });
-    let Err(errore) = infer_shp_schema(&marcato) else {
+    let Err(errore) = infer_shp_schema(&marcato, None) else {
         panic!("un marcatore di fine file in mezzo ai record non e' un record");
     };
     assert_eq!(
@@ -4592,7 +4568,7 @@ fn n1_infer_geometry_info_rifiuta_i_conteggi_che_non_coincidono() {
     // Il controllo positivo: un bundle intatto ha una geometria e un
     // record, e l'inferenza restituisce il tipo dell'header.
     let intatto = bundle_con_dbf_ritoccato(dir.path(), "intatto-geom.shp", &["NOME"], |_| {});
-    let info = infer_geometry_info(&intatto, 1).expect("un bundle conforme si legge");
+    let info = infer_geometry_info(&intatto, 1, None).expect("un bundle conforme si legge");
     assert_eq!(
         info.shape_type,
         Some("point-xy"),
@@ -4602,7 +4578,7 @@ fn n1_infer_geometry_info_rifiuta_i_conteggi_che_non_coincidono() {
 
     // Il conteggio dichiarato dal chiamante non coincide con le geometrie.
     for dichiarato in [0_u32, 2] {
-        let Err(errore) = infer_geometry_info(&intatto, dichiarato) else {
+        let Err(errore) = infer_geometry_info(&intatto, dichiarato, None) else {
             panic!("{dichiarato} record DBF contro una geometria non e' un allineamento");
         };
         assert_eq!(
@@ -4622,9 +4598,9 @@ fn n1_infer_geometry_info_rifiuta_i_conteggi_che_non_coincidono() {
             byte[4..8].copy_from_slice(&7_u32.to_le_bytes());
         },
     );
-    let layout = read_dbf_layout(&ritoccato).expect("l'header resta leggibile");
+    let layout = read_dbf_layout(&ritoccato, None).expect("l'header resta leggibile");
     assert_eq!(layout.record_count, 7, "il ritocco e' arrivato dove doveva");
-    let Err(errore) = infer_geometry_info(&ritoccato, layout.record_count) else {
+    let Err(errore) = infer_geometry_info(&ritoccato, layout.record_count, None) else {
         panic!("sette record dichiarati contro una geometria non e' un allineamento");
     };
     assert_eq!(
@@ -4636,7 +4612,7 @@ fn n1_infer_geometry_info_rifiuta_i_conteggi_che_non_coincidono() {
     // non c'e' niente da contare, e il rifiuto arriva prima dell'apertura.
     let assente = dir.path().join("non-esiste.shp");
     assert!(
-        infer_geometry_info(&assente, 0).is_err(),
+        infer_geometry_info(&assente, 0, None).is_err(),
         "un bundle senza `.shp` non ha geometrie da inferire"
     );
 }
@@ -4867,7 +4843,7 @@ fn n1_read_dbf_layout_rifiuta_le_incoerenze_fra_header_e_descrittori() {
 
     // Il controllo positivo: il bundle non ritoccato si legge.
     let intatto = bundle_con_dbf_ritoccato(dir.path(), "intatto.shp", &["NOME"], |_| {});
-    let layout = read_dbf_layout(&intatto).expect("un bundle conforme ha un layout");
+    let layout = read_dbf_layout(&intatto, None).expect("un bundle conforme ha un layout");
     assert_eq!(layout.fields.len(), 1, "un campo dichiarato, uno letto");
     assert_eq!(layout.record_count, 1, "un record scritto, uno dichiarato");
 
@@ -4892,7 +4868,7 @@ fn n1_read_dbf_layout_rifiuta_le_incoerenze_fra_header_e_descrittori() {
     ] {
         let percorso =
             bundle_con_dbf_ritoccato(dir.path(), &format!("{}.shp", caso.len()), campi, ritocco);
-        let Err(errore) = read_dbf_layout(&percorso) else {
+        let Err(errore) = read_dbf_layout(&percorso, None) else {
             panic!("{caso}: doveva essere rifiutato");
         };
         assert_eq!(errore.message, atteso, "{caso}: messaggio sbagliato");
@@ -4941,7 +4917,7 @@ fn n1_valida_intestazione_dbf_precede_le_guardie_omonime_di_read_dbf_layout() {
             &["NOME"],
             ritocco,
         );
-        let Err(errore) = read_dbf_layout(&percorso) else {
+        let Err(errore) = read_dbf_layout(&percorso, None) else {
             panic!("{caso}: doveva essere rifiutato");
         };
         assert_eq!(
@@ -5163,7 +5139,7 @@ fn n1_create_rifiuta_il_contratto_il_nome_campo_e_la_destinazione_occupata() {
     // invece di un errore di formato scoperto mentre si scrive.
     assert_eq!(
         errore.message,
-        "il formato di destinazione richiede una colonna geometrica, e il layer non ne ha"
+        "il formato di destinazione richiede una geometria"
     );
     assert_eq!(
         errore.capability_reason,
@@ -5377,33 +5353,27 @@ fn n1_write_nomina_la_causa_di_ogni_riga_che_non_sa_scrivere() {
             true,
         ),
     ]));
-    let con_data = RecordBatch::try_new(
-        schema_data,
-        vec![
-            Arc::new(BinaryArray::from(vec![Some(punto.as_slice())])),
-            Arc::new(arrow_array::DurationSecondArray::from(vec![Some(90_i64)])),
-        ],
-    )
-    .unwrap();
-    let mut writer = scrittore(
-        "cella.shp",
-        vec![Field::new(
-            "QUANDO",
-            arrow_schema::DataType::Duration(arrow_schema::TimeUnit::Second),
-            true,
-        )],
-    );
-    writer.declare_input_total(LayerId(0), 1).unwrap();
-    let Err(errore) = writer.write(&con_data) else {
-        panic!("una cella senza resa DBF non puo' diventare un valore approssimato");
+    let plan = WritePlan {
+        layers: vec![WriteLayer {
+            name: "layer".to_owned(),
+            contract: DataContract::from_schema(schema_data).unwrap(),
+        }],
     };
-    let diagnostica = errore.row_diagnostics.as_deref().unwrap();
+    let error = ShpDriver
+        .create(
+            Sink::Path(dir.path().join("cella.shp")),
+            &plan,
+            &opzioni_scrittura_loose(),
+        )
+        .err()
+        .unwrap();
+    let rule = plenora_io_model::error_table::Situation::UnrepresentableWriteType.rule();
     assert_eq!(
-        diagnostica.counts.get("shapefile.cell_not_representable"),
-        Some(&1),
-        "arrivate {:?}",
-        diagnostica.counts
+        (error.category, error.phase, error.code),
+        (rule.category, rule.phase, rule.code)
     );
+    assert!(error.message.contains("classe: temporal"));
+    assert!(!dir.path().join("cella.shp").exists());
 
     // Il controllo positivo: un lotto interamente scrivibile passa, e senza
     // di lui una tabella di soli rifiuti la passerebbe anche un `write` che
@@ -5537,7 +5507,7 @@ fn n1_finish_conta_i_byte_dello_staging_prima_di_pubblicare() {
         errore.message
     );
     assert!(
-        errore.message.contains("byte oltre il limite di"),
+        errore.message.contains("max_output_bytes"),
         "il messaggio deve dire qual e' il limite: «{}»",
         errore.message
     );
@@ -5868,6 +5838,11 @@ fn una_scadenza_prima_del_controllo_dimensionale_e_un_timeout_e_ripulisce() {
         Err(errore) => unreachable!("budget di prova non costruibile: {errore:?}"),
     };
     let mut stato = Box::new(ShpWriter {
+        metadata_check: plenora_io_core::property_plan::NativeMetadataCheck::new(
+            &WritePlan { layers: Vec::new() },
+            &opzioni_scrittura(),
+        ),
+        loss: LossReport::default(),
         staging: Some(staging),
         writer: Some(writer),
         dest: destinazione.clone(),
@@ -5931,7 +5906,11 @@ fn il_prj_segue_la_regola_unica_dell_identificatore() {
     let rifiuto = |prj: &str, assunto: Option<&str>| match leggi(prj, assunto) {
         Ok(crs) => panic!("{prj}, {assunto:?}: accettato come {:?}", crs.id),
         Err(errore) => {
-            assert_eq!(errore.code, plenora_io_model::IoErrorCode::Crs, "{prj}");
+            assert_eq!(
+                errore.category,
+                plenora_io_model::ErrorCategory::Crs,
+                "{prj}"
+            );
             assert_eq!(errore.driver.as_deref(), Some("shp"));
         }
     };
@@ -6146,4 +6125,285 @@ fn un_prj_oltre_il_tetto_e_un_limite() {
     let errore = resolve_crs(&path, &opzioni_lettura()).unwrap_err();
     assert_eq!(errore.code, plenora_io_model::IoErrorCode::LimitExceeded);
     assert_eq!(errore.driver.as_deref(), Some("shp"));
+}
+
+fn r1_fixture(path: &Path) {
+    let schema = Arc::new(Schema::new(vec![geometry_field(GEOMETRY, "EPSG:4326")]));
+    let plan = WritePlan {
+        layers: vec![WriteLayer {
+            name: "test".to_owned(),
+            contract: DataContract::from_schema(schema.clone()).unwrap(),
+        }],
+    };
+    let point = to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(1.0, 2.0))).unwrap();
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![Arc::new(BinaryArray::from(vec![
+            Some(point.as_slice()),
+            Some(point.as_slice()),
+        ]))],
+    )
+    .unwrap();
+    let mut writer = ShpDriver
+        .create(
+            Sink::Path(path.to_owned()),
+            &plan,
+            &opzioni_scrittura_loose(),
+        )
+        .unwrap();
+    writer.write(&batch).unwrap();
+    writer.finish().unwrap();
+}
+
+#[test]
+fn r1_uppercase_set_preserves_name_and_reads_real_companions() {
+    let dir = tempfile::tempdir().unwrap();
+    let main = dir.path().join("VEC.SHP");
+    r1_fixture(&main);
+    let names = std::fs::read_dir(dir.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .collect::<Vec<_>>();
+    for ext in ["SHP", "SHX", "DBF", "PRJ", "CPG"] {
+        assert!(names.contains(&format!("VEC.{ext}")));
+    }
+    let dataset = ShpDriver.open(Source::Path(main), read_opts()).unwrap();
+    assert_eq!(
+        dataset
+            .open_layer_reader(&req())
+            .unwrap()
+            .next_batch()
+            .unwrap()
+            .unwrap()
+            .num_rows(),
+        2
+    );
+}
+
+#[test]
+fn r1_rejects_duplicate_offsets_and_unindexed_records_before_reading() {
+    for defect in [0, 1, 2, 3] {
+        let dir = tempfile::tempdir().unwrap();
+        let main = dir.path().join("vec.shp");
+        r1_fixture(&main);
+        let shx = main.with_extension("shx");
+        let mut bytes = std::fs::read(&shx).unwrap();
+        if defect == 0 {
+            let first = bytes[100..108].to_vec();
+            bytes[108..116].copy_from_slice(&first);
+            std::fs::write(shx, bytes).unwrap();
+        } else if defect == 1 {
+            bytes.truncate(108);
+            bytes[24..28].copy_from_slice(&54_i32.to_be_bytes());
+            std::fs::write(shx, bytes).unwrap();
+        } else if defect == 2 {
+            std::fs::remove_file(shx).unwrap();
+            let dbf = main.with_extension("dbf");
+            let mut bytes = std::fs::read(&dbf).unwrap();
+            bytes[4..8].copy_from_slice(&1_u32.to_le_bytes());
+            std::fs::write(dbf, bytes).unwrap();
+        } else {
+            let mut bytes = std::fs::read(&main).unwrap();
+            let record = bytes[100..128].to_vec();
+            bytes.extend_from_slice(&record);
+            std::fs::write(&main, bytes).unwrap();
+        }
+        let error = ShpDriver
+            .open(Source::Path(main), read_opts())
+            .err()
+            .unwrap();
+        assert_eq!(error.category, plenora_io_model::ErrorCategory::DataMapping);
+        assert!(
+            error.message.contains("indice")
+                || error.message.contains("numero di record")
+                || error.message.contains("numero di geometrie")
+                || error.message.contains("oltre la lunghezza dichiarata")
+                || error.message
+                    == "contenuto vuoto o struttura non valida; formato atteso: Shapefile"
+        );
+    }
+}
+
+#[test]
+fn r1_missing_index_is_read_sequentially_and_empty_metadata_has_recovery() {
+    let dir = tempfile::tempdir().unwrap();
+    let main = dir.path().join("vec.shp");
+    r1_fixture(&main);
+    std::fs::remove_file(main.with_extension("shx")).unwrap();
+    let dataset = ShpDriver
+        .open(Source::Path(main.clone()), read_opts())
+        .unwrap();
+    assert_eq!(
+        dataset
+            .open_layer_reader(&req())
+            .unwrap()
+            .next_batch()
+            .unwrap()
+            .unwrap()
+            .num_rows(),
+        2
+    );
+    for ext in ["prj", "cpg"] {
+        let path = main.with_extension(ext);
+        let original = std::fs::read(&path).unwrap();
+        std::fs::write(&path, b"").unwrap();
+        let error = ShpDriver
+            .open(Source::Path(main.clone()), read_opts())
+            .err()
+            .unwrap();
+        assert!(error.message.contains("vuoto"));
+        assert!(error.message.contains("rimuov"));
+        std::fs::write(path, original).unwrap();
+    }
+}
+
+#[test]
+fn r1_directory_set_uses_actual_internal_case_and_container_layer_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("Requested.SHP.D");
+    std::fs::create_dir(&root).unwrap();
+    let main = root.join("DATA.SHP");
+    r1_fixture(&main);
+    let dataset = ShpDriver.open(Source::Path(root), read_opts()).unwrap();
+    assert_eq!(dataset.layers()[0].name, "Requested");
+    assert_eq!(
+        dataset
+            .open_layer_reader(&req())
+            .unwrap()
+            .next_batch()
+            .unwrap()
+            .unwrap()
+            .num_rows(),
+        2
+    );
+}
+
+#[test]
+fn r1_mixed_extensions_use_the_same_members_in_preflight_and_reader() {
+    for directory in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("Requested.ShP.D");
+        std::fs::create_dir(&root).unwrap();
+        let main = root.join("DaTa.ShP");
+        r1_fixture(&main);
+        for (extension, mixed) in [
+            ("shx", "sHx"),
+            ("dbf", "dBf"),
+            ("prj", "pRj"),
+            ("cpg", "cPg"),
+        ] {
+            let source = plenora_io_core::dataset_files::output_companion(&main, extension);
+            let temporary = root.join("rename.tmp");
+            std::fs::rename(source, &temporary).unwrap();
+            std::fs::rename(temporary, main.with_extension(mixed)).unwrap();
+        }
+        let dataset = ShpDriver
+            .open(
+                Source::Path(if directory { root } else { main }),
+                read_opts(),
+            )
+            .unwrap();
+        assert_eq!(
+            dataset.layers()[0].name,
+            if directory { "Requested" } else { "DaTa" }
+        );
+        assert_eq!(
+            dataset
+                .open_layer_reader(&req())
+                .unwrap()
+                .next_batch()
+                .unwrap()
+                .unwrap()
+                .num_rows(),
+            2
+        );
+    }
+}
+
+#[test]
+fn r1_index_of_a_distinct_stem_is_not_used_for_sequential_reading() {
+    let dir = tempfile::tempdir().unwrap();
+    let main = dir.path().join("vec.shp");
+    r1_fixture(&main);
+    std::fs::remove_file(main.with_extension("shx")).unwrap();
+    std::fs::write(dir.path().join("VEC.SHX"), b"foreign index").unwrap();
+    // On a case-insensitive host this is the same dataset's malformed index.
+    let result = ShpDriver.open(Source::Path(main.clone()), read_opts());
+    if main.with_extension("shx").exists() {
+        assert!(result.is_err());
+    } else {
+        assert_eq!(
+            result
+                .unwrap()
+                .open_layer_reader(&req())
+                .unwrap()
+                .next_batch()
+                .unwrap()
+                .unwrap()
+                .num_rows(),
+            2
+        );
+    }
+}
+
+#[test]
+fn r1_foreign_companion_after_create_blocks_the_entire_loose_set() {
+    let dir = tempfile::tempdir().unwrap();
+    let main = dir.path().join("VEC.SHP");
+    let schema = Arc::new(Schema::new(vec![geometry_field(GEOMETRY, "EPSG:4326")]));
+    let plan = WritePlan {
+        layers: vec![WriteLayer {
+            name: "test".to_owned(),
+            contract: DataContract::from_schema(schema).unwrap(),
+        }],
+    };
+    let writer = ShpDriver
+        .create(Sink::Path(main.clone()), &plan, &opzioni_scrittura_loose())
+        .unwrap();
+    let foreign = dir.path().join("VEC.ShP.XmL");
+    std::fs::write(&foreign, b"foreign").unwrap();
+    assert_eq!(
+        writer.finish().err().unwrap().code,
+        plenora_io_model::IoErrorCode::OutputExists
+    );
+    assert!(!main.exists());
+    assert_eq!(std::fs::read(foreign).unwrap(), b"foreign");
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+}
+
+#[test]
+fn r1_distinct_stems_follow_native_case_rules_without_modifying_old_members() {
+    let dir = tempfile::tempdir().unwrap();
+    let main = dir.path().join("VEC.SHP");
+    r1_fixture(&main);
+    let before = std::fs::read_dir(dir.path())
+        .unwrap()
+        .map(|entry| {
+            let path = entry.unwrap().path();
+            let bytes = std::fs::read(&path).unwrap();
+            (path, bytes)
+        })
+        .collect::<Vec<_>>();
+    let schema = Arc::new(Schema::new(vec![geometry_field(GEOMETRY, "EPSG:4326")]));
+    let plan = WritePlan {
+        layers: vec![WriteLayer {
+            name: "new".to_owned(),
+            contract: DataContract::from_schema(schema).unwrap(),
+        }],
+    };
+    let destination = dir.path().join("vec.shp");
+    let conflicts = destination.exists();
+    let result = ShpDriver.create(Sink::Path(destination), &plan, &opzioni_scrittura_loose());
+    if conflicts {
+        assert_eq!(
+            result.err().unwrap().code,
+            plenora_io_model::IoErrorCode::OutputExists
+        );
+    } else {
+        drop(result.unwrap());
+    }
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), before.len());
+    for (path, bytes) in before {
+        assert_eq!(std::fs::read(path).unwrap(), bytes);
+    }
 }

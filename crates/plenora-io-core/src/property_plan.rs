@@ -3,126 +3,7 @@ use arrow_schema::{Field, Schema};
 use plenora_io_model::geometry::{PLENORA_ENCODING_KEY, PLENORA_SRID_KEY};
 use serde::{Deserialize, Serialize};
 
-/// Qualification properties, with GPKG write/read rules and opaque fallback.
-///
-/// Reconstructed declares catalog/native reconstruction, not value inequality.
-/// Only logical identity and contract version promise metadata preservation.
-pub const PROPERTIES: &[(&str, &str, Rule, Rule)] = &[
-    (
-        "contract_version",
-        "plenora.contract.version",
-        Rule::Preserved,
-        Rule::Preserved,
-    ),
-    (
-        "field_id",
-        "plenora.field_id",
-        Rule::Preserved,
-        Rule::Preserved,
-    ),
-    (
-        "types_declaration",
-        "plenora.geometry.types_declaration",
-        Rule::Reconstructed,
-        Rule::Preserved,
-    ),
-    (
-        "geometry_types",
-        "plenora.geometry.types",
-        Rule::Reconstructed,
-        Rule::Preserved,
-    ),
-    (
-        "dimensions",
-        "plenora.geometry.dimensions",
-        Rule::Reconstructed,
-        Rule::Preserved,
-    ),
-    (
-        "encoding",
-        "plenora.geometry.encoding",
-        Rule::Reconstructed,
-        Rule::Preserved,
-    ),
-    (
-        "geometry_or_geography",
-        "plenora.geometry.spatial_semantics",
-        Rule::Reconstructed,
-        Rule::Preserved,
-    ),
-    (
-        "precision",
-        "plenora.geometry.precision",
-        Rule::Reconstructed,
-        Rule::Preserved,
-    ),
-    (
-        "srid",
-        "plenora.geometry.srid",
-        Rule::Reconstructed,
-        Rule::Preserved,
-    ),
-    (
-        "crs_id",
-        "plenora.geometry.crs_id",
-        Rule::Reconstructed,
-        Rule::Preserved,
-    ),
-    (
-        "crs_resolution",
-        "plenora.geometry.crs_resolution",
-        Rule::Reconstructed,
-        Rule::Preserved,
-    ),
-    (
-        "crs_definition",
-        "plenora.geometry.crs_definition",
-        Rule::Reconstructed,
-        Rule::Preserved,
-    ),
-    (
-        "crs_definition_format",
-        "plenora.geometry.crs_definition_format",
-        Rule::Reconstructed,
-        Rule::Preserved,
-    ),
-    (
-        "axis_order",
-        "plenora.geometry.axis_order",
-        Rule::Reconstructed,
-        Rule::Preserved,
-    ),
-    (
-        "native_metadata",
-        "plenora.geometry.native.",
-        Rule::Removed,
-        Rule::Preserved,
-    ),
-    ("", "gpkg.declared_type", Rule::Preserved, Rule::Preserved),
-    ("", "gpkg.primary_key", Rule::Preserved, Rule::Preserved),
-    (
-        "",
-        "ARROW:extension:name",
-        Rule::Reconstructed,
-        Rule::Preserved,
-    ),
-    (
-        "",
-        "ARROW:extension:metadata",
-        Rule::Removed,
-        Rule::Preserved,
-    ),
-    (
-        "",
-        "plenora.primary_geometry",
-        Rule::Removed,
-        Rule::Preserved,
-    ),
-    ("", "gpkg.schema_normalized", Rule::Removed, Rule::Preserved),
-    ("", "crs", Rule::Removed, Rule::Preserved),
-    ("", "geo", Rule::Removed, Rule::Preserved),
-    ("", "", Rule::Removed, Rule::Rejected),
-];
+pub use crate::loss_table::PROPERTIES;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -131,18 +12,21 @@ pub enum Rule {
     Rejected,
     Reconstructed,
     Removed,
+    ArrowMetadataRemoved,
     EwkbToWkb,
     SridRemoved,
     SridToCatalog,
 }
 
 const METADATA_REMOVED: &str = "gpkg_metadata_not_preserved";
+const ARROW_METADATA_REMOVED: &str = "arrow_metadata_not_preserved";
 const GEOMETRY_NORMALIZED: &str = "geometry_representation_normalized";
 
 impl Rule {
     const fn loss_category(self) -> Option<&'static str> {
         match self {
             Self::Removed => Some(METADATA_REMOVED),
+            Self::ArrowMetadataRemoved => Some(ARROW_METADATA_REMOVED),
             Self::EwkbToWkb | Self::SridRemoved | Self::SridToCatalog => Some(GEOMETRY_NORMALIZED),
             _ => None,
         }
@@ -174,15 +58,7 @@ pub fn metadata_rule(driver: &str, key: &str, value: &str, convert_ewkb: bool) -
             Rule::SridRemoved
         };
     }
-    // Outside GPKG this plan governs the representation adapter only;
-    // it does not claim that a different format preserves Arrow metadata.
-    if driver != "gpkg" {
-        return Rule::Preserved;
-    }
-    PROPERTIES
-        .iter()
-        .find(|(_, pattern, _, _)| matches_key(pattern, key))
-        .map_or(Rule::Rejected, |entry| entry.2)
+    crate::loss_table::metadata_rule(driver, crate::loss_table::TransportDirection::Write, key)
 }
 
 #[must_use]
@@ -249,7 +125,7 @@ fn matches_key(pattern: &str, key: &str) -> bool {
 }
 
 /// Complete structural plan. No input name, metadata value or digest is carried.
-/// For GPKG this covers format metadata; for other sinks it covers the EWKB adapter.
+/// Covers format metadata and the EWKB representation adapter.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PropertyPlan {
@@ -363,7 +239,7 @@ impl PropertyPlan {
         Ok(())
     }
 
-    /// A complete report, independent of the bounded illustrative examples.
+    /// Representation effects and metadata counts with bounded indexed examples.
     /// # Errors
     /// Rejects reports exceeding the complete-inventory byte budget.
     pub fn report(
@@ -376,12 +252,18 @@ impl PropertyPlan {
             if effect.rule == Rule::Preserved {
                 continue;
             }
-            report.property_changes.push(PropertyChange {
-                layer_index,
-                phase,
-                effect: effect.clone(),
-            });
+            if effect.rule != Rule::ArrowMetadataRemoved {
+                report.property_changes.push(PropertyChange {
+                    layer_index,
+                    phase,
+                    effect: effect.clone(),
+                });
+            }
             let rule = effect.rule;
+            // The complete transport inventory remains available; loss counts need observation.
+            if matches!(rule, Rule::Removed | Rule::ArrowMetadataRemoved) {
+                continue;
+            }
             let Some(category) = rule.loss_category() else {
                 continue;
             };
@@ -406,6 +288,7 @@ impl PropertyPlan {
                         effect.key_index,
                         effect.field_id.map_or_else(|| "absent".to_owned(), |id| id.to_string()),
                         match effect.rule {
+                            Rule::ArrowMetadataRemoved => "rule=native_schema_reconstruction",
                             Rule::EwkbToWkb => "encoding=ewkb_to_iso_wkb byte_order=little_endian coordinates=bitwise",
                             Rule::SridToCatalog => "srid=gpkg_catalog payload_srid=removed",
                             Rule::SridRemoved => "srid=removed crs=validated",
@@ -436,7 +319,14 @@ fn valid_rule(driver: &str, effect: &PropertyEffect) -> bool {
                 && effect.property.as_deref() == Some("srid")
                 && (driver == "gpkg") == (effect.rule == Rule::SridToCatalog)
         }
-        _ if driver != "gpkg" => effect.rule == Rule::Preserved,
+        _ if driver != "gpkg" => {
+            effect.rule
+                == crate::loss_table::metadata_rule(
+                    driver,
+                    crate::loss_table::TransportDirection::Write,
+                    "",
+                )
+        }
         _ => PROPERTIES.iter().any(|(name, _, rule, _)| {
             effect.property.as_deref() == (!name.is_empty()).then_some(*name)
                 && effect.rule == *rule
@@ -474,10 +364,11 @@ pub fn validate_gpkg_read_schema(schema: &Schema) -> plenora_io_model::Result<()
         std::iter::once(schema.metadata()).chain(schema.fields().iter().map(|f| f.metadata()))
     {
         for key in metadata.keys() {
-            let rule = PROPERTIES
-                .iter()
-                .find(|(_, pattern, _, _)| matches_key(pattern, key))
-                .map_or(Rule::Rejected, |entry| entry.3);
+            let rule = crate::loss_table::metadata_rule(
+                "gpkg",
+                crate::loss_table::TransportDirection::Read,
+                key,
+            );
             if rule == Rule::Rejected {
                 return Err(plenora_io_model::PlenoraIoError::contratto_redatto(
                     &plenora_io_model::PublicMessage::Curated(
@@ -488,4 +379,297 @@ pub fn validate_gpkg_read_schema(schema: &Schema) -> plenora_io_model::Result<()
         }
     }
     Ok(())
+}
+
+/// Metadata evidence collected from the completed native file before publication.
+/// A plan alone cannot establish whether reconstruction changed a source key.
+pub struct NativeMetadataCheck {
+    contracts: Vec<plenora_io_model::contract::DataContract>,
+    names: Vec<String>,
+    context: plenora_io_model::budget::PipelineContext,
+    options: std::collections::BTreeMap<String, String>,
+    attribute_source: std::sync::Mutex<Option<crate::driver::spool::StagedSpool>>,
+    budget: plenora_io_model::budget::OperationBudget,
+}
+
+impl NativeMetadataCheck {
+    #[must_use]
+    pub fn new(plan: &crate::WritePlan, opts: &crate::WriteOptions) -> Self {
+        Self {
+            contracts: plan.layers.iter().map(|l| l.contract.clone()).collect(),
+            names: plan.layers.iter().map(|l| l.name.clone()).collect(),
+            context: opts.budget().context().clone(),
+            options: opts.format_options.clone(),
+            attribute_source: std::sync::Mutex::new(None),
+            budget: opts.budget().clone(),
+        }
+    }
+
+    /// Retain the original attributes under the existing memory/spill quotas.
+    /// # Errors
+    /// Propagates budget, cancellation and spool errors before publication.
+    pub fn observe_attributes(
+        &mut self,
+        batch: &arrow_array::RecordBatch,
+    ) -> plenora_io_model::Result<()> {
+        crate::driver::validate_external_batch(batch, plenora_io_model::ErrorPhase::Write)?;
+        let indices: Vec<_> = batch
+            .schema()
+            .fields()
+            .iter()
+            .enumerate()
+            .filter(|(_, field)| !plenora_io_model::geometry::is_geometry_field(field))
+            .map(|(i, _)| i)
+            .collect();
+        if indices.is_empty() || batch.num_rows() == 0 {
+            return Ok(());
+        }
+        let attributes = batch.project(&indices).map_err(|_| invalid_plan())?;
+        let lease = self
+            .context
+            .lease_memory_internal((attributes.get_array_memory_size() as u64).max(1))?;
+        let spool = self
+            .attribute_source
+            .get_mut()
+            .map_err(|_| invalid_plan())?;
+        let spool = spool.get_or_insert_with(|| {
+            crate::driver::spool::StagedSpool::new(
+                attributes.schema(),
+                self.budget.clone(),
+                self.context.cancellation().clone(),
+            )
+        });
+        spool.push(attributes, lease)
+    }
+
+    fn compare_attributes(
+        &self,
+        dataset: &dyn crate::OpenDatasetHandle,
+        report: &mut crate::LossReport,
+        native: crate::loss_table::NativeDriver,
+    ) -> plenora_io_model::Result<()> {
+        let Some(mut spool) = self
+            .attribute_source
+            .lock()
+            .map_err(|_| invalid_plan())?
+            .take()
+        else {
+            return Ok(());
+        };
+        let contract = self.contracts.first().ok_or_else(invalid_plan)?;
+        spool.seal()?;
+        let mut reader = dataset.open_layer_reader(&crate::ReadRequest {
+            layer: dataset.layers().first().ok_or_else(invalid_plan)?.id,
+            projected_fields: None,
+            projection_mode: crate::ProjectionMode::BestEffort,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: crate::ReadScope::default(),
+            batch_target: crate::BatchTarget::default(),
+            cancellation: self.context.cancellation().clone(),
+        })?;
+        let mut output = reader.next_batch()?;
+        let mut row = 0;
+        while let Some(source) = spool.next_batch()? {
+            for input_row in 0..source.num_rows() {
+                self.context.ensure_active()?;
+                while output.as_ref().is_some_and(|b| row == b.num_rows()) {
+                    output = reader.next_batch()?;
+                    row = 0;
+                }
+                for (column, field) in source.schema().fields().iter().enumerate() {
+                    let equal = output.as_ref().is_some_and(|batch| {
+                        batch.schema().index_of(field.name()).is_ok_and(|i| {
+                            source.column(column).slice(input_row, 1).to_data()
+                                == batch.column(i).slice(row, 1).to_data()
+                        })
+                    });
+                    let field_index = contract
+                        .schema
+                        .index_of(field.name())
+                        .ok()
+                        .map(|i| i as u64);
+                    crate::loss_table::observe_native(
+                        report,
+                        (native, crate::loss_table::TransportDirection::Write),
+                        crate::loss_table::NativeElement::Utf8,
+                        u64::from(!equal),
+                        0,
+                        field_index,
+                    );
+                }
+                if output.is_some() {
+                    row += 1;
+                }
+            }
+        }
+        // The reverse direction matters too: exploded geometries can create
+        // additional native attribute rows after the source has been consumed.
+        while let Some(batch) = output {
+            self.context.ensure_active()?;
+            let extra = batch.num_rows().saturating_sub(row) as u64;
+            for (index, field) in contract.schema.fields().iter().enumerate() {
+                if !plenora_io_model::geometry::is_geometry_field(field) {
+                    crate::loss_table::observe_native(
+                        report,
+                        (native, crate::loss_table::TransportDirection::Write),
+                        crate::loss_table::NativeElement::Utf8,
+                        extra,
+                        0,
+                        Some(index as u64),
+                    );
+                }
+            }
+            output = reader.next_batch()?;
+            row = 0;
+        }
+        Ok(())
+    }
+
+    /// # Errors
+    /// Propagates failure to inspect the completed output; no success is published.
+    #[allow(clippy::too_many_lines)] // Decode options and source-layer matching are part of the comparison boundary.
+    pub fn compare(
+        &self,
+        driver: &dyn crate::FormatDriver,
+        native: crate::loss_table::NativeDriver,
+        path: &std::path::Path,
+    ) -> plenora_io_model::Result<crate::LossReport> {
+        use crate::loss_table::{metadata_changes, TransportDirection};
+        self.context.ensure_active()?;
+        let mut builder = plenora_io_model::budget::PipelineBudget::builder()
+            .limits((*self.context.limits()).with_duration_ms(
+                self.context.remaining_duration().map_or(1, |d| {
+                    u64::try_from(d.as_millis()).unwrap_or(u64::MAX).max(1)
+                }),
+            ))
+            .cancellation(self.context.cancellation().clone());
+        if let Some(pool) = self.context.resource_pool() {
+            builder = builder.resource_pool(pool.clone());
+        }
+        let mut options = crate::ReadOptions::from_read_parts(builder.build()?.into_read_parts());
+        if matches!(driver.descriptor().id(), "csv" | "xls") {
+            if self
+                .options
+                .get("geometry_encoding")
+                .is_some_and(|s| s == "xy")
+            {
+                options.assume_crs = Some("EPSG:4326".to_owned());
+                options.format_options.insert("x_column".into(), "x".into());
+                options.format_options.insert("y_column".into(), "y".into());
+            } else if self
+                .contracts
+                .iter()
+                .any(|contract| contract.geometry.is_some())
+            {
+                options.assume_crs = Some("EPSG:4326".to_owned());
+                options
+                    .format_options
+                    .insert("wkt_column".into(), "geometry".into());
+            }
+            if driver.descriptor().id() == "csv" {
+                if let Some(delimiter) = self.options.get("delimiter") {
+                    options
+                        .format_options
+                        .insert("delimiter".into(), delimiter.clone());
+                }
+            }
+        }
+        let assumed_for_decoding = (matches!(driver.descriptor().id(), "csv" | "xls")
+            && options.assume_crs.is_some())
+            || (driver.descriptor().id() == "shp" && !path.with_extension("prj").exists());
+        if assumed_for_decoding {
+            options.assume_crs = Some("EPSG:4326".to_owned());
+        }
+        let dataset = driver.open(crate::Source::Path(path.to_owned()), options)?;
+        let mut report = crate::LossReport::default();
+        self.compare_attributes(dataset.as_ref(), &mut report, native)?;
+        for (index, source) in self.contracts.iter().enumerate() {
+            let before = &source.schema;
+            let after = (if native == crate::loss_table::NativeDriver::FileGdb {
+                dataset.layers().get(index)
+            } else {
+                dataset
+                    .layers()
+                    .iter()
+                    .find(|layer| layer.name == self.names[index])
+                    .or_else(|| {
+                        (self.contracts.len() == 1)
+                            .then(|| dataset.layers().first())
+                            .flatten()
+                    })
+            })
+            .ok_or_else(|| {
+                plenora_io_model::PlenoraIoError::contratto_redatto(
+                    &plenora_io_model::PublicMessage::Curated(
+                        "layer scritto assente alla rilettura",
+                    ),
+                )
+            })?;
+            if matches!(
+                native,
+                crate::loss_table::NativeDriver::FileGdb | crate::loss_table::NativeDriver::Gpkg
+            ) && after.name != self.names[index]
+            {
+                report.record("native_layer_metadata_not_preserved", 1);
+                report.add_example(crate::loss::LossExample {
+                    category: "native_layer_metadata_not_preserved".to_owned(),
+                    posizione: crate::loss::Posizione {
+                        layer_index: Some(index as u64),
+                        field_index: None,
+                        type_class: None,
+                    },
+                    context: "nome del layer diverso alla rilettura; fase write".to_owned(),
+                });
+            }
+            let mut actual = after.contract.clone();
+            if assumed_for_decoding {
+                if let Some(geometry) = &mut actual.geometry {
+                    geometry.crs = plenora_io_model::crs::CrsResolution::Missing;
+                    geometry.srid = None;
+                    let fields = actual
+                        .schema
+                        .fields()
+                        .iter()
+                        .map(|field| {
+                            if field.name() == &geometry.name {
+                                let mut field =
+                                    plenora_io_model::geometry::with_geometry_contract_metadata(
+                                        field, geometry,
+                                    );
+                                let mut metadata = field.metadata().clone();
+                                metadata.remove("crs");
+                                field = field.with_metadata(metadata);
+                                field
+                            } else {
+                                field.as_ref().clone()
+                            }
+                        })
+                        .collect::<Vec<_>>();
+                    actual.schema = std::sync::Arc::new(arrow_schema::Schema::new_with_metadata(
+                        fields,
+                        actual.schema.metadata().clone(),
+                    ));
+                }
+            }
+            report.merge(&crate::driver::observed_geometry_metadata_loss(
+                source,
+                &actual,
+                driver.descriptor(),
+                index as u64,
+            )?);
+            let delivered = plenora_io_model::geometry::interchange_schema(&actual)?;
+            let changes = metadata_changes(native, TransportDirection::Write, before, &delivered);
+            for (category, count) in &changes.counts {
+                report.record(category, *count);
+            }
+            for example in changes.esempi_canonici() {
+                let mut example = example.clone();
+                example.posizione.layer_index = Some(index as u64);
+                report.add_example(example);
+            }
+        }
+        self.context.ensure_active()?;
+        Ok(report)
+    }
 }

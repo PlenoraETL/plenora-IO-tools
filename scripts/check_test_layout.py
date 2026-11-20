@@ -72,8 +72,8 @@ MODULO_INLINE = re.compile(
 #: che ogni file separato e' un residuo.
 ATTRIBUTO_SU_UN_ELEMENTO = re.compile(
     r"^\s*#\[cfg\((?:all\()?test\b[^\]]*\]\n"
-    r"(?:\s*#\[[^\]]*\]\n)*"
-    r"\s*(?!mod\s+[a-z_][a-z0-9_]*\s*;)",
+    r"(?>(?:\s*#\[[^\]]*\]\n)*)"
+    r"(?>\s*)(?!mod\s+[a-z_][a-z0-9_]*\s*;)",
     re.M,
 )
 

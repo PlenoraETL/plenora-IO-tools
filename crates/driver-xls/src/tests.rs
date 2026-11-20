@@ -10,6 +10,33 @@ fn wkt(testo: &str) -> plenora_io_model::Result<plenora_io_model::wkb::WkbGeomet
 }
 use super::*;
 
+#[test]
+fn empty_string_rewrite_rejects_missing_cells_and_invalid_worksheet_content() {
+    use std::collections::BTreeSet;
+    use std::io::{Cursor, Write};
+
+    let required = BTreeSet::from(["B2".to_owned()]);
+    assert!(empty_strings::encode(b"not a ZIP archive".to_vec(), &required).is_err());
+    for sheet in [
+        b"<worksheet><sheetData><row><c r=\"A1\"><v>1</v></c></row></sheetData></worksheet>"
+            .as_slice(),
+        &[0xff, 0xfe],
+    ] {
+        let mut archive = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        archive
+            .start_file(
+                "xl/worksheets/sheet1.xml",
+                zip::write::SimpleFileOptions::default(),
+            )
+            .unwrap();
+        archive.write_all(sheet).unwrap();
+        let bytes = archive.finish().unwrap().into_inner();
+        // Returning a workbook would silently lose the promised explicit empty
+        // B2 cell, so failure is required even for an otherwise valid ZIP.
+        assert!(empty_strings::encode(bytes, &required).is_err());
+    }
+}
+
 // --- ASSURANCE-N1: i rami negativi del pre-filtro sui riferimenti ---
 
 /// `valida_valore_riferimento`: gli input che farebbero traboccare
@@ -19,7 +46,7 @@ use super::*;
 /// del riferimento. Vale la pena dire perche', perche' la prima stesura di
 /// questa sonda ha sbagliato in tutti e due i versi: prima pretendeva il
 /// rifiuto di `AA` -- descrivendo una grammatica che la funzione non
-/// promette -- e poi, corretta, lo chiamava «riferimento valido», che e'
+/// promette -- e poi, corretta, lo chiamava Â«riferimento validoÂ», che e'
 /// altrettanto falso. `AA` non e' un riferimento di cella: e' un token che
 /// non puo' far traboccare l'accumulatore, e il pre-filtro lascia passare
 /// esattamente quello.
@@ -51,11 +78,11 @@ fn n1_valida_valore_riferimento_applica_i_tetti_senza_validare_il_formato() {
     ];
     for valore in oltre_i_conteggi {
         let Err(errore) = valida_valore_riferimento(valore.as_bytes()) else {
-            panic!("«{valore}» eccede i conteggi del formato e doveva essere fermato");
+            panic!("Â«{valore}Â» eccede i conteggi del formato e doveva essere fermato");
         };
         assert!(
             errore.message.contains("oltre i limiti del formato"),
-            "«{valore}»: atteso il rifiuto sui limiti, arrivato «{}»",
+            "Â«{valore}Â»: atteso il rifiuto sui limiti, arrivato Â«{}Â»",
             errore.message
         );
     }
@@ -65,11 +92,11 @@ fn n1_valida_valore_riferimento_applica_i_tetti_senza_validare_il_formato() {
     let forma_non_a1: Vec<&str> = vec!["1A", "A1B", "A-1", "A1:2B"];
     for valore in forma_non_a1 {
         let Err(errore) = valida_valore_riferimento(valore.as_bytes()) else {
-            panic!("«{valore}» non ha la forma lettere-poi-cifre e doveva essere fermato");
+            panic!("Â«{valore}Â» non ha la forma lettere-poi-cifre e doveva essere fermato");
         };
         assert!(
             errore.message.contains("atteso stile A1"),
-            "«{valore}»: atteso il rifiuto di forma, arrivato «{}»",
+            "Â«{valore}Â»: atteso il rifiuto di forma, arrivato Â«{}Â»",
             errore.message
         );
     }
@@ -81,7 +108,7 @@ fn n1_valida_valore_riferimento_applica_i_tetti_senza_validare_il_formato() {
     for valore in conformi {
         assert!(
             valida_valore_riferimento(valore.as_bytes()).is_ok(),
-            "«{valore}» e' conforme e non deve essere fermato"
+            "Â«{valore}Â» e' conforme e non deve essere fermato"
         );
     }
 
@@ -117,7 +144,7 @@ fn n1_valida_valore_riferimento_applica_i_tetti_senza_validare_il_formato() {
     for (valore, perche) in tollerati_dal_prefiltro {
         assert!(
             valida_valore_riferimento(valore.as_bytes()).is_ok(),
-            "«{valore}» ({perche}) viene oggi delegato al parser: fermarlo qui \
+            "Â«{valore}Â» ({perche}) viene oggi delegato al parser: fermarlo qui \
                  cambia il confine del pre-filtro e richiede una decisione esplicita"
         );
     }
@@ -151,7 +178,7 @@ fn n1_cell_at_distingue_la_colonna_prima_dell_inizio_da_quella_oltre_la_fine() {
         };
         assert!(
             errore.message.contains("indice colonna XLSX non valido"),
-            "colonna {colonna}: arrivato «{}»",
+            "colonna {colonna}: arrivato Â«{}Â»",
             errore.message
         );
     }
@@ -162,7 +189,7 @@ fn n1_cell_at_distingue_la_colonna_prima_dell_inizio_da_quella_oltre_la_fine() {
         };
         assert!(
             errore.message.contains("fuori dalle dimensioni dichiarate"),
-            "colonna {colonna}: arrivato «{}»",
+            "colonna {colonna}: arrivato Â«{}Â»",
             errore.message
         );
     }
@@ -171,7 +198,7 @@ fn n1_cell_at_distingue_la_colonna_prima_dell_inizio_da_quella_oltre_la_fine() {
 /// `LettoreCelleSorvegliato`: dopo un fallimento non si legge piu', e le due
 /// vie di lettura lo dicono con lo stesso errore.
 ///
-/// Il tipo promette che «dopo un panico il lettore viene scartato» sia una
+/// Il tipo promette che Â«dopo un panico il lettore viene scartatoÂ» sia una
 /// proprieta' del **tipo** e non una convenzione da ricordare: al primo
 /// fallimento il lettore cade e ogni chiamata successiva trova `None`.
 /// Nessun percorso del driver ci prova -- tutti propagano -- ed e' proprio
@@ -202,7 +229,7 @@ fn n1_un_lettore_invalidato_rifiuta_entrambe_le_letture() {
     };
     assert!(
         su_dimensioni.message.contains(LETTORE_INVALIDATO),
-        "dimensioni: arrivato «{}»",
+        "dimensioni: arrivato Â«{}Â»",
         su_dimensioni.message
     );
 
@@ -211,12 +238,12 @@ fn n1_un_lettore_invalidato_rifiuta_entrambe_le_letture() {
     };
     assert!(
         su_cella.message.contains(LETTORE_INVALIDATO),
-        "prossima_cella: arrivato «{}»",
+        "prossima_cella: arrivato Â«{}Â»",
         su_cella.message
     );
 
     // Il rifiuto e' stabile: interrogarlo di nuovo non lo fa cambiare idea.
-    // Non dice quale forma abbia la guardia -- vedi «Che cosa non prova».
+    // Non dice quale forma abbia la guardia -- vedi Â«Che cosa non provaÂ».
     assert!(invalidato.dimensioni().is_err());
     assert!(invalidato.prossima_cella().is_err());
 }
@@ -363,7 +390,7 @@ type CasoDiOverflow = (&'static str, [(u64, u64); 2], &'static str);
 /// dei decompressi resta scoperto mentre la sonda e' verde. Ogni caso
 /// carica quindi l'overflow su un accumulatore e tiene innocuo l'altro, e
 /// l'asserzione nomina il messaggio specifico invece del prefisso comune:
-/// «overflow nel conteggio dei byte» non distingue i due.
+/// Â«overflow nel conteggio dei byteÂ» non distingue i due.
 #[test]
 fn n1_le_dimensioni_dichiarate_in_zip64_non_sommano_in_silenzio() {
     let dir = tempfile::tempdir().unwrap();
@@ -371,8 +398,8 @@ fn n1_le_dimensioni_dichiarate_in_zip64_non_sommano_in_silenzio() {
 
     // Il controllo che rende interpretabile il resto: lo stesso archivio con
     // dimensioni piccole **passa**. Senza, un rifiuto non distinguerebbe
-    // «la somma trabocca» da «il central directory costruito dalla sonda non
-    // e' leggibile», e la sonda proverebbe l'incapacita' di chi l'ha scritta
+    // Â«la somma traboccaÂ» da Â«il central directory costruito dalla sonda non
+    // e' leggibileÂ», e la sonda proverebbe l'incapacita' di chi l'ha scritta
     // invece del comportamento del driver.
     let innocuo = dir.path().join("innocuo.xlsx");
     std::fs::write(&innocuo, zip64_con_dimensioni_dichiarate([(2, 2), (3, 3)])).unwrap();
@@ -383,15 +410,11 @@ fn n1_le_dimensioni_dichiarate_in_zip64_non_sommano_in_silenzio() {
     // Un accumulatore per volta: `(compressa, decompressa)` per ciascuna
     // delle due voci, e il messaggio che deve arrivare.
     let casi: [CasoDiOverflow; 2] = [
-        (
-            "compressi",
-            [(u64::MAX, 2), (1, 3)],
-            "overflow nel conteggio dei byte compressi",
-        ),
+        ("compressi", [(u64::MAX, 2), (1, 3)], "decompression_ratio"),
         (
             "decompressi",
             [(2, u64::MAX), (3, 1)],
-            "overflow nel conteggio dei byte decompressi",
+            "decompression_ratio",
         ),
     ];
 
@@ -400,17 +423,17 @@ fn n1_le_dimensioni_dichiarate_in_zip64_non_sommano_in_silenzio() {
         std::fs::write(&percorso, zip64_con_dimensioni_dichiarate(voci)).unwrap();
         let Err(errore) = validate_archive_ratio(&percorso, opzioni.budget()) else {
             panic!(
-                    "«{nome}»: la somma di u64::MAX e 1 deve traboccare; se passa, il crate                      `zip` sta normalizzando le dimensioni dichiarate e il ramo va                      riclassificato"
+                    "Â«{nome}Â»: la somma di u64::MAX e 1 deve traboccare; se passa, il crate                      `zip` sta normalizzando le dimensioni dichiarate e il ramo va                      riclassificato"
                 );
         };
         assert_eq!(
             errore.category,
             plenora_io_model::ErrorCategory::ResourceLimit,
-            "«{nome}»: un overflow di conteggio e' un limite, non un formato non valido"
+            "Â«{nome}Â»: un overflow di conteggio e' un limite, non un formato non valido"
         );
         assert!(
                 errore.message.contains(atteso),
-                "«{nome}»: atteso «{atteso}», arrivato «{}». Un messaggio generico non                  distinguerebbe i due accumulatori, ed e' il difetto che questo caso esiste                  per escludere",
+                "Â«{nome}Â»: atteso Â«{atteso}Â», arrivato Â«{}Â». Un messaggio generico non                  distinguerebbe i due accumulatori, ed e' il difetto che questo caso esiste                  per escludere",
                 errore.message
             );
     }
@@ -421,12 +444,12 @@ fn n1_le_dimensioni_dichiarate_in_zip64_non_sommano_in_silenzio() {
 /// # Il difetto che questa sonda ha trovato
 ///
 /// La selezione del perimetro passava da `archive.by_index(indice).ok()?`
-/// dentro un `filter_map`: qualunque errore di apertura diventava «parte
-/// ignorata». Una parte con central directory leggibile e header locale
+/// dentro un `filter_map`: qualunque errore di apertura diventava Â«parte
+/// ignorataÂ». Una parte con central directory leggibile e header locale
 /// irraggiungibile spariva quindi dal perimetro, e
 /// `valida_riferimenti_cella` restituiva `Ok` -- cioe' **fail-open**, in una
-/// funzione il cui doc-comment promette che «non c'e' un ramo che, non
-/// riuscendo a controllare, prosegua lo stesso».
+/// funzione il cui doc-comment promette che Â«non c'e' un ramo che, non
+/// riuscendo a controllare, prosegua lo stessoÂ».
 ///
 /// Non era una svista di stile: `?` dentro `filter_map` scarta l'errore per
 /// costruzione, e il `by_name` successivo non lo ripara, perche' cerca fra i
@@ -491,7 +514,7 @@ fn n1_una_parte_enumerabile_ma_non_apribile_ferma_la_lettura() {
     };
     assert!(
         errore.message.contains("parte XLSX non leggibile"),
-        "atteso il rifiuto sull'apertura della parte, arrivato «{}»",
+        "atteso il rifiuto sull'apertura della parte, arrivato Â«{}Â»",
         errore.message
     );
 }
@@ -521,7 +544,7 @@ fn xlsx_con_parti(quante: usize) -> Vec<u8> {
 /// Il tetto sulle parti conta **i membri dell'archivio**, non le sole parti
 /// XML, e i due confini stanno uno accanto all'altro.
 ///
-/// Il **vecchio** nome della costante diceva «parti XML» mentre il controllo
+/// Il **vecchio** nome della costante diceva Â«parti XMLÂ» mentre il controllo
 /// guarda `archive.len()`, cioe' ogni membro: un contenitore con migliaia di
 /// immagini viene fermato quanto uno con migliaia di fogli. E' il
 /// comportamento voluto -- il tetto difende dall'abuso del contenitore, non
@@ -616,39 +639,46 @@ fn n1_infer_layout_rifiuta_le_due_quote() {
     scrivi_xlsx(&normale, 3, 3);
     XlsDriver
         .open(Source::Path(normale), opzioni_lettura_wkt())
+        .and_then(rifiuta_oggetti_non_leggibili)
         .expect("tre righe per tre colonne stanno in qualunque quota di default");
 
     // Larghezza oltre la quota: `--max-columns` a 2 su un foglio da 3.
     let largo = dir.path().join("largo.xlsx");
     scrivi_xlsx(&largo, 2, 3);
-    let Err(errore) = XlsDriver.open(
-        Source::Path(largo),
-        opzioni_lettura_wkt_con(
-            plenora_io_model::budget::PipelineLimits::default().with_max_columns(2),
-        ),
-    ) else {
+    let Err(errore) = XlsDriver
+        .open(
+            Source::Path(largo),
+            opzioni_lettura_wkt_con(
+                plenora_io_model::budget::PipelineLimits::default().with_max_columns(2),
+            ),
+        )
+        .and_then(rifiuta_oggetti_non_leggibili)
+    else {
         panic!("tre colonne oltre una quota di due devono essere rifiutate");
     };
     assert!(
-        errore.message.contains("colonne oltre il limite"),
-        "atteso il rifiuto sulla larghezza, arrivato «{}»",
+        errore.message.contains("max_columns"),
+        "atteso il rifiuto sulla larghezza, arrivato Â«{}Â»",
         errore.message
     );
 
     // Altezza oltre la quota: `--max-rows` a 1 su un foglio da 3 righe dati.
     let alto = dir.path().join("alto.xlsx");
     scrivi_xlsx(&alto, 3, 2);
-    let Err(errore) = XlsDriver.open(
-        Source::Path(alto),
-        opzioni_lettura_wkt_con(
-            plenora_io_model::budget::PipelineLimits::default().with_max_rows(1),
-        ),
-    ) else {
+    let Err(errore) = XlsDriver
+        .open(
+            Source::Path(alto),
+            opzioni_lettura_wkt_con(
+                plenora_io_model::budget::PipelineLimits::default().with_max_rows(1),
+            ),
+        )
+        .and_then(rifiuta_oggetti_non_leggibili)
+    else {
         panic!("tre righe oltre una quota di una devono essere rifiutate");
     };
     assert!(
-        errore.message.contains("righe oltre il limite"),
-        "atteso il rifiuto sull'altezza, arrivato «{}»",
+        errore.message.contains("max_rows"),
+        "atteso il rifiuto sull'altezza, arrivato Â«{}Â»",
         errore.message
     );
 }
@@ -702,19 +732,22 @@ fn n1_il_foglio_senza_celle_e_fermato_dallo_schema_prima_di_infer_layout() {
     };
     assert!(
         errore.message.contains("foglio vuoto"),
-        "atteso il rifiuto sul foglio vuoto, arrivato «{}»",
+        "atteso il rifiuto sul foglio vuoto, arrivato Â«{}Â»",
         errore.message
     );
 
     // Meta' due: la stessa configurazione passata da `open` non arriva al
     // driver. Il rifiuto e' dello schema delle opzioni, in fase di
     // validazione, non dell'inferenza.
-    let Err(fermato) = XlsDriver.open(
-        Source::Path(vuoto),
-        opzioni_lettura()
-            .with_assume_crs("EPSG:4326")
-            .with_format_option("wkt_column", ""),
-    ) else {
+    let Err(fermato) = XlsDriver
+        .open(
+            Source::Path(vuoto),
+            opzioni_lettura()
+                .with_assume_crs("EPSG:4326")
+                .with_format_option("wkt_column", ""),
+        )
+        .and_then(rifiuta_oggetti_non_leggibili)
+    else {
         panic!("un nome di colonna vuoto non e' un valore ammesso");
     };
     assert_eq!(
@@ -725,12 +758,12 @@ fn n1_il_foglio_senza_celle_e_fermato_dallo_schema_prima_di_infer_layout() {
     );
     assert!(
         fermato.message.contains("testo non vuoto"),
-        "atteso il rifiuto dello schema sul valore vuoto, arrivato «{}»",
+        "atteso il rifiuto dello schema sul valore vuoto, arrivato Â«{}Â»",
         fermato.message
     );
 }
 
-/// «intestazione XLSX assente» e «geometria XLSX non configurata» sono
+/// Â«intestazione XLSX assenteÂ» e Â«geometria XLSX non configurataÂ» sono
 /// irraggiungibili: `data_row_count` rifiuta prima le dimensioni che
 /// renderebbero vuoto il ciclo.
 ///
@@ -740,7 +773,7 @@ fn n1_il_foglio_senza_celle_e_fermato_dallo_schema_prima_di_infer_layout() {
 /// `bounds.start.0..=bounds.end.0`, e la prima riga visitata assegna
 /// entrambe le variabili oppure propaga l'errore di `resolve_geometry`.
 /// Perche' quell'intervallo sia vuoto servirebbe `start.0 > end.0`, e
-/// `data_row_count` lo rifiuta con «dimensioni XLSX non valide».
+/// `data_row_count` lo rifiuta con Â«dimensioni XLSX non valideÂ».
 ///
 /// La sonda non copre quelle righe: esegue la **guardia** che le rende
 /// inarrivabili. Se la precedenza cambia -- se le dimensioni invertite
@@ -767,7 +800,7 @@ fn n1_le_dimensioni_invertite_precedono_l_intestazione_assente() {
         };
         assert!(
             errore.message.contains("dimensioni XLSX non valide"),
-            "atteso il rifiuto sulle dimensioni, arrivato «{}»",
+            "atteso il rifiuto sulle dimensioni, arrivato Â«{}Â»",
             errore.message
         );
     }
@@ -786,7 +819,7 @@ fn n1_le_dimensioni_invertite_precedono_l_intestazione_assente() {
     );
 }
 
-/// «troppe colonne XLSX» e «indice colonna XLSX fuori intervallo» sono
+/// Â«troppe colonne XLSXÂ» e Â«indice colonna XLSX fuori intervalloÂ» sono
 /// irraggiungibili: la larghezza che `data_row_width` accetta non lascia
 /// spazio ne' al `try_from` ne' all'overflow.
 ///
@@ -920,19 +953,14 @@ fn n1_resolve_geometry_nomina_la_colonna_che_manca_e_rifiuta_due_geometrie() {
             "colonna Y assente dall'intestazione",
         ),
         (
-            "nessuna opzione di geometria",
-            vec![],
-            "specificare wkt_column, oppure x_column con y_column, in format_options",
-        ),
-        (
             "coppia a meta': solo l'ascissa",
             vec![("x_column", "lon")],
-            "specificare wkt_column, oppure x_column con y_column, in format_options",
+            "specificare entrambe le opzioni x_column e y_column",
         ),
         (
             "coppia a meta': solo l'ordinata",
             vec![("y_column", "lat")],
-            "specificare wkt_column, oppure x_column con y_column, in format_options",
+            "specificare entrambe le opzioni x_column e y_column",
         ),
     ] {
         let esito = resolve_geometry(&intestazioni, INIZIO, &opzioni(&coppie));
@@ -944,12 +972,15 @@ fn n1_resolve_geometry_nomina_la_colonna_che_manca_e_rifiuta_due_geometrie() {
             "{caso}: il messaggio manda a correggere la cosa sbagliata"
         );
     }
+    let (geometry, columns) = resolve_geometry(&intestazioni, INIZIO, &BTreeMap::new()).unwrap();
+    assert!(matches!(geometry, XlsxGeomSpec::None));
+    assert!(columns.is_empty());
 
     // Le accettazioni: senza, una funzione che rifiutasse tutto passerebbe
     // la tabella dei negativi.
     let (wkt, colonne_wkt) =
         resolve_geometry(&intestazioni, INIZIO, &opzioni(&[("wkt_column", "geom")]))
-            .expect("«geom» e' la seconda intestazione");
+            .expect("Â«geomÂ» e' la seconda intestazione");
     let XlsxGeomSpec::Wkt(colonna) = wkt else {
         panic!("wkt_column deve produrre una geometria WKT");
     };
@@ -961,7 +992,7 @@ fn n1_resolve_geometry_nomina_la_colonna_che_manca_e_rifiuta_due_geometrie() {
         INIZIO,
         &opzioni(&[("x_column", "lon"), ("y_column", "lat")]),
     )
-    .expect("«lon» e «lat» sono la terza e la quarta intestazione");
+    .expect("Â«lonÂ» e Â«latÂ» sono la terza e la quarta intestazione");
     let XlsxGeomSpec::Xy(x, y) = xy else {
         panic!("x_column con y_column deve produrre una geometria x/y");
     };
@@ -1017,12 +1048,15 @@ fn n1_la_colonna_wkt_assente_esce_dal_driver_con_il_suo_messaggio() {
     let percorso = dir.path().join("altra-colonna.xlsx");
     scrivi_xlsx(&percorso, 2, 2);
 
-    let Err(errore) = XlsDriver.open(
-        Source::Path(percorso),
-        opzioni_lettura()
-            .with_assume_crs("EPSG:4326")
-            .with_format_option("wkt_column", "questa-non-c-e"),
-    ) else {
+    let Err(errore) = XlsDriver
+        .open(
+            Source::Path(percorso),
+            opzioni_lettura()
+                .with_assume_crs("EPSG:4326")
+                .with_format_option("wkt_column", "questa-non-c-e"),
+        )
+        .and_then(rifiuta_oggetti_non_leggibili)
+    else {
         panic!("una colonna WKT che non esiste non e' una geometria");
     };
     assert_eq!(
@@ -1212,7 +1246,7 @@ fn n1_for_each_dense_row_rifiuta_le_celle_fuori_ordine_e_fuori_dimensione() {
     assert_eq!(errore.message, "ordine delle celle XLSX non monotono");
 }
 
-/// «indice colonna XLSX non rappresentabile» e' irraggiungibile: la
+/// Â«indice colonna XLSX non rappresentabileÂ» e' irraggiungibile: la
 /// piattaforma decide, e su tutte quelle supportate `usize` copre `u32`.
 ///
 /// L'offset e' `cell_column - bounds.start.1`, cioe' un `u32`, e la
@@ -1515,8 +1549,8 @@ fn n1_bounded_spool_writer_distingue_la_quota_dall_overflow_e_dal_disco() {
         errore.message
     );
     assert!(
-        errore.message.contains("byte oltre il limite di"),
-        "il messaggio deve dire qual e' il limite, arrivato «{}»",
+        errore.message.contains("max_input_bytes"),
+        "il messaggio deve dire qual e' il limite, arrivato Â«{}Â»",
         errore.message
     );
 
@@ -1688,7 +1722,7 @@ fn n1_bounded_spool_writer_geometry_distingue_l_assenza_dalla_geometria_vuota() 
 /// modello di budget. Il risultato era che un `.xlsx` conforme -- una cella
 /// `<c t="inlineStr"><is><t></t></is></c>`, che il formato ammette e che
 /// `calamine` consegna come `Data::String("")` -- veniva rifiutato con
-/// `ResourceLimit` e il messaggio «una lease deve essere maggiore di zero».
+/// `ResourceLimit` e il messaggio Â«una lease deve essere maggiore di zeroÂ».
 ///
 /// Non era un errore innocuo per essere fail-closed: mandava chi legge ad
 /// alzare una quota che non c'entrava, per un file che non aveva niente di
@@ -1740,7 +1774,7 @@ fn n1_una_cella_di_testo_vuota_non_e_una_quota_superata() {
 /// una geometria a meta'.
 ///
 /// Sono due esiti che si somigliano e non lo sono: una cella WKT vuota, o
-/// una coppia x/y entrambe assenti, dicono «questa riga non ha geometria» e
+/// una coppia x/y entrambe assenti, dicono Â«questa riga non ha geometriaÂ» e
 /// producono `Ok(false)`, che a valle diventa un nullo. Una sola delle due
 /// coordinate, invece, e' un dato incompleto: accettarlo significherebbe
 /// inventare l'altra meta' o buttare via quella presente, e il rifiuto
@@ -1784,14 +1818,14 @@ fn n1_encode_geometry_cell_separa_l_assenza_dalla_geometria_a_meta() {
     assert!(presente && byte > 0, "una geometria vera riempie il buffer");
 
     // WKT vuoto o soli spazi: assenza, non errore. Lo spazio conta: e' il
-    // caso che una cella «pulita a mano» produce piu' spesso del vuoto.
+    // caso che una cella Â«pulita a manoÂ» produce piu' spesso del vuoto.
     for testo in ["", "   "] {
         let (presente, _) = codifica(
             &[Data::String(testo.to_owned()), Data::Empty, Data::Empty],
             XlsxGeomSpec::Wkt(0),
         )
         .expect("una cella WKT vuota non e' un errore");
-        assert!(!presente, "«{testo}» non e' una geometria");
+        assert!(!presente, "Â«{testo}Â» non e' una geometria");
     }
 
     // Coppia x/y completa, e coppia interamente assente.
@@ -1869,7 +1903,14 @@ fn n1_write_cell_scrive_i_valori_convertibili_e_propaga_il_rifiuto_del_formato()
     ] {
         // Un `match` e non un `unwrap_or_else`: non c'e' un valore di
         // ripiego, e il censimento dei fallback conta la forma sintattica.
-        match write_cell(foglio, 0, 0, &ValidatedArray::new(&array).unwrap(), 0) {
+        match write_cell(
+            foglio,
+            0,
+            0,
+            &ValidatedArray::new(&array).unwrap(),
+            0,
+            &mut BTreeSet::new(),
+        ) {
             Ok(()) => {}
             Err(errore) => panic!("{caso}: {errore:?}"),
         }
@@ -1892,6 +1933,7 @@ fn n1_write_cell_scrive_i_valori_convertibili_e_propaga_il_rifiuto_del_formato()
         0,
         &ValidatedArray::new(&non_convertibile).unwrap(),
         0,
+        &mut BTreeSet::new(),
     ) else {
         panic!("un tipo non convertibile non puo' diventare una cella");
     };
@@ -1913,12 +1955,13 @@ fn n1_write_cell_scrive_i_valori_convertibili_e_propaga_il_rifiuto_del_formato()
         0,
         &ValidatedArray::new(&troppo_lunga).unwrap(),
         0,
+        &mut BTreeSet::new(),
     ) else {
         panic!("una cella oltre il tetto del formato non puo' essere troncata in silenzio");
     };
     assert!(
         errore.message.starts_with("XLSX:"),
-        "il rifiuto deve venire dal formato, con la classe al posto del Display: «{}»",
+        "il rifiuto deve venire dal formato, con la classe al posto del Display: Â«{}Â»",
         errore.message
     );
 }
@@ -1929,8 +1972,8 @@ fn n1_write_cell_scrive_i_valori_convertibili_e_propaga_il_rifiuto_del_formato()
 /// La prima: `json_from_array` non restituisce mai un array o un oggetto
 /// JSON, quindi il braccio `other` del `match` non ha input. La seconda: i
 /// soli `Number` che costruisce vengono da `i64`, `u64` o `f64` finito, e
-/// `as_f64` li converte tutti -- il rifiuto «numero non rappresentabile
-/// come f64 in XLSX» non ha input nemmeno lui. Gli estremi sono verificati,
+/// `as_f64` li converte tutti -- il rifiuto Â«numero non rappresentabile
+/// come f64 in XLSXÂ» non ha input nemmeno lui. Gli estremi sono verificati,
 /// non argomentati.
 #[test]
 fn n1_json_from_array_non_produce_ne_aggregati_ne_numeri_non_rappresentabili() {
@@ -1971,7 +2014,7 @@ fn n1_json_from_array_non_produce_ne_aggregati_ne_numeri_non_rappresentabili() {
         };
         assert!(
                 numero.as_f64().is_some(),
-                "{caso}: se questo fallisse, «numero non rappresentabile come f64» diventerebbe raggiungibile"
+                "{caso}: se questo fallisse, Â«numero non rappresentabile come f64Â» diventerebbe raggiungibile"
             );
     }
 }
@@ -1988,6 +2031,11 @@ fn n1_json_from_array_non_produce_ne_aggregati_ne_numeri_non_rappresentabili() {
 #[allow(clippy::unnecessary_box_returns)]
 fn scrittore(percorso: &std::path::Path, xy: bool, lotti: Vec<RecordBatch>) -> Box<XlsWriterState> {
     Box::new(XlsWriterState {
+        metadata_check: plenora_io_core::property_plan::NativeMetadataCheck::new(
+            &WritePlan { layers: Vec::new() },
+            &opzioni_scrittura(),
+        ),
+        loss: LossReport::default(),
         path: percorso.to_owned(),
         durable: false,
         xy,
@@ -2037,11 +2085,11 @@ const fn vertice(x: f64, y: f64) -> WkbCoordinate {
 /// I tre rifiuti dicono cose diverse a chi ha costruito il piano: manca la
 /// colonna, la colonna c'e' ma non e' WKB, la colonna e' WKB ma contiene
 /// qualcosa che due numeri non descrivono. L'ultimo e' il piu' facile da
-/// confondere con una perdita accettabile -- «scrivo il centroide» -- e il
+/// confondere con una perdita accettabile -- Â«scrivo il centroideÂ» -- e il
 /// rifiuto e' la scelta opposta: l'encoding `xy` si chiede esplicitamente,
 /// e chi lo chiede su una `LineString` ha sbagliato piano, non dato.
 #[test]
-fn n1_finish_rifiuta_il_lotto_senza_geometria_binaria_e_la_geometria_non_xy() {
+fn n1_finish_accetta_tabelle_e_rifiuta_geometria_non_binaria_o_non_xy() {
     let dir = tempfile::tempdir().unwrap();
     let campo = geometry_field("geometry", "EPSG:4326");
     let punto = wkb_di(WkbValue::Point(vertice(1.0, 2.0)));
@@ -2073,10 +2121,13 @@ fn n1_finish_rifiuta_il_lotto_senza_geometria_binaria_e_la_geometria_non_xy() {
         vec![Arc::new(arrow_array::StringArray::from(vec![Some("uno")]))],
     )
     .unwrap();
-    let Err(errore) = scrittore(&dir.path().join("senza.xlsx"), false, vec![senza]).finish() else {
-        panic!("un foglio XLSX di questo driver ha sempre una colonna geometria");
-    };
-    assert_eq!(errore.message, "nessuna colonna geometria");
+    let path = dir.path().join("senza.xlsx");
+    scrittore(&path, false, vec![senza]).finish().unwrap();
+    let dataset = XlsDriver
+        .open(Source::Path(path), opzioni_lettura())
+        .unwrap();
+    assert!(dataset.layers()[0].contract.geometry.is_none());
+    assert_eq!(dataset.layers()[0].contract.schema.fields().len(), 1);
 
     // Colonna dichiarata geometria ma di tipo non binario: i metadati sono
     // gli stessi, cambia solo il tipo Arrow. E' cio' che un piano costruito
@@ -2301,7 +2352,7 @@ fn la_classe_xlsx_traduce_ogni_variante_costruibile() {
 /// Da S4.d il percorso di lettura vive interamente li': la memoria dei
 /// batch e' una `InternalMemoryLease`, che esiste solo dentro un
 /// `PipelineContext`. `opzioni_lettura()` costruisce ancora il ramo
-/// legacy — sparira' in S4.e — e con quello `open` fallisce chiuso.
+/// legacy â€” sparira' in S4.e â€” e con quello `open` fallisce chiuso.
 /// La capability `hostile_input_hardened`, provata dove S12 la sposta.
 ///
 /// Non e' il cap in byte: quello esisteva prima del parser progressivo e
@@ -2352,11 +2403,15 @@ fn la_cella_wkt_e_rifiutata_per_componenti_sotto_il_cap_in_byte() {
     assert!(
         XlsDriver
             .open(Source::Path(output.clone()), opzioni(COMPONENTI))
+            .and_then(rifiuta_oggetti_non_leggibili)
             .is_ok(),
         "con {COMPONENTI} componenti di tetto la stessa cella deve passare"
     );
 
-    match XlsDriver.open(Source::Path(output), opzioni(COMPONENTI - 1)) {
+    match XlsDriver
+        .open(Source::Path(output), opzioni(COMPONENTI - 1))
+        .and_then(rifiuta_oggetti_non_leggibili)
+    {
         Err(errore) => assert_eq!(
             errore.code,
             plenora_io_model::IoErrorCode::LimitExceeded,
@@ -2370,7 +2425,7 @@ fn la_cella_wkt_e_rifiutata_per_componenti_sotto_il_cap_in_byte() {
 /// L'inferenza XLSX usa il tetto per cella **configurato**.
 ///
 /// Fino a S5 `encode_geometry_cell` passava
-/// `WkbLimits::default().max_cell_bytes` — 64 MiB — quindi
+/// `WkbLimits::default().max_cell_bytes` â€” 64 MiB â€” quindi
 /// `--max-wkb-cell-bytes` non arrivava al parsing WKT, e una cella oltre
 /// la soglia richiesta veniva parsata comunque.
 #[test]
@@ -2394,11 +2449,14 @@ fn inference_uses_configured_wkt_cell_bytes_not_default() {
     assert!(
         XlsDriver
             .open(Source::Path(output.clone()), opzioni(64))
+            .and_then(rifiuta_oggetti_non_leggibili)
             .is_ok(),
         "una cella dentro il tetto configurato deve passare"
     );
 
-    let esito = XlsDriver.open(Source::Path(output), opzioni(4));
+    let esito = XlsDriver
+        .open(Source::Path(output), opzioni(4))
+        .and_then(rifiuta_oggetti_non_leggibili);
     assert!(
         matches!(
             esito,
@@ -2445,10 +2503,11 @@ fn il_wkb_codificato_non_supera_il_tetto_anche_se_il_testo_ci_sta() {
 
     let messaggio = XlsDriver
         .open(Source::Path(output), opzioni)
+        .and_then(rifiuta_oggetti_non_leggibili)
         .err()
         .map(|errore| errore.message);
     assert!(
-        matches!(messaggio, Some(ref testo) if testo.contains("oltre il limite")),
+        matches!(messaggio, Some(ref testo) if testo.contains("max_wkb_cell_bytes")),
         "la codifica WKB deve fermarsi al tetto, non il parsing del testo: {messaggio:?}"
     );
 }
@@ -2531,7 +2590,9 @@ fn un_riferimento_oltre_i_limiti_del_formato_e_rifiutato_prima_di_calamine() {
 
             // Nessun panico: senza la prevalidazione questa riga abbatte
             // il processo di test invece di restituire.
-            let esito = XlsDriver.open(Source::Path(percorso_seme.clone()), opzioni);
+            let esito = XlsDriver
+                .open(Source::Path(percorso_seme.clone()), opzioni)
+                .and_then(rifiuta_oggetti_non_leggibili);
 
             // Nessun dataset parziale: `open` non consegna un handle a
             // meta'. La prova e' che non ne consegna affatto uno.
@@ -2571,8 +2632,8 @@ fn un_riferimento_oltre_i_limiti_del_formato_e_rifiutato_prima_di_calamine() {
 /// Il seme conforme continua a essere letto: la prevalidazione non rifiuta
 /// cio' che il formato ammette.
 ///
-/// Senza questo, un controllo troppo severo — per esempio uno che
-/// rifiutasse ogni riferimento con lettere — passerebbe il test sopra e
+/// Senza questo, un controllo troppo severo â€” per esempio uno che
+/// rifiutasse ogni riferimento con lettere â€” passerebbe il test sopra e
 /// romperebbe ogni XLSX reale, senza che nessuno se ne accorgesse qui.
 #[test]
 fn un_xlsx_conforme_supera_la_prevalidazione() {
@@ -2591,7 +2652,7 @@ fn un_xlsx_conforme_supera_la_prevalidazione() {
 /// E' la forma giusta dopo FZ-0: la prevalidazione impedisce il panico
 /// noto, ma non puo' dimostrare che nessun altro percorso di `calamine`
 /// ne produca uno. Se domani ne comparisse un altro, la barriera lo
-/// converte comunque in errore tipizzato — e questo test lo dimostra
+/// converte comunque in errore tipizzato â€” e questo test lo dimostra
 /// invece di dedurlo.
 #[test]
 fn la_barriera_converte_un_panico_di_calamine_in_errore_tipizzato() {
@@ -2630,7 +2691,7 @@ fn coordinate_cells_fail_closed_on_invalid_or_lossy_values() {
 // --- ASSURANCE-N1: i rami negativi -------------------------------------
 //
 // I rami negativi di `open`, `create` e `validate_archive_ratio`: mai
-// eseguiti da nulla — ne' dai test, ne' dal replay — e preesistenti a S9.
+// eseguiti da nulla â€” ne' dai test, ne' dal replay â€” e preesistenti a S9.
 //
 // La forma e' quella indicata dal registro: **la classe di equivalenza
 // della precondizione**. Non serve un file enorme per superare un tetto,
@@ -2639,13 +2700,18 @@ fn coordinate_cells_fail_closed_on_invalid_or_lossy_values() {
 
 /// `.xls` non e' instradato in lettura, e il rifiuto e' una capability.
 ///
-/// La distinzione conta: un `Format` direbbe «il file e' rotto», e chi
+/// La distinzione conta: un `Format` direbbe Â«il file e' rottoÂ», e chi
 /// legge cercherebbe un errore nel proprio dato invece di convertirlo.
 #[test]
 fn n1_open_rifiuta_xls_come_capability_non_come_formato() {
     let dir = tempfile::tempdir().unwrap();
     let percorso = dir.path().join("storico.xls");
-    std::fs::write(&percorso, b"non importa: l'estensione basta").unwrap();
+    std::fs::copy(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../plenora-io-tools/tests/fixtures/canoniche/canonico.xlsx"),
+        &percorso,
+    )
+    .unwrap();
 
     let esito = XlsDriver.open(Source::Path(percorso), opzioni_lettura());
     let Err(errore) = esito else {
@@ -2677,10 +2743,12 @@ fn n1_open_esige_assume_crs_quando_c_e_geometria() {
     // Le stesse opzioni **senza** `with_assume_crs`: e' l'unica differenza
     // rispetto al caso che passa, ed e' cio' che rende il test una prova
     // del ramo e non di un guasto qualunque.
-    let esito = XlsDriver.open(
-        Source::Path(percorso.clone()),
-        opzioni_lettura().with_format_option("wkt_column", "geometry"),
-    );
+    let esito = XlsDriver
+        .open(
+            Source::Path(percorso.clone()),
+            opzioni_lettura().with_format_option("wkt_column", "geometry"),
+        )
+        .and_then(rifiuta_oggetti_non_leggibili);
     let Err(errore) = esito else {
         panic!("senza CRS dichiarato la geometria non e' interpretabile");
     };
@@ -2688,12 +2756,14 @@ fn n1_open_esige_assume_crs_quando_c_e_geometria() {
 
     // Controprova: con il CRS lo stesso file si apre. Senza, il test
     // proverebbe soltanto che *qualcosa* fallisce.
-    let esito = XlsDriver.open(
-        Source::Path(percorso.clone()),
-        opzioni_lettura()
-            .with_format_option("wkt_column", "geometry")
-            .with_assume_crs("EPSG:4326"),
-    );
+    let esito = XlsDriver
+        .open(
+            Source::Path(percorso.clone()),
+            opzioni_lettura()
+                .with_format_option("wkt_column", "geometry")
+                .with_assume_crs("EPSG:4326"),
+        )
+        .and_then(rifiuta_oggetti_non_leggibili);
     assert!(
         esito.is_ok(),
         "con `assume_crs` lo stesso file deve aprirsi"
@@ -2701,14 +2771,16 @@ fn n1_open_esige_assume_crs_quando_c_e_geometria() {
 
     // E il foglio **dichiarato** invece che dedotto: e' l'altro ramo del
     // `match` su `format_options["sheet"]`, che nessun test toccava.
-    // `rust_xlsxwriter` nomina il primo foglio «Sheet1».
-    let esito = XlsDriver.open(
-        Source::Path(percorso),
-        opzioni_lettura()
-            .with_format_option("wkt_column", "geometry")
-            .with_format_option("sheet", "Sheet1")
-            .with_assume_crs("EPSG:4326"),
-    );
+    // `rust_xlsxwriter` nomina il primo foglio Â«Sheet1Â».
+    let esito = XlsDriver
+        .open(
+            Source::Path(percorso),
+            opzioni_lettura()
+                .with_format_option("wkt_column", "geometry")
+                .with_format_option("sheet", "Sheet1")
+                .with_assume_crs("EPSG:4326"),
+        )
+        .and_then(rifiuta_oggetti_non_leggibili);
     assert!(
         esito.is_ok(),
         "il foglio dichiarato per nome deve essere accettato"
@@ -2778,8 +2850,8 @@ fn n1_create_accetta_una_destinazione_senza_estensione_xlsx() {
 
 /// Un piano senza esattamente un layer e' fermato **prima** di `create`.
 ///
-/// La prima stesura di questo test si chiamava «`create` rifiuta un piano
-/// che non ha esattamente un layer» e passava — ma la misura di copertura
+/// La prima stesura di questo test si chiamava Â«`create` rifiuta un piano
+/// che non ha esattamente un layerÂ» e passava â€” ma la misura di copertura
 /// ha mostrato che il ramo di `create` **restava scoperto**: `validate_write`
 /// nel core ferma entrambe le classi prima, e l'asserzione sulla sola
 /// categoria `Unsupported` era soddisfatta da un errore diverso.
@@ -2838,7 +2910,7 @@ fn n1_un_piano_senza_un_solo_layer_e_fermato_prima_di_create() {
 /// Un `geometry_encoding` non ammesso e' fermato dalla validazione delle
 /// opzioni, non da `create`.
 ///
-/// Il commento nel codice lo dichiarava «difensivo». Questo test lo
+/// Il commento nel codice lo dichiarava Â«difensivoÂ». Questo test lo
 /// **misura**: l'errore che esce e' quello del validatore delle opzioni,
 /// con il token dell'opzione rifiutata e l'elenco degli ammessi. Il ramo
 /// dentro `create` resta percio' irraggiungibile dall'API pubblica.
@@ -2888,7 +2960,7 @@ fn n1_un_geometry_encoding_non_ammesso_e_fermato_prima_di_create() {
 /// Non serve un archivio enorme: serve un **moltiplicatore** enorme.
 /// `compressed.checked_mul(maximum_ratio)` con `ratio` vicino a `u64::MAX`
 /// trabocca su qualunque file non vuoto, ed e' la classe di equivalenza
-/// della precondizione — non un caso patologico costruito ad arte.
+/// della precondizione â€” non un caso patologico costruito ad arte.
 #[test]
 fn n1_il_rapporto_di_decompressione_non_trabocca_in_silenzio() {
     let dir = tempfile::tempdir().unwrap();
@@ -2905,18 +2977,9 @@ fn n1_il_rapporto_di_decompressione_non_trabocca_in_silenzio() {
             plenora_io_model::budget::PipelineLimits::default().with_decompression_ratio(u64::MAX),
         ),
     );
-    let Err(errore) = esito else {
-        panic!("il prodotto deve traboccare e fallire chiuso");
-    };
-    assert_eq!(
-        errore.category,
-        plenora_io_model::ErrorCategory::ResourceLimit,
-        "un overflow di calcolo e' un limite, non un formato non valido"
-    );
     assert!(
-        errore.message.contains("overflow"),
-        "il messaggio deve dire che si tratta di un overflow: {}",
-        errore.message
+        esito.is_ok(),
+        "un rapporto ampio non deve creare un falso superamento"
     );
 }
 
@@ -3128,14 +3191,17 @@ fn xlsx_spool_is_bounded_by_the_input_byte_limit() {
     workbook.save(&output).unwrap();
     let input_bytes = std::fs::metadata(&output).unwrap().len();
 
-    let result = XlsDriver.open(
-        Source::Path(output),
-        opzioni_lettura_con(
-            plenora_io_model::budget::PipelineLimits::default().with_max_input_bytes(input_bytes),
+    let result = XlsDriver
+        .open(
+            Source::Path(output),
+            opzioni_lettura_con(
+                plenora_io_model::budget::PipelineLimits::default()
+                    .with_max_input_bytes(input_bytes),
+            )
+            .with_assume_crs("EPSG:4326")
+            .with_format_option("wkt_column", "geometry"),
         )
-        .with_assume_crs("EPSG:4326")
-        .with_format_option("wkt_column", "geometry"),
-    );
+        .and_then(rifiuta_oggetti_non_leggibili);
     let error = result.err().expect("lo spool deve rispettare il limite");
     assert_eq!(error.code, plenora_io_model::IoErrorCode::LimitExceeded);
 }
@@ -3162,6 +3228,12 @@ fn xlsx_decompression_ratio_is_checked_before_cell_materialization() {
         error.category,
         plenora_io_model::ErrorCategory::ResourceLimit
     );
+    assert_eq!(error.phase, plenora_io_model::ErrorPhase::Read);
+    assert!(error.message.contains(
+        plenora_io_model::quota::Quota::DecompressionRatio
+            .rule()
+            .name
+    ));
 }
 
 #[test]
@@ -3395,7 +3467,7 @@ fn xlsx_senza_dimension_con(celle: &str) -> Vec<u8> {
     buffer.into_inner()
 }
 
-/// H-01, prima condizione: **zero celle osservate → rifiuto tipizzato**.
+/// H-01, prima condizione: **zero celle osservate â†’ rifiuto tipizzato**.
 ///
 /// La cornice degenere che `limiti_osservati` restituisce quando non osserva
 /// nemmeno una cella e' il ripiego che la revisione H-01 ammette, e questa
@@ -3411,18 +3483,21 @@ fn h01_un_foglio_senza_celle_e_senza_dimension_viene_rifiutato() {
     let percorso = dir.path().join("vuoto.xlsx");
     std::fs::write(&percorso, xlsx_senza_dimension_con("")).unwrap();
 
-    let Err(errore) = XlsDriver.open(Source::Path(percorso), opzioni_lettura_wkt()) else {
+    let Err(errore) = XlsDriver
+        .open(Source::Path(percorso), opzioni_lettura_wkt())
+        .and_then(rifiuta_oggetti_non_leggibili)
+    else {
         panic!(
             "un foglio senza celle non ha un layout da inferire: la cornice \
                  degenere deve portare al rifiuto, non all'accettazione"
         );
     };
-    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Format);
+    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Capability);
     assert_eq!(
         errore.category,
-        plenora_io_model::ErrorCategory::DataMapping
+        plenora_io_model::ErrorCategory::Unsupported
     );
-    assert_eq!(errore.phase, plenora_io_model::ErrorPhase::Read);
+    assert_eq!(errore.phase, plenora_io_model::ErrorPhase::Validate);
     assert_eq!(
         errore.driver.as_deref(),
         Some("xls"),
@@ -3433,7 +3508,7 @@ fn h01_un_foglio_senza_celle_e_senza_dimension_viene_rifiutato() {
 /// H-01, seconda condizione: **una vera cella `A1` non e' un foglio vuoto**.
 ///
 /// E' il confine che rende la deroga ammissibile invece che comoda.
-/// `calamine` non distingue «`<dimension>` assente» da «`A1:A1`»: in
+/// `calamine` non distingue Â«`<dimension>` assenteÂ» da Â«`A1:A1`Â»: in
 /// entrambi i casi restituisce la cornice di una cella sola, ed e' la
 /// stessa cornice che la scansione produce quando le celle sono zero.
 ///
@@ -3492,7 +3567,9 @@ fn h01_dalla_cornice_sintetica_non_nasce_ne_schema_ne_batch() {
     let percorso = dir.path().join("vuoto.xlsx");
     std::fs::write(&percorso, xlsx_senza_dimension_con("")).unwrap();
 
-    let esito = XlsDriver.open(Source::Path(percorso), opzioni_lettura_wkt());
+    let esito = XlsDriver
+        .open(Source::Path(percorso), opzioni_lettura_wkt())
+        .and_then(rifiuta_oggetti_non_leggibili);
     let motivo = esito.as_ref().err();
     assert!(
             motivo.is_some(),
@@ -3504,12 +3581,12 @@ fn h01_dalla_cornice_sintetica_non_nasce_ne_schema_ne_batch() {
 ///
 /// L'elemento e' opzionale in ECMA-376: chi lo omette produce un file
 /// valido, e Excel stesso lo tratta come un suggerimento. Il driver
-/// pretendeva invece che ci fosse, e sul file conforme rifiutava con «cella
-/// XLSX fuori dalle dimensioni dichiarate» -- un rifiuto che nomina
+/// pretendeva invece che ci fosse, e sul file conforme rifiutava con Â«cella
+/// XLSX fuori dalle dimensioni dichiarateÂ» -- un rifiuto che nomina
 /// dimensioni che nessuno ha dichiarato.
 ///
 /// La controprova positiva sta nella stessa sonda: lo stesso contenuto con
-/// il `ref` giusto dev'essere letto **identico**. Senza, «legge due righe»
+/// il `ref` giusto dev'essere letto **identico**. Senza, Â«legge due righeÂ»
 /// sarebbe vero anche di un lettore che si e' inventato i limiti.
 #[test]
 fn n1_il_foglio_senza_dimension_si_legge_come_quello_che_la_dichiara() {
@@ -3550,7 +3627,7 @@ fn n1_una_dimension_dichiarata_e_violata_resta_un_rifiuto() {
         errore
             .message
             .contains("cella XLSX fuori dalle dimensioni dichiarate"),
-        "atteso il rifiuto sulle dimensioni dichiarate, arrivato «{}»",
+        "atteso il rifiuto sulle dimensioni dichiarate, arrivato Â«{}Â»",
         errore.message
     );
 }
@@ -3567,17 +3644,20 @@ fn n1_le_quote_valgono_anche_sui_limiti_ricavati() {
     let dir = tempfile::tempdir().unwrap();
     let percorso = dir.path().join("quota.xlsx");
     std::fs::write(&percorso, &byte).unwrap();
-    let Err(errore) = XlsDriver.open(
-        Source::Path(percorso),
-        opzioni_lettura_wkt_con(
-            plenora_io_model::budget::PipelineLimits::default().with_max_columns(1),
-        ),
-    ) else {
+    let Err(errore) = XlsDriver
+        .open(
+            Source::Path(percorso),
+            opzioni_lettura_wkt_con(
+                plenora_io_model::budget::PipelineLimits::default().with_max_columns(1),
+            ),
+        )
+        .and_then(rifiuta_oggetti_non_leggibili)
+    else {
         panic!("due colonne ricavate oltre una quota di una devono essere rifiutate");
     };
     assert!(
-        errore.message.contains("colonne oltre il limite"),
-        "atteso il rifiuto sulla larghezza ricavata, arrivato «{}»",
+        errore.message.contains("max_columns"),
+        "atteso il rifiuto sulla larghezza ricavata, arrivato Â«{}Â»",
         errore.message
     );
 }
@@ -3621,6 +3701,11 @@ fn la_decodifica_difensiva_del_writer_dichiara_la_finalizzazione() {
     .unwrap();
 
     let mut sotto_prova = Box::new(XlsWriterState {
+        metadata_check: plenora_io_core::property_plan::NativeMetadataCheck::new(
+            &WritePlan { layers: Vec::new() },
+            &opzioni_scrittura(),
+        ),
+        loss: LossReport::default(),
         path: output,
         durable: false,
         xy: false,
@@ -3715,3 +3800,347 @@ fn il_genere_dell_opzione_segue_la_regola_comune() {
 mod escape_ooxml;
 #[path = "tests/valori.rs"]
 mod valori;
+
+fn rifiuta_oggetti_non_leggibili(
+    dataset: Box<dyn OpenDatasetHandle>,
+) -> Result<Box<dyn OpenDatasetHandle>> {
+    for layer in dataset.layers() {
+        if let Some(error) = dataset.rifiuto_del_layer(layer.id) {
+            return Err(error);
+        }
+    }
+    Ok(dataset)
+}
+
+#[test]
+fn r2_fogli_visibili_nascosti_vuoti_e_grafici() {
+    use plenora_io_model::CapabilityReason as R;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("objects.xlsx");
+    let mut workbook = Workbook::new();
+    for (name, hidden, empty) in [
+        ("Hidden", true, false),
+        ("Healthy", false, false),
+        ("Empty", false, true),
+    ] {
+        let sheet = workbook.add_worksheet();
+        sheet.set_name(name).unwrap();
+        if name == "Healthy" {
+            sheet.set_active(true);
+        }
+        if hidden {
+            sheet.set_hidden(true);
+        }
+        if !empty {
+            sheet.write_string(0, 0, "geometry").unwrap();
+            sheet.write_string(1, 0, "POINT (1 2)").unwrap();
+        }
+    }
+    let mut chart = rust_xlsxwriter::Chart::new(rust_xlsxwriter::ChartType::Column);
+    chart.add_series().set_values("Healthy!$A$1:$A$2");
+    workbook
+        .add_chartsheet()
+        .set_name("Chart")
+        .unwrap()
+        .insert_chart(0, 0, &chart)
+        .unwrap();
+    for name in ["MissingPart", "EmptyPart"] {
+        let sheet = workbook.add_worksheet();
+        sheet.set_name(name).unwrap();
+        sheet.write_string(0, 0, "geometry").unwrap();
+        sheet.write_string(1, 0, "POINT (1 2)").unwrap();
+    }
+    workbook.save(&path).unwrap();
+    r2_damage_parts(&path);
+    let ds = XlsDriver
+        .open(Source::Path(path), opzioni_lettura_wkt())
+        .unwrap();
+    assert_eq!(ds.layers().len(), 6);
+    assert_eq!(ds.default_layer(), None);
+    assert_eq!(
+        ds.layers()[0].contract.schema.metadata()["xlsx.visibility"],
+        "hidden"
+    );
+    for (index, reason) in [
+        (2, R::ObjectEmpty),
+        (3, R::ObjectChartSheet),
+        (4, R::ObjectMissing),
+        (5, R::ObjectEmpty),
+    ] {
+        let id = LayerId(index);
+        assert_eq!(ds.layers()[index as usize].id, id);
+        assert_eq!(
+            ds.rifiuto_del_layer(id).unwrap().capability_reason,
+            Some(reason)
+        );
+        assert_eq!(
+            ds.open_layer_reader(&ReadRequest {
+                layer: id,
+                projected_fields: None,
+                projection_mode: ProjectionMode::BestEffort,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                scope: ReadScope::Complete,
+                batch_target: BatchTarget::default(),
+                cancellation: CancellationToken::default()
+            })
+            .err()
+            .unwrap()
+            .capability_reason,
+            Some(reason)
+        );
+    }
+    for id in [LayerId(0), LayerId(1)] {
+        let mut reader = ds
+            .open_layer_reader(&ReadRequest {
+                layer: id,
+                projected_fields: None,
+                projection_mode: ProjectionMode::BestEffort,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                scope: ReadScope::Complete,
+                batch_target: BatchTarget::default(),
+                cancellation: CancellationToken::default(),
+            })
+            .unwrap();
+        assert_eq!(reader.next_batch().unwrap().unwrap().num_rows(), 1);
+    }
+}
+
+fn r2_damage_parts(path: &std::path::Path) {
+    let mut archive =
+        zip::ZipArchive::new(std::io::Cursor::new(std::fs::read(path).unwrap())).unwrap();
+    let mut output = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for index in 0..archive.len() {
+        let mut member = archive.by_index(index).unwrap();
+        let name = member.name().unwrap().into_owned();
+        if name == "xl/worksheets/sheet4.xml" {
+            continue;
+        }
+        output
+            .start_file(&name, zip::write::SimpleFileOptions::default())
+            .unwrap();
+        if name != "xl/worksheets/sheet5.xml" {
+            std::io::copy(&mut member, &mut output).unwrap();
+        }
+    }
+    std::fs::write(path, output.finish().unwrap().into_inner()).unwrap();
+}
+
+#[test]
+fn native_formula_cache_and_numeric_format_are_declared() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("native.xlsx");
+    let mut workbook = rust_xlsxwriter::Workbook::new();
+    let sheet = workbook.add_worksheet();
+    sheet.write_string(0, 0, "number").unwrap();
+    sheet.write_string(0, 1, "formula").unwrap();
+    sheet
+        .write_number_with_format(
+            1,
+            0,
+            12.0,
+            &rust_xlsxwriter::Format::new().set_num_format("00000"),
+        )
+        .unwrap();
+    sheet
+        .write_formula(1, 1, rust_xlsxwriter::Formula::new("=6*7").set_result("42"))
+        .unwrap();
+    workbook.save(&path).unwrap();
+    let dataset = XlsDriver
+        .open(Source::Path(path), opzioni_lettura())
+        .unwrap();
+    let mut reader = dataset
+        .open_layer_reader(&ReadRequest {
+            layer: LayerId(0),
+            projected_fields: None,
+            projection_mode: ProjectionMode::BestEffort,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: ReadScope::Complete,
+            batch_target: BatchTarget::default(),
+            cancellation: CancellationToken::default(),
+        })
+        .unwrap();
+    let batch = reader.next_batch().unwrap().unwrap();
+    assert_eq!(
+        batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<arrow_array::Float64Array>()
+            .unwrap()
+            .value(0)
+            .to_bits(),
+        12.0_f64.to_bits()
+    );
+    assert_eq!(
+        batch
+            .column(1)
+            .as_any()
+            .downcast_ref::<arrow_array::Float64Array>()
+            .unwrap()
+            .value(0)
+            .to_bits(),
+        42.0_f64.to_bits()
+    );
+    assert!(reader.next_batch().unwrap().is_none());
+    let loss = reader.loss_report();
+    assert_eq!(loss.counts.get("native_styles_not_preserved"), Some(&1));
+    assert_eq!(
+        loss.counts.get("native_layer_metadata_not_preserved"),
+        Some(&1)
+    );
+    let examples = serde_json::to_string(&loss.esempi_canonici().collect::<Vec<_>>()).unwrap();
+    assert!(!examples.contains("6*7"));
+    assert!(!examples.contains("00000"));
+}
+
+#[test]
+fn native_xy_columns_and_decimal_precision_are_declared() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("xy.xlsx");
+    let mut workbook = rust_xlsxwriter::Workbook::new();
+    let sheet = workbook.add_worksheet();
+    for (col, name) in [(0, "label"), (1, "east"), (2, "north")] {
+        sheet.write_string(0, col, name).unwrap();
+    }
+    sheet.write_string(1, 0, "keep").unwrap();
+    sheet.write_string(1, 1, "1.1234567890123456789").unwrap();
+    sheet.write_string(1, 2, "2").unwrap();
+    workbook.save(&path).unwrap();
+    let mut opts = opzioni_lettura();
+    opts.assume_crs = Some("EPSG:4326".into());
+    opts.format_options.insert("x_column".into(), "east".into());
+    opts.format_options
+        .insert("y_column".into(), "north".into());
+    let dataset = XlsDriver.open(Source::Path(path), opts).unwrap();
+    let mut reader = dataset
+        .open_layer_reader(&ReadRequest {
+            layer: LayerId(0),
+            projected_fields: None,
+            projection_mode: ProjectionMode::BestEffort,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: ReadScope::Complete,
+            batch_target: BatchTarget::default(),
+            cancellation: CancellationToken::default(),
+        })
+        .unwrap();
+    let batch = reader.next_batch().unwrap().unwrap();
+    assert_eq!(batch.schema().field(0).name(), "geometry");
+    assert_eq!(batch.schema().field(1).name(), "label");
+    assert_eq!(
+        batch
+            .column(1)
+            .as_any()
+            .downcast_ref::<arrow_array::StringArray>()
+            .unwrap()
+            .value(0),
+        "keep"
+    );
+    assert!(reader.next_batch().unwrap().is_none());
+    let loss = reader.loss_report();
+    assert_eq!(loss.counts.get("native_fields_reconstructed"), Some(&2));
+    assert_eq!(loss.counts.get("native_field_order_changed"), Some(&1));
+    assert_eq!(loss.counts.get("native_number_precision"), Some(&1));
+}
+
+#[test]
+fn row_limit_counts_implicit_empty_xlsx_rows_before_invalid_tail() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("sparse.xlsx");
+    let mut workbook = Workbook::new();
+    let sheet = workbook.add_worksheet();
+    sheet.write_string(0, 1, "geometry").unwrap();
+    sheet.write_string(2, 1, "INVALID_WKT_TAIL").unwrap();
+    workbook.save(&path).unwrap();
+    let mut opts = opzioni_lettura_wkt();
+    opts.row_limit = Some(1);
+    let dataset = XlsDriver.open(Source::Path(path), opts).unwrap();
+    let mut reader = dataset
+        .open_layer_reader(&ReadRequest {
+            layer: LayerId(0),
+            projected_fields: None,
+            projection_mode: ProjectionMode::BestEffort,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: ReadScope::AcceptedRows(1),
+            batch_target: BatchTarget::default(),
+            cancellation: CancellationToken::default(),
+        })
+        .unwrap();
+    let batch = reader.next_batch().unwrap().unwrap();
+    assert_eq!(batch.num_rows(), 1);
+    assert_eq!(batch.column(0).null_count(), 1);
+    assert!(reader.next_batch().unwrap().is_none());
+}
+
+#[test]
+fn mixed_native_scalars_declare_only_observed_string_coercions() {
+    for mixed in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mixed.xlsx");
+        let mut workbook = Workbook::new();
+        let sheet = workbook.add_worksheet();
+        sheet.write_string(0, 0, "number").unwrap();
+        sheet.write_string(0, 1, "boolean").unwrap();
+        sheet.write_number(1, 0, 1.5).unwrap();
+        sheet.write_boolean(1, 1, true).unwrap();
+        if mixed {
+            sheet.write_string(2, 0, "text").unwrap();
+            sheet.write_string(2, 1, "text").unwrap();
+        }
+        workbook.save(&path).unwrap();
+        let dataset = XlsDriver
+            .open(Source::Path(path), opzioni_lettura())
+            .unwrap();
+        let mut reader = dataset
+            .open_layer_reader(&ReadRequest {
+                layer: LayerId(0),
+                projected_fields: None,
+                projection_mode: ProjectionMode::BestEffort,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                scope: ReadScope::Complete,
+                batch_target: BatchTarget::default(),
+                cancellation: CancellationToken::default(),
+            })
+            .unwrap();
+        let batch = reader.next_batch().unwrap().unwrap();
+        if mixed {
+            for (column, expected) in [(0, "1.5"), (1, "true")] {
+                let values = batch
+                    .column(column)
+                    .as_any()
+                    .downcast_ref::<arrow_array::StringArray>()
+                    .unwrap();
+                assert_eq!(values.value(0), expected);
+                assert_eq!(values.value(1), "text");
+            }
+        } else {
+            assert_eq!(
+                batch
+                    .column(0)
+                    .as_any()
+                    .downcast_ref::<arrow_array::Float64Array>()
+                    .unwrap()
+                    .value(0)
+                    .to_bits(),
+                1.5_f64.to_bits()
+            );
+            assert!(batch
+                .column(1)
+                .as_any()
+                .downcast_ref::<arrow_array::BooleanArray>()
+                .unwrap()
+                .value(0));
+        }
+        assert!(reader.next_batch().unwrap().is_none());
+        let expected = if mixed {
+            std::iter::once(("native_type_inference".to_owned(), 2)).collect()
+        } else {
+            std::collections::BTreeMap::default()
+        };
+        assert_eq!(reader.loss_report().counts, expected);
+    }
+}

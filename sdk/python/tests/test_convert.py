@@ -258,7 +258,11 @@ class ControIlBinarioVero(unittest.TestCase):
         self.assertTrue(esito.write_loss.categories)
         for esempio in esito.write_loss.esempi:
             self.assertIn(esempio.category, esito.write_loss.categories)
-            self.assertGreaterEqual(esempio.field_index, 0)
+            if esempio.field_index is not None:
+                self.assertGreaterEqual(esempio.field_index, 0)
+            else:
+                self.assertIsNotNone(esempio.layer_index)
+                self.assertGreaterEqual(esempio.layer_index, 0)
 
     def test_le_tre_fedelta_rispondono_a_domande_diverse(self) -> None:
         """`conversion_fidelity` non e' piu' forte di nessuna delle due: la
@@ -530,7 +534,7 @@ class LaScritturaDiWrite(unittest.TestCase):
         destinazione = Path(self.lavoro.name) / "mai.shp"
         with self.assertRaises(CommandFailed) as preso:
             self.cliente.write(self.arrow, destinazione, format="shapefile")
-        self.assertEqual(preso.exception.envelope.code, "UNKNOWN_FORMAT")
+        self.assertEqual(preso.exception.envelope.code, "CLI_USAGE")
         self.assertFalse(destinazione.exists())
 
     def test_un_sink_che_non_regge_i_dati_non_lascia_una_destinazione(self) -> None:

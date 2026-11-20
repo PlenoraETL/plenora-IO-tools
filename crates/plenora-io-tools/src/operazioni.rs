@@ -215,6 +215,7 @@ impl From<Richiesta> for Cli {
             positionals.push(destination.display().to_string());
         }
         Self {
+            flags: std::collections::BTreeSet::new(),
             positionals,
             // `read` distingue le due forme sul flag, non sul posizionale: la
             // destinazione va in entrambi i posti perche' `convert` e `write`
@@ -262,7 +263,7 @@ fn rappresentabile(richiesta: &Richiesta) -> Result<(), Value> {
         .any(|percorso| percorso.to_str().is_none());
     if illeggibile {
         return Err(crate::usage_err(&plenora_io_model::PublicMessage::Curated(
-            "un percorso della richiesta non e' testo Unicode valido, e convertirlo ne              nominerebbe un altro",
+            "un percorso della richiesta non e' testo Unicode valido, e convertirlo ne nominerebbe un altro",
         ))
         .1);
     }

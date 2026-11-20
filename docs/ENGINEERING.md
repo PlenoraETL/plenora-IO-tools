@@ -81,6 +81,21 @@ stessa sorgente.
 
 ## Pipeline di lettura
 
+Il perimetro fisico e' dichiarato in `plenora-io-core/src/dataset_files.rs`:
+il costruttore di ogni `FormatDescriptor` richiede la sua dichiarazione,
+anche per i driver a file singolo. La stessa tabella guida preflight,
+risoluzione dei companion e no-clobber. Un companion presente partecipa a
+quota, identita' e footprint anche quando il decoder lo ignora; gli alberi
+comprendono tutti i discendenti. Il principale e i suffissi SQLite seguono
+le regole del filesystem. Per i companion con estensione si conserva lo stem
+del principale: la grafia esatta ha precedenza, poi si confronta l'estensione
+senza distinguere le maiuscole e si rifiutano i candidati ambigui. Nel
+contenitore Shapefile si risolve anche la grafia effettiva di `data.shp`.
+Le prove enumerano ogni voce della tabella e simulano i nomi ambigui anche
+sui filesystem Windows non sensibili alle maiuscole.
+I test dei symlink li creano quando il sistema concede il privilegio.
+
+
 ```
 Source ──preflight──> open ──> OpenDatasetHandle ──> open_layer_reader ──> next_batch*
            │                        │                                          │
@@ -336,7 +351,7 @@ driver interpreta come geometria passa da un'analisi che applica i tetti
 driver binario ha altre difese, e riassumerle in un booleano solo lo renderebbe
 inutile.
 
-Oggi la dichiarano `csv`, `xlsx` e `geojson`.
+Oggi la dichiarano `csv`, `xls` e `geojson`.
 `scripts/check_capability_input_ostile.py` non le crede: confronta la
 dichiarazione con gli entry point che il driver attraversa davvero, nei due
 versi — un `true` senza il parser è rosso, e un parser senza il `true` pure,
@@ -360,7 +375,7 @@ garanzia `hostile_input_hardened`. È un bug del confine precedente, non una
 sintassi da conservare.
 
 Lo spazio finale resta accettato, perché non è testo. Il rifiuto è un errore di
-**sintassi** (`DataMapping/Validate/Wkb/Never`), non di budget: dire «limite
+**sintassi** (`data_mapping/read/FORMAT_ERROR/never`), non di budget: dire «limite
 superato» a chi ha una parentesi di troppo lo manderebbe ad allargare una quota
 che non c'entra.
 
@@ -371,7 +386,7 @@ Ogni errore pubblico porta il quartetto `(category, phase, code, retry)` più
 [PRODUCT.md § PublicMessage](PRODUCT.md#publicmessage--il-testo-è-scelto-a-compile-time).
 
 I nomi di campo e di layer non entrano nel testo: entrano in campi tipizzati che
-non raggiungono il wire.
+raggiungono `error.details` sul wire. I dettagli delle perdite usano indici strutturali e categorie statiche.
 
 ---
 
@@ -910,9 +925,9 @@ dell'artefatto installato su Ubuntu 22.04, e controllando le versioni
 `GLIBC_*` richieste dal binario e da ogni libreria spedita. Se la chiusura del
 lock pretenderà davvero una glibc successiva, a dirlo sarà quel controllo.
 
-macOS è fuori dal perimetro di distribuzione della v1: vedi «Il perimetro»
-in `RELEASE.md`. Il codice può compilare e essere provato lì, ma non si
-promettono artefatti né qualifica.
+macOS non è supportata: nessuna compilazione, prova CI o distribuzione.
+Le piattaforme supportate sono Linux e Windows; le altre producono un
+errore di compilazione esplicito in `plenora-io-core`.
 
 Su Windows lo smoke gira su Windows Server 2022 e dimostra quello. Windows 10
 22H2 e Windows 11 sono dichiarati sulla compatibilità dell'ABI Win32 e
@@ -1078,6 +1093,16 @@ cargo test --workspace --all-features
 cargo test --workspace
 cargo test --workspace --all-features --doc
 ```
+
+La matrice `filegdb_enumeration` di `plenora-io-tools` con `gdal-backend`
+richiede il runtime GDAL e Python con `pyarrow` (in CI, versione 25.0.1).
+`PLENORA_ENUM_PYTHON` seleziona l'interprete del venv; in sua assenza si usa
+`python3` su Linux e `python` su Windows. Su Linux occorre un utente **non
+root**, affinché `chmod 000` neghi realmente la lettura; su Windows la prova
+usa un lock esclusivo. PyArrow mancante o esecuzione come root fanno fallire
+la matrice con `ambiente non adatto: …`, senza saltare le prove.
+La CI prepara l'interprete da `.python-version` e il venv tramite
+`.github/actions/setup-enumeration-python`.
 
 Le due configurazioni sono entrambe necessarie: `--all-features` abilita
 `gdal-backend`, e il ramo stub di `driver-filegdb` **non viene compilato** con

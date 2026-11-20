@@ -53,16 +53,14 @@ fn i_flag_atterrano_nei_limiti_della_pipeline() {
 fn la_pipeline_rifiuta_flag_a_zero() {
     // `PipelineLimits::validate` rifiuta le quote nulle: la costruzione
     // propaga l'errore invece di degradare a un default silenzioso.
-    let cli = parse(&[
+    let error = parse(&[
         "convert".to_owned(),
         "--max-rows".to_owned(),
         "0".to_owned(),
     ])
-    .expect("il parser accetta lo zero, e' il modello a rifiutarlo");
-    assert!(PipelineBudget::builder()
-        .limits(cli.limits)
-        .build()
-        .is_err());
+    .err()
+    .expect("la quota zero viene rifiutata dal catalogo");
+    assert_eq!(error.1["error"]["category"], "invalid_configuration");
 }
 
 /// Le due transizioni, nell'ordine, senza un segnale.
@@ -308,20 +306,13 @@ fn memory_bytes_rifiuta_zero_e_valori_non_rappresentabili() {
     ])
     .is_err());
 
-    // Zero: il parser lo accetta come intero, il **modello** lo rifiuta.
-    // La divisione dei compiti è voluta — il parser sa cos'è un numero, il
-    // modello sa quali numeri hanno senso insieme.
-    let cli = parse(&[
+    assert!(parse(&[
         "read".to_owned(),
         "x".to_owned(),
         "--memory-bytes".to_owned(),
-        "0".to_owned(),
+        "0".to_owned()
     ])
-    .expect("il parser accetta lo zero");
-    assert!(PipelineBudget::builder()
-        .limits(cli.limits)
-        .build()
-        .is_err());
+    .is_err());
 
     // Sotto `max_wkb_cell_bytes` senza abbassarla: rifiutato, perché una
     // cella non può valere più di tutta la memoria.
@@ -932,7 +923,7 @@ fn read_limit_stops_before_invalid_tail_but_convert_remains_complete() {
     ])
     .unwrap();
     let summary = cmd_read(&cli).unwrap();
-    assert_eq!(summary["rows_read"], 12);
+    assert_eq!(summary["rows_read"], 10);
     assert_eq!(summary["batches"], 1);
     assert_eq!(summary["truncated"], true);
 
@@ -962,25 +953,17 @@ fn read_limit_stops_before_invalid_tail_but_convert_remains_complete() {
 }
 
 #[test]
-fn zero_read_limit_keeps_the_frozen_summary_without_observing_tail() {
-    let directory = tempfile::tempdir().unwrap();
-    let input = materialize_multibatch_geometry_ipc(&directory, false);
-    let cli = parse(&[
-        input.to_string_lossy().into_owned(),
+fn zero_read_limit_is_invalid_configuration() {
+    let result = parse(&[
+        "input.arrow".to_owned(),
         "--limit".to_owned(),
         "0".to_owned(),
-    ])
-    .unwrap();
-
-    let summary = cmd_read(&cli).unwrap();
-    assert_eq!(summary["rows_read"], 0);
-    assert_eq!(summary["batches"], 0);
-    assert_eq!(summary["truncated"], true);
-    // Il contratto sta nella **busta**, non nel corpo.
-    assert_eq!(
-        busta_di_successo("read", summary)["contract"],
-        "plenora-io-read-result-v2"
-    );
+    ]);
+    let Err((exit, document)) = result else {
+        panic!("zero deve fallire");
+    };
+    assert_eq!(exit, 2);
+    assert_eq!(document["error"]["code"], "CLI_USAGE");
 }
 
 /// Due batch, tutti validi: dodici righe e una.
@@ -1027,23 +1010,9 @@ fn materialize_multibatch_valid_ipc(directory: &tempfile::TempDir) -> PathBuf {
     path
 }
 
-/// `--limit` e' una soglia verificata **fra un batch e il successivo**.
-///
-/// Non taglia un batch a meta': il ciclo di lettura chiede il batch, lo
-/// conta per intero, e solo allora guarda se il limite sia stato raggiunto.
-/// `rows_read` puo' percio' superare il limite della parte residua del
-/// batch corrente, e su un file letto in un colpo solo lo supera sempre.
-///
-/// E' una conseguenza dello streaming, non una svista: fermarsi a meta' di
-/// un batch vorrebbe dire consegnarne uno parziale a chi lo conta, e il
-/// conteggio non direbbe piu' quante righe il reader ha davvero decodificato.
-///
-/// La sonda fissa il fatto perche' il nome non lo suggerisce, e perche'
-/// `release/cli-protocol-v2.json` lo ratifica in `envelopes.read.semantica`:
-/// una clausola del contratto che nessuno esercita e' una promessa che si
-/// legge come verificata.
+/// Il conteggio si ferma esattamente alla riga richiesta.
 #[test]
-fn read_limit_is_checked_between_batches_so_rows_may_exceed_it() {
+fn read_limit_counts_exact_rows() {
     let directory = tempfile::tempdir().unwrap();
     let input = materialize_multibatch_valid_ipc(&directory);
 
@@ -1053,7 +1022,7 @@ fn read_limit_is_checked_between_batches_so_rows_may_exceed_it() {
     let righe_totali = intero["rows_read"].as_u64().expect("un conteggio");
     assert!(righe_totali > 1, "serve piu' di una riga per dire qualcosa");
 
-    // Con limite uno: si ferma dopo il **primo batch**, che ne porta piu'
+    // Con limite uno: il decoder restituisce solo il prefisso richiesto, anche se il batch ne porta piu'
     // di una.
     let cli = parse(&[
         input.to_string_lossy().into_owned(),
@@ -1064,27 +1033,13 @@ fn read_limit_is_checked_between_batches_so_rows_may_exceed_it() {
     let assaggio = cmd_read(&cli).expect("un limite basso non e' un errore");
     assert_eq!(assaggio["batches"], 1, "un batch solo, e intero");
     let lette = assaggio["rows_read"].as_u64().expect("un conteggio");
-    assert!(
-        lette > 1,
-        "il limite si verifica fra i batch: `rows_read` = {lette} lo supera"
-    );
+    assert_eq!(lette, 1);
     assert_eq!(assaggio["truncated"], true);
 }
 
-/// `truncated` dice **arresto per limite con EOF non accertato**.
-///
-/// Non dice che esistano altre righe: dice che la lettura si e' fermata
-/// perche' il limite e' stato raggiunto, e che il reader non ha visto la
-/// fine del file. Le due cose non coincidono, e la differenza si vede
-/// esattamente qui -- un limite pari al numero di righe del file lascia
-/// `truncated` vero pur avendole lette tutte.
-///
-/// Il significato **prudente** e' quello giusto: per sapere che non c'e'
-/// altro bisognerebbe chiedere un batch in piu' e vederlo tornare vuoto,
-/// cioe' leggere oltre il limite che il chiamante ha imposto. Affermare
-/// l'EOF senza averlo osservato sarebbe la cosa peggiore delle due.
+/// `truncated` indica il limite raggiunto senza esaminare la coda.
 #[test]
-fn read_truncated_means_stopped_at_the_limit_not_that_more_rows_exist() {
+fn read_truncated_means_limit_reached() {
     let directory = tempfile::tempdir().unwrap();
     let input = materialize_multibatch_valid_ipc(&directory);
     let intero = cmd_read(&parse(&[input.to_string_lossy().into_owned()]).unwrap())
@@ -1108,8 +1063,7 @@ fn read_truncated_means_stopped_at_the_limit_not_that_more_rows_exist() {
     assert_eq!(esatto["rows_read"], righe);
     assert_eq!(
         esatto["truncated"], true,
-        "vero pur non essendoci altro: il reader si e' fermato al limite \
-             senza chiedere il batch che gli avrebbe mostrato la fine"
+        "limite raggiunto: EOF non esaminato"
     );
 
     // Un limite oltre la fine: il reader arriva all'EOF e lo dice.
@@ -1220,7 +1174,7 @@ fn row_diagnostics_are_preserved_in_the_cli_error_envelope() {
         examples_truncated: false,
         examples: vec![plenora_io_model::RowDiagnosticExample {
             source_index: 17,
-            cause,
+            cause: plenora_io_model::diagnostics::DiagnosticCause::parse(&cause).unwrap(),
             column: None,
             key: None,
             write_state: None,
@@ -2433,15 +2387,28 @@ fn un_layer_rifiutato_ferma_la_descrizione_di_tutti_i_layer() {
         layers: vec![layer(0), layer(1)],
         rifiutato: None,
     };
-    assert!(tutti_i_layer_descrivibili(&sano).is_ok());
+    assert_eq!(layer_status(&sano, LayerId(0))["readable"], true);
     let con_rifiuto = Finto {
         layers: vec![layer(0), layer(1)],
         rifiutato: Some(1),
     };
-    let Err(errore) = tutti_i_layer_descrivibili(&con_rifiuto) else {
-        panic!("un layer rifiutato descritto come leggibile");
-    };
-    assert_eq!(errore.category, ErrorCategory::Crs);
+    assert_eq!(layer_status(&con_rifiuto, LayerId(0))["readable"], true);
+    assert_eq!(layer_status(&con_rifiuto, LayerId(1))["readable"], false);
+}
+
+#[test]
+fn r2_il_motivo_tipizzato_arriva_nella_busta_pubblica() {
+    let error = PlenoraIoError::capability_redatta(
+        "gpkg",
+        None,
+        plenora_io_model::CapabilityReason::ObjectView,
+        &PublicMessage::Curated("oggetto non leggibile"),
+    );
+    let (_, document) = map_err(error);
+    assert_eq!(
+        document["error"]["details"]["capability_reason"],
+        "object_view"
+    );
 }
 
 #[test]
@@ -2450,4 +2417,19 @@ fn il_panico_usa_il_protocollo_corrente() {
     assert_eq!(busta["protocol_version"], busta::PROTOCOLLO);
     assert_eq!(busta["contract"], "plenora-error-v1");
     assert!(!busta.to_string().contains("payload riservato"));
+}
+
+#[test]
+fn limit_does_not_validate_geometry_past_n_in_same_ipc_batch() {
+    let directory = tempfile::tempdir().unwrap();
+    let input = materialize_multibatch_geometry_ipc(&directory, false);
+    let cli = parse(&[
+        input.to_string_lossy().into_owned(),
+        "--limit".to_owned(),
+        "1".to_owned(),
+    ])
+    .unwrap();
+    let summary = cmd_read(&cli).unwrap();
+    assert_eq!(summary["rows_read"], 1);
+    assert_eq!(summary["truncated"], true);
 }

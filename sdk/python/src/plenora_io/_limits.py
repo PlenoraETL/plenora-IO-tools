@@ -2,7 +2,7 @@
 
 # Perche' un tipo e non un dizionario
 
-I limiti sono undici, hanno unita' diverse -- byte, righe, millisecondi, livelli
+I limiti hanno unita' diverse -- byte, righe, millisecondi, livelli
 di annidamento -- e sbagliarne il nome non da' un errore finche' il comando non
 parte. Un dizionario li accetterebbe tutti, compresi quelli scritti male; una
 dataclass li nomina, e chi sbaglia lo scopre dove ha scritto.
@@ -11,8 +11,7 @@ dataclass li nomina, e chi sbaglia lo scopre dove ha scritto.
 
 `deadline` e' un **budget** che il prodotto conosce: lo rispetta, e quando scade
 si ferma da se' e risponde con una busta d'errore che lo dice --
-`TimeoutError`, categoria `timeout`. Il lavoro fatto fino a quel punto e'
-descritto.
+`TimeoutError`, categoria `timeout`. La busta descrive l’effetto remoto, non il progresso del lavoro.
 
 `Client(timeout=...)` e' un'altra cosa: uccide il processo da fuori, e quel che
 resta e' un `ProtocolError` che dice **non si sa**. Nessuna busta, nessun
@@ -23,10 +22,11 @@ contro un binario che non risponde piu' passa `timeout`. Chi vuole entrambe le
 cose le passa entrambe, e il primo che scatta e' quello con il numero piu'
 piccolo.
 
-# Nessuna validazione dei valori
+# Tipo e dominio dei valori
 
-Che `max_rows=0` abbia senso lo decide il prodotto, che ha le sue regole e le
-applica in un posto solo. Ricopiarle qui produrrebbe due giudizi sullo stesso
+Il costruttore verifica i tipi Python. Il prodotto rifiuta zero, negativi e
+incoerenze come `invalid_configuration` con codice `CLI_USAGE`, applicando
+le regole del dominio in un posto solo. Ricopiarle qui produrrebbe due giudizi sullo stesso
 numero, e il giorno in cui divergessero l'SDK rifiuterebbe un comando che la
 CLI accetta -- o peggio il contrario.
 """
@@ -63,6 +63,7 @@ class Limits:
     max_rows: int | None = None
     max_columns: int | None = None
     max_vertices: int | None = None
+    max_geometry_components: int | None = None
     max_input_bytes: int | None = None
     max_input_entries: int | None = None
     max_output_bytes: int | None = None
@@ -70,6 +71,9 @@ class Limits:
     max_wkb_components: int | None = None
     max_wkb_depth: int | None = None
     memory_bytes: int | None = None
+    spill_bytes: int | None = None
+    output_expansion_ratio: int | None = None
+    decompression_ratio: int | None = None
 
     #: Il campo che non e' un numero, e la sua opzione.
     #:

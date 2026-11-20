@@ -62,9 +62,8 @@ SUBDIR_PREDEFINITO = "linux-64"
 
 # I pacchetti virtuali con cui si risolve, dichiarati invece che ereditati.
 #
-# Conda deduce `__glibc`, `__osx` e `__win` dalla macchina su cui **gira il
-# solver**. Risolvere per `osx-arm64` da Linux fallisce per questo -- `__osx`
-# non c'e' -- ma il problema vero e' l'altro: risolvere per `linux-64` su una
+# Conda deduce `__glibc` e `__win` dalla macchina del solver.
+# Risolvere per `linux-64` su una
 # macchina con glibc 2.36 puo' dare pacchetti diversi da una con 2.35, e il
 # lock non direbbe quale delle due l'ha prodotto. Un lock e' riproducibile
 # soltanto se la risoluzione non dipende da chi la esegue.
@@ -78,9 +77,6 @@ VIRTUALI_PER_SUBDIR = {
         "CONDA_OVERRIDE_GLIBC": "2.35",
     },
     "win-64": {},
-    "osx-arm64": {
-        "CONDA_OVERRIDE_OSX": "15.0",
-    },
 }
 # GDAL 3.9, e non l'ultima disponibile, perche' `gdal-sys 0.12.0` spedisce
 # binding pre-costruiti soltanto per 3.5-3.9. Su 3.10 la build si ferma da sola
@@ -195,7 +191,7 @@ def main() -> int:
     argomenti.add_argument(
         "--subdir",
         default=SUBDIR_PREDEFINITO,
-        choices=["linux-64", "win-64", "osx-arm64"],
+        choices=["linux-64", "win-64"],
         help="la piattaforma per cui si risolve; non quella su cui gira il risolutore",
     )
     argomenti.add_argument(
@@ -211,7 +207,6 @@ def main() -> int:
     piattaforma = opzioni.piattaforma or {
         "linux-64": "linux-x86_64",
         "win-64": "windows-x86_64",
-        "osx-arm64": "macos-aarch64",
     }[subdir]
     uscita_lock = opzioni.uscita or f"{piattaforma.split('-')[0]}-gdal-lock.json"
 

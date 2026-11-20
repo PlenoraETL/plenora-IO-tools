@@ -25,7 +25,7 @@ impl TextEncoding {
             .map_err(|_| codepage_error())?
             .read_exact(&mut header)
             .map_err(|_| codepage_error())?;
-        let cpg = match File::open(path.with_extension("cpg")) {
+        let cpg = match File::open(plenora_io_core::dataset_files::companion(path, "cpg")?) {
             Ok(file) => {
                 let mut bytes = Vec::new();
                 file.take(129)
@@ -40,10 +40,16 @@ impl TextEncoding {
             Err(_) => return Err(codepage_error()),
         };
         if let Some(cpg) = cpg {
+            if cpg.trim().trim_start_matches('\u{feff}').trim().is_empty() {
+                return Err(err(&PublicMessage::Curated("DBF: .cpg vuoto; fornire una codepage supportata oppure rimuoverlo per usare LDID")));
+            }
             let declared = match cpg
                 .trim()
                 .trim_start_matches('\u{feff}')
+                .trim()
                 .to_ascii_uppercase()
+                .split_ascii_whitespace()
+                .collect::<String>()
                 .as_str()
             {
                 "UTF-8" | "UTF8" | "65001" => Ok(Self::Encoded(encoding_rs::UTF_8)),
@@ -53,6 +59,7 @@ impl TextEncoding {
                     let number = name
                         .strip_prefix("WINDOWS-")
                         .or_else(|| name.strip_prefix("CP"))
+                        .or_else(|| name.strip_prefix("ANSI"))
                         .unwrap_or(name);
                     Self::windows(number)
                 }
@@ -124,7 +131,7 @@ impl TextEncoding {
 
 fn codepage_error() -> PlenoraIoError {
     err(&PublicMessage::Curated(
-        "DBF: codepage sconosciuta o testo non decodificabile esattamente",
+        "DBF: codepage sconosciuta o testo non decodificabile esattamente; System non identifica una codifica: indicare nel .cpg la codepage originale supportata, oppure rimuoverlo solo se LDID e' corretto",
     ))
 }
 
@@ -283,3 +290,6 @@ impl DbfExactIntegerRows {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod cpg_alias_tests;

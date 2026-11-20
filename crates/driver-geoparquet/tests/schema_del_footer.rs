@@ -206,10 +206,33 @@ fn un_footer_oltre_meta_del_tetto_si_rifiuta_dalla_coda() {
     // Una memoria il cui tetto (la meta') sta sotto il doppio del footer.
     let memoria = u64::from(lunghezza) * 2;
     let errore = apri_col_driver(&byte, memoria).expect_err("il footer non sta nel tetto");
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::ResourceLimit
+    );
+    assert_eq!(errore.phase, plenora_io_model::ErrorPhase::Read);
     assert!(
         errore
             .to_string()
-            .contains("footer Parquet che dichiara piu' metadati della memoria disponibile"),
+            .contains(plenora_io_model::quota::Quota::MemoryBytes.rule().name),
         "il rifiuto atteso e' quello della coda: {errore}"
     );
+}
+
+#[test]
+fn garbage_is_not_a_memory_request() {
+    use plenora_io_model::error_table::Situation;
+    for bytes in [
+        b"SECRET arbitrary nonempty bytes".as_slice(),
+        b"PAR1xxxxxxxx\xff\xff\xff\xffPAR1".as_slice(),
+    ] {
+        let error = apri_col_driver(bytes, 128 * 1024 * 1024).unwrap_err();
+        let rule = Situation::InvalidContent.rule();
+        assert_eq!(
+            (error.category, error.phase, error.code),
+            (rule.category, rule.phase, rule.code)
+        );
+        assert!(!error.message.contains("memoria"));
+        assert!(!error.message.contains("SECRET"));
+    }
 }

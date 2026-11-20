@@ -6,6 +6,141 @@
 
 use super::*;
 
+#[test]
+fn native_text_preserves_empty_strings_and_surrounding_whitespace() {
+    for value in ["", "  ", "  caf\u{e9}  "] {
+        for multiline in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("text.dxf");
+            let mut drawing = Drawing::new();
+            drawing.header.version = dxf::enums::AcadVersion::R2013;
+            let entity = if multiline {
+                EntityType::MText(dxf::entities::MText {
+                    text: value.to_owned(),
+                    ..Default::default()
+                })
+            } else {
+                EntityType::Text(dxf::entities::Text {
+                    value: value.to_owned(),
+                    ..Default::default()
+                })
+            };
+            drawing.add_entity(Entity::new(entity));
+            drawing.save(&mut File::create(&path).unwrap()).unwrap();
+            let dataset = DxfDriver
+                .open(
+                    Source::Path(path),
+                    opzioni_lettura().with_assume_crs("EPSG:4326"),
+                )
+                .unwrap();
+            let mut reader = dataset.open_layer_reader(&request()).unwrap();
+            let batch = reader.next_batch().unwrap().unwrap();
+            let text = batch
+                .column(3)
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap();
+            assert!(!text.is_null(0));
+            assert_eq!(text.value(0), value, "multiline={multiline}");
+        }
+    }
+}
+
+#[test]
+fn native_xref_insert_is_reported_without_rejecting_valid_entities() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("xref.dxf");
+    std::fs::write(&path, include_str!("../tests/fixtures/xref.dxf")).unwrap();
+    let dataset = DxfDriver
+        .open(
+            Source::Path(path),
+            opzioni_lettura().with_assume_crs("EPSG:4326"),
+        )
+        .unwrap();
+    assert_eq!(dataset.layers().len(), 2);
+    let mut reader = dataset.open_layer_reader(&request()).unwrap();
+    let mut rows = 0;
+    while let Some(batch) = reader.next_batch().unwrap() {
+        rows += batch.num_rows();
+    }
+    assert_eq!(rows, 1);
+    assert_eq!(
+        reader
+            .loss_report()
+            .counts
+            .get("native_external_reference_not_followed"),
+        Some(&1)
+    );
+    for layer in &dataset.layers()[1..] {
+        let error = dataset.rifiuto_del_layer(layer.id).unwrap();
+        assert_eq!(error.category, plenora_io_model::ErrorCategory::Unsupported);
+        assert!(!error.message.contains("ESTERNO"));
+        assert!(!error.message.contains("progetti"));
+        let mut req = request();
+        req.layer = layer.id;
+        assert_eq!(
+            dataset.open_layer_reader(&req).err().unwrap().code,
+            error.code
+        );
+    }
+}
+
+#[test]
+fn native_entity_metadata_is_declared_without_payload() {
+    for (text, category, minimum, rows) in [
+        (
+            include_str!("../tests/fixtures/line_attrs.dxf"),
+            "native_styles_not_preserved",
+            4,
+            1,
+        ),
+        (
+            include_str!("../tests/fixtures/paperspace.dxf"),
+            "native_hierarchy_flattened",
+            1,
+            2,
+        ),
+        (
+            include_str!("../tests/fixtures/text.dxf"),
+            "native_styles_not_preserved",
+            1,
+            1,
+        ),
+        (
+            include_str!("../tests/fixtures/lwpoly_width.dxf"),
+            "native_styles_not_preserved",
+            1,
+            1,
+        ),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("native.dxf");
+        std::fs::write(&path, text).unwrap();
+        let dataset = DxfDriver
+            .open(
+                Source::Path(path),
+                opzioni_lettura().with_assume_crs("EPSG:3003"),
+            )
+            .unwrap();
+        let mut reader = dataset.open_layer_reader(&request()).unwrap();
+        let batch = reader.next_batch().unwrap().unwrap();
+        assert_eq!(batch.num_rows(), rows);
+        let report = reader.loss_report();
+        assert!(report.counts[category] >= minimum);
+        if text.contains("A1") {
+            assert_eq!(report.counts["native_feature_id_not_preserved"], 1);
+            assert_eq!(report.counts["native_layer_metadata_not_preserved"], 1);
+        }
+        for example in report.esempi_canonici() {
+            assert_eq!(example.posizione.layer_index, Some(0));
+            for payload in ["Strade", "DASHED", "MIAAPP", "xdata testo", "Ciao", "A1"] {
+                assert!(!example.context.contains(payload));
+                assert!(!example.category.contains(payload));
+            }
+        }
+    }
+}
+
 /// Opzioni di lettura sul modello unificato.
 ///
 /// Da S4.d il percorso di lettura vive interamente li': la memoria dei
@@ -34,6 +169,73 @@ use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadScope};
 use plenora_io_core::WriteLayer;
 use plenora_io_model::contract::GeometryType;
 use plenora_io_model::crs::CrsResolution;
+
+#[test]
+fn r2_blocchi_sani_e_non_rappresentabili_restano_elencati() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("objects.dxf");
+    let mut drawing = Drawing::new();
+    let mut healthy = Block {
+        name: "Healthy".to_owned(),
+        ..Block::default()
+    };
+    healthy
+        .entities
+        .push(Entity::new(EntityType::ModelPoint(ModelPoint {
+            location: DxfPoint::new(1.0, 2.0, 0.0),
+            ..Default::default()
+        })));
+    drawing.add_block(healthy);
+    let mut external = Block {
+        name: "External".to_owned(),
+        ..Block::default()
+    };
+    external.set_is_xref(true);
+    drawing.add_block(external);
+    let mut broken = Block {
+        name: "Broken".to_owned(),
+        ..Block::default()
+    };
+    broken.entities.push(Entity::new(EntityType::Circle(
+        dxf::entities::Circle::default(),
+    )));
+    drawing.add_block(broken);
+    drawing.save(&mut File::create(&path).unwrap()).unwrap();
+    let ds = DxfDriver
+        .open(
+            Source::Path(path),
+            opzioni_lettura().with_assume_crs("EPSG:4326"),
+        )
+        .unwrap();
+    assert_eq!(ds.layers().len(), 4);
+    for (index, layer) in ds.layers().iter().enumerate() {
+        assert_eq!(layer.id.0 as usize, index);
+        let request = ReadRequest {
+            layer: layer.id,
+            projected_fields: None,
+            projection_mode: ProjectionMode::BestEffort,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: ReadScope::Complete,
+            batch_target: BatchTarget::default(),
+            cancellation: CancellationToken::default(),
+        };
+        if index >= 2 {
+            let listed = ds.rifiuto_del_layer(layer.id).unwrap();
+            let error = ds.open_layer_reader(&request).err().unwrap();
+            assert_eq!(error.code, listed.code);
+            assert_eq!(error.message, listed.message);
+        } else {
+            let mut reader = ds.open_layer_reader(&request).unwrap();
+            if index == 1 {
+                assert_eq!(reader.next_batch().unwrap().unwrap().num_rows(), 1);
+                for example in reader.loss_report().esempi_canonici() {
+                    assert_eq!(example.posizione.layer_index, Some(1));
+                }
+            }
+        }
+    }
+}
 
 #[test]
 fn bounded_output_fails_before_exceeding_the_limit() {
@@ -188,7 +390,7 @@ fn write_then_read_xyz_and_embedded_crs_round_trip() {
         planned_fidelity.level,
         plenora_io_core::Fidelity::Approximating
     );
-    assert!(planned_fidelity
+    assert!(!planned_fidelity
         .ragioni_canoniche()
         .any(|reason| { reason.code == plenora_io_core::FidelityReasonCode::AttributeLoss }));
     w.write(&batch).unwrap();
@@ -1296,12 +1498,12 @@ fn una_sequenza_a_cavallo_dei_frammenti_si_decodifica_ricomposta() {
 /// solo spazio bianco: restano un documento e un documento vuoto, e non
 /// diventano errori con la distinzione fra riga vuota e fine dell'ingresso.
 #[test]
-fn lo_spazio_bianco_finale_e_un_ingresso_di_soli_spazi_si_leggono() {
+fn lo_spazio_bianco_non_sostituisce_la_struttura_dxf() {
     let mut con_coda = b"0\nSECTION\n2\nENTITIES\n".to_vec();
     con_coda.extend_from_slice(LINEA.as_bytes());
     con_coda.extend_from_slice(b"0\nENDSEC\n\n  \n\t\n");
-    letto("spazi in coda, senza EOF", &con_coda, 1);
-    letto("solo spazi", b"  \n\n \t \n", 0);
+    assert!(esito_dei_due_lettori(&con_coda).1.is_err());
+    assert!(esito_dei_due_lettori(b"  \n\n \t \n").1.is_err());
 }
 
 /// GEODATA con punti sorgente e destinazione in numero diverso, e IMAGE con
@@ -1454,7 +1656,8 @@ fn row_level_dxf_failure_reports_the_top_level_entity_index() {
             Source::Path(path),
             opzioni_lettura().with_assume_crs("EPSG:4326"),
         )
-        .err()
+        .unwrap()
+        .rifiuto_del_layer(LayerId(0))
         .expect("il CIRCLE degenere deve essere rifiutato");
     let diagnostics = error.row_diagnostics.as_deref().unwrap();
     assert_eq!(diagnostics.examples[0].source_index, 1);
@@ -1473,6 +1676,7 @@ fn read_limits_are_enforced_before_batch_creation() {
         &drawing,
         resolved_wgs84(),
         DxfQuote {
+            row_limit: None,
             righe: 0,
             ..DxfQuote::predefinite()
         },
@@ -1484,6 +1688,7 @@ fn read_limits_are_enforced_before_batch_creation() {
         &drawing,
         resolved_wgs84(),
         DxfQuote {
+            row_limit: None,
             colonne: 3,
             ..DxfQuote::predefinite()
         },
@@ -1781,7 +1986,7 @@ fn writer_adapter_rejects_empty_multipart_and_collection_without_publish() {
 
 #[test]
 fn empty_supported_collections_and_nested_empty_use_the_stable_cause() {
-    let empty = "dxf.empty_geometry_unsupported";
+    let empty = DiagnosticCause::DxfEmptyGeometryUnsupported;
     assert_eq!(
         dxf_geometry_rejection_cause(&WkbValue::MultiLineString(Vec::new())),
         Some(empty)
@@ -1800,7 +2005,7 @@ fn empty_supported_collections_and_nested_empty_use_the_stable_cause() {
     );
     assert_eq!(
         dxf_geometry_rejection_cause(&WkbValue::CompoundCurve(Vec::new())),
-        Some("dxf.geometry_type_unsupported")
+        Some(DiagnosticCause::DxfGeometryTypeUnsupported)
     );
 }
 
@@ -1910,14 +2115,16 @@ fn la_decodifica_difensiva_del_writer_dichiara_la_fase_di_scrittura() {
     .unwrap();
 
     let mut sotto_prova = DxfWriterState {
+        metadata_check: plenora_io_core::property_plan::NativeMetadataCheck::new(
+            &WritePlan { layers: Vec::new() },
+            &opzioni_scrittura(),
+        ),
         drawing: Drawing::new(),
         path: output,
         durable: false,
         loss: LossReport::default(),
-        dropped_cols: Vec::new(),
         rows: 0,
         input_total: None,
-        first: true,
         wkb_limits: WkbLimits::default(),
         max_output_bytes: u64::MAX,
         contesto: opzioni_scrittura().budget().context().clone(),
@@ -2009,10 +2216,14 @@ fn lo_spool_su_file_dichiara_la_fase_di_lettura_sul_tetto_per_cella() {
         "lo spool si sta scorrendo: valeva `validate` finche' la fase la          dichiarava l'analizzatore condiviso: {errore}"
     );
     // La correzione riguarda la sola fase: gli altri assi non si muovono.
-    assert_eq!(errore.code, plenora_io_model::IoErrorCode::Wkb, "{errore}");
+    assert_eq!(
+        errore.code,
+        plenora_io_model::IoErrorCode::LimitExceeded,
+        "{errore}"
+    );
     assert_eq!(
         errore.category,
-        plenora_io_model::ErrorCategory::DataMapping,
+        plenora_io_model::ErrorCategory::ResourceLimit,
         "{errore}"
     );
     assert_eq!(
@@ -2716,7 +2927,9 @@ fn un_codice_testuale_non_canonico_segue_la_regola_del_wkt() {
         .expect_err(definizione);
         assert_eq!(
             errore.code,
-            plenora_io_model::IoErrorCode::Crs,
+            plenora_io_model::error_table::Situation::ContradictedCrs
+                .rule()
+                .code,
             "{definizione}"
         );
     }

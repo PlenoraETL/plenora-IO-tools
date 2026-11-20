@@ -72,7 +72,7 @@
       "schema": "plenora-io-read-input-v1",
       "atteso": "invalido",
       "perche": "`limit` con `destination`. Il contratto fissato non lo vieta -- SURF-014 vieta soltanto di riportare un parziale come successo pieno -- quindi la scelta era nostra, ed e' scritta: io.read non consegna dataset parziali, perche' le due semantiche possibili del totale sono incompatibili.",
-      "codice_del_prodotto": "LIMIT_WITH_DELIVERY",
+      "codice_del_prodotto": "CLI_USAGE",
       "invocazione_cli": [
         "read",
         "SORGENTE",
@@ -87,7 +87,7 @@
       "schema": "plenora-io-read-input-v1",
       "atteso": "invalido",
       "perche": "`output_options` senza `destination`: opzioni indirizzate a un writer che non verra' creato. Un'opzione accettata e senza effetto e' indistinguibile da una applicata.",
-      "codice_del_prodotto": "SINK_OPTIONS_WITHOUT_SINK",
+      "codice_del_prodotto": "CLI_USAGE",
       "invocazione_cli": [
         "read",
         "SORGENTE",
@@ -100,7 +100,7 @@
       "schema": "plenora-io-read-input-v1",
       "atteso": "invalido",
       "perche": "`durable` senza `destination`, per la stessa ragione: descrive una destinazione che non c'e'.",
-      "codice_del_prodotto": "SINK_OPTIONS_WITHOUT_SINK",
+      "codice_del_prodotto": "CLI_USAGE",
       "invocazione_cli": [
         "read",
         "SORGENTE",
@@ -198,7 +198,7 @@
       "schema": "plenora-io-write-input-v1",
       "atteso": "invalido",
       "perche": "«shapefile» non e' un identificatore del catalogo -- quello e' `shp`. L'enum e' chiuso perche' lo e' il catalogo.",
-      "codice_del_prodotto": "UNKNOWN_FORMAT",
+      "codice_del_prodotto": "CLI_USAGE",
       "invocazione_cli": [
         "write",
         "SORGENTE",
@@ -371,7 +371,7 @@
       "schema": "plenora-io-convert-input-v1",
       "atteso": "invalido",
       "perche": "un'estensione al posto di un identificatore. Sono due vocabolari diversi -- uno del filesystem, uno del catalogo -- e confonderli e' esattamente cio' che i formati espliciti esistono per evitare.",
-      "codice_del_prodotto": "UNKNOWN_FORMAT",
+      "codice_del_prodotto": "CLI_USAGE",
       "invocazione_cli": [
         "convert",
         "SORGENTE",

@@ -332,7 +332,7 @@ class SondeDellaFirma(ConGliArtefattiAttesi, unittest.TestCase):
         self.assertEqual(self.d.contenitore("windows-x86_64"), "zip")
 
     def test_una_piattaforma_fuori_perimetro_non_ha_un_contenitore(self) -> None:
-        """macOS e' fuori scope: chiedere il suo contenitore e' chiedere di un
+        """macOS non e' supportata: chiedere il suo contenitore e' chiedere di un
         artefatto che la v1 non produce."""
         with self.assertRaises(SystemExit):
             self.d.contenitore("macos-aarch64")
@@ -362,8 +362,8 @@ class SondeDelPerimetro(unittest.TestCase):
     """Il perimetro viene da una decisione, non dall'assenza di un job.
 
     La riduzione da sei artefatti a quattro e' la conseguenza di una scelta --
-    macOS e' fuori dallo scope dei deployment server della v1 -- e non di un
-    job che qualcuno ha tolto. Nel conteggio le due cose si somigliano; per il
+    macOS e' una piattaforma non supportata per decisione di prodotto,
+    non per la semplice rimozione di un job. Nel conteggio le due cose si somigliano; per il
     resto non si somigliano per niente, e queste sonde esistono per non farle
     confondere.
     """
@@ -386,6 +386,13 @@ class SondeDelPerimetro(unittest.TestCase):
         self.assertEqual(set(distribuite), {"linux-x86_64", "windows-x86_64"})
         self.assertEqual(set(fuori), {"macos-aarch64"})
 
+    def test_non_distribuita_non_basta_a_dichiarare_non_supportata(self) -> None:
+        matrice = strict_json.loads(self.originale)
+        matrice["piattaforme_non_distribuite"][0]["decisione"] = "non distribuita"
+        self.scrivi(matrice)
+        with self.assertRaisesRegex(SystemExit, "non supportata"):
+            self.gate.perimetro()
+
     def test_ogni_piattaforma_nota_sta_in_una_delle_due_liste(self) -> None:
         """Se una uscisse da entrambe, sarebbe uscita dal perimetro senza che
         nessuno lo dicesse -- ed e' esattamente il caso che il gate non deve
@@ -399,7 +406,7 @@ class SondeDelPerimetro(unittest.TestCase):
     def test_una_piattaforma_sparita_ferma_il_gate(self) -> None:
         """La sonda che il committente ha chiesto.
 
-        Togliere macOS dalle distribuite **senza** dichiararla fuori scope
+        Togliere macOS dalle distribuite **senza** dichiararla non supportata
         ridurrebbe gli artefatti attesi esattamente come la decisione, e il
         conteggio tornerebbe. Non deve tornare: il gate si ferma e dice che
         manca una decisione."""

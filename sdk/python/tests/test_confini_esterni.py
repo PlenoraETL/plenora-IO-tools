@@ -3258,7 +3258,7 @@ class IValoriRestituiti(unittest.TestCase):
 
         from test_confini_sdk import PopenFinto
 
-        busta = {"status": "ok", "contract": "x", "result": {
+        busta = {"status": "ok", "protocol_version": 2, "contract": "plenora-io-inspect-v1", "result": {
             "elenco": [1, [2, {"k": "v"}]], "oggetto": {"a": [True, None]}}}
         finto = PopenFinto([(json.dumps(busta).encode(), b"")])
         with mock.patch.object(subprocess, "Popen", finto):
@@ -3352,7 +3352,7 @@ COMANDI_CHE_SCRIVONO = (
 
 def _profonda(livelli: int) -> bytes:
     """Una busta di successo con un risultato annidato `livelli` volte."""
-    return ('{"status": "ok", "contract": "x", "result": {"a": '
+    return ('{"status": "ok", "protocol_version": 2, "contract": "plenora-io-inspect-v1", "result": {"a": '
             + "[" * livelli + "]" * livelli + "}}").encode()
 
 
@@ -3400,7 +3400,7 @@ class DopoLAvvio(unittest.TestCase):
         def fidato(*argomenti, **opzioni):
             raise errors._dallo_sdk(InvalidArgumentError, "modello.annidato", dove="FrozenList")
 
-        busta_ok = b'{"status": "ok", "contract": "x", "result": {}}'
+        busta_ok = b'{"status": "ok", "protocol_version": 2, "contract": "plenora-io-inspect-v1", "result": {}}'
         busta_ko = json.dumps({"status": "error", "error": {
             "code": "IO-X", "category": "io", "phase": "execute", "remote_effect": "none",
             "retry": {"kind": "never"}, "message": "m"}}).encode()
@@ -3563,7 +3563,7 @@ class IlConfineDellAvvio(unittest.TestCase):
 
         from test_confini_sdk import PopenFinto
 
-        busta = b'{"status": "ok", "contract": "x", "result": {}}'
+        busta = b'{"status": "ok", "protocol_version": 2, "contract": "plenora-io-inspect-v1", "result": {}}'
         finto = PopenFinto([(busta, b"")])
         with mock.patch.object(subprocess, "Popen", finto), contextlib.ExitStack() as pila:
             for bersaglio, effetto in iniezioni.items():
@@ -3662,7 +3662,7 @@ class LaGestioneDelProcesso(unittest.TestCase):
     attesa e chiusura dell'SDK, e la chiusura non sostituisce mai l'eccezione
     primaria."""
 
-    BUSTA = b'{"status": "ok", "contract": "x", "result": {}}'
+    BUSTA = b'{"status": "ok", "protocol_version": 2, "contract": "plenora-io-write-result-v2", "result": {}}'
     SCRIVE = ["write", "s.arrow", "o.gpkg", "--to", "gpkg"]
     LEGGE = ["inspect", "s.geojson"]
 
@@ -3911,10 +3911,13 @@ class IProcessiVeri(unittest.TestCase):
         figlio = (
             "import json, sys\n"
             "dato = 'àè€' * (1 << 20)\n"
-            "sys.stdout.buffer.write(json.dumps({'status': 'ok', 'contract': 'x',\n"
+            "sys.stdout.buffer.write(json.dumps({'status': 'ok', 'protocol_version': 2, 'contract': 'plenora-io-catalog-v2',\n"
             "    'result': {'dato': dato}}, ensure_ascii=False).encode('utf-8'))\n"
         )
-        appeso, esito = self._in_un_thread(lambda: self._runner().run(["-c", figlio]), 120)
+        runner = self._runner()
+        avvia = runner._avvia
+        with mock.patch.object(type(runner), "_avvia", lambda self, argv: avvia(["-c", figlio])):
+            appeso, esito = self._in_un_thread(lambda: runner.run(["catalog"]), 120)
         self.assertFalse(appeso)
         self.assertNotIn("errore", esito)
         risultato = esito["valore"]
@@ -3993,7 +3996,7 @@ class UnSoloResponsabile(unittest.TestCase):
         riciclato, il segnale poteva colpire un altro processo."""
         from test_confini_sdk import PopenFinto
 
-        busta = b'{"status": "ok", "contract": "x", "result": {}}'
+        busta = b'{"status": "ok", "protocol_version": 2, "contract": "plenora-io-inspect-v1", "result": {}}'
         for appeso in (False, True):
             with self.subTest(processo_appeso=appeso):
                 uscite = [OSError(SEGRETO), (busta, b"")]
@@ -4162,7 +4165,7 @@ class IlRilascioDelleRisorse(unittest.TestCase):
     nessun lettore appeso, niente dopo `Popen` fuori dalla protezione."""
 
     SCRIVE = ["write", "s.arrow", "o.gpkg", "--to", "gpkg"]
-    BUSTA = b'{"status": "ok", "contract": "x", "result": {}}'
+    BUSTA = b'{"status": "ok", "protocol_version": 2, "contract": "plenora-io-write-result-v2", "result": {}}'
 
     def _lettori_registrati(self):
         from plenora_io import _process
@@ -4345,7 +4348,7 @@ class LaFineDelRun(unittest.TestCase):
 
         from test_confini_sdk import FlussoFinto
 
-        busta = b'{"status": "ok", "contract": "x", "result": {}}'
+        busta = b'{"status": "ok", "protocol_version": 2, "contract": "plenora-io-inspect-v1", "result": {}}'
 
         class FiglioCheLavora:
             """Stderr scritto e chiuso subito; stdout ed esito dopo 0,8 s."""
@@ -4455,7 +4458,7 @@ class LaFineDelRun(unittest.TestCase):
         finto_threading = types.SimpleNamespace(
             Event=EventoCheSolleva, Thread=threading.Thread, Lock=threading.Lock,
             current_thread=threading.current_thread, main_thread=threading.main_thread)
-        finto = PopenFinto([(b'{"status": "ok", "contract": "x", "result": {}}', b"")])
+        finto = PopenFinto([(b'{"status": "ok", "protocol_version": 2, "contract": "plenora-io-write-result-v2", "result": {}}', b"")])
         with mock.patch.object(_process, "_Lettore", Registrato), \
                 mock.patch.object(_process, "_nuovo_evento", EventoCheSolleva), \
                 mock.patch.object(_process, "threading", finto_threading), \
@@ -4558,7 +4561,7 @@ class GliOggettiDelRunPrimaDellAvvio(unittest.TestCase):
     e il `try` non c'e' nessuna istruzione."""
 
     SCRIVE = ["write", "s.arrow", "o.gpkg", "--to", "gpkg"]
-    BUSTA = b'{"status": "ok", "contract": "x", "result": {}}'
+    BUSTA = b'{"status": "ok", "protocol_version": 2, "contract": "plenora-io-write-result-v2", "result": {}}'
 
     @prova("process.Popen")
     def test_nessuna_istruzione_fra_l_avvio_e_il_try(self) -> None:

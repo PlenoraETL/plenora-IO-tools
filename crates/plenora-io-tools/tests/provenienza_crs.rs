@@ -1,4 +1,4 @@
-//! Da quale fonte deriva ogni `Derived`: la caratterizzazione dei sei driver.
+//! Le rappresentazioni ricostruite identiche non sono perdite (regola S1b).
 //!
 //! # Il difetto che questa prova precede
 //!
@@ -290,11 +290,7 @@ fn shp_con_identificatore_sintetizzabile_scrive_il_prj() {
         prj_di(&uscita).exists(),
         "per WGS84 il writer sintetizza il WKT e il .prj esiste"
     );
-    caratterizza(
-        "shp <- identificatore sintetizzabile",
-        &esito,
-        &[("crs_id_not_preserved_derived", 1)],
-    );
+    caratterizza("shp <- identificatore sintetizzabile", &esito, &[]);
 }
 
 /// La sorgente porta una definizione: e' il caso in cui `FromDefinition` non
@@ -312,11 +308,7 @@ fn shp_da_una_sorgente_con_definizione_riscrive_il_prj() {
         prj_di(&secondo).exists(),
         "la definizione letta dal .prj viene riscritta"
     );
-    caratterizza(
-        "shp <- sorgente con definizione",
-        &esito,
-        &[("crs_id_not_preserved_derived", 1)],
-    );
+    caratterizza("shp <- sorgente con definizione", &esito, &[]);
 }
 
 /// La sorgente porta un **SRID**, e lo Shapefile non ha dove metterlo.
@@ -373,11 +365,7 @@ fn dxf_con_identificatore_sintetizzabile_incorpora_la_definizione() {
     let dir = directory();
     let uscita = dir.path().join("uscita.dxf");
     let esito = converti(&sorgente(dir.path()), &uscita, Some(SINTETIZZABILE));
-    caratterizza(
-        "dxf <- identificatore sintetizzabile",
-        &esito,
-        &[("crs_id_not_preserved_derived", 1)],
-    );
+    caratterizza("dxf <- identificatore sintetizzabile", &esito, &[]);
 }
 
 // --- geojson e kml: `crs_id` deriva dal CRS **fisso del formato** -----------
@@ -390,11 +378,7 @@ fn geojson_deriva_l_identificatore_dal_crs_fisso_del_formato() {
     let dir = directory();
     let uscita = dir.path().join("uscita.geojson");
     let esito = converti(&sorgente(dir.path()), &uscita, Some(FISSO_DEI_FORMATI));
-    caratterizza(
-        "geojson <- CRS fisso",
-        &esito,
-        &[("crs_id_not_preserved_derived", 1)],
-    );
+    caratterizza("geojson <- CRS fisso", &esito, &[]);
 }
 
 #[test]
@@ -402,11 +386,7 @@ fn kml_deriva_l_identificatore_dal_crs_fisso_del_formato() {
     let dir = directory();
     let uscita = dir.path().join("uscita.kml");
     let esito = converti(&sorgente(dir.path()), &uscita, Some(FISSO_DEI_FORMATI));
-    caratterizza(
-        "kml <- CRS fisso",
-        &esito,
-        &[("crs_id_not_preserved_derived", 1)],
-    );
+    caratterizza("kml <- CRS fisso", &esito, &[]);
 }
 
 // --- gpkg: srid e definizione derivano dall'**identificatore conservato** ---
@@ -424,9 +404,8 @@ fn gpkg_conserva_l_identificatore_e_ne_deriva_le_altre_rappresentazioni() {
 /// GEO-005 confronta i codici come testo: `EPSG:04326` e `EPSG:+4326` non sono
 /// `EPSG:4326`. Il `GeoPackage` porta il codice come intero, e scriverli come
 /// 4326 li faceva rileggere `EPSG:4326`, un'altra identita'. Ora si rifiutano
-/// prima di creare la destinazione: con `unsupported` dalla rilettura 11,
-/// perche' e' il bersaglio a non poterli rappresentare (REJ-001 «support»),
-/// non il CRS a essere sbagliato.
+/// prima di creare la destinazione: l'assunzione EPSG non canonica e'
+/// una configurazione non valida, indipendentemente dal writer scelto.
 #[test]
 fn gpkg_rifiuta_un_codice_non_canonico_invece_di_cambiarne_l_identita() {
     for crs in ["EPSG:04326", "EPSG:+4326", "EPSG:4326 "] {
@@ -437,12 +416,7 @@ fn gpkg_rifiuta_un_codice_non_canonico_invece_di_cambiarne_l_identita() {
         let busta: serde_json::Value =
             serde_json::from_str(esito.stdout.trim()).expect("il rifiuto emette una busta JSON");
         assert_eq!(
-            busta["error"]["category"],
-            if crs.ends_with(' ') {
-                "crs"
-            } else {
-                "unsupported"
-            },
+            busta["error"]["category"], "invalid_configuration",
             "{crs}: {busta}"
         );
         assert!(
@@ -462,11 +436,7 @@ fn filegdb_deriva_le_rappresentazioni_dal_runtime_gdal() {
     let dir = directory();
     let uscita = dir.path().join("uscita.gdb");
     let esito = converti(&sorgente(dir.path()), &uscita, Some(PROIETTATO));
-    caratterizza(
-        "filegdb <- runtime GDAL",
-        &esito,
-        &[("crs_id_not_preserved_derived", 1)],
-    );
+    caratterizza("filegdb <- runtime GDAL", &esito, &[]);
 }
 
 // --- geoparquet: la definizione la scrive, e diceva di perderla -------------
@@ -645,9 +615,5 @@ fn geoparquet_ricava_l_srid_dall_identificatore_conservato() {
     scrivi_arrow(&sorgente, Some("4326"));
     let uscita = dir.path().join("uscita.parquet");
     let esito = converti(&sorgente, &uscita, None);
-    caratterizza(
-        "geoparquet <- sorgente con SRID",
-        &esito,
-        &[("srid_not_preserved_derived", 1)],
-    );
+    caratterizza("geoparquet <- sorgente con SRID", &esito, &[]);
 }

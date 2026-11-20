@@ -1,5 +1,6 @@
 //! Adattatori comuni applicati ai `LayerReader`.
 
+use plenora_io_model::diagnostics::DiagnosticCause;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -48,49 +49,45 @@ use crate::driver::spool::StagedSpool;
 /// silenzio; un controllo per driver sarebbe stato dieci copie della stessa
 /// regola, con il rischio che l'undicesimo driver la dimentichi.
 ///
-/// # Un layer rifiutato non chiude gli altri
+/// # Errori per oggetto
 ///
-/// Le due verifiche del CRS (l'opzione e GEO-005/GEO-020) sono **del layer**.
-/// Fino al 24/10 correvano su tutti i layer a ogni apertura e il primo rifiuto
-/// chiudeva il dataset: un `GeoPackage` con una sola riga di
-/// `gpkg_spatial_ref_sys` malformata rendeva illeggibile anche il layer sano
-/// che `io.read --layer` chiedeva. Ora un dataset a piu' layer conserva il
-/// rifiuto del layer ([`OpenDatasetHandle::rifiuto_del_layer`]): la lettura di
-/// quel layer lo restituisce, quella degli altri procede, e `io.inspect` e
-/// `io.layers`, che descrivono tutti i layer, falliscono con quel rifiuto. Se
-/// i layer rifiutati sono tutti, o il layer e' uno solo, il rifiuto e' gia'
-/// dell'apertura, come prima.
+/// Un oggetto rifiutato resta enumerato anche se nessun oggetto e' leggibile.
+/// Il reader restituisce il suo errore; layers e inspect pubblicano lo stato.
 ///
 /// # Errors
 ///
-/// `schema` se il nome della colonna geometrica e' ambiguo; il primo rifiuto
-/// del CRS (`crs`, o `limit_exceeded` per una definizione oltre il tetto) se
-/// nessun layer si puo' leggere.
+/// Errori strutturali del contenitore e del budget dell'operazione.
 pub fn with_read_budget(
     dataset: Box<dyn OpenDatasetHandle>,
     opts: &crate::driver::ReadOptions,
     physical_row_indices_attestable: bool,
 ) -> Result<Box<dyn OpenDatasetHandle>> {
+    if let Some(assunto) = opts.assume_crs.as_deref() {
+        plenora_io_model::crs::valida_crs_assunto(assunto)?;
+    }
     let mut rifiuti = BTreeMap::new();
     for layer in dataset.layers() {
         if dataset.rifiuto_del_layer(layer.id).is_some() {
             continue;
         }
-        plenora_io_model::primary::validate_contract(&layer.contract)?;
+        if let Err(error) = plenora_io_model::primary::validate_contract(&layer.contract) {
+            rifiuti.insert(layer.id.0, error);
+            continue;
+        }
         let geometrie = match layer.contract.geometries() {
             Ok(geometrie) => geometrie,
-            Err(errore)
-                if matches!(
-                    errore.category,
-                    plenora_io_model::ErrorCategory::Crs
-                        | plenora_io_model::ErrorCategory::ResourceLimit
-                ) =>
-            {
+            Err(errore) => {
                 rifiuti.insert(layer.id.0, errore);
                 continue;
             }
-            Err(errore) => return Err(errore),
         };
+        if geometrie.is_empty() && opts.assume_crs.is_some() {
+            rifiuti.insert(
+                layer.id.0,
+                plenora_io_model::error_table::Situation::IneffectiveCrsAssumption.error(),
+            );
+            continue;
+        }
         for geometria in &geometrie {
             // Il contratto nomina la colonna geometrica, e chi la cerca nei
             // batch -- la validazione, il conteggio dei componenti, gli esempi
@@ -106,10 +103,11 @@ pub fn with_read_budget(
                 .filter(|campo| campo.name() == &geometria.name)
                 .count();
             if omonimi > 1 {
-                return Err(PlenoraIoError::schema_redatto(&PublicMessage::Curated(
+                rifiuti.insert(layer.id.0, PlenoraIoError::schema_redatto(&PublicMessage::Curated(
                     "colonna geometrica ambigua: il suo nome compare piu' volte nello schema del \
                      layer",
                 )));
+                break;
             }
             // GEO-005 e GEO-020 sul CRS emesso, per ogni driver: nessuno emette
             // una definizione o un identificatore che la scrittura IPC rifiuterebbe.
@@ -123,23 +121,14 @@ pub fn with_read_budget(
             }
         }
     }
-    let leggibili = dataset
-        .layers()
-        .iter()
-        .filter(|layer| {
-            !rifiuti.contains_key(&layer.id.0) && dataset.rifiuto_del_layer(layer.id).is_none()
-        })
-        .count();
-    if leggibili == 0 {
-        // Nessun layer si legge: il primo rifiuto, nell'ordine dei layer, e'
-        // quello dell'apertura.
-        let primo = dataset.layers().iter().find_map(|layer| {
-            rifiuti
+    if !dataset.preserves_unreadable_objects() {
+        for layer in dataset.layers() {
+            if let Some(error) = rifiuti
                 .remove(&layer.id.0)
                 .or_else(|| dataset.rifiuto_del_layer(layer.id))
-        });
-        if let Some(errore) = primo {
-            return Err(errore);
+            {
+                return Err(error);
+            }
         }
     }
     Ok(Box::new(BudgetedDataset {
@@ -159,8 +148,19 @@ struct BudgetedDataset {
 }
 
 impl OpenDatasetHandle for BudgetedDataset {
+    fn preserves_unreadable_objects(&self) -> bool {
+        self.dataset.preserves_unreadable_objects()
+    }
     fn layers(&self) -> &[LayerContract] {
         self.dataset.layers()
+    }
+
+    fn explicit_layer(&self) -> Option<LayerId> {
+        self.dataset.explicit_layer()
+    }
+
+    fn default_layer(&self) -> Option<LayerId> {
+        self.dataset.default_layer()
     }
 
     fn fidelity_assessment(&self) -> crate::loss::FidelityAssessment {
@@ -178,6 +178,14 @@ impl OpenDatasetHandle for BudgetedDataset {
         &self,
         request: &crate::request::ReadRequest,
     ) -> Result<Box<dyn LayerReader>> {
+        if !self
+            .dataset
+            .layers()
+            .iter()
+            .any(|layer| layer.id == request.layer)
+        {
+            return Err(plenora_io_model::error_table::Situation::MissingLayer.error());
+        }
         if let Some(rifiuto) = self.rifiuto_del_layer(request.layer) {
             return Err(rifiuto);
         }
@@ -258,7 +266,7 @@ impl BudgetedReader {
     ) -> Result<Self> {
         let columns =
             u64::try_from(inner.contract().contract.schema.fields().len()).map_err(|_| {
-                PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppe colonne nel reader"))
+                plenora_io_model::quota::Quota::Columns.exceeded(plenora_io_model::ErrorPhase::Read)
             })?;
         if columns > 0 {
             budget
@@ -332,9 +340,8 @@ impl BudgetedReader {
                 return Err(terminal_scan_error(
                     limite_o_scadenza(
                         self.budget.context(),
-                        PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                            "budget di memoria esaurito prima della materializzazione del batch",
-                        )),
+                        plenora_io_model::quota::Quota::MemoryBytes
+                            .exceeded(plenora_io_model::ErrorPhase::Read),
                         ErrorPhase::Read,
                     ),
                     &violations,
@@ -370,9 +377,12 @@ impl BudgetedReader {
                     return Err(terminal_scan_error(
                         limite_o_scadenza(
                             self.budget.context(),
-                            PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                                "budget esaurito prima della materializzazione del batch",
-                            )),
+                            (if available_rows == 0 {
+                                plenora_io_model::quota::Quota::Rows
+                            } else {
+                                self.budget.output_quota()
+                            })
+                            .exceeded(ErrorPhase::Read),
                             ErrorPhase::Read,
                         ),
                         &violations,
@@ -436,9 +446,8 @@ impl BudgetedReader {
                 terminal_scan_error(
                     limite_o_scadenza(
                         self.budget.context(),
-                        PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                            "batch oltre il conteggio supportato",
-                        )),
+                        plenora_io_model::quota::Quota::Rows
+                            .exceeded(plenora_io_model::ErrorPhase::Read),
                         ErrorPhase::Read,
                     ),
                     &violations,
@@ -449,9 +458,8 @@ impl BudgetedReader {
                 terminal_scan_error(
                     limite_o_scadenza(
                         self.budget.context(),
-                        PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                            "batch oltre il conteggio byte supportato",
-                        )),
+                        plenora_io_model::quota::Quota::MemoryBytes
+                            .exceeded(plenora_io_model::ErrorPhase::Read),
                         ErrorPhase::Read,
                     ),
                     &violations,
@@ -465,9 +473,14 @@ impl BudgetedReader {
                 return Err(terminal_scan_error(
                     limite_o_scadenza(
                         self.budget.context(),
-                        PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                            "batch materializzato oltre la quota prenotata",
-                        )),
+                        (if rows > rows_lease.amount() {
+                            plenora_io_model::quota::Quota::Rows
+                        } else if bytes > memory_lease.bytes() {
+                            plenora_io_model::quota::Quota::MemoryBytes
+                        } else {
+                            self.budget.output_quota()
+                        })
+                        .exceeded(ErrorPhase::Read),
                         ErrorPhase::Read,
                     ),
                     &violations,
@@ -572,9 +585,8 @@ impl BudgetedReader {
                 terminal_scan_error(
                     limite_o_scadenza(
                         self.budget.context(),
-                        PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                            "overflow nel conteggio righe lette",
-                        )),
+                        plenora_io_model::quota::Quota::Rows
+                            .exceeded(plenora_io_model::ErrorPhase::Read),
                         ErrorPhase::Read,
                     ),
                     &violations,
@@ -608,12 +620,8 @@ impl BudgetedReader {
                 return Err(terminal_scan_error(
                     limite_o_scadenza(
                         self.budget.context(),
-                        PlenoraIoError::limite_redatto(&PublicMessage::CuratedBetween(
-                            "ingombro contabilizzato del batch",
-                            NumeroStrutturale::Conteggio(accounted),
-                            "byte oltre la prenotazione di materializzazione di",
-                            NumeroStrutturale::Limite(memory_lease.bytes()),
-                        )),
+                        plenora_io_model::quota::Quota::MemoryBytes
+                            .exceeded(plenora_io_model::ErrorPhase::Read),
                         ErrorPhase::Read,
                     ),
                     &violations,
@@ -828,11 +836,11 @@ fn collect_read_violations(
     batch: &RecordBatch,
     row_offset: u64,
     wkb: &WkbLimits,
-) -> Result<BTreeMap<u64, (&'static str, String)>> {
+) -> Result<BTreeMap<u64, (DiagnosticCause, String)>> {
     if !read_schemas_are_compatible(batch.schema().as_ref(), contract.contract.schema.as_ref()) {
         return Err(read_schema_mismatch());
     }
-    let mut violations = BTreeMap::<u64, (&'static str, String)>::new();
+    let mut violations = BTreeMap::<u64, (DiagnosticCause, String)>::new();
     for (column_index, field) in batch.schema().fields().iter().enumerate() {
         if field.is_nullable() {
             continue;
@@ -841,9 +849,12 @@ fn collect_read_violations(
         for row in 0..batch.num_rows() {
             if array.is_null(row) {
                 let index = physical_index(row_offset, row)?;
-                violations
-                    .entry(index)
-                    .or_insert_with(|| ("contract.nullability", field.name().to_owned()));
+                violations.entry(index).or_insert_with(|| {
+                    (
+                        DiagnosticCause::ContractNullability,
+                        field.name().to_owned(),
+                    )
+                });
             }
         }
     }
@@ -877,15 +888,24 @@ fn collect_read_violations(
                 if !geometry.nullable {
                     violations.insert(
                         source_index,
-                        ("contract.nullability", geometry.name.clone()),
+                        (DiagnosticCause::ContractNullability, geometry.name.clone()),
                     );
                 }
                 return Ok(());
             };
-            let Ok(inspected) = inspect_wkb(bytes, &limits) else {
+            let inspection = inspect_wkb(bytes, &limits);
+            if let Err(ref error) = inspection {
+                if error.category == ErrorCategory::ResourceLimit {
+                    return Err(error.clone());
+                }
+            }
+            let Ok(inspected) = inspection else {
                 violations.insert(
                     source_index,
-                    ("conversion.invalid_geometry", geometry.name.clone()),
+                    (
+                        DiagnosticCause::ConversionInvalidGeometry,
+                        geometry.name.clone(),
+                    ),
                 );
                 return Ok(());
             };
@@ -895,11 +915,11 @@ fn collect_read_violations(
             // dichiara, contraddice il CRS ed e' della classe `crs`; un valore
             // senza SRID in un campo che lo dichiara ha lo SRID del campo.
             let cause = if !inspected.nested_dimensions_coherent {
-                Some("contract.coordinate_dimensions")
+                Some(DiagnosticCause::ContractCoordinateDimensions)
             } else if inspected.srid_on_member
                 || (geometry.encoding != GeometryEncoding::Ewkb && inspected.contains_srid)
             {
-                Some("contract.geometry_encoding")
+                Some(DiagnosticCause::ContractGeometryEncoding)
             } else if geometry.encoding == GeometryEncoding::Ewkb
                 && inspected.srid.is_some()
                 && inspected.srid != geometry.srid
@@ -909,11 +929,11 @@ fn collect_read_violations(
                 && !geometry.geometry_types.contains(&GeometryType::Unknown)
                 && !geometry.geometry_types.contains(&inspected.geometry_type)
             {
-                Some("contract.geometry_type")
+                Some(DiagnosticCause::ContractGeometryType)
             } else if geometry.dimensions != CoordinateDimensions::Unknown
                 && geometry.dimensions != inspected.dimensions
             {
-                Some("contract.coordinate_dimensions")
+                Some(DiagnosticCause::ContractCoordinateDimensions)
             } else {
                 None
             };
@@ -1014,16 +1034,16 @@ fn read_schema_mismatch() -> PlenoraIoError {
 fn physical_index(row_offset: u64, row: usize) -> Result<u64> {
     row_offset
         .checked_add(u64::try_from(row).map_err(|_| {
-            PlenoraIoError::limite_redatto(&PublicMessage::Curated("indice riga oltre u64"))
+            plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Read)
         })?)
         .ok_or_else(|| {
-            PlenoraIoError::limite_redatto(&PublicMessage::Curated("overflow nell'indice riga"))
+            plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Read)
         })
 }
 
 #[cfg(test)]
 fn read_rejection_error(
-    violations: BTreeMap<u64, (&'static str, String)>,
+    violations: BTreeMap<u64, (DiagnosticCause, String)>,
     physical_row_indices_attestable: bool,
     reached_eof: bool,
     knowledge_limit: Option<&'static str>,
@@ -1039,18 +1059,24 @@ fn read_rejection_error(
 }
 
 /// Uno SRID di valore che contraddice il CRS del campo (GEO-009, classe `crs`).
-const CAUSA_SRID: &str = "contract.srid";
+const CAUSA_SRID: DiagnosticCause = DiagnosticCause::ContractSrid;
 
 struct ReadViolationAccumulator {
     physical_row_indices_attestable: bool,
     examples_limit: u64,
     observed_total: u64,
     counts: BTreeMap<String, u64>,
-    examples: BTreeMap<u64, (&'static str, Option<String>)>,
+    examples: BTreeMap<
+        u64,
+        (
+            DiagnosticCause,
+            Option<plenora_io_model::diagnostics::DiagnosticFieldName>,
+        ),
+    >,
     column_names_attestable: bool,
     /// La causa della prima violazione in ordine di riga: decide la categoria
     /// (REJ-002).
-    prima_causa: Option<&'static str>,
+    prima_causa: Option<DiagnosticCause>,
 }
 
 impl ReadViolationAccumulator {
@@ -1070,17 +1096,15 @@ impl ReadViolationAccumulator {
         self.observed_total == 0
     }
 
-    fn record_all(&mut self, violations: BTreeMap<u64, (&'static str, String)>) -> Result<()> {
+    fn record_all(&mut self, violations: BTreeMap<u64, (DiagnosticCause, String)>) -> Result<()> {
         for (source_index, (cause, column)) in violations {
             self.prima_causa.get_or_insert(cause);
             let column = RowDiagnosticColumn::attest(column);
             self.column_names_attestable &= column.is_attested();
             self.observed_total = self.observed_total.checked_add(1).ok_or_else(|| {
-                PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                    "overflow nel conteggio delle righe diagnosticate",
-                ))
+                plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Read)
             })?;
-            let cause_count = self.counts.entry(cause.to_owned()).or_default();
+            let cause_count = self.counts.entry(cause.as_str().to_owned()).or_default();
             *cause_count = cause_count.checked_add(1).ok_or_else(|| {
                 PlenoraIoError::limite_redatto(&PublicMessage::Curated(
                     "overflow nel conteggio delle cause diagnostiche",
@@ -1137,7 +1161,7 @@ impl ReadViolationAccumulator {
             .iter()
             .map(|(source_index, (cause, column))| RowDiagnosticExample {
                 source_index: *source_index,
-                cause: (*cause).to_owned(),
+                cause: *cause,
                 column: column.clone(),
                 key: None,
                 write_state: None,
@@ -1342,9 +1366,8 @@ fn geometry_components(
         total = total
             .checked_add(column_geometry_components(geometry, batch, budget)?)
             .ok_or_else(|| {
-                PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                    "overflow nel conteggio dei componenti geometrici",
-                ))
+                plenora_io_model::quota::Quota::GeometryComponents
+                    .exceeded(plenora_io_model::ErrorPhase::Read)
             })?;
     }
     Ok(total)
@@ -1386,15 +1409,33 @@ fn column_geometry_components(
     let array = batch.column(index);
     let mut total = 0_u64;
     let mut inspect = |bytes: &[u8]| -> Result<()> {
-        let components = u64::try_from(inspect_wkb(bytes, &limits)?.components).map_err(|_| {
-            PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                "geometria oltre il conteggio supportato",
-            ))
+        let components = u64::try_from(
+            inspect_wkb(bytes, &limits)
+                .map_err(|error| {
+                    if error.category == ErrorCategory::ResourceLimit
+                        && error.message
+                            == plenora_io_model::quota::Quota::WkbComponents
+                                .exceeded(ErrorPhase::Read)
+                                .message
+                        && budget.remaining(OperationCounter::GeometryComponents)
+                            < u64::try_from(context_limits.effective_wkb_components())
+                                .unwrap_or(u64::MAX)
+                    {
+                        plenora_io_model::quota::Quota::GeometryComponents
+                            .exceeded(ErrorPhase::Read)
+                    } else {
+                        context_limits.quota_error(error, ErrorPhase::Read)
+                    }
+                })?
+                .components,
+        )
+        .map_err(|_| {
+            plenora_io_model::quota::Quota::GeometryComponents
+                .exceeded(plenora_io_model::ErrorPhase::Read)
         })?;
         total = total.checked_add(components).ok_or_else(|| {
-            PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                "overflow nel conteggio dei componenti geometrici",
-            ))
+            plenora_io_model::quota::Quota::GeometryComponents
+                .exceeded(plenora_io_model::ErrorPhase::Read)
         })?;
         Ok(())
     };

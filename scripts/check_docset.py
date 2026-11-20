@@ -546,6 +546,163 @@ CONTROLLI = (
 )
 
 
+
+# I blocchi del prodotto usano gli stessi marcatori del blocco di release.
+PRODUCT_DOCUMENTS = ("README.md", "docs/PRODUCT.md", "docs/INSTALL.md")
+PRODUCT_SECTIONS = {
+    "README.md": {"versione", "formati", "comandi", "quote"},
+    "docs/PRODUCT.md": {"versione", "formati", "opzioni", "buste", "quote", "uscite", "errori", "perdite"},
+    "docs/INSTALL.md": {"versione", "formati", "opzioni"},
+}
+
+def _table(headers, rows):
+    def cell(value):
+        if isinstance(value, (dict, list)):
+            value = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+        return str(value if value is not None else "assente").replace("|", "\\|").replace("\n", " ")
+    return "\n".join("| " + " | ".join(map(cell, row)) + " |" for row in
+                     [headers, ["---"] * len(headers), *rows])
+
+def product_blocks(binary):
+    """Legge il catalogo compilato e le tabelle operative, senza copie di dati."""
+    import tomllib
+    def run(path, *args):
+        return json.loads(subprocess.check_output([str(path), *args], cwd=ROOT))
+    binary = Path(binary).resolve()
+    catalog = run(binary, "catalog")["result"]["drivers"]
+    suffix = ".exe" if sys.platform == "win32" else ""
+    tables = run(binary.parent / "examples" / ("doc_tables" + suffix))
+    version = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))["workspace"]["package"]["version"]
+    actual = run(binary, "--version")
+    if actual["result"]["component_version"] != version:
+        raise ValueError("binario non allineato a Cargo.toml: ricostruire prima del docset")
+    blocks = {"versione": "Versione del prodotto: **" + version + "**.\n\n" +
+              _table(["Artefatto Python", "Nome"], [["wheel", f"plenora_io-{version}-py3-none-any.whl"], ["sdist", f"plenora_io-{version}.tar.gz"]])}
+    blocks["formati"] = _table(["Id", "Estensioni", "Direzione", "Feature", "Lettura nativa", "Lettura effettiva", "Pruning spaziale / predicati", "Fedeltà", "Tipi scrivibili"], [
+        [d["id"], d["recognised_suffixes"], d["direction"], d["required_feature"], d["native_read_mode"], d["read_mode"], d["spatial_pruning_support"] + " / " + d["predicate_pruning_support"], d["fidelity_class"], d["write_capabilities"]["allowed_types"]] for d in catalog])
+    blocks["opzioni"] = _table(["Driver", "Chiave", "Fase", "Dominio", "Default", "Significato"], [
+        [d["id"], o["key"], o["phase"], o["value"], o["default"], o["description"]] for d in catalog for o in d["format_options"]])
+    blocks["quote"] = _table(["Flag / campo", "Default", "Unità", "Ambito", "Fasi"], [
+        [q["flag"] or q["name"], q["default"], q["unit"], q["scope"], q["phases"]] for q in tables["quotas"]] + [["--deadline-ms", tables["deadline_ms"], "ms", "operazione; scadenza distinta dalle quote", "timeout"]])
+    try:
+        from .doc_runtime import cases
+    except ImportError:
+        from doc_runtime import cases
+    blocks["errori"] = _table(["Situazione", "Driver", "Caso eseguito", "Categoria", "Fase", "Codice", "Exit", "Messaggio"], [
+        [e[k] for k in ("situation", "driver", "scenario", "category", "phase", "code", "exit", "message")] for e in cases(tables)])
+    blocks["perdite"] = "Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara la trasformazione indicata. NotApplicable indica un elemento non esprimibile nella grammatica sorgente, con motivo e riferimento: non e' una prova passata. La scrittura riguarda la rappresentazione Arrow dell'elemento, inclusi i metadati nativi di formati diversi; non richiede un oggetto nativo del formato destinazione.\n\n" + _table(
+        ["Driver", "Elemento", "Lettura", "Scrittura"], [[d["driver"], e["element"], e["read"], e["write"]] for d in tables["losses"] for e in d["elements"]])
+    source = (ROOT / "crates/plenora-io-tools/src/lib.rs").read_text(encoding="utf-8")
+    projection = source.split("pub const fn uscita_della_categoria", 1)[1].split("\n}", 1)[0]
+    exits = [["successo", 0]]
+    for names, code in re.findall(r'((?:ErrorCategory::\w+[\s|]*)+)\s*=> (\d+)', projection):
+        exits.extend([[re.sub(r'(?<!^)(?=[A-Z])', '_', name).lower(), code] for name in re.findall(r'ErrorCategory::(\w+)', names)])
+    blocks["uscite"] = _table(["Categoria", "Exit"], exits)
+    envelope_source = (ROOT / "crates/plenora-io-tools/src/busta.rs").read_text(encoding="utf-8")
+    contracts = re.findall(r'"([a-z-]+)" => "(plenora-[^"]+)"\.to_owned', envelope_source)
+    contracts.append(("--version", actual["contract"]))
+    error_contract = re.search(r'let busta_intera = json!\(\{.*?"contract": "([^"]+)"', source, re.S)
+    if error_contract is None:
+        raise ValueError("contratto della busta di errore non trovato")
+    contracts.append(("errori", error_contract[1]))
+    blocks["buste"] = _table(["Comando", "Contratto", "Protocollo"], [[cmd, contract, actual["protocol_version"]] for cmd, contract in contracts])
+    cli = (ROOT / "crates/plenora-io-tools/src/cli.rs").read_text(encoding="utf-8")
+    whitelist = cli.split('let allowed = match flag.as_str() {', 1)[1].split('_ => false', 1)[0]
+    flags = {cmd: [] for cmd in ("inspect", "layers", "read", "write", "convert")}
+    for arm in re.finditer(r'((?:"--[\w-]+"\s*\|?\s*)+)\s*=>\s*(.*?),\n', whitelist):
+        names = re.findall(r'"(--[\w-]+)"', arm[1])
+        expression = arm[2]
+        for cmd in flags:
+            if expression == "true" or f'"{cmd}"' in expression:
+                flags[cmd].extend(names)
+    declared_flags = set(re.search(r'const OPZIONI_AMMESSE: &str = "([^"]+)"', source)[1].split(", "))
+    if set(flag for names in flags.values() for flag in names) != declared_flags:
+        raise ValueError("flag del parser non interamente documentati")
+    if not all(flags.values()):
+        raise ValueError("definizione flag non riconosciuta")
+    blocks["comandi"] = _table(["Comando", "Flag ammessi"], [[cmd, ", ".join(names)] for cmd, names in flags.items()] + [["catalog, capabilities", "--format json"], ["--help, -h; <comando> --help", "help testuale"], ["--version, -V", "busta versione"]])
+    return blocks
+
+def product_marker(name, end=False):
+    return f"<!-- generato da codice/{name}: {'fine' if end else 'inizio'} -->"
+
+def product_docset(binary, rewrite=False):
+    blocks = product_blocks(binary)
+    errors = []
+    seen = set()
+    for relative in PRODUCT_DOCUMENTS:
+        path = ROOT / relative
+        text = path.read_text(encoding="utf-8")
+        for name, block in blocks.items():
+            start, end = product_marker(name), product_marker(name, True)
+            if start not in text:
+                if name in PRODUCT_SECTIONS.get(relative, set()):
+                    errors.append(f"{relative}: blocco {name} richiesto ma assente")
+                continue
+            seen.add(name)
+            pattern = re.escape(start) + r".*?" + re.escape(end)
+            expected = start + "\n\n" + block + "\n\n" + end
+            matches = re.findall(pattern, text, re.S)
+            if len(matches) != 1:
+                errors.append(f"{relative}: marcatori {name} incompleti o duplicati")
+            elif rewrite:
+                text = re.sub(pattern, lambda _: expected, text, flags=re.S)
+            elif matches[0] != expected:
+                errors.append(f"{relative}: blocco {name} diverso dal codice")
+        if rewrite:
+            path.write_text(text, encoding="utf-8")
+    errors.extend(f"blocco del prodotto assente: {name}" for name in blocks.keys() - seen)
+    return errors
+
+
+
+def document_examples(binary):
+    """Esegue ogni riga CLI nei blocchi di codice, senza shell e in target."""
+    import shlex
+    import tempfile
+    errors = []
+    commands = 0
+    with tempfile.TemporaryDirectory(prefix="docset-", dir=ROOT / "target") as directory:
+        work = Path(directory)
+        (work / "esempio.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": [
+            {"type": "Feature", "properties": {"nome": "esempio"}, "geometry": {"type": "Point", "coordinates": [1, 2]}}
+        ]}), encoding="utf-8")
+        for relative in PRODUCT_DOCUMENTS:
+            text = (ROOT / relative).read_text(encoding="utf-8")
+            for language, body in re.findall(r'^```([^\n]*)\n(.*?)^```', text, re.M | re.S):
+                expected = None
+                for line in body.splitlines():
+                    if line.startswith("# esito: "):
+                        expected = json.loads(line.removeprefix("# esito: "))
+                    elif re.match(r'^(?:bin/)?plenora-io(?:\.exe)?(?: |$)', line):
+                        # Il layout dell'archivio non è un comando shell.
+                        if "(bin/plenora-io.exe su Windows)" in line:
+                            continue
+                        if expected is None:
+                            errors.append(f"{relative}: esempio senza esito dichiarato: {line}")
+                            continue
+                        argv = shlex.split(line)[1:]
+                        result = subprocess.run([str(Path(binary).resolve()), *argv], cwd=work, capture_output=True, text=True, encoding="utf-8", timeout=60)
+                        commands += 1
+                        try:
+                            value = json.loads(result.stdout)
+                            for key, wanted in expected.items():
+                                observed = result.returncode if key == "exit" else value
+                                if key != "exit":
+                                    for part in key.split("."):
+                                        observed = observed[part]
+                                if observed != wanted:
+                                    errors.append(f"{relative}: {line}: {key} = {observed!r}, atteso {wanted!r}")
+                            if result.stderr:
+                                errors.append(f"{relative}: {line}: stderr non vuoto")
+                        except (ValueError, KeyError, TypeError) as error:
+                            errors.append(f"{relative}: {line}: risposta non conforme: {error}")
+                        expected = None
+    if commands == 0:
+        errors.append("nessun esempio CLI eseguito")
+    return errors
+
+
 def main(argv: list[str] | None = None) -> int:
     argomenti = argparse.ArgumentParser(description=__doc__)
     argomenti.add_argument(
@@ -553,11 +710,35 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="propaga assurance/current-state.json nel blocco generato di docs/RELEASE.md",
     )
+    argomenti.add_argument("--binary", type=Path, default=ROOT / "target/debug" / ("plenora-io.exe" if sys.platform == "win32" else "plenora-io"))
+    argomenti.add_argument("--riscrivi-prodotto", action="store_true")
     opzioni = argomenti.parse_args(argv)
+    if not opzioni.riscrivi_stato:
+        # Anche il confronto deve usare le tabelle appena compilate.
+        import os
+        environment = dict(os.environ)
+        environment.setdefault("CARGO_BUILD_JOBS", "4")
+        environment.setdefault("CARGO_INCREMENTAL", "0")
+        subprocess.run(["cargo", "build", "--quiet", "-p", "plenora-io-tools",
+                        "--bin", "plenora-io", "--example", "doc_tables"],
+                       cwd=ROOT, env=environment, check=True)
+    if opzioni.riscrivi_prodotto:
+        errors = product_docset(opzioni.binary, rewrite=True)
+        for error in errors:
+            print(error, file=sys.stderr)
+        return int(bool(errors))
     if opzioni.riscrivi_stato:
         return riscrivi_stato()
 
-    errori: list[str] = []
+    try:
+        from .doc_runtime import verify, run
+    except ImportError:
+        from doc_runtime import verify, run
+    suffix = ".exe" if sys.platform == "win32" else ""
+    tables = run(opzioni.binary.resolve().parent / "examples" / ("doc_tables" + suffix), [])[1]
+    errori = product_docset(opzioni.binary) + document_examples(opzioni.binary) + verify(opzioni.binary, tables)
+    for error in errori:
+        print(error, file=sys.stderr)
     for nome, controllo in CONTROLLI:
         trovati = controllo()
         if trovati:

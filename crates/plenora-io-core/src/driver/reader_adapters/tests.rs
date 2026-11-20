@@ -398,7 +398,7 @@ fn eof_probe_requires_memory_quota_instead_of_reading_outside_it() {
     let mut reader = budgeted_sequence_with_budget(eventi, budget);
     let errore = reader.next_batch().unwrap_err();
     assert!(
-        errore.message.contains("memoria"),
+        errore.message.contains("memory_bytes"),
         "l'errore deve dire che manca la memoria, non confondersi con le altre quote: {}",
         errore.message
     );
@@ -893,8 +893,8 @@ fn terminal_driver_diagnostics_merge_with_common_read_rejections() {
         examples_truncated: false,
         examples: vec![RowDiagnosticExample {
             source_index: 50,
-            cause: "driver.invalid_attribute".to_owned(),
-            column: Some("value".to_owned()),
+            cause: plenora_io_model::diagnostics::DiagnosticCause::DriverInvalidAttribute,
+            column: Some("value".to_owned().into()),
             key: None,
             write_state: None,
         }],
@@ -939,7 +939,13 @@ fn terminal_driver_diagnostics_merge_with_common_read_rejections() {
 fn invalid_driver_diagnostics_fail_closed_without_claiming_complete() {
     let contract = validating_contract();
     let mut invalid = read_rejection_error(
-        BTreeMap::from([(50, ("driver.invalid_attribute", "value".to_owned()))]),
+        BTreeMap::from([(
+            50,
+            (
+                plenora_io_model::diagnostics::DiagnosticCause::DriverInvalidAttribute,
+                "value".to_owned(),
+            ),
+        )]),
         true,
         true,
         None,
@@ -1757,13 +1763,13 @@ fn collect_read_violations_usa_i_limiti_ricevuti() {
         max_cell_bytes: bytes.len() - 1,
         ..WkbLimits::default()
     };
-    let violazioni = collect_read_violations(&contratto, &batch, 0, &stretto)
-        .expect("il tetto produce una violazione, non un errore");
+    let error = collect_read_violations(&contratto, &batch, 0, &stretto)
+        .expect_err("la quota non deve diventare una violazione dei dati");
     assert_eq!(
-        violazioni.len(),
-        1,
-        "il tetto ricevuto deve essere applicato, non quello predefinito"
+        error.category,
+        plenora_io_model::ErrorCategory::ResourceLimit
     );
+    assert!(error.message.contains("max_wkb_cell_bytes"));
 }
 
 #[test]
@@ -1848,9 +1854,7 @@ fn with_read_budget_rifiuta_una_colonna_geometrica_dal_nome_ripetuto() {
         &crate::driver::ReadOptions::from_read_parts(bundle.into_read_parts()),
         true,
     );
-    let Err(errore) = esito else {
-        unreachable!("un nome geometrico ripetuto non deve aprire il dataset");
-    };
+    let errore = esito.err().unwrap();
     assert_eq!(errore.category, ErrorCategory::Schema, "{errore:?}");
     assert!(!errore.message.contains("geometry"), "{}", errore.message);
 }
@@ -2049,9 +2053,7 @@ fn with_read_budget_rifiuta_una_definizione_che_geo_005_rifiuta() {
         // `organization = 'POSTGIS'` di un `GeoPackage`).
         ("POSTGIS:4326", r#"GEOGCS["x"]"#),
     ] {
-        let Err(errore) = apri(id, definizione) else {
-            unreachable!("{definizione}: una definizione che GEO-005 rifiuta e' stata aperta");
-        };
+        let errore = apri(id, definizione).err().unwrap();
         assert_eq!(errore.category, ErrorCategory::Crs, "{definizione}");
         assert!(!errore.message.contains("4258"), "{}", errore.message);
     }

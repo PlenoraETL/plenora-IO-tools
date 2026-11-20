@@ -3,6 +3,7 @@
 //! `name`/`description` come proprietà. KMZ resta un incremento successivo.
 #![forbid(unsafe_code)]
 
+use plenora_io_model::diagnostics::DiagnosticCause;
 use std::collections::{BTreeSet, HashMap};
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write as _};
@@ -28,18 +29,20 @@ use plenora_io_core::driver::{
     Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
+use plenora_io_core::loss_table::{
+    observe_native, NativeDriver, NativeElement, TransportDirection,
+};
 use plenora_io_core::publish::StagedFile;
 use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
     check_cancelled, check_cancelled_periodically, read_row_error, validate_write,
     with_write_validation, write_row_rejection, AttributeWriteSupport, CrsDerivation,
     CrsRepresentationCapabilities, CrsRepresentationState, CrsWriteSupport,
-    FormatWriteCapabilities, NullabilitySupport, SingleReaderGate, SinkPathConstraint,
-    TypeCoercionPolicy, WritePlan, SCALAR_TYPES, UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
+    FormatWriteCapabilities, SingleReaderGate, SinkPathConstraint, TypeCoercionPolicy, WritePlan,
+    UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
 };
 use plenora_io_model::budget::{OperationBudget, SpillLease};
-#[cfg(test)]
-use plenora_io_model::contract::GeometryType;
+
 use plenora_io_model::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, LayerContract, LayerId,
 };
@@ -56,6 +59,8 @@ use quick_xml::encoding::DecodingReader;
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader as XmlReader;
 
+const NATIVE_READ: (NativeDriver, TransportDirection) =
+    (NativeDriver::Kml, TransportDirection::Read);
 const GEOMETRY: &str = "geometry";
 const MAX_XML_DEPTH: usize = 256;
 const KML_IO_BUFFER_BYTES: usize = 4 * 1024 * 1024;
@@ -285,6 +290,7 @@ fn validate_kml_xml<R: BufRead>(input: R, input_bytes: usize) -> Result<()> {
 
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     "kml",
+    &plenora_io_core::dataset_files::FILE_SETS[5],
     Direction::Bidirectional,
     ReadMode::StreamingSequential,
     // INV-7: il parser riversa l'intera sorgente in uno spool all'apertura.
@@ -312,10 +318,13 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     None,
     Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
-        allowed_types: SCALAR_TYPES,
+        allowed_types: plenora_io_core::loss_table::KML.allowed_types,
         type_coercion: TypeCoercionPolicy::Reject,
         attributes: AttributeWriteSupport::All,
-        geometry: WKB_XY_XYZ_GEOMETRY,
+        geometry: plenora_io_core::GeometryWriteSupport {
+            dimensions: plenora_io_core::loss_table::KML.dimensions,
+            ..WKB_XY_XYZ_GEOMETRY
+        },
         crs: CrsWriteSupport::Fixed("OGC:CRS84"),
         crs_representations: CrsRepresentationCapabilities::new(
             // Nessuna rappresentazione conservata, e l'identificatore e'
@@ -325,7 +334,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
             CrsRepresentationState::Absent,
             CrsRepresentationState::Absent,
         ),
-        nullability: NullabilitySupport::FormatDefined,
+        nullability: plenora_io_core::loss_table::native_nullability(NativeDriver::Kml),
         multi_layer: false,
         sink_path: SinkPathConstraint::Free,
     }),
@@ -345,31 +354,38 @@ impl FormatDriver for KmlDriver {
         &DESCRIPTOR
     }
 
+    #[allow(clippy::too_many_lines)] // Catalog and spool are discovered in one bounded pass.
     fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = plenora_io_core::preflight_source(self.descriptor(), source, &mut opts)?;
+        let path = driver_common::structure::preflight(self.descriptor(), source, &mut opts)?;
         let mut stream = PlacemarkStream::open(&path)?;
         let mut stats = KmlContractStats::default();
+        let mut unsupported_prefix = vec![0_u64];
+        let mut rifiuti = std::collections::BTreeMap::new();
         let spool = Arc::new(tempfile::NamedTempFile::new()?);
         let mut spool_writer = KmlSpoolWriter::new(
             spool.as_file(),
             opts.max_input_bytes(),
             opts.budget().clone(),
         );
-        while let Some(placemark) = stream.next_placemark(
-            opts.cancellation(),
-            u64::try_from(stats.rows).map_err(|_| {
-                PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppe righe KML"))
-            })?,
-        )? {
+        while opts.row_limit.is_none_or(|n| (stats.rows as u64) < n) {
+            let Some(placemark) = stream.next_isolated_placemark(
+                opts.cancellation(),
+                u64::try_from(stats.rows).map_err(|_| {
+                    plenora_io_model::quota::Quota::Rows
+                        .exceeded(plenora_io_model::ErrorPhase::Read)
+                })?,
+                &mut rifiuti,
+            )?
+            else {
+                break;
+            };
             opts.ensure_active()?;
             if stats.rows >= opts.max_rows() {
-                return Err(PlenoraIoError::limite_redatto(&PublicMessage::CuratedWith(
-                    "KML: Placemark oltre il limite di",
-                    NumeroStrutturale::Limite(driver_common::saturating_u64(opts.max_rows())),
-                )));
+                return Err(plenora_io_model::quota::Quota::Rows
+                    .exceeded(plenora_io_model::ErrorPhase::Read));
             }
             let source_index = u64::try_from(stats.rows).map_err(|_| {
-                PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppe righe KML"))
+                plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Read)
             })?;
             let geometry = stats
                 .observe(&placemark, opts.cancellation())
@@ -377,7 +393,7 @@ impl FormatDriver for KmlDriver {
                     read_row_error(
                         error,
                         Some(source_index),
-                        "kml.geometry_not_representable",
+                        DiagnosticCause::KmlGeometryNotRepresentable,
                         Some(GEOMETRY),
                     )
                 })?;
@@ -386,24 +402,57 @@ impl FormatDriver for KmlDriver {
                 placemark.name.as_deref(),
                 placemark.description.as_deref(),
             )?;
+            unsupported_prefix.push(stream.unsupported);
         }
         spool_writer.finish()?;
         let rows = stats.rows;
+        for &index in &stream.object_stack {
+            stream.objects[index].2 = rows as u64;
+        }
         let contract = stats.contract();
         let name = path
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("layer")
             .to_owned();
+        let mut layers = vec![LayerContract {
+            id: LayerId(0),
+            name,
+            contract: contract.clone(),
+        }];
+        let mut ranges = vec![(0, rows)];
+        for (mut name, start, end) in stream.objects {
+            let end = end.max(start).min(rows as u64);
+            let id = LayerId(u32::try_from(layers.len()).map_err(|_| {
+                plenora_io_model::quota::Quota::InputEntries
+                    .exceeded(plenora_io_model::ErrorPhase::Read)
+            })?);
+            while layers
+                .iter()
+                .any(|layer| layer.name.eq_ignore_ascii_case(&name))
+            {
+                name = format!("{name}_{}", id.0);
+            }
+            layers.push(LayerContract {
+                id,
+                name,
+                contract: contract.clone(),
+            });
+            ranges.push((
+                usize::try_from(start)
+                    .map_err(|_| err(&PublicMessage::Curated("indice KML fuori intervallo")))?,
+                usize::try_from(end - start)
+                    .map_err(|_| err(&PublicMessage::Curated("conteggio KML fuori intervallo")))?,
+            ));
+        }
+        let losses = native_layer_losses(&mut stream.native_losses, &ranges, &unsupported_prefix);
         plenora_io_core::with_read_budget(
             Box::new(KmlDataset {
-                layers: vec![LayerContract {
-                    id: LayerId(0),
-                    name,
-                    contract,
-                }],
+                layers,
                 spool,
-                rows,
+                ranges,
+                losses,
+                rifiuti,
                 reader_gate: SingleReaderGate::new(DESCRIPTOR.id()),
             }),
             &opts,
@@ -424,6 +473,7 @@ impl FormatDriver for KmlDriver {
             &opts.format_options,
         )?;
         let Sink::Path(path) = sink;
+        self.descriptor().files().ensure_absent(&path)?;
         if path.exists() {
             return Err(PlenoraIoError::destinazione_esistente());
         }
@@ -453,17 +503,22 @@ impl FormatDriver for KmlDriver {
             opts.durable,
             opts.max_output_bytes(),
             opts.budget().context(),
-        )?;
+        )?
+        .for_dataset(*DESCRIPTOR.files())?;
         let mut output = BufWriter::with_capacity(KML_IO_BUFFER_BYTES, staging.reopen()?);
         output.write_all(
             br#"<?xml version="1.0" encoding="UTF-8"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document>"#,
         )?;
         with_write_validation(
             Box::new(KmlWriterState {
+                metadata_check: plenora_io_core::property_plan::NativeMetadataCheck::new(
+                    plan, opts,
+                ),
                 staging,
                 output,
                 rows: 0,
                 input_total: None,
+                loss: plenora_io_core::loss_table::native_write_report(NativeDriver::Kml, plan),
                 wkb_limits: opts.wkb_limits(),
             }),
             self.descriptor(),
@@ -473,14 +528,45 @@ impl FormatDriver for KmlDriver {
     }
 }
 
+fn native_layer_losses(
+    native: &mut std::collections::BTreeMap<usize, LossReport>,
+    ranges: &[(usize, usize)],
+    unsupported_prefix: &[u64],
+) -> Vec<LossReport> {
+    ranges
+        .iter()
+        .enumerate()
+        .map(|(index, (start, length))| {
+            let mut loss = native.entry(index).or_default().clone();
+            let count = unsupported_prefix[start + length] - unsupported_prefix[*start];
+            if count > 0 {
+                loss.record("kml.unsupported_geometry", count);
+            }
+            loss
+        })
+        .collect()
+}
+
 struct KmlDataset {
     layers: Vec<LayerContract>,
     spool: Arc<tempfile::NamedTempFile>,
-    rows: usize,
+    ranges: Vec<(usize, usize)>,
+    losses: Vec<LossReport>,
+    rifiuti: std::collections::BTreeMap<u32, PlenoraIoError>,
     reader_gate: SingleReaderGate,
 }
 
 impl OpenDatasetHandle for KmlDataset {
+    fn default_layer(&self) -> Option<LayerId> {
+        Some(LayerId(0))
+    }
+
+    fn rifiuto_del_layer(&self, layer: LayerId) -> Option<PlenoraIoError> {
+        self.rifiuti.get(&layer.0).cloned()
+    }
+    fn preserves_unreadable_objects(&self) -> bool {
+        true
+    }
     fn layers(&self) -> &[LayerContract] {
         &self.layers
     }
@@ -491,14 +577,34 @@ impl OpenDatasetHandle for KmlDataset {
         )
     }
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
+        if !self.layers.iter().any(|layer| layer.id == request.layer) {
+            return Err(plenora_io_model::error_table::Situation::MissingLayer.error());
+        }
+
+        if let Some(error) = self.rifiuto_del_layer(request.layer) {
+            return Err(error);
+        }
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
+        let index = self
+            .layers
+            .iter()
+            .position(|layer| layer.id == request.layer)
+            .ok_or_else(|| plenora_io_model::error_table::Situation::MissingLayer.error())?;
         let reader = self.reader_gate.open(request.layer, || {
+            let mut input = BufReader::with_capacity(KML_IO_BUFFER_BYTES, self.spool.reopen()?);
+            for _ in 0..self.ranges[index].0 {
+                check_cancelled(&request.cancellation, ErrorPhase::Read)?;
+                read_spool_value(&mut input)?;
+                read_spool_string(&mut input)?;
+                read_spool_string(&mut input)?;
+            }
             Ok(Box::new(KmlReader {
-                input: BufReader::with_capacity(KML_IO_BUFFER_BYTES, self.spool.reopen()?),
-                remaining_rows: self.rows,
-                layer: self.layers[0].clone(),
+                input,
+                loss: self.losses[index].clone(),
+                remaining_rows: self.ranges[index].1,
+                layer: self.layers[index].clone(),
                 batch_sizer: plenora_io_core::AdaptiveBatchSizer::new(
-                    self.layers[0].contract.schema.as_ref(),
+                    self.layers[index].contract.schema.as_ref(),
                     request.batch_target,
                 ),
                 cancellation: request.cancellation.clone(),
@@ -513,6 +619,7 @@ impl OpenDatasetHandle for KmlDataset {
 }
 
 struct KmlReader {
+    loss: LossReport,
     input: BufReader<File>,
     remaining_rows: usize,
     layer: LayerContract,
@@ -521,6 +628,9 @@ struct KmlReader {
 }
 
 impl LayerReader for KmlReader {
+    fn loss_report(&self) -> LossReport {
+        self.loss.clone()
+    }
     fn contract(&self) -> &LayerContract {
         &self.layer
     }
@@ -594,6 +704,9 @@ impl<'a> KmlSpoolWriter<'a> {
     }
 
     fn write(&mut self, bytes: &[u8]) -> Result<()> {
+        if bytes.is_empty() {
+            return Ok(());
+        }
         let length = u64::try_from(bytes.len())
             .map_err(|_| err(&PublicMessage::Curated("spool KML non rappresentabile")))?;
         let next = self.bytes.checked_add(length).ok_or_else(|| {
@@ -602,14 +715,8 @@ impl<'a> KmlSpoolWriter<'a> {
             ))
         })?;
         if next > self.limit {
-            return Err(PlenoraIoError::limite_redatto(
-                &PublicMessage::CuratedBetween(
-                    "spool KML di",
-                    NumeroStrutturale::Conteggio(next),
-                    "byte oltre il limite di",
-                    NumeroStrutturale::Limite(self.limit),
-                ),
-            ));
+            return Err(plenora_io_model::quota::Quota::InputBytes
+                .exceeded(plenora_io_model::ErrorPhase::Read));
         }
         let lease = self.budget.context().lease_spill(length)?;
         self.output.write_all(bytes)?;
@@ -622,9 +729,8 @@ impl<'a> KmlSpoolWriter<'a> {
         let length = match value {
             None => SPOOL_NULL,
             Some(bytes) => u32::try_from(bytes.len()).map_err(|_| {
-                PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                    "valore KML troppo grande per lo spool",
-                ))
+                plenora_io_model::quota::Quota::InputBytes
+                    .exceeded(plenora_io_model::ErrorPhase::Read)
             })?,
         };
         self.write(&length.to_le_bytes())?;
@@ -686,6 +792,8 @@ const PUNTO_CON_PIU_TUPLE: PublicMessage =
     PublicMessage::Curated("Point KML con piu' di una tupla di coordinate");
 
 struct PlacemarkStream {
+    native_losses: std::collections::BTreeMap<usize, LossReport>,
+    active_placemark: Option<usize>,
     reader: XmlReader<DecodingReader<BufReader<File>>>,
     event_buffer: Vec<u8>,
     ancestors: Vec<Vec<u8>>,
@@ -695,9 +803,114 @@ struct PlacemarkStream {
     xml_depth: usize,
     element_stack: Vec<Vec<u8>>,
     open_points_with_coordinates: Vec<bool>,
+    unsupported: u64,
+    objects: Vec<(String, u64, u64)>,
+    object_stack: Vec<usize>,
 }
 
 impl PlacemarkStream {
+    fn observe_altitude(&mut self, absolute: bool, has_z: bool) {
+        if !absolute && has_z {
+            self.observe_scoped(NativeElement::AltitudeMode);
+        }
+    }
+
+    fn observe_scoped(&mut self, element: NativeElement) {
+        for layer in std::iter::once(0)
+            .chain(self.object_stack.iter().map(|i| i + 1))
+            .chain(self.active_placemark)
+        {
+            observe_native(
+                self.native_losses.entry(layer).or_default(),
+                NATIVE_READ,
+                element,
+                1,
+                layer as u64,
+                Some(0),
+            );
+        }
+    }
+
+    fn observe_native_element(&mut self, element: &BytesStart<'_>) {
+        // These semantic objects are omitted as a whole. Their native children
+        // and attributes are part of that same omission, not foreign members.
+        if self.element_stack.iter().any(|ancestor| {
+            matches!(
+                local_xml_name(ancestor),
+                b"ExtendedData"
+                    | b"Schema"
+                    | b"NetworkLink"
+                    | b"GroundOverlay"
+                    | b"TimeStamp"
+                    | b"TimeSpan"
+            )
+        }) {
+            return;
+        }
+        let name = element.local_name();
+        let name = name.as_ref();
+        let parent = self.element_stack.last().map(|n| local_xml_name(n));
+        let object = matches!(name, "Document" | "Folder" | "Placemark");
+        let change = match name {
+            "Folder" => Some(NativeElement::Hierarchy),
+            "NetworkLink" | "GroundOverlay" => Some(NativeElement::ExternalReference),
+            "ExtendedData" | "Schema" => Some(NativeElement::ExtendedData),
+            "Style" | "StyleMap" | "styleUrl" => Some(NativeElement::Styles),
+            "TimeStamp" | "TimeSpan" | "visibility" | "open" => {
+                Some(NativeElement::FeatureMetadata)
+            }
+            "name" | "description" if matches!(parent, Some(b"Document" | b"Folder")) => {
+                Some(NativeElement::LayerMetadata)
+            }
+            "LinearRing" if !matches!(parent, Some(b"outerBoundaryIs" | b"innerBoundaryIs")) => {
+                Some(NativeElement::GeometryType)
+            }
+
+            "MultiGeometry" | "coordinates" | "extrude" | "tessellate" | "kml" | "Document"
+            | "Placemark" | "Point" | "LineString" | "Polygon" | "LinearRing"
+            | "outerBoundaryIs" | "innerBoundaryIs" | "name" | "description" | "altitudeMode"
+            | "value" => None,
+            _ => Some(NativeElement::ForeignMembers),
+        };
+        let mut layers = vec![0];
+        layers.extend(self.object_stack.iter().map(|i| i + 1));
+        layers.extend(self.active_placemark);
+        if object {
+            layers.push(self.objects.len() + 1);
+        }
+        layers.sort_unstable();
+        layers.dedup();
+        for layer in layers {
+            let loss = self.native_losses.entry(layer).or_default();
+            if let Some(change) = change {
+                observe_native(loss, NATIVE_READ, change, 1, layer as u64, None);
+            }
+            // Schema attributes belong to the omitted typed-data definition.
+            if name == "Schema" {
+                continue;
+            }
+            for attribute in element.attributes().flatten() {
+                if attribute.key.as_ref() == "id" {
+                    let element = match name {
+                        "Placemark" => NativeElement::FeatureId,
+                        "Document" | "Folder" => NativeElement::LayerMetadata,
+                        _ => NativeElement::ForeignMembers,
+                    };
+                    observe_native(loss, NATIVE_READ, element, 1, layer as u64, None);
+                } else if !attribute.key.as_ref().starts_with("xmlns") {
+                    observe_native(
+                        loss,
+                        NATIVE_READ,
+                        NativeElement::ForeignMembers,
+                        1,
+                        layer as u64,
+                        None,
+                    );
+                }
+            }
+        }
+    }
+
     fn open(path: &Path) -> Result<Self> {
         let input_bytes = usize::try_from(std::fs::metadata(path)?.len()).map_err(|_| {
             err(&PublicMessage::Curated(
@@ -715,6 +928,11 @@ impl PlacemarkStream {
             xml_depth: 0,
             element_stack: Vec::new(),
             open_points_with_coordinates: Vec::new(),
+            unsupported: 0,
+            objects: Vec::new(),
+            native_losses: std::collections::BTreeMap::new(),
+            active_placemark: None,
+            object_stack: Vec::new(),
         })
     }
 
@@ -747,6 +965,9 @@ impl PlacemarkStream {
         check_cancelled_periodically(cancellation, ErrorPhase::Read, self.visited_events)?;
         self.visited_events = self.visited_events.saturating_add(1);
         let event = self.leggi_evento_avanzando()?;
+        if let Event::Start(element) | Event::Empty(element) = &event {
+            self.observe_native_element(element);
+        }
         match &event {
             Event::Decl(dichiarazione) => {
                 applica_codifica_dichiarata(&mut self.reader, dichiarazione);
@@ -898,6 +1119,7 @@ impl PlacemarkStream {
     ) -> Result<Vec<KmlCoord>> {
         let mut coordinates = Vec::new();
         let mut coordinates_visto = false;
+        let mut absolute = false;
         loop {
             match self.next_event(cancellation)? {
                 Event::Start(element) if element.local_name().as_ref() == "coordinates" => {
@@ -910,12 +1132,43 @@ impl PlacemarkStream {
                     }
                     coordinates_visto = true;
                     let text = self.read_text(cancellation)?;
+                    for token in text.split(|c: char| c == ',' || c.is_whitespace()) {
+                        if driver_common::decimal_value_changes(token) {
+                            self.observe_scoped(NativeElement::NumberPrecision);
+                        }
+                    }
+                    if text
+                        .split_whitespace()
+                        .any(|tuple| !(2..=3).contains(&tuple.split(',').count()))
+                    {
+                        return Err(err(&PublicMessage::Curated(
+                            "tupla KML diversa da XY o XYZ",
+                        )));
+                    }
                     coordinates = coords_from_str(&text)
                         .map_err(|_| err(&PublicMessage::Curated("coordinate KML non valide")))?;
                 }
+                Event::Start(element) if element.local_name().as_ref() == "altitudeMode" => {
+                    absolute = self.read_text(cancellation)?.trim() == "absolute";
+                }
+                Event::Start(element)
+                    if matches!(element.local_name().as_ref(), "extrude" | "tessellate") =>
+                {
+                    if !matches!(self.read_text(cancellation)?.trim(), "0" | "false") {
+                        self.observe_scoped(NativeElement::ForeignMembers);
+                    }
+                }
                 Event::Start(_) => self.skip_element(cancellation)?,
                 Event::End(element) if element.local_name().as_ref().as_bytes() == end_tag => {
-                    return Ok(coordinates)
+                    if end_tag != b"LinearRing"
+                        || !self
+                            .element_stack
+                            .iter()
+                            .any(|n| local_xml_name(n) == b"Polygon")
+                    {
+                        self.observe_altitude(absolute, coordinates.iter().any(|c| c.z.is_some()));
+                    }
+                    return Ok(coordinates);
                 }
                 Event::Eof => {
                     return Err(err(&PublicMessage::Curated(
@@ -940,6 +1193,13 @@ impl PlacemarkStream {
                         self.read_geometry_coordinates(b"LinearRing", cancellation)?,
                     ));
                 }
+                Event::Start(element)
+                    if matches!(element.local_name().as_ref(), "extrude" | "tessellate") =>
+                {
+                    if !matches!(self.read_text(cancellation)?.trim(), "0" | "false") {
+                        self.observe_scoped(NativeElement::ForeignMembers);
+                    }
+                }
                 Event::Start(_) => self.skip_element(cancellation)?,
                 Event::End(element) if element.local_name().as_ref().as_bytes() == end_tag => {
                     return Ok(rings)
@@ -957,6 +1217,7 @@ impl PlacemarkStream {
     fn read_polygon(&mut self, cancellation: &CancellationToken) -> Result<KmlPolygon> {
         let mut outer = None;
         let mut inner = Vec::new();
+        let mut absolute = false;
         loop {
             match self.next_event(cancellation)? {
                 Event::Start(element) if element.local_name().as_ref() == "outerBoundaryIs" => {
@@ -974,11 +1235,22 @@ impl PlacemarkStream {
                 Event::Start(element) if element.local_name().as_ref() == "innerBoundaryIs" => {
                     inner.extend(self.read_boundary(b"innerBoundaryIs", cancellation)?);
                 }
+                Event::Start(element) if element.local_name().as_ref() == "altitudeMode" => {
+                    absolute = self.read_text(cancellation)?.trim() == "absolute";
+                }
+                Event::Start(element)
+                    if matches!(element.local_name().as_ref(), "extrude" | "tessellate") =>
+                {
+                    if !matches!(self.read_text(cancellation)?.trim(), "0" | "false") {
+                        self.observe_scoped(NativeElement::ForeignMembers);
+                    }
+                }
                 Event::Start(_) => self.skip_element(cancellation)?,
                 Event::End(element) if element.local_name().as_ref() == "Polygon" => {
                     let outer = outer.ok_or_else(|| {
                         err(&PublicMessage::Curated("Polygon KML senza anello esterno"))
                     })?;
+                    self.observe_altitude(absolute, outer.coords.iter().any(|c| c.z.is_some()));
                     return Ok(KmlPolygon::new(outer, inner));
                 }
                 Event::Eof => {
@@ -1045,9 +1317,9 @@ impl PlacemarkStream {
                 self.read_multi_geometry(cancellation)?,
             )),
             b"Model" | b"Track" | b"MultiTrack" => {
-                return Err(err(&PublicMessage::Curated(
-                    "geometria KML non supportata dal contratto corrente",
-                )))
+                self.unsupported = self.unsupported.saturating_add(1);
+                self.skip_element(cancellation)?;
+                None
             }
             _ => {
                 self.skip_element(cancellation)?;
@@ -1058,12 +1330,18 @@ impl PlacemarkStream {
 
     fn read_placemark(&mut self, cancellation: &CancellationToken) -> Result<Placemark> {
         let mut placemark = Placemark::default();
+        let unsupported_before = self.unsupported;
         loop {
             match self.next_event(cancellation)? {
                 Event::Start(element) => match element.local_name().as_ref().as_bytes() {
                     b"name" => placemark.name = Some(self.read_text(cancellation)?),
                     b"description" => placemark.description = Some(self.read_text(cancellation)?),
                     name => {
+                        if element.name().as_ref().starts_with("gx:")
+                            && !matches!(name, b"Track" | b"MultiTrack")
+                        {
+                            self.unsupported = self.unsupported.saturating_add(1);
+                        }
                         if let Some(geometry) = self.read_geometry(name, cancellation)? {
                             if placemark.geometry.is_some() {
                                 return Err(err(&PublicMessage::Curated(
@@ -1074,8 +1352,24 @@ impl PlacemarkStream {
                         }
                     }
                 },
+                Event::Empty(element)
+                    if matches!(element.local_name().as_ref(), "name" | "description") =>
+                {
+                    self.observe_scoped(NativeElement::MissingValue);
+                }
+                Event::Empty(element)
+                    if matches!(
+                        element.local_name().as_ref(),
+                        "Model" | "Track" | "MultiTrack"
+                    ) || element.name().as_ref().starts_with("gx:") =>
+                {
+                    self.unsupported = self.unsupported.saturating_add(1);
+                }
                 Event::End(element) if element.local_name().as_ref() == "Placemark" => {
-                    return Ok(placemark)
+                    if self.unsupported != unsupported_before {
+                        placemark.geometry = None;
+                    }
+                    return Ok(placemark);
                 }
                 Event::Eof => {
                     return Err(err(&PublicMessage::Curated(
@@ -1084,6 +1378,40 @@ impl PlacemarkStream {
                 }
                 _ => {}
             }
+        }
+    }
+
+    fn next_isolated_placemark(
+        &mut self,
+        cancellation: &CancellationToken,
+        source_index: u64,
+        rejections: &mut std::collections::BTreeMap<u32, PlenoraIoError>,
+    ) -> Result<Option<Placemark>> {
+        self.active_placemark = None;
+        match self.next_placemark(cancellation, source_index) {
+            Err(error)
+                if error.category == plenora_io_model::ErrorCategory::DataMapping
+                    && self
+                        .element_stack
+                        .iter()
+                        .any(|name| local_xml_name(name) == b"Placemark") =>
+            {
+                while self
+                    .element_stack
+                    .iter()
+                    .any(|name| local_xml_name(name) == b"Placemark")
+                {
+                    self.next_event(cancellation)?;
+                }
+                let id = u32::try_from(self.objects.len()).map_err(|_| {
+                    plenora_io_model::quota::Quota::InputEntries
+                        .exceeded(plenora_io_model::ErrorPhase::Read)
+                })?;
+                rejections.insert(id, error);
+                self.unsupported = self.unsupported.saturating_add(1);
+                Ok(Some(Placemark::default()))
+            }
+            result => result,
         }
     }
 
@@ -1099,6 +1427,9 @@ impl PlacemarkStream {
                     if element.local_name().as_ref() == "Placemark"
                         && self.traversed_by_legacy_reader() =>
                 {
+                    self.objects
+                        .push(("Placemark".to_owned(), source_index, source_index + 1));
+                    self.active_placemark = Some(self.objects.len());
                     return self
                         .read_placemark(cancellation)
                         .map(Some)
@@ -1106,7 +1437,7 @@ impl PlacemarkStream {
                             read_row_error(
                                 error,
                                 Some(source_index),
-                                "kml.invalid_placemark",
+                                DiagnosticCause::KmlInvalidPlacemark,
                                 Some(GEOMETRY),
                             )
                         });
@@ -1115,13 +1446,37 @@ impl PlacemarkStream {
                     if element.local_name().as_ref() == "Placemark"
                         && self.traversed_by_legacy_reader() =>
                 {
+                    self.objects
+                        .push(("Placemark".to_owned(), source_index, source_index + 1));
                     return Ok(Some(Placemark::default()));
                 }
+                Event::Empty(element)
+                    if matches!(element.local_name().as_ref(), "Document" | "Folder") =>
+                {
+                    self.objects.push((
+                        element.local_name().as_ref().to_owned(),
+                        source_index,
+                        source_index,
+                    ));
+                }
                 Event::Start(element) => {
+                    if matches!(element.local_name().as_ref(), "Document" | "Folder") {
+                        self.object_stack.push(self.objects.len());
+                        self.objects.push((
+                            element.local_name().as_ref().to_owned(),
+                            source_index,
+                            source_index,
+                        ));
+                    }
                     self.ancestors
                         .push(element.name().as_ref().as_bytes().to_vec());
                 }
-                Event::End(_) => {
+                Event::End(element) => {
+                    if matches!(element.local_name().as_ref(), "Document" | "Folder") {
+                        if let Some(index) = self.object_stack.pop() {
+                            self.objects[index].2 = source_index;
+                        }
+                    }
                     self.ancestors.pop();
                 }
                 Event::Eof => return Ok(None),
@@ -1168,6 +1523,8 @@ impl KmlContractStats {
 // --- scrittura -------------------------------------------------------------
 
 struct KmlWriterState {
+    metadata_check: plenora_io_core::property_plan::NativeMetadataCheck,
+    loss: LossReport,
     staging: StagedFile,
     output: BufWriter<File>,
     rows: u64,
@@ -1214,22 +1571,22 @@ impl FormatWriter for KmlWriterState {
                 None
             } else {
                 let Ok(geometry) = decode_wkb(geom_col.value(row), &limits) else {
-                    rejections.push((row, "kml.invalid_geometry", GEOMETRY));
+                    rejections.push((row, DiagnosticCause::KmlInvalidGeometry, GEOMETRY));
                     continue;
                 };
                 let Ok(geometry) = kml_geometry_from_wkb(&geometry) else {
-                    rejections.push((row, "kml.geometry_not_representable", GEOMETRY));
+                    rejections.push((row, DiagnosticCause::KmlGeometryNotRepresentable, GEOMETRY));
                     continue;
                 };
                 Some(geometry)
             };
             let Ok(name) = name_idx.map(|index| cells[index].text(row)).transpose() else {
-                rejections.push((row, "kml.cell_not_representable", "name"));
+                rejections.push((row, DiagnosticCause::KmlCellNotRepresentable, "name"));
                 continue;
             };
             let name = name.flatten();
             let Ok(description) = desc_idx.map(|index| cells[index].text(row)).transpose() else {
-                rejections.push((row, "kml.cell_not_representable", "description"));
+                rejections.push((row, DiagnosticCause::KmlCellNotRepresentable, "description"));
                 continue;
             };
             let description = description.flatten();
@@ -1244,7 +1601,11 @@ impl FormatWriter for KmlWriterState {
                     Ok(Some(value)) => data.push((f.name().clone(), value)),
                     Ok(None) => {}
                     Err(_) => {
-                        rejections.push((row, "kml.cell_not_representable", f.name().as_str()));
+                        rejections.push((
+                            row,
+                            DiagnosticCause::KmlCellNotRepresentable,
+                            f.name().as_str(),
+                        ));
                         data.clear();
                         break;
                     }
@@ -1289,10 +1650,10 @@ impl FormatWriter for KmlWriterState {
         self.rows = self
             .rows
             .checked_add(u64::try_from(batch.num_rows()).map_err(|_| {
-                PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppe righe KML"))
+                plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Read)
             })?)
             .ok_or_else(|| {
-                PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppe righe KML"))
+                plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Read)
             })?;
         Ok(())
     }
@@ -1301,10 +1662,15 @@ impl FormatWriter for KmlWriterState {
         self.output.write_all(b"</Document></kml>")?;
         self.output.flush()?;
         drop(self.output);
+        self.loss.merge(&self.metadata_check.compare(
+            &KmlDriver,
+            plenora_io_core::loss_table::NativeDriver::Kml,
+            self.staging.path()?,
+        )?);
         let (bytes, outcome) = self.staging.publish()?;
         Ok(Published {
             bytes,
-            loss: LossReport::default(),
+            loss: self.loss,
             fidelity: plenora_io_core::FidelityAssessment::lossless(),
             outcome,
         })
@@ -1600,7 +1966,21 @@ fn kml_geometry_from_wkb(geometry: &WkbGeometry) -> Result<KmlGeometry> {
         )));
     }
     let dimensions = geometry.dimensions;
-    match &geometry.value {
+    let empty = match &geometry.value {
+        WkbValue::Point(point) => point.x.is_nan() || point.y.is_nan(),
+        WkbValue::LineString(points) => points.is_empty(),
+        WkbValue::MultiPoint(parts)
+        | WkbValue::MultiLineString(parts)
+        | WkbValue::MultiPolygon(parts)
+        | WkbValue::GeometryCollection(parts) => parts.is_empty(),
+        _ => false,
+    };
+    if empty {
+        return Err(err(&PublicMessage::Curated(
+            "geometria vuota non rappresentabile in KML",
+        )));
+    }
+    let mut output = match &geometry.value {
         WkbValue::Point(coordinate) => Ok(KmlGeometry::Point(KmlPoint::from(kml_coord_from_wkb(
             coordinate, dimensions,
         )?))),
@@ -1660,7 +2040,20 @@ fn kml_geometry_from_wkb(geometry: &WkbGeometry) -> Result<KmlGeometry> {
         | WkbValue::Triangle(_) => Err(err(&PublicMessage::Curated(
             "tipo WKB esteso non rappresentabile in KML senza linearizzazione",
         ))),
+    }?;
+    if dimensions == CoordinateDimensions::Xyz {
+        match &mut output {
+            KmlGeometry::Point(point) => point.altitude_mode = kml::types::AltitudeMode::Absolute,
+            KmlGeometry::LineString(line) => {
+                line.altitude_mode = kml::types::AltitudeMode::Absolute;
+            }
+            KmlGeometry::Polygon(polygon) => {
+                polygon.altitude_mode = kml::types::AltitudeMode::Absolute;
+            }
+            _ => {}
+        }
     }
+    Ok(output)
 }
 
 fn kml_contract(

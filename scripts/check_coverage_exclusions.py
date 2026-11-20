@@ -3,8 +3,8 @@
 
 Lo scope e' **library coverage**: la soglia dell'80% vale sulle librerie del
 workspace, non su cio' che il workspace usa come attrezzaggio. Le crate non
-libreria — `plenora-bench`, `plenora-fuzz`, `plenora-io-tools` — restano fuori
-dal denominatore.
+libreria — `plenora-bench`, `plenora-fuzz` — restano fuori dal denominatore.
+`plenora-io-tools` ora contiene una libreria: libreria e CLI sono misurate.
 
 Fino a INFRA-0.1 l'esclusione era scritta come
 `(plenora-bench|plenora-fuzz|plenora-io-tools)/src/main\\.rs$`, cioe' nominava un
@@ -529,6 +529,23 @@ def verifica_report(radice: Path, percorso: Path) -> list[str]:
                 "dal denominatore proprio il codice che la soglia sorveglia."
             )
 
+    # A cached executable can still carry coverage mappings for an older,
+    # longer version of this source. Such lines are not uncovered product:
+    # they do not exist in the checkout being qualified.
+    for misurato, righe in righe_del_report(percorso.read_text(encoding="utf-8")).items():
+        relativo = re.search(r"(?:^|/)(crates/[^/]+/src/.*\.rs)$", misurato)
+        if relativo is None:
+            continue
+        sorgente = radice / relativo.group(1)
+        if sorgente.is_file():
+            fine = len(sorgente.read_text(encoding="utf-8").splitlines())
+            oltre = sorted(r for r in righe if r > fine)
+            if oltre:
+                errori.append(
+                    f"{misurato}: mappature oltre la fine del sorgente "
+                    f"({fine} righe): {oltre[:5]}; ripulire gli artefatti "
+                    "con `cargo llvm-cov clean --workspace`."
+                )
     errori.extend(_feature_nel_denominatore(radice, percorso))
     return errori
 

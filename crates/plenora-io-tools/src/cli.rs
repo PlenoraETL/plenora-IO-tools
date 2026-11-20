@@ -28,6 +28,7 @@ use crate::{usage_err, FORMATO_JSON, OPZIONI_AMMESSE};
 
 #[derive(Default)]
 pub struct Cli {
+    pub(crate) flags: std::collections::BTreeSet<String>,
     pub(crate) positionals: Vec<String>,
     /// Dove `read` consegna il dataset Arrow.
     ///
@@ -101,18 +102,6 @@ pub fn kv(s: &str) -> Result<(String, String), (i32, Value)> {
 // `flag` e' `&'static str`: tutti i chiamanti passano il nome di un nostro
 // flag. Il vocabolario e' chiuso, quindi il nome resta nel messaggio senza
 // violare INV-10 — non e' testo runtime, e' uno dei nostri letterali.
-fn parse_usize(value: Option<&String>, flag: &'static str) -> Result<usize, (i32, Value)> {
-    value
-        .ok_or_else(|| usage_err(&PublicMessage::CuratedPair(flag, "richiede un valore")))?
-        .parse()
-        .map_err(|_| {
-            usage_err(&PublicMessage::CuratedPair(
-                flag,
-                "richiede un intero non negativo",
-            ))
-        })
-}
-
 // `flag` e' `&'static str`: tutti i chiamanti passano il nome di un nostro
 // flag. Il vocabolario e' chiuso, quindi il nome resta nel messaggio senza
 // violare INV-10 — non e' testo runtime, e' uno dei nostri letterali.
@@ -147,6 +136,20 @@ fn limite_da_flag<'a>(
     limiti: PipelineLimits,
     it: &mut impl Iterator<Item = &'a String>,
 ) -> Result<Option<PipelineLimits>, (i32, Value)> {
+    if let Some(rule) = plenora_io_model::quota::QUOTAS
+        .iter()
+        .find(|rule| rule.cli == Some(flag))
+    {
+        let value = it
+            .next()
+            .ok_or_else(|| crate::map_err(rule.quota.invalid()))?;
+        let value = rule.quota.parse(value).map_err(crate::map_err)?;
+        return rule
+            .quota
+            .set(limiti, value)
+            .map(Some)
+            .map_err(crate::map_err);
+    }
     let aggiornati = match flag {
         // La deadline della pipeline, finora fissata a 30 000 ms nel modello e
         // non raggiungibile da riga di comando. Sta con le altre quote perche'
@@ -156,30 +159,6 @@ fn limite_da_flag<'a>(
         // cio' che `Instant` rappresenta lo rifiuta `build`. Nessuno dei due
         // degrada al default.
         "--deadline-ms" => limiti.with_duration_ms(parse_u64(it.next(), "--deadline-ms")?),
-        "--max-input-bytes" => {
-            limiti.with_max_input_bytes(parse_u64(it.next(), "--max-input-bytes")?)
-        }
-        // Quota di memoria, distinta da quella dell'ingresso: da FZ-0.2.1
-        // il tetto su una pagina Parquet non compressa ne e' la meta'.
-        // Zero e incoerenze le rifiuta il modello, non il parser; la
-        // motivazione estesa sta nel README.
-        "--memory-bytes" => limiti.with_memory_bytes(parse_u64(it.next(), "--memory-bytes")?),
-        "--max-input-entries" => {
-            limiti.with_max_input_entries(parse_u64(it.next(), "--max-input-entries")?)
-        }
-        "--max-output-bytes" => {
-            limiti.with_max_output_bytes(parse_u64(it.next(), "--max-output-bytes")?)
-        }
-        "--max-rows" => limiti.with_max_rows(parse_u64(it.next(), "--max-rows")?),
-        "--max-columns" => limiti.with_max_columns(parse_u64(it.next(), "--max-columns")?),
-        "--max-vertices" => limiti.with_max_vertices(parse_usize(it.next(), "--max-vertices")?),
-        "--max-wkb-cell-bytes" => {
-            limiti.with_max_wkb_cell_bytes(parse_usize(it.next(), "--max-wkb-cell-bytes")?)
-        }
-        "--max-wkb-components" => {
-            limiti.with_max_wkb_components(parse_usize(it.next(), "--max-wkb-components")?)
-        }
-        "--max-wkb-depth" => limiti.with_max_wkb_depth(parse_usize(it.next(), "--max-wkb-depth")?),
         _ => return Ok(None),
     };
     Ok(Some(aggiornati))
@@ -196,6 +175,12 @@ pub fn parse(args: &[String]) -> Result<Cli, (i32, Value)> {
     let mut cli = Cli::default();
     let mut it = args.iter();
     while let Some(a) = it.next() {
+        if a.starts_with('-')
+            && !cli.flags.insert(a.clone())
+            && !matches!(a.as_str(), "--opt" | "--in-opt" | "--out-opt")
+        {
+            return Err(usage_err(&PublicMessage::Curated("flag ripetuto")));
+        }
         // Le quote si riconoscono prima: sono un gruppo omogeneo che finisce
         // tutto in `PipelineLimits`, e tenerle qui allungava `parse` senza
         // aggiungere niente a chi la legge.
@@ -281,24 +266,9 @@ pub fn parse(args: &[String]) -> Result<Cli, (i32, Value)> {
             // Il nome dice che cosa si sta scegliendo. `--protocol 1` sarebbe
             // stato piu' corto e avrebbe fatto sembrare le due versioni due
             // opzioni pari: non lo sono.
-            "--opt" => {
-                let (k, v) = kv(it.next().ok_or_else(|| {
-                    usage_err(&PublicMessage::Curated("--opt richiede chiave=valore"))
-                })?)?;
-                cli.opts.insert(k, v);
-            }
-            "--in-opt" => {
-                let (k, v) = kv(it.next().ok_or_else(|| {
-                    usage_err(&PublicMessage::Curated("--in-opt richiede chiave=valore"))
-                })?)?;
-                cli.in_opts.insert(k, v);
-            }
-            "--out-opt" => {
-                let (k, v) = kv(it.next().ok_or_else(|| {
-                    usage_err(&PublicMessage::Curated("--out-opt richiede chiave=valore"))
-                })?)?;
-                cli.out_opts.insert(k, v);
-            }
+            "--opt" => insert_option(&mut cli.opts, it.next())?,
+            "--in-opt" => insert_option(&mut cli.in_opts, it.next())?,
+            "--out-opt" => insert_option(&mut cli.out_opts, it.next())?,
             other if other.starts_with("--") => {
                 // Il token non esce: viene da argv. Resta la condizione, e
                 // l'uso completo e' nel messaggio del comando senza argomenti.
@@ -310,5 +280,76 @@ pub fn parse(args: &[String]) -> Result<Cli, (i32, Value)> {
             _ => cli.positionals.push(a.clone()),
         }
     }
+    if cli.limit == Some(0) {
+        return Err(usage_err(&PublicMessage::Curated(
+            "--limit deve essere maggiore di zero",
+        )));
+    }
     Ok(cli)
+}
+
+/// Insieme chiuso dei flag pertinenti alle operazioni sui dataset.
+pub fn validate_command(command: &str, cli: &Cli) -> Result<(), (i32, Value)> {
+    let positional_count = if matches!(command, "write" | "convert") {
+        2
+    } else {
+        1
+    };
+    if cli.positionals.len() > positional_count {
+        return Err(usage_err(&PublicMessage::Curated(
+            "numero di argomenti posizionali non valido",
+        )));
+    }
+    for flag in &cli.flags {
+        let allowed = match flag.as_str() {
+            "--format"
+            | "--opt"
+            | "--in-opt"
+            | "--assume-crs"
+            | "--deadline-ms"
+            | "--max-input-bytes"
+            | "--max-input-entries"
+            | "--max-output-bytes"
+            | "--max-rows"
+            | "--max-columns"
+            | "--max-vertices"
+            | "--max-geometry-components"
+            | "--max-wkb-cell-bytes"
+            | "--max-wkb-components"
+            | "--max-wkb-depth"
+            | "--memory-bytes"
+            | "--spill-bytes"
+            | "--output-expansion-ratio"
+            | "--decompression-ratio" => true,
+            "--from" => command == "convert",
+            "--to" => matches!(command, "convert" | "write"),
+            "--layer" => matches!(command, "read" | "convert" | "write"),
+            "--limit" | "--output" => command == "read",
+            "--durable" | "--out-opt" => matches!(command, "read" | "convert" | "write"),
+            _ => false,
+        };
+        if !allowed {
+            return Err(usage_err(&PublicMessage::Curated(
+                "flag non pertinente al comando",
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn insert_option(
+    options: &mut BTreeMap<String, String>,
+    value: Option<&String>,
+) -> Result<(), (i32, Value)> {
+    let (key, value) = kv(value.ok_or_else(|| {
+        usage_err(&PublicMessage::Curated(
+            "opzione di formato richiede chiave=valore",
+        ))
+    })?)?;
+    if options.insert(key, value).is_some() {
+        return Err(usage_err(&PublicMessage::Curated(
+            "chiave di opzione ripetuta",
+        )));
+    }
+    Ok(())
 }

@@ -91,9 +91,11 @@ fn create_without_gdal_feature_is_typed() {
 
 #[test]
 fn open_without_gdal_feature_is_typed() {
-    // Nel build di default (senza feature) l'apertura fallisce tipizzata.
+    // Il percorso esiste: si verifica il backend, non un file mancante.
+    let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../plenora-io-tools/tests/fixtures/canoniche/canonico.gdb");
     let e = FileGdbDriver
-        .open(Source::Path("x.gdb".into()), opzioni_lettura())
+        .open(Source::Path(directory), opzioni_lettura())
         .map(|_| ())
         .unwrap_err();
     assert!(matches!(

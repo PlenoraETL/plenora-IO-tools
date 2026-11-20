@@ -87,7 +87,6 @@ pub struct Budget {
     /// Il tetto dichiarato, per poterlo **dire** nel rifiuto: `componenti`
     /// scende mentre si legge, e a chi deve allargare la quota serve il valore
     /// che ha configurato, non quello che resta.
-    componenti_iniziali: usize,
     profondita_massima: usize,
     errore: RefCell<Option<PlenoraIoError>>,
 }
@@ -96,7 +95,6 @@ impl Budget {
     pub const fn nuovo(limiti: &WkbLimits) -> Self {
         Self {
             componenti: Cell::new(limiti.max_components),
-            componenti_iniziali: limiti.max_components,
             profondita_massima: limiti.max_depth,
             errore: RefCell::new(None),
         }
@@ -127,14 +125,10 @@ impl Budget {
         // qui non nasconde niente -- i due rami restano quelli che erano.
         self.componenti.get().checked_sub(1).map_or_else(
             || {
-                Err(
-                    self.ferma(PlenoraIoError::limite_redatto(&PublicMessage::CuratedWith(
-                        "componenti della geometria GeoJSON oltre il limite di",
-                        NumeroStrutturale::Limite(driver_common::saturating_u64(
-                            self.componenti_iniziali,
-                        )),
-                    ))),
-                )
+                Err(self.ferma(
+                    plenora_io_model::quota::Quota::WkbComponents
+                        .exceeded(plenora_io_model::ErrorPhase::Read),
+                ))
             },
             |rimasti| {
                 self.componenti.set(rimasti);
@@ -159,12 +153,8 @@ impl Budget {
     fn addebita_membri(&self, quanti: usize) -> Result<(), PlenoraIoError> {
         self.componenti.get().checked_sub(quanti).map_or_else(
             || {
-                Err(PlenoraIoError::limite_redatto(&PublicMessage::CuratedWith(
-                    "componenti della geometria GeoJSON oltre il limite di",
-                    NumeroStrutturale::Limite(driver_common::saturating_u64(
-                        self.componenti_iniziali,
-                    )),
-                )))
+                Err(plenora_io_model::quota::Quota::WkbComponents
+                    .exceeded(plenora_io_model::ErrorPhase::Read))
             },
             |rimasti| {
                 self.componenti.set(rimasti);
@@ -175,14 +165,10 @@ impl Budget {
 
     fn dentro_la_profondita<E: DeError>(&self, profondita: usize) -> Result<(), E> {
         if profondita > self.profondita_massima {
-            return Err(
-                self.ferma(PlenoraIoError::limite_redatto(&PublicMessage::CuratedWith(
-                    "annidamento della geometria GeoJSON oltre il limite di",
-                    NumeroStrutturale::Limite(driver_common::saturating_u64(
-                        self.profondita_massima,
-                    )),
-                ))),
-            );
+            return Err(self.ferma(
+                plenora_io_model::quota::Quota::WkbDepth
+                    .exceeded(plenora_io_model::ErrorPhase::Read),
+            ));
         }
         Ok(())
     }

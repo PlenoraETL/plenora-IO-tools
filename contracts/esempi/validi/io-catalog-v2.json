@@ -829,7 +829,7 @@
         },
         {
           "default": null,
-          "description": "se emettere o redigere la chiave; richiede row_diagnostics.key_field",
+          "description": "chiave sempre redatta; emit alias di redact; richiede row_diagnostics.key_field",
           "key": "row_diagnostics.key_policy",
           "phase": "read",
           "value": {

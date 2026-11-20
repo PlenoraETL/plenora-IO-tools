@@ -129,12 +129,7 @@ fn output_limit_is_checked_before_publish() {
     assert!(!destination.exists());
 }
 
-#[cfg(any(
-    target_os = "linux",
-    target_os = "android",
-    target_vendor = "apple",
-    windows
-))]
+#[cfg(any(target_os = "linux", windows))]
 #[test]
 fn directory_dataset_is_published_with_one_rename() {
     let root = tempfile::tempdir().unwrap();
@@ -196,12 +191,7 @@ fn atomic_noclobber_refuses_a_file_created_after_preflight() {
     assert_eq!(std::fs::read(&source).unwrap(), b"new");
 }
 
-#[cfg(any(
-    target_os = "linux",
-    target_os = "android",
-    target_vendor = "apple",
-    windows
-))]
+#[cfg(any(target_os = "linux", windows))]
 #[test]
 fn atomic_noclobber_refuses_a_directory_created_after_preflight() {
     let root = tempfile::tempdir().unwrap();

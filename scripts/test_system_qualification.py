@@ -41,7 +41,7 @@ class SystemQualification(unittest.TestCase):
         cls.directory = tempfile.TemporaryDirectory(dir=ROOT / 'target')
         cls.addClassCleanup(cls.directory.cleanup)
         cls.root = Path(cls.directory.name)
-        for name in ('contracts/adoption-source.json', 'crates/plenora-io-core/src/property_plan.rs'):
+        for name in ('contracts/adoption-source.json', 'crates/plenora-io-core/src/loss_table.rs'):
             path = cls.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes((ROOT / name).read_bytes())

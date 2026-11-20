@@ -1,5 +1,16 @@
 # Prodotto — che cosa offre e che cosa promette
 
+<!-- generato da codice/versione: inizio -->
+
+Versione del prodotto: **10.0.0**.
+
+| Artefatto Python | Nome |
+| --- | --- |
+| wheel | plenora_io-10.0.0-py3-none-any.whl |
+| sdist | plenora_io-10.0.0.tar.gz |
+
+<!-- generato da codice/versione: fine -->
+
 Questo documento descrive la superficie che un consumatore vede: driver,
 opzioni, contratti pubblici e limiti. Come è costruita e come è verificata sta
 in [ENGINEERING.md](ENGINEERING.md); dove siamo nel percorso di rilascio sta in
@@ -9,18 +20,22 @@ in [ENGINEERING.md](ENGINEERING.md); dove siamo nel percorso di rilascio sta in
 
 ## I dieci driver
 
-| Driver | Direzione | Lettura nativa | Projection | Pruning | Reader concorrenti | Fedeltà | CRS | Feature |
-|---|---|---|---|---|---|---|---|---|
-| `csv` | R/W | sequenziale | esatta | — | multipli | condizionale | nessuno | — |
-| `geojson` | R/W | sequenziale | esatta | — | multipli | condizionale | WGS84 fisso | — |
-| `kml` | R/W | materializzata | — | — | uno attivo | condizionale | WGS84 fisso | — |
-| `shp` | R/W | sequenziale | esatta | — | multipli | condizionale | incorporato | — |
-| `gpkg` | R/W | ad accesso casuale | esatta | — | multipli | condizionale | incorporato | — |
-| `geoparquet` | R/W | ad accesso casuale | esatta | statistiche min/max numeriche | multipli | **lossless** | incorporato | — |
-| `ipc` | R/W | ad accesso casuale | esatta | — | multipli | **lossless** | incorporato | — |
-| `xls` | R/W | materializzata | — | — | uno attivo | condizionale | nessuno | — |
-| `dxf` | R/W | materializzata | — | — | uno attivo | **approssimante** | incorporato | — |
-| `filegdb` | R/W | sequenziale | esatta | — | uno attivo | condizionale | incorporato | `gdal-backend` |
+<!-- generato da codice/formati: inizio -->
+
+| Id | Estensioni | Direzione | Feature | Lettura nativa | Lettura effettiva | Pruning spaziale / predicati | Fedeltà | Tipi scrivibili |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| csv | ["csv"] | bidirectional | assente | streaming_sequential | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
+| dxf | ["dxf"] | bidirectional | assente | materialized | streaming_sequential | none / none | approximating | ["boolean","signed_integer","unsigned_integer","floating","utf8","binary","temporal","decimal","nested","other"] |
+| filegdb | ["gdb"] | bidirectional | gdal-backend | streaming_sequential | materializing | none / none | conditional | ["signed_integer","floating","utf8"] |
+| geojson | ["geojson","json"] | bidirectional | assente | streaming_sequential | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
+| geoparquet | ["parquet"] | bidirectional | assente | streaming_random | streaming_columnar | bounding_box_statistics / numeric_min_max_statistics | lossless | ["boolean","signed_integer","unsigned_integer","floating","utf8","binary","temporal","decimal","nested","other"] |
+| gpkg | ["gpkg"] | bidirectional | assente | streaming_random | streaming_sequential | optional_rtree_index / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","binary"] |
+| ipc | ["arrow","arrows"] | bidirectional | assente | streaming_random | streaming_sequential | none / none | lossless | ["boolean","signed_integer","unsigned_integer","floating","utf8","binary","temporal","decimal","nested","other"] |
+| kml | ["kml"] | bidirectional | assente | materialized | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
+| shp | ["shp","shp.d"] | bidirectional | assente | streaming_sequential | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
+| xls | ["xlsx"] | bidirectional | assente | materialized | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
+
+<!-- generato da codice/formati: fine -->
 
 **Consegna e buffering sono uguali per tutti**: `operation_atomic` con buffering
 adattivo — memoria finché il budget lo consente, poi spool su disco. Un errore a
@@ -124,19 +139,19 @@ sul disco se il nostro muore a metà.
 
 | forma | chi la usa | garanzia |
 |---|---|---|
-| file singolo | `csv`, `geojson`, `kml`, `xlsx`, `dxf`, `gpkg`, `geoparquet`, `arrow` | un rename: il file c'è per intero o non c'è |
+| file singolo | `csv`, `geojson`, `kml`, `xls`, `dxf`, `gpkg`, `geoparquet`, `ipc` | un rename: il file c'è per intero o non c'è |
 | directory-dataset | `filegdb`, e `shp` con destinazione `*.shp.d` | un rename della directory: tutti i file insieme, o nessuno |
-| set di file sciolti | `shp` con destinazione `*.shp` | **nessuna**: quattro rename in sequenza |
+| set di file sciolti | `shp` con destinazione `*.shp` | **non atomica**: fino a cinque rename in sequenza, con rollback best-effort |
 
 La forma raccomandata in produzione per lo Shapefile è la **directory-dataset**,
 e si ottiene chiedendo una destinazione che finisce in `*.shp.d`. Dentro ci sono
-`data.shp`, `data.shx`, `data.dbf` e `data.prj`, e la directory diventa visibile
+`data.shp`, `data.shx`, `data.dbf`, `data.cpg` e `data.prj`, e la directory diventa visibile
 con un rename solo.
 
 #### Il set sciolto va accettato, non subìto
 
-La forma compatibile — `dati.shp` accanto a `dati.shx`, `dati.dbf`, `dati.prj` —
-**non ha quella garanzia e non può averla**: quattro file separati non si rendono
+La forma compatibile — `dati.shp` accanto a `dati.shx`, `dati.dbf`, `dati.prj`, `dati.cpg` —
+**non ha quella garanzia e non può averla**: cinque file separati non si rendono
 visibili in un atto solo su nessuno dei filesystem supportati. Per questo non si
 ottiene più deducendola dall'estensione: una destinazione `*.shp` è **rifiutata**
 finché non la si accetta con l'opzione di formato
@@ -176,9 +191,48 @@ accanto alla destinazione.
 4. **Ripetere la conversione**, preferibilmente verso `*.shp.d`, dove questa
    procedura non serve.
 
-Lo staging non va cercato: è una directory temporanea che il processo rimuove al
-termine, anche in errore. Ciò che il crollo può lasciare è **solo** accanto alla
-destinazione.
+Lo staging viene rimosso al rientro ordinato, anche in errore. Un arresto
+brusco può lasciare sia file pubblicati parzialmente sia una directory temporanea
+adiacente: dopo aver accertato che nessuna scrittura sia attiva, isolare i residui
+attribuibili al tentativo fallito e ripetere la conversione. Non cancellare
+accessori di provenienza incerta: scegliere una destinazione libera.
+
+Il no-clobber riguarda l'intero insieme dichiarato dal driver, inclusi accessori
+che IO non scrive ma altri programmi rileggono. Il principale e i suffissi SQLite seguono le regole reali del filesystem.
+Su filesystem sensibili alle maiuscole, un altro dataset con grafia diversa
+non blocca la destinazione e un `-WAL` non equivale al `-wal` aperto da SQLite.
+Un membro effettivamente presente produce `OUTPUT_EXISTS`, senza cancellarlo. Per SHP comprende `.qix`, `.sbn`,
+`.sbx`, `.shp.xml`, `.prj` e `.cpg`; per CSV `.prj` e `.csvt`; per GPKG
+`-wal`, `-shm` e `-journal`. `VEC.SHP` produce `VEC.SHP`, `VEC.SHX`,
+`VEC.DBF`, `VEC.PRJ`, `VEC.CPG`: ogni lettera dell'estensione conserva la
+forma richiesta (anche `ShP` → `ShX`). Il nome del layer di `nome.shp.d` è
+`nome`; i file interni mantengono il prefisso `data`.
+
+In lettura la corrispondenza esatta vince. La ricerca alternativa degli
+accessori per estensione ignora le maiuscole dell'estensione, mantenendo il
+prefisso esatto del dataset su filesystem sensibili; più candidati senza
+corrispondenza esatta sono un errore di ambiguità. I suffissi SQLite seguono
+sempre le regole reali del filesystem. Quota, footprint,
+identità e rifiuto dei symlink comprendono tutti i membri presenti, anche quelli
+estranei noti. SHP richiede `.shp` e `.dbf`; `.shx` è facoltativo, ma se presente
+deve indicizzare tutti i record in ordine, con lunghezze coerenti. Il conteggio
+SHP/DBF viene verificato anche senza SHX. Un `.prj` vuoto va ripristinato oppure
+rimosso fornendo `--assume-crs`; un `.cpg` vuoto va sostituito con una codepage
+supportata oppure rimosso per usare LDID. L'assenza non equivale a un file vuoto.
+I nomi CPG non distinguono maiuscole e spazi ASCII: `ANSI 1250`–`ANSI 1258`,
+`CP1250`–`CP1258` e `WINDOWS-1250`–`WINDOWS-1258` indicano le rispettive
+Windows codepage già supportate; restano UTF-8, ASCII e ISO-8859-1 con gli
+alias numerici. `System` e `ANSI` senza numero non identificano una codifica
+portabile e sono rifiutati: indicare la codepage originale nel `.cpg`, oppure
+rimuoverlo soltanto quando LDID identifica correttamente quella codifica.
+
+
+FileGDB comprende l'intero albero, inclusi indici e lock. Gli staging adiacenti
+`<stem>.plenora-tmp-*.gdb` e i corrispondenti `.lock`, anche maiuscoli, impediscono
+una nuova scrittura con `OUTPUT_EXISTS`. Dopo un crash, verificare che il
+processo proprietario sia terminato, conservare o isolare il relativo staging e
+lock e ripetere verso una destinazione libera. Non rimuovere lock di processi
+attivi. Le directory continuano a essere pubblicate con un solo rename.
 
 ### Che cosa significano le classi di fedeltà
 
@@ -186,7 +240,7 @@ destinazione.
 |---|---|
 | **lossless** | il formato rappresenta il contratto senza perdita |
 | **condizionale** | la perdita dipende dal contratto, non dal formato: il CSV conserva i valori testuali; la perdita dello schema Arrow degli altri scalari è dichiarata |
-| **approssimante** | il formato approssima per costruzione. DXF tassella archi ed ellissi, esplode le geometrie multipart, rappresenta il testo come punto |
+| **approssimante** | l’esito osservato può approssimare anche un formato condizionale quando avviene una coercizione. DXF tassella archi ed ellissi, esplode le geometrie multipart, rappresenta il testo come punto |
 
 Ciò che si perde è dichiarato nel report di perdita, non taciuto, e il
 **contratto** di quel report è ratificato: vedi
@@ -195,8 +249,7 @@ Ciò che si perde è dichiarato nel report di perdita, non taciuto, e il
 ### Modalità di lettura nativa
 
 La modalità nativa è ciò che il formato consente; la modalità effettiva è
-sempre `streaming_sequential`, perché l'adapter comune impone l'atomicità
-operativa.
+indicata da `read_mode` nel catalogo. L’atomicità operativa è un asse distinto.
 
 * **sequenziale** — il file si legge in avanti una volta sola;
 * **ad accesso casuale** — il formato indicizza e consente di saltare;
@@ -213,23 +266,34 @@ operativa.
 
 Le opzioni sono dichiarate in uno **schema**: chiave, fase (`read`, `write`,
 `both`), tipo del valore e default. Un valore fuori schema è rifiutato prima di
-raggiungere il driver, con il token dell'opzione rifiutata e l'elenco degli
-ammessi.
+raggiungere il driver, con categoria `invalid_configuration`, codice
+`CLI_USAGE` e il vocabolario ammesso. Chiavi e valori ricevuti sono redatti.
 
 `plenora-io catalog` emette lo schema completo. Le opzioni con un default
 diverso da «assente»:
 
-| Driver | Chiave | Fase | Valore | Default |
-|---|---|---|---|---|
-| `csv` | `delimiter` | entrambe | un carattere ASCII | `,` |
-| `csv` | `geometry_encoding` | scrittura | `wkt` \| `xy` | `wkt` |
-| `csv` | `wkt_column` | lettura | testo | assente |
-| `xls` | `geometry_encoding` | scrittura | `wkt` \| `xy` | `wkt` |
-| `xls` | `wkt_column` | lettura | testo | assente |
-| `xls` | `sheet` | lettura | testo | primo foglio del workbook |
-| `shp` | `publish_mode` | scrittura | `shapefile_directory_dataset` \| `loose_shapefile_set` | nessuno: `*.shp.d` si deduce, `*.shp` va accettata |
-| `shp` | diagnostica di riga e nomi DBF | | | vedi catalogo |
-| `geoparquet` | opzioni di scrittura | | | vedi catalogo |
+<!-- generato da codice/opzioni: inizio -->
+
+| Driver | Chiave | Fase | Dominio | Default | Significato |
+| --- | --- | --- | --- | --- | --- |
+| csv | delimiter | both | char | , | separatore di campo ASCII, esclusi virgolette, CR e LF |
+| csv | geometry_encoding | write | {"enum":["wkt","xy"]} | wkt | come scrivere la geometria: colonna WKT o colonne x/y |
+| csv | wkt_column | read | text | assente | colonna che contiene la geometria in WKT |
+| csv | x_column | read | text | assente | colonna dell'ascissa, da usare insieme a y_column |
+| csv | y_column | read | text | assente | colonna dell'ordinata, da usare insieme a x_column |
+| geoparquet | compression | write | {"enum":["brotli","gzip","lz4","none","snappy","uncompressed","zstd"]} | snappy | codec di compressione delle pagine |
+| ipc | serialization | write | {"enum":["file","stream"]} | file | serializzazione IPC: contenitore `file` con footer, o flusso `stream` |
+| shp | publish_mode | write | {"enum":["shapefile_directory_dataset","loose_shapefile_set"]} | assente | forma di pubblicazione; .shp.d si deduce, .shp va accettata |
+| shp | row_diagnostics.examples_limit | read | {"integer":{"max":64,"min":1}} | 64 | numero massimo di righe di esempio per diagnostica |
+| shp | row_diagnostics.key_field | read | text | assente | campo DBF usato come chiave nelle diagnostiche di riga |
+| shp | row_diagnostics.key_policy | read | {"enum":["emit","redact"]} | assente | chiave sempre redatta; emit alias di redact; richiede row_diagnostics.key_field |
+| xls | geometry_encoding | write | {"enum":["wkt","xy"]} | wkt | come scrivere la geometria: colonna WKT o colonne x/y |
+| xls | sheet | read | text | assente | nome esatto del foglio da leggere; in assenza valgono le regole comuni di selezione |
+| xls | wkt_column | read | text | assente | colonna che contiene la geometria in WKT |
+| xls | x_column | read | text | assente | colonna dell'ascissa, da usare insieme a y_column |
+| xls | y_column | read | text | assente | colonna dell'ordinata, da usare insieme a x_column |
+
+<!-- generato da codice/opzioni: fine -->
 
 I driver senza opzioni dichiarate non ne accettano: passarne una è un errore di
 configurazione, non un valore ignorato.
@@ -244,6 +308,31 @@ configurazione, non un valore ignorato.
 
 Nessun driver riproietta. Il CRS viene letto, scritto o dichiarato — mai
 trasformato.
+
+CSV e XLSX senza `wkt_column`, `x_column` e `y_column` si leggono come tabelle
+senza geometria e senza `--assume-crs`. La presenza di una sola coordinata
+configurata resta un errore; per leggere una geometria occorrono la colonna WKT
+oppure entrambe le colonne X/Y, e il CRS esplicito. Anche la scrittura XLSX
+accetta tabelle senza geometria. Una stringa vuota viene scritta come cella
+stringa presente, distinta dalla cella assente che rappresenta null.
+
+La tabella `loss_table` del core governa le classi di attributi e le dimensioni
+del catalogo, la normalizzazione dei tipi in scrittura e il trasporto dei
+metadati Arrow. `arrow_metadata_not_preserved` conta soltanto le chiavi sorgenti
+che differiscono dallo schema effettivamente riletto, con conteggi e indici
+strutturali. La ricostruzione identica non costituisce una perdita;
+i valori e i nomi delle chiavi opache non entrano nella diagnostica. GPKG
+mantiene le categorie specifiche del proprio piano. Il confronto copre anche tipi, nomi, ordine e nullabilità dei campi consegnati.
+La verifica dello schema non sostituisce la qualifica dei singoli membri nativi
+ignorati dai parser.
+
+Una geometria con `shp.measure_no_data` nei metadati nativi è rifiutata con
+`unsupported` verso destinazioni diverse da SHP, IPC e GeoParquet: il controllo
+è conservativo sul contratto, anche se un batch non contiene la sentinella.
+La misura mancante non viene convertita in una misura reale. KML scrive Z con
+`altitudeMode=absolute` e rifiuta Point vuoti, LineString senza coordinate e
+aggregati geometrici vuoti. Per FileGDB, OGC:CRS84 non conservato come
+identificatore è dichiarato `crs_id_not_preserved_absent`.
 
 #### `--assume-crs` e il CRS che la sorgente dichiara
 
@@ -267,6 +356,13 @@ senza che la busta lo dicesse. Il confronto non è un resolver: `OGC:CRS84` ed
 `OGC:CRS84` (prove `un_assume_crs_che_contraddice_il_crs_dichiarato_e_rifiutato`
 in `plenora-io-tools`, `verifica_crs_assunto_rifiuta_cio_che_non_puo_confermare`
 in `plenora-io-model`).
+
+Un layer senza geometrie rifiuta `--assume-crs` come configurazione senza effetto
+(`invalid_configuration/validate/CLI_USAGE`). Il controllo EPSG richiede un
+codice intero positivo canonico nei 32 bit con segno: testo, segno `+`, zeri
+iniziali e zero sono rifiutati come configurazione. Non si consulta un registro:
+un codice sintatticamente valido, anche `EPSG:999999`, resta una dichiarazione
+del chiamante, senza attestazione di esistenza e con genere `unknown`.
 
 #### `--assume-crs` dichiara, non risolve
 
@@ -360,10 +456,12 @@ regola dei lettori non lo risolve, e un GeoPackage in WGS 84 convertito in
 Shapefile o DXF si rileggeva non risolto. Il GeoPackage rifiuta con
 `unsupported`, non più `crs`, ciò che `gpkg_spatial_ref_sys` non sa
 rappresentare: un CRS senza identificatore, un codice che non è un intero
-canonico (`EPSG:04326`), un'autorità con un codice testuale (`OGC:CRS84`, che
-un GeoJSON porta sempre). Sono limiti del bersaglio su un CRS risolto (REJ-001
-«support»); fino a db1307d `OGC:CRS84` usciva «CRS dichiarato ma non
-risolto». Il DXF, per la stessa ragione, rifiuta con `unsupported` un CRS noto
+canonico (`EPSG:04326`) o un'autorita' con codice testuale non rappresentabile.
+L'eccezione esplicita e' `OGC:CRS84`: il GeoJSON RFC 7946 si scrive nella riga
+WGS84 `EPSG:4326`, mantenendo x=longitudine e y=latitudine, senza riproiezione.
+La diversa rappresentazione dell'identificatore viene dichiarata nella perdita.
+Gli altri rifiuti sono limiti del bersaglio su un CRS risolto (REJ-001 `support`).
+Il DXF, per la stessa ragione, rifiuta con `unsupported` un CRS noto
 solo per un identificatore di cui non sa scrivere il WKT (prima `crs`).
 
 **L'identificatore che Shapefile e DXF scrivono è quello che il WKT dice.**
@@ -711,56 +809,52 @@ La superficie con garanzia di compatibilità è **il JSON della CLI**. L'API Rus
 
 ### Le buste
 
-| Comando | Contratto | Fonte del nome |
-|---|---|---|
-| errori | `plenora-error-v1` | ERRORS-1.0 |
-| `catalog` | `plenora-io-catalog-v1` | catalogo comune |
-| `inspect` | `plenora-io-inspect-v1` | catalogo comune |
-| `layers` | `plenora-io-layers-v1` | catalogo comune |
-| `read` | `plenora-io-read-result-v1` | catalogo comune |
-| `write` | `plenora-io-write-result-v1` | catalogo comune |
-| `convert` | `plenora-io-convert-v1` | catalogo comune |
-| `capabilities` | `plenora-capabilities-v2` | CAPABILITY-DISCOVERY-2.0 |
-| `--version` | `plenora-io-version-v2` | nessuna |
+<!-- generato da codice/buste: inizio -->
 
-La colonna della fonte non è decorativa: dove un contratto fissato assegna già
-un identificatore, quello **è** il nome, e non c'è niente da scegliere. Due
-righe smentiscono la somiglianza — `read` rende `-read-result-v1` perché il
-catalogo distingue l'ingresso dall'uscita, e l'errore è `plenora-error-v1`
-**senza** `io` perché i fallimenti pubblici mappano sul contratto d'errore
-comune — ed è la ragione per cui il registro sta in
-`contracts/nomi-dei-contratti.json` e un gate lo confronta con il checkout
-fissato invece di fidarsi della forma dei nomi.
+| Comando | Contratto | Protocollo |
+| --- | --- | --- |
+| catalog | plenora-io-catalog-v2 | 2 |
+| inspect | plenora-io-inspect-v1 | 2 |
+| layers | plenora-io-layers-v1 | 2 |
+| read | plenora-io-read-result-v2 | 2 |
+| write | plenora-io-write-result-v2 | 2 |
+| convert | plenora-io-convert-v1 | 2 |
+| capabilities | plenora-capabilities-v2 | 2 |
+| --version | plenora-io-version-v2 | 2 |
+| errori | plenora-error-v1 | 2 |
 
-`--version` è l'unica riga senza una fonte: non è un'operazione del catalogo ma
-una superficie di scoperta della CLI, quindi il nome resta nostro ed è l'unico
-caso in cui il suffisso `v2` significa ancora il protocollo.
+<!-- generato da codice/buste: fine -->
 
-### `plenora-io-error-v1`
+Il contratto identifica la struttura dell’operazione, mentre `protocol_version`
+identifica la busta comune. I due numeri di versione sono indipendenti.
+Il blocco è ricavato dai nomi emessi dal codice, inclusi versione ed errori.
 
-L'oggetto `error` porta **esattamente sei chiavi**:
+### `plenora-error-v1`
+
+L'oggetto `error` porta **sei chiavi obbligatorie**; `details` è la settima quando sono
+presenti dettagli strutturati (per esempio la diagnostica di riga):
 
 ```json
 {
   "status": "error",
-  "protocol_version": 1,
-  "contract": "plenora-io-error-v1",
+  "protocol_version": 2,
+  "contract": "plenora-error-v1",
   "error": {
     "category": "...",
     "phase": "...",
     "remote_effect": "...",
     "retry": { "kind": "..." },
     "code": "...",
-    "message": "..."
+    "message": "...",
+    "details": {}
   }
 }
 ```
 
-`row_diagnostics` è l'unico campo opzionale, presente quando si osservano
-rifiuti per riga.
+`error.details.row_diagnostics` è presente quando si osservano rifiuti per riga.
+`details` può contenere anche `driver`, `field` e `capability_reason`.
 
-I campi `driver`, `field` e `capability_reason` esistono nel tipo Rust e **non
-sul wire**.
+I dettagli strutturati conservano il contesto senza inserirlo nel messaggio.
 
 ### Il quartetto è la chiave di compatibilità
 
@@ -786,7 +880,8 @@ costruisce da varianti che accettano solo `&'static str` e numeri strutturali:
 | `CuratedWith` | un testo e un numero strutturale (indice, conteggio, limite) |
 | `CuratedBetween` | due testi e due numeri |
 | `Capability` | una ragione tipizzata |
-| `OpzioneRifiutata` | l'unica variante con testo runtime: un token **bounded e scappato**, coniabile solo dal validatore delle opzioni |
+| `OpzioneRifiutata` | condizione ed elenco statico degli ammessi; il token ricevuto non viene emesso |
+| `CuratedList` | elenco di termini statici derivato dal catalogo, mai valori del chiamante |
 
 Il valore **decodificato** di `message` non supera **2048 byte UTF-8**. Il tetto
 non è promesso sul JSON serializzato, dove l'escaping espande: una virgoletta
@@ -807,6 +902,56 @@ I crate sono interni e `publish = false`: l'avversario di questo invariante è l
 distrazione, non un aggressore. La documentazione del tipo porta un esempio
 eseguibile che dimostra il limite invece di ammetterlo a parole.
 
+### Perdite osservate e isolamento dei membri
+
+Gli attributi DXF ricostruiti identici (`layer`, `dxf_type`, `text` nullo)
+non sono perdite. Il confronto comune prima della pubblicazione rilegge il
+file completato e confronta gli attributi originali conservati nello spool
+soggetto alle quote; conta le celle diverse, mancanti e le righe aggiunte.
+Le ragioni `attribute_loss` derivano dalle differenze osservate, non dalla
+sola capability del formato. Il confronto dei metadati resta unico per i
+dieci driver, incluso IPC che confronta lo schema effettivamente serializzato.
+
+In FileGDB il catalogo resta un prerequisito globale. La struttura dei membri
+dei singoli oggetti viene invece verificata localmente: `.gdbtable` e `.gdbtablx`
+assenti o vuoti sono `object_missing`/`object_empty`; membri troncati o malformati riportano
+l'errore strutturale nell'oggetto enumerato. I fratelli sani restano selezionabili.
+Nessun recupero implicito GDAL sostituisce questa dichiarazione.
+
+I nomi fisici FileGDB hanno una sola identità ASCII indipendente dal caso:
+prefisso `a`, otto cifre esadecimali e suffisso (anche gli indici `nome.atx`).
+Il parser comune associa tutti i suffissi al relativo oggetto; i controlli di
+header restano quelli previsti per ciascun tipo. `gdb` e `timestamps` usano
+la stessa normalizzazione. Alias della stessa identità sono ambigui.
+Questa è una regola di interoperabilità di IO-TOOLS, non una promessa generale
+del filesystem o di Esri. [GDAL 3.9.3, OpenFileGDBDataSource::Open](https://github.com/OSGeo/gdal/blob/v3.9.3/ogr/ogrsf_frmts/openfilegdb/ogropenfilegdbdatasource.cpp#L180-L290)
+riconosce il prefisso diretto minuscolo e costruisce percorsi canonici minuscoli.
+Per le varianti IO-TOOLS prepara una copia temporanea canonica, conservata
+anche dai lettori attivi; non rinomina l'ingresso. La scrittura nativa e la
+materializzazione usano la stessa identità. La copia richiede spazio temporaneo
+proporzionale al dataset, già soggetto alla quota di ingresso.
+
+Le regole dipendono dal formato: Shapefile risolve le estensioni dei companion
+con il resolver comune; GPKG conserva i suffissi SQLite esatti `-wal`, `-shm`
+e `-journal` sul filesystem ospite. DXF e KML sono file singoli: l'estensione
+riconosce il formato senza cambiare l'identità del percorso richiesto.
+
+### Diagnostiche: riservatezza dei testi e dei valori
+
+I testi degli errori e delle diagnostiche non contengono dati del chiamante:
+nessun valore, nome di campo, nome di layer o percorso. Le cause di riga
+appartengono al vocabolario chiuso `DiagnosticCause`; il deserializzatore
+rifiuta codici arbitrari. Anche conteggi e limiti di conoscenza sono validati
+contro vocabolari chiusi prima della serializzazione.
+
+I nomi di campo e layer sono schema dichiarato dal chiamante: possono comparire
+soltanto in campi strutturati dedicati e tipizzati (`field`, `layer`, `column`),
+mai nei testi. `column` usa `DiagnosticFieldName`, separato da `DiagnosticCause`.
+I valori non compaiono mai, neppure nelle chiavi diagnostiche: `key.value` non
+ha valori costruibili e lo stato emesso resta `redacted`. Per compatibilita
+sintattica `row_diagnostics.key_policy=emit` viene accettato come alias di
+`redact`; non autorizza l'esposizione del valore.
+
 ### `ContractIdentifier` ed `ErrorContext`
 
 Un nome di campo o di layer non entra nel testo dell'errore: entra in un campo
@@ -815,7 +960,7 @@ non esiste una conversione da `String` — e i nomi non attestabili sono
 **rifiutati**, non troncati.
 
 `ErrorContext` porta driver, campo e ragione di capability accanto all'errore,
-per il chiamante Rust. Nessuno dei tre raggiunge il wire v1.
+per il chiamante Rust; sul wire corrente il contesto strutturato entra in `error.details`.
 
 ### Budget e limiti
 
@@ -823,28 +968,44 @@ Un'operazione riceve un `PipelineBudget` che porta i limiti e un **permit di
 input**, consumato per `move`: la stessa sorgente non può essere osservata due
 volte.
 
-| Limite | Governa |
-|---|---|
-| `max_rows`, `max_columns` | cardinalità del contratto e dello stream |
-| `max_input_bytes`, `max_input_entries` | il footprint della sorgente, prima di aprirla |
-| `max_output_bytes` | la destinazione |
-| `memory_bytes` | la memoria della pipeline. **Non** è la soglia dello spool: quella è la metà della capacità effettiva, e l'altra metà resta al batch in materializzazione |
-| `spill_bytes` | i byte che lo spool può scrivere sul file temporaneo |
-| `duration_ms` | la deadline dell'operazione, dalla costruzione del budget |
-| `max_wkb_cell_bytes`, `max_wkb_components`, `max_wkb_depth` | ogni geometria, in lettura e in scrittura |
-| `decompression_ratio` | il rapporto fra byte dichiarati e byte compressi negli archivi |
+<!-- generato da codice/quote: inizio -->
+
+| Flag / campo | Default | Unità | Ambito | Fasi |
+| --- | --- | --- | --- | --- |
+| --max-input-bytes | 268435456 | byte | totale sorgente e spool dei decoder | ["read"] |
+| --max-input-entries | 10000 | entry | totale sorgente | ["read"] |
+| --max-rows | 10000000 | righe | totale operazione | ["read","write"] |
+| --max-columns | 4096 | colonne | schema layer e totale del piano di scrittura | ["validate","prepare","read","write"] |
+| --max-geometry-components | 16777216 | componenti | totale operazione | ["read","write"] |
+| --max-output-bytes | 1073741824 | byte | totale operazione | ["read","write","finalize","commit"] |
+| --output-expansion-ratio | 1073741824 | moltiplicatore | uscita / ingresso osservato non vuoto | ["read","write","finalize","commit"] |
+| --max-wkb-cell-bytes | 67108864 | byte | per geometria | ["read","write"] |
+| --max-wkb-components | 100000 | componenti | per geometria | ["read","write"] |
+| --max-wkb-depth | 32 | livelli | per geometria | ["read","write"] |
+| --max-vertices | 50000000 | componenti (coordinate e membri) | per geometria; alias storico che stringe max_wkb_components | ["read","write"] |
+| --memory-bytes | 536870912 | byte | memoria viva pipeline e pool | ["prepare","read","write","finalize"] |
+| --spill-bytes | 4294967296 | byte | spill vivo pipeline e pool | ["read","write","finalize"] |
+| --decompression-ratio | 1000 | moltiplicatore | totale archivio compresso | ["read"] |
+| concurrent_operations | 64 | operazioni | pool condiviso | ["prepare","read","write"] |
+| --deadline-ms | 30000 | ms | operazione; scadenza distinta dalle quote | timeout |
+
+<!-- generato da codice/quote: fine -->
 
 I limiti si applicano **prima** dell'allocazione che dovrebbero impedire. Un
 tetto verificato dopo aver materializzato la cella non è un tetto.
 
-Il superamento è sempre `ResourceLimit`, e il messaggio porta il numero
-strutturale — conteggio e limite — non il valore letto dal file.
+Le quote configurabili sono enumerate da `plenora_io_model::quota::QUOTAS`.
+Zero, negativi, testo e incoerenze sono `invalid_configuration/validate/CLI_USAGE`;
+per memoria inferiore a 64 MiB occorre abbassare anche `max_wkb_cell_bytes`.
+Il superamento è `ResourceLimit` e nomina la quota della tabella nella fase
+effettiva. Alla misura dello staging (`finalize`) riporta anche byte e limite.
+La deadline conserva la categoria `timeout`.
 
 ### Compatibilità
 
 | | |
 |---|---|
-| **vincolante** | il contratto e la `protocol_version` di ciascuna busta; l'insieme delle chiavi di `plenora-io-error-v1`; il quartetto degli errori |
+| **vincolante** | il contratto e la `protocol_version` di ciascuna busta; l'insieme delle chiavi di `plenora-error-v1`; il quartetto degli errori |
 | **non vincolante** | il testo di `message`; l'ordine delle chiavi; l'API Rust |
 | **cambio breaking** | rimuovere o rinominare una chiave, cambiare un valore del quartetto per un sito esistente, cambiare la semantica di un codice |
 
@@ -874,7 +1035,7 @@ per i nuovi rifiuti e la migrazione dalla 7.x. La matrice interop e le campagne
 | XLSX | interi scrivibili nell'intervallo inclusivo [-2^53, 2^53]; oltre, rifiuto prima della pubblicazione. Float32 ampliato esattamente a Float64; float non finiti e decimali rifiutati. In lettura date native: Date32 per formato solo data e millisecondi multipli di 86_400_000, Timestamp(Microsecond, senza fuso) con ora, Duration(Microsecond) per stili durata. Epoca 1900/1904 dal workbook; giorni 1-59 del 1900 esatti, giorni 0 e 60 ambigui/inesistenti rifiutati. Seriali negativi, fuori dominio o non canonici al millisecondo rifiutati: candidato ms arrotondato razionalmente e accettato solo se ms/86_400_000 arrotondato a binary64 (round-half-even) riproduce gli stessi bit. Timestamp e Duration Arrow conservano ms*1000 microsecondi. Colonne temporali miste ed errori Excel rifiutati; solo il vuoto diventa null. Date/durate ISO restano testo. Le date native diventavano silenziosamente null nelle versioni 1.0.0-6.0.0 elencate in RELEASE.md; ora si leggono |
 | KML, XLSX, DXF | lettura materializzata: la libreria sottostante ha bisogno di **tutto l'input** prima della prima riga. Dove stia quell'input lo decide il buffering, che è un asse separato: non è una promessa che stia tutto in RAM. I limiti di input sono l'unica difesa, e vengono applicati prima del parser |
 | DXF | un `DATATABLE` oltre 2^20 righe, colonne o celle, e un'anteprima (`THUMBNAILIMAGE`) la cui decodifica supererebbe 16 MiB, rendono il documento illeggibile (`FORMAT_ERROR`). Sono tetti espliciti del prodotto contro le prenotazioni dimensionate dall'input, **non** una garanzia di leggere ogni file AutoCAD. L'ordine delle celle del `DATATABLE` (per colonne, un valore per ogni riga) segue la specifica Autodesk come la scrive il fork ed è verificato solo in round-trip interno, non contro file AutoCAD reali: il driver non legge `DATATABLE`, ma il lettore li attraversa. In scrittura il fork accetta solo `DATATABLE` completi (un nome per colonna, un valore per ogni riga di ogni colonna, un tipo per colonna) e rifiuta gli altri con un errore; il driver scrive entità e `GEODATA`, non `DATATABLE` |
-| DXF | i reali si scrivono in ASCII con dodici decimali: per le coordinate è sotto la precisione geografica di 1 cm (un dodicesimo decimale di grado è circa 1e-7 m), per altri valori reali è un arrotondamento che il formato non segnala |
+| DXF | le coordinate si scrivono in ASCII con dodici decimali; `native_coordinate_precision` dichiara arrotondamento, possibile collasso di vertici distinti e normalizzazione di -0 |
 | GeoParquet | dalla 4.2.0 il decoder del footer (`parquet` 60 più il fork `vendor/parquet`) lega ai byte residui ogni elenco Thrift e i row group, rifiuta uno schema più profondo di 64 livelli prima di convertirlo, e addebita ogni prenotazione -- elenchi, column chunk, percorsi delle foglie, il footer stesso -- al tetto delle pagine (metà della capacità effettiva) **prima** di farla; un footer più lungo di metà del tetto si rifiuta dalla coda. Il caso della 4.1.1 (3966 byte, `malloc(2315255472)`) è un errore. Restano fuori dal tetto le espansioni vere dei dati (un dizionario ripetuto su molte righe), che governa il budget delle pagine, e il page index, che il driver non legge. Anche i decoder delle pagine non si fidano piu' dei valori del file: lunghezze, indici di dizionario, prefissi e suffissi delta, corse RLE e livelli v2 o `BIT_PACKED` oltre i byte della pagina sono un errore invece di un panico, e i quattro casi che prima si leggevano in silenzio con un valore sbagliato (un prefisso delta oltre il valore precedente, il resto di una pagina `BYTE_STREAM_SPLIT` o FLBA `PLAIN`, una corsa RLE oltre `u32`) si rifiutano. Il delta e' lo stesso del fork di plenora-data-tools2 (`vendor/parquet`, registro `vendor-parquet-fork.json`) |
 | Runtime `io.read`: vettore di richiesta | Deviazione, regola 4, da RUNTIME-VECTORS-1.0 §5 (`io-read-request`), limitata al payload illustrativo: `artifact_source`, `format` e `layer` stringa non rispettano `plenora-io-read-input-v1`, che richiede `source` e `layer` intero. Il binding rifiuta con `RUNTIME_PAYLOAD_INVALID` prima del risolutore. Conseguenza per il consumatore e hazard: copiare la fixture impedisce l'invocazione, anche con metadati validi; usare il payload dello schema IO sullo stesso riferimento consente la lettura. Rientro: allineare la fixture in plenora-contracts oppure pubblicare una v2 dello schema di ingresso. Registro: `contracts/adozione-4.0.0.json`; prove: `runtime_vettori` |
 | Runtime `io.read`: vettore di cancellazione | Deviazione, regola 4, da RUNTIME-VECTORS-1.0 §3 (`io-read-cancelled-error`), per la lettura con token gia' cancellato: `CANCELLED`, fase `probe`, retry `never`, contro `READ_CANCELLED`, `read`, `safe` della fixture. Categoria `cancelled` ed effetto `none` coincidono. Il binding conserva gli assi delle operazioni comuni a CLI e Rust (SURFACE-BINDINGS-1.0 §1). Conseguenza per il consumatore: nessun retry automatico. Hazard: chi instrada per codice/fase della fixture puo' non riconoscere l'errore; chi presume `safe` puo' ritentare contro l'indicazione effettiva. Rientro: allineare la fixture in plenora-contracts oppure cambiare gli assi su tutte le superfici in una release dichiarata. Registro: `contracts/adozione-4.0.0.json`; prove: `runtime_vettori` |
@@ -886,22 +1047,22 @@ per i nuovi rifiuti e la migrazione dalla 7.x. La matrice interop e le campagne
 | tutti: identificatore di radice di un WKT | lo SRID di radice di un WKT (capability e perdita di fedeltà) si legge con la stessa grammatica della verifica GEO-005, WKT 1 o WKT 2: `AUTHORITY` in WKT 1, `ID` in WKT 2, solo alla radice, con parentesi quadre o tonde. Fino alla 5.x uno scanner di byte più largo contava solo le parentesi quadre (un CRS annidato fra tonde esponeva il suo identificatore come di radice), trovava `ID[` dentro `XID[` e accettava le parole dell'altra grammatica: due letture della stessa radice davano due CRS. Un WKT non ben formato non ha SRID di radice. **L'identificatore che lo Shapefile (`.prj`) e il DXF (`GEODATA` in WKT) danno a una definizione WKT, con o senza `--assume-crs`, lo decide una regola sola** (`crs_definizione::identificatore_wkt` in `plenora-io-model`), sull'albero del lettore stretto: (1) il testo si legge nella grammatica WKT 1 o WKT 2 in cui è ben formato; malformato in entrambe è `crs`, con o senza opzione, e `io.inspect` e `io.read` rispondono allo stesso modo; (2) le dichiarazioni sono gli identificatori della radice con la parola della grammatica **più** quelli con la parola dell'altra (`ID` in WKT 1, `AUTHORITY` in WKT 2), che per GEO-005 non dichiarano ma chi legge il file legge come dichiarazioni; un nodo malformato dell'una o dell'altra parola (`ID[EPSG,3003]`, `ID["EPSG"]`, `ID["EPSG",3003.5]`) rende la radice indecidibile: `crs`; (3) una radice `BOUNDCRS`, riconosciuta dalla parola della radice con ogni spaziatura e maiuscola, non si risolve mai: senza opzione è non risolta, con l'opzione è `crs`; (4) due dichiarazioni diverse (autorità ASCII case-insensitive, codice come testo) sono `crs`, con o senza opzione; (5) una dichiarazione: senza opzione si risolve solo un `EPSG` con codice intero canonico, come `EPSG:<codice>`, e ogni altra autorità (`ESRI`, `OGC:CRS84` di radice) resta non risolta; con l'opzione, l'opzione deve essere uguale alla dichiarazione, e l'identificatore ha la grafia del file; (6) nessuna dichiarazione: la forma ESRI di WGS 84 **intera** — `GEOGCS[nome, DATUM[nome, SPHEROID[nome, 6378137, 298.257223563]], PRIMEM["Greenwich", 0], UNIT["degree", 0.0174532925199433]]` e nessun altro nodo (né `AXIS`, né `TOWGS84`, né un `AUTHORITY` annidato), con i nomi `WGS 84` o `GCS_WGS_1984` per la radice, `WGS_1984` o `D_WGS_1984` per il datum, `WGS 84` o `WGS_1984` per l'ellissoide, interi e ASCII case-insensitive, e i numeri confrontati come decimali esatti (`6378137.0` vale `6378137`; una forma esponenziale o `0.017453292519943295` non sono riconosciute) — è `EPSG:4326` senza opzione, e con l'opzione ammette solo `EPSG:4326` e `OGC:CRS84`; ogni altra definizione resta non risolta senza opzione, e con l'opzione l'opzione la nomina, salvo un identificatore che il bordo sa di genere contrario alla radice (riga «tutti: genere del CRS»). Le dichiarazioni (2) si confrontano ciascuna con la prima, in tempo lineare. Fino a c0e84cb la forma ESRI si riconosceva dai due soli nomi (`GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["GRS 1980",...]],PRIMEM["Paris",2.337],UNIT["grad",...]]` e `GEOGCS("WGS 84",DATUM("WGS_1984"))` erano `EPSG:4326`), la grafia di ArcGIS no, e le dichiarazioni si deduplicavano in tempo quadratico. Fino a a651844 ogni driver decideva con più letture parziali del testo, e sette riletture di fila ne trovarono una nuova che dava un'etichetta sbagliata senza errore: un `ID["EPSG",4258]` alla radice del WGS 84 ESRI usciva `EPSG:4326`; `AUTHORITY["EPSG","3003"],ID["EPSG",3004]` usciva `EPSG:3003`; un `ID` malformato lasciava passare l'opzione; nel DXF `--assume-crs EPSG:4326` passava su un `ID` in WKT 1, un'autorità ESRI, un `BOUNDCRS`, un `AUTHORITY` in WKT 2; il `DATUM["WGS_1984"` si cercava ovunque nel testo; un `.prj` malformato dava a `io.inspect` un identificatore che `io.read` poi rifiutava. Il formato di una definizione (`wkt` o `wkt2`) si decide con lo stesso lettore, WKT 2 e poi WKT 1; il prefisso maiuscolo esatto (`PROJCRS[`) resta solo per un testo che non è ben formato in nessuna delle due: prima `PROJCRS [`, `projcrs[` o `PROJECTEDCRS[` erano `wkt` e la verifica GEO-005 li rifiutava. Hazard residuo (6): il bordo non è un resolver, e un'opzione su una definizione senza dichiarazioni e diversa dalla forma ESRI intera di WGS 84 la nomina anche quando la contraddice, purché il genere non si contraddica in modo visibile: `EPSG:3003` su un UTM anonimo, `EPSG:4258` su un geografico anonimo qualunque, `EPSG:32632` su un altro proiettato. Si rifiuta soltanto un identificatore di cui il bordo conosce il genere (`EPSG:4326` e `OGC:CRS84` geografici, `EPSG:3857` proiettato) su una radice del genere opposto o che non è un CRS orizzontale (riga «tutti: genere del CRS»). Rientra con un resolver CRS. Due divergenze conservative dichiarate: un `.prj` vuoto o di soli spazi è `crs` anche con l'opzione (non è un WKT ben formato); un `ID["EPSG",4326.0]` in un WKT 1 è `crs` perché la regola (2) lo legge come dichiarazione malformata, mentre per GEO-005 e per l'oracolo in un WKT 1 `ID` non è un identificatore e si ignora. Sono rifiuti in più, mai un CRS sbagliato. Prove: `regola_wkt_senza_dichiarazioni_e_forma_esri`, `regola_wkt_con_una_dichiarazione`, `regola_wkt_con_l_altra_parola_chiave`, `regola_wkt_ambigua_o_legata`, `regola_wkt_malformata`, `definition_format_decide_la_grammatica_con_il_lettore`, `il_prj_segue_la_regola_unica_dell_identificatore`, `il_wkt_del_geodata_segue_la_regola_unica`, `inspect_e_read_concordano_su_un_prj_malformato`, `definition_epsg_rejects_ambiguous_or_nested_only_ids`, `una_definizione_wkt_multibyte_non_fa_panicare_il_bordo` |
 | tutti: genere del CRS | il genere (geografico, proiettato, ignoto) che sceglie fra `lon_lat` ed `easting_northing` lo decide una funzione sola, `plenora_io_model::crs::crs_kind_for`, per Shapefile, DXF, GeoPackage, GeoParquet, CSV, XLSX e la rilettura dei metadati Arrow IPC (FileGDB lo chiede a GDAL). La definizione decide con la parola della **radice** letta dal lettore stretto (`crs_definizione::genere_radice`): `GEOGCS`, `GEOGCRS`, `GEOGRAPHICCRS` sono geografici, `PROJCS`, `PROJCRS`, `PROJECTEDCRS` proiettati, `GEODCRS` e `GEODETICCRS` geografici solo con un `CS[ellipsoidal,...]` figlio diretto; in PROJJSON decide il `type` della radice (`GeodeticCRS` solo con `coordinate_system.subtype` `ellipsoidal`). Ogni altra radice — `GEOCCS`, `GEODCRS` senza `CS[ellipsoidal,...]`, `LOCAL_CS`, `ENGCRS`, `VERT_CS`, `VERTCRS`, `COMPD_CS`, `COMPOUNDCRS`, `DERIVEDPROJCRS`, `FITTED_CS`, `TIMECRS`, `PARAMETRICCRS` e gli stessi `type` PROJJSON — ha genere **ignoto** con un identificatore che il bordo non conosce, ed è `crs` con uno di quelli che conosce (`EPSG:4326`, `OGC:CRS84`, `EPSG:3857`, in qualunque maiuscola), dichiarato o nominato da `--assume-crs`: quell'identificatore nomina un CRS orizzontale 2D, e la radice dice che non lo è. Fino a b4d8064 il genere restava ignoto e il CRS usciva **risolto**: un `.prj` `LOCAL_CS["site",LOCAL_DATUM["d",0],UNIT["metre",1],AXIS["X",EAST],AXIS["Y",NORTH]]` con `--assume-crs EPSG:4326` era `EPSG:4326`. Un `BOUNDCRS` (`BoundCRS` in PROJJSON) resta ignoto qualunque sia l'identificatore, come prima: non ha un genere proprio, e `--assume-crs` su di lui è già `crs` (regola (3) dell'identificatore). Una definizione malformata resta ignota qui e la rifiuta la verifica GEO-005. Un genere ignoto dà sempre `axis_order` `unknown`. Senza definizione, o con un PROJJSON senza `type`, decide l'identificatore, solo se il bordo lo conosce già: `OGC:CRS84` ed `EPSG:4326` geografici, `EPSG:3857` proiettato. Un identificatore noto di genere contrario alla radice — `EPSG:4326` o `OGC:CRS84` su un `PROJCS`, dichiarato o nominato da `--assume-crs`; `EPSG:3857` su un `GEOGCS`; un `id` EPSG:4326 su un `type` `ProjectedCRS` — è `crs`. Fino a c0e84cb ogni driver cercava `PROJCS[` e `GEOGCS[` nel testo, con un suo elenco: da quando `PROJECTEDCRS[`, `projcrs [` e `PROJCRS(` si leggono come `wkt2` gli assi uscivano est/nord e il genere geografico (il `BASEGEOGCRS[` annidato contiene `GEOGCRS[`), cioè `lon_lat` su dati UTM, e la conversione in IPC lo scriveva (Shapefile EPSG:32632, GeoPackage 3003, DXF); già prima `PROJCS [`, `PROJCS(` e `PROJCS\t[` uscivano geografici, `GEOGCS["PROJCS[",...]` proiettato, un composto con un `PROJCRS[` dentro proiettato e, nel DXF, un `GEODCRS` geocentrico geografico; in GeoPackage e GeoParquet l'identificatore `EPSG:4326` vinceva sulla definizione; CSV e XLSX distinguevano le maiuscole (`epsg:4326` ignoto). Hazard: nessun genere sbagliato dalla radice; un `GEODCRS` ellissoidale senza `CS` e un PROJJSON con un altro `type` restano ignoti, un'informazione in meno. Prove: `il_genere_viene_dalla_parola_della_radice`, `il_genere_segue_la_radice_e_rifiuta_l_identificatore_contrario`, `il_genere_del_prj_viene_dalla_radice`, `assume_crs_di_genere_contrario_alla_radice_e_rifiutato`, `il_genere_del_geodata_viene_dalla_radice`, `assume_crs_geografico_su_un_proiettato_anonimo_e_rifiutato`, `il_genere_della_riga_srs_viene_dalla_radice`, `il_genere_del_documento_crs_viene_dal_type`, `un_identificatore_orizzontale_su_una_radice_che_non_lo_e_si_rifiuta`, `un_identificatore_orizzontale_su_un_prj_non_orizzontale_e_crs`, `un_identificatore_geografico_su_un_local_cs_e_crs`, `geodata_local_cs_e_bom`, `il_genere_dell_opzione_segue_la_regola_comune` (CSV e XLSX: `epsg:4326` minuscolo geografico, `EPSG:3857` proiettato) |
 | tutti: GEO-005 e GEO-020 in lettura | il CRS che un driver emette passa, in `with_read_budget` e per ogni driver, le verifiche che la scrittura Arrow IPC fa sul campo (`crs::verifica_crs_emesso`): una definizione malformata nel formato che dichiara, o con un identificatore di radice dell'autorità di `crs_id` diverso da `crs_id`, e un identificatore di catalogo locale dichiarato risolto (`POSTGIS:4326` di un GeoPackage) sono `crs` già in `io.inspect` e `io.read`. Fino a c0e84cb li rifiutava solo la scrittura IPC, e una conversione verso un altro formato li portava con sé. Le verifiche sono **del layer** (riga «più layer: un layer rifiutato»): in un GeoPackage a più layer il layer con la riga di `gpkg_spatial_ref_sys` malformata o di un catalogo locale non si legge, gli altri sì. Hazard: quel layer non si legge più, dove prima si leggeva e non si convertiva in IPC. Prove: `with_read_budget_rifiuta_una_definizione_che_geo_005_rifiuta`, `verifica_definizione_emessa_applica_geo_005` |
-| più layer: un layer rifiutato | GeoPackage. Le verifiche del CRS di `with_read_budget` (`--assume-crs`, GEO-005, GEO-020) e la risoluzione del CRS del GeoPackage (`crs_for`: organizzazione `NONE`, riga di `gpkg_spatial_ref_sys` mancante, genere contraddetto, definizione oltre il tetto) rifiutano **il layer**, non il dataset (`OpenDatasetHandle::rifiuto_del_layer`). `io.read --layer` e `io.convert --layer` su un layer sano procedono; sul layer rifiutato, e `io.convert` senza `--layer` che lo includerebbe, falliscono con il suo rifiuto prima di preparare il sink. `io.inspect` e `io.layers`, che descrivono **tutti** i layer, falliscono con il rifiuto del primo layer rifiutato: elencarlo come leggibile, con un `geometry_crs` di cui il bordo non risponde, sarebbe una descrizione falsa, e i loro contratti non hanno un campo per dire «rifiutato». Se i layer rifiutati sono tutti, o il layer è uno solo, l'apertura fallisce con il primo rifiuto, come prima. Fino a b4d8064 il primo rifiuto chiudeva il dataset: una riga `'+proj=longlat +datum=WGS84'` del layer 0 rendeva illeggibile il layer 1. Hazard: `io.inspect` e `io.layers` non dicono quale layer è rifiutato (il messaggio è quello del rifiuto); lo dice `io.read --layer`, layer per layer. Fuori dal perimetro: il FileGDB risolve il CRS di ogni layer con GDAL all'apertura, e un layer senza CRS e senza `--assume-crs` chiude ancora il dataset (rifiuto in più, mai un CRS sbagliato; rientra portando `resolve_layer_crs` sul rifiuto del layer); il DXF e gli altri driver hanno un layer solo. Restano del dataset il nome di colonna geometrica ambiguo e i difetti strutturali di un GeoPackage (`srs_id` fuori da `i32`, alias del rowid oscurato). Prove: `un_layer_dal_crs_rifiutato_non_chiude_gli_altri`, `se_tutti_i_layer_sono_rifiutati_l_apertura_fallisce`, `un_layer_rifiutato_ferma_la_descrizione_di_tutti_i_layer` |
+| più oggetti: un oggetto rifiutato | GPKG, FileGDB, XLSX e DXF conservano ogni oggetto enumerato e il suo indice. `rifiuto_del_layer` e `status.error` restituiscono lo stesso errore tipizzato. `layers` e `inspect` riescono anche quando tutti gli oggetti sono rifiutati. `read`, `write` e `convert` verso formati a layer singolo selezionano automaticamente soltanto un dataset composto da un unico oggetto leggibile; con piu' oggetti, anche se uno solo e' leggibile, richiedono `--layer` con errore `LAYER_SELECTION_REQUIRED`, indici e stati. `convert` verso GPKG/FileGDB copia tutti gli oggetti leggibili e dichiara gli esclusi (`source_object_not_readable`, conteggio, indici, motivo tipizzato); `--layer` seleziona un indice esplicito. Le selezioni esplicite `xls.sheet` e `--layer` devono concordare. KML usa automaticamente la vista aggregata; Document/Folder/Placemark restano viste selezionabili per indice, non oggetti da copiare insieme all'aggregato. Ordini e selezione sono documentati nel README. Quote, scadenze, cancellazioni e struttura illeggibile del contenitore restano errori globali. |
 | tutti: tetto della definizione | **ogni** definizione CRS oltre 1 MiB (`crs_definizione::MAX_BYTE_DEFINIZIONE_CRS`), da qualunque sorgente, è `limit_exceeded`: il `.prj`, il `GEODATA`, la riga di `gpkg_spatial_ref_sys` (che `SQLite` non consegna oltre una guardia di due volte il tetto nella codifica del database, e il tetto esatto si applica poi sui byte UTF-8: fino alla rilettura 10 la guardia era il tetto stesso nella codifica del database, e in un GeoPackage UTF-16 una definizione ASCII di 600 KB si rifiutava sotto il tetto), il `crs` di GeoParquet, il metadato `plenora.geometry.crs_definition` di un campo Arrow IPC (anche in scrittura, che lo rilegge), la definizione di FileGDB. La regola è una: la applicano `crs_kind_for`, `verifica_crs_emesso`, la lettura dei metadati Arrow e la verifica dello schema IPC (`vocabolario::verifica_schema`), sempre **prima** del lettore stretto (`verifica_dimensione_definizione`), che non apre un testo più lungo e lo direbbe malformato. Fino alla rilettura 10 la verifica dello schema IPC chiamava il lettore prima del tetto, e una definizione di 1 MiB e un byte era `crs` «non ben formata» invece di `limit_exceeded`. Il lettore tiene un token per elemento, qualche decina di byte per byte d'ingresso nel caso peggiore. Fino a c0e84cb il `.prj` si leggeva intero; fino a b4d8064 le definizioni di un metadato erano limitate solo dai byte del metadato (16 MiB in Arrow IPC): una riga di `gpkg_spatial_ref_sys` di 8 MiB costava 698 MB di picco e 12 s in debug, una di 32 MiB esauriva la scadenza. Deviazione dichiarata (regola 4): ARROW-VOCABULARY-1.0 non pone un tetto alla definizione, e un campo IPC conforme con una definizione oltre 1 MiB è un rifiuto di supporto (`limit_exceeded`), mai un risultato diverso; rientra con un lettore che non materializzi i token. La stessa definizione si legge ancora più volte per apertura (formato, genere, assi, GEO-005): il costo è lineare e limitato dal tetto, e non è stato ridotto. Prove: `un_prj_oltre_il_tetto_e_un_limite`, `una_definizione_del_geodata_oltre_il_tetto_e_un_limite`, `una_definizione_oltre_il_tetto_e_un_limite`, `la_definizione_della_riga_srs_ha_il_tetto`, `il_tetto_della_definizione_e_in_utf8_anche_in_un_database_utf16`, `la_definizione_di_un_metadato_ha_il_tetto_comune`, `una_definizione_oltre_il_tetto_e_un_limite_non_un_crs_malformato` |
 | tutti: BOM della definizione | un BOM UTF-8 iniziale (uno solo) di un `.prj`, di una riga di `gpkg_spatial_ref_sys` o di un `GEODATA` si toglie all'ingresso (`crs_definizione::senza_bom`): non fa parte del WKT, e la definizione emessa è quella senza. Fino a b4d8064 la definizione si leggeva malformata. Un secondo BOM resta, e la definizione resta malformata. Più `GEODATA` si confrontano **dopo** aver tolto il BOM: fino alla rilettura 10 si confrontavano prima, e due definizioni uguali, una con il BOM, erano un conflitto `crs`. Prove: `un_prj_con_il_bom_si_legge`, `un_bom_iniziale_della_definizione_si_toglie`, `geodata_local_cs_e_bom`, `due_geodata_uguali_a_meno_del_bom_concordano` |
 | GeoParquet: `crs: null` | `null` è un CRS ignoto (GeoParquet 1.1), e nel vocabolario è `missing`, l'unico stato senza identificatore né definizione (ARROW-VOCABULARY-1.0 §4). Fino a b4d8064 era un `resolved` senza nessuno dei due: `io.read` lo emetteva e la conversione in IPC lo rifiutava («metadato CRS non valido»). Ora lettura e conversione concordano, e un `missing` si riscrive in GeoParquet come `null` (dalla rilettura 10: fino a b7a6c94 la validazione comune lo rifiutava, `unsupported` «il formato richiede un CRS risolto», contro ciò che questa riga diceva; prova end-to-end `un_crs_ignoto_si_riscrive_in_geoparquet_come_null`). Con `--assume-crs` è `crs` («non applicato»), come prima era `crs` («non confrontabile»). Prova: `un_crs_mancante_si_scrive_null_e_si_rilegge_sconosciuto` |
 | Arrow IPC: genere riletto | il genere di un CRS `resolved` riletto dai metadati segue `crs_kind_for` (identificatore e radice della definizione); solo se la definizione manca e l'identificatore è ignoto decide l'ordine memorizzato (`lon_lat`/`lat_lon` geografico, `easting_northing`/`northing_easting` proiettato). Fino a b4d8064 decideva sempre l'ordine, e un `EPSG:3031` polare, proiettato per lo Shapefile con assi `other`, si rileggeva ignoto. Un identificatore che contraddice la radice qui lascia il genere ignoto senza rifiutare: il genere non è un campo del vocabolario, e il campo è quello che GEO-005 ha già giudicato. Prova: `il_genere_riletto_segue_la_regola_comune` |
 | tutti: WKB ben formato (GEO-011) | ogni WKB o EWKB che IO decodifica, ispeziona o codifica rispetta la buona forma di Arrow Geometry Semantics 1.0 come la decide l'oracolo dei contratti (`arrow_data.py`): una linestring ha zero o almeno due punti, una circularstring zero o un numero dispari di almeno tre, un anello lineare di poligono o triangolo almeno quattro punti con l'ultimo uguale al primo **byte per byte** (Z e M comprese: `-0.0` non chiude `0.0`, un NaN con gli stessi bit chiude), un triangolo al più un anello, al più 32 livelli di annidamento, e ogni membro di un aggregato ha le dimensioni del contenitore. Il rifiuto è del codec stesso -- `decode_wkb`, `inspect_wkb` e l'encoder -- e non dei percorsi che lo consultano dopo: fino alla 5.0.1 il membro di altre dimensioni era solo annotato (`nested_dimensions_coherent`) e rifiutato a valle, dalla validazione dei batch e da quella delle scritture, e un percorso che non leggesse il flag lo avrebbe accettato o emesso (prova `un_membro_di_altre_dimensioni_e_malformato_nel_codec` in `wkb_lossless/tests.rs`). Vale per **ogni formato**, non solo per l'ingresso Arrow: un valore che un componente del contratto rifiuterebbe non esce da IO. Ambito: un file nativo con una polilinea di un vertice, un anello non chiuso o vuoto (KML, GeoJSON, DXF, Shapefile, GeoPackage scritti da altri) è rifiutato con `data_mapping` invece di essere letto; fino alla 5.x passava. Hazard: file prima leggibili ora falliscono, con un errore esplicito e nessun dato pubblicato; nessuna chiusura o riparazione implicita. Rientro: nessuno previsto, è la conformità; una riparazione esplicita sarebbe un'opzione nuova e dichiarata. Prove: `geo_011_*` in `plenora-io-model` (`wkb/tests.rs`), `un_valore_malformato_con_un_altro_srid_e_data_mapping` in `plenora-io-tools` Un membro che porta insieme uno SRID e dimensioni diverse dal contenitore è rifiutato per le dimensioni (GEO-011) dove l'oracolo cita prima lo SRID del membro (GEO-009): la categoria, `data_mapping`, è la stessa, cambia solo la causa di riga riportata. |
-| tutti: `max_wkb_depth` | la profondità di GEO-011 (32) non è una quota: il parser la applica qualunque sia la configurazione, e `max_wkb_depth` (`--max-wkb-depth`, budget runtime) può solo stringerla. Un valore oltre 32 si rifiuta alla validazione dei limiti (`limit_exceeded`) invece di restare un flag senza effetto; il default passa da 64 a 32. Hazard: una configurazione che chiedeva 64 ora fallisce. Prove: `geo_011_l_annidamento_si_ferma_a_32_qualunque_sia_il_tetto`, `max_wkb_depth_oltre_il_contratto_si_rifiuta` |
+| tutti: `max_wkb_depth` | la profondità di GEO-011 (32) non è una quota: il parser la applica qualunque sia la configurazione, e `max_wkb_depth` (`--max-wkb-depth`, budget runtime) può solo stringerla. Un valore oltre 32 si rifiuta alla validazione dei limiti (`invalid_configuration/CLI_USAGE`) invece di restare un flag senza effetto; il default passa da 64 a 32. Hazard: una configurazione che chiedeva 64 ora fallisce. Prove: `geo_011_l_annidamento_si_ferma_a_32_qualunque_sia_il_tetto`, `max_wkb_depth_oltre_il_contratto_si_rifiuta` |
 | CRS: PROJJSON (GEO-005) | gli identificatori di un PROJJSON si leggono con un lettore dedicato che replica `json.loads` con i ganci dell'oracolo: numeri di qualunque grandezza (`1e400`), surrogati isolati, codici `-0` (vale `0`) o oltre `u64`, qualunque annidamento. Restano tre differenze, dove l'oracolo in CPython non dà un verdetto perché si ferma con un'eccezione dell'interprete e non con `Malformed`: `RecursionError` oltre circa mille livelli, `ValueError` per un intero di più di 4300 cifre, `decimal.InvalidOperation` per un decimale con un esponente oltre i limiti di `decimal` (`9e9999999999999999999999999999`). Lì IO dà il verdetto della grammatica, perché legge i numeri come testo senza valutarli: il documento è ben formato, un intero lungo è un codice valido, un decimale -- con qualunque esponente -- come `code` è malformato e altrove è un valore qualunque (prove `projjson_*` in `crs_definizione/tests.rs`). **Memoria**: lineare nei byte del documento con un fattore dichiarato -- un byte per contenitore aperto, 16 byte per chiave di un oggetto aperto (liberati alla sua chiusura), della radice soltanto `id` e `ids` e di ogni identificatore soltanto `authority` e `code`, in UTF-8. Fino alla 5.0.1 la verifica teneva un `HashSet` per oggetto aperto e 48 byte per contenitore, e la lettura materializzava ogni membro della radice fino al terzo livello. Misurato in release su documenti di 16 MiB, picco delle allocazioni prima e dopo: 403 MB e 8 MB (`{"a":` e 8 milioni di `[`), 591 MB e 71 MB (3,3 milioni di `{"":` annidati, il caso peggiore: 4,3 volte i byte a 16 MiB, fino a circa 6,8 volte su dimensioni dove le capacità dei vettori raddoppiano appena oltre il necessario, con un tetto assoluto di circa 71 MB fino a 16 MiB), 277 MB e meno di 1 KB (8 milioni di numeri in una lista), 170 MB e 34 MB (2,4 milioni di chiavi in un oggetto), 233 MB e 56 MB (600 mila `ids`, quasi tutto il risultato). Il documento è già limitato dai byte del metadato che lo porta. Il doppione di chiave si cerca alla chiusura dell'oggetto, su impronte SipHash a chiavi casuali e con il confronto esatto delle sole chiavi di impronta uguale: il verdetto non dipende dall'impronta (prova `le_impronte_uguali_non_cambiano_il_verdetto`). Lo **SRID** ricavato da un PROJJSON (`definition_authority_srid`, usato dalle capability e dal confronto delle rappresentazioni nel `LossReport`) usa ora lo stesso lettore: un codice numerico è un intero, un codice stringa è testo e vale solo se canonico, come nel WKT. Fino alla 5.0.1 una stringa passava da `str::parse`, e `"04326"` o `"+4326"` davano 4326 mentre lo stesso codice in un WKT non dava SRID (prova `definition_authority_srid_projjson_distingue_il_numero_dalla_stringa`). Gli **altri** usi di un PROJJSON in IO -- l'ordine degli assi dichiarato verso un formato con l'est prima, il documento `crs` di GeoParquet -- leggono ancora con `serde_json` senza `arbitrary_precision`: per un documento con un numero oltre `f64`, un surrogato isolato o più di 128 livelli l'ordine resta `unknown`, e GeoParquet tratta la definizione come una che non è PROJJSON (come un WKT): con `EPSG:4326` o `OGC:CRS84` omette il `crs`, che per il formato vale CRS84, e dalla rilettura 10 dichiara la definizione perduta (`crs_definition_not_preserved_absent`), dalla rilettura 11 con `EPSG:4326` anche l'identificatore (`crs_id_not_preserved_absent`), altrimenti rifiuta con `unsupported`. Quando invece il documento si scrive, si scrive e si rilegge con i suoi byte (`RawValue`): `serde_json` serve a validarlo, non a riscriverlo. Hazard: nessun risultato sbagliato, un rifiuto o un'informazione in meno. Rientro: portare quei due usi sul lettore dedicato. Prove: `projjson_*` in `crs_definizione/tests.rs` |
 | CRS: spazi e maiuscole | lo spazio della grammatica di `crs_id` (GEO-016) e del WKT è `str.isspace()` di Python 3.11 (Unicode 14), scritto come elenco chiuso: il `White_Space` di Unicode più U+001C..U+001F. Le autorità si confrontano ASCII case-insensitive, come scrivono GEO-005 e GEO-020, anche nella lettura di `gpkg_spatial_ref_sys`: `EPſG` (U+017F) è un'altra autorità. L'oracolo al pin 3aec9f7 usa `str.upper()` e qui diverge; la correzione dell'oracolo è plenora-contracts #53, e nessun vettore copre il caso. Hazard: nessuno per autorità ASCII. Prove: `lo_spazio_e_quello_di_python`, `l_autorita_si_confronta_solo_in_ascii`, `reader_uppercases_the_organization_in_ascii_only` |
-| GeoPackage: codice CRS non canonico | `srs_id` e `organization_coordsys_id` sono interi: un `crs_id` il cui codice non è un intero canonico (`EPSG:04326`, `EPSG:+4326`) non ha un intero che lo rappresenti senza cambiarne l'identità (GEO-005 confronta i codici come testo), e si rifiuta con `crs` prima di creare la destinazione. Fino alla 5.x diventava 4326 e si rileggeva `EPSG:4326`. Lo stesso vale per lo SRID ricavato da un identificatore (`authority_srid`, GeoParquet) e per un codice **stringa** di un `AUTHORITY` WKT: `"04326"` non diventa 4326; un codice **numerico** resta un intero, come per l'oracolo. Hazard: un identificatore così non si scrive in GeoPackage. Prove: `gpkg_rifiuta_un_codice_non_canonico_invece_di_cambiarne_l_identita`, `authority_srid_solo_per_un_codice_canonico` |
+| GeoPackage: codice CRS non canonico | `srs_id` e `organization_coordsys_id` sono interi: un `crs_id` il cui codice non è un intero canonico (`EPSG:04326`, `EPSG:+4326`) non ha un intero che lo rappresenti senza cambiarne l'identità (GEO-005 confronta i codici come testo), e si rifiuta con `unsupported/validate` prima di creare la destinazione. Fino alla 5.x diventava 4326 e si rileggeva `EPSG:4326`. Lo stesso vale per lo SRID ricavato da un identificatore (`authority_srid`, GeoParquet) e per un codice **stringa** di un `AUTHORITY` WKT: `"04326"` non diventa 4326; un codice **numerico** resta un intero, come per l'oracolo. Hazard: un identificatore così non si scrive in GeoPackage. Prove: `gpkg_rifiuta_un_codice_non_canonico_invece_di_cambiarne_l_identita`, `authority_srid_solo_per_un_codice_canonico` |
 | FileGDB | richiede `gdal-backend`. Senza, ogni chiamata fallisce come capability mancante |
 | FileGDB | **si apre con il solo driver GDAL `OpenFileGDB`.** Una directory `.gdb` che GDAL saprebbe aprire con un altro driver (per esempio una directory di CSV) è rifiutata invece di essere letta con le regole di un altro formato (prova `una_directory_gdb_che_non_e_un_filegdb_non_si_apre`). Un layer con più campi geometrici resta enumerato, ne dichiara il numero in `native_metadata["filegdb.geometry_field_count"]`, e la sua lettura è rifiutata con `unsupported` (GEO-012; prova `piu_campi_geometrici_rendono_il_layer_non_supportato`): prima si prendeva il primo campo e gli altri sparivano. Rientra con un contratto multi-geometria per layer |
 | GeoPackage | **una sola colonna geometrica per feature table.** Una tabella con più righe in `gpkg_geometry_columns` è rifiutata all'apertura con `unsupported`, exit 3 (GeoPackage requisito 30; prova `due_colonne_geometriche_per_la_stessa_tabella_sono_rifiutate`): prima ogni riga diventava un layer con lo stesso nome, e in ciascuno l'altra geometria usciva come BLOB. «La stessa tabella» e «la colonna geometrica» si giudicano come li risolve SQLite, senza distinzione di maiuscole ASCII: `features` e `FEATURES` in `gpkg_contents` sono una tabella sola (il join con `gpkg_geometry_columns` usa `NOCASE`), e un `column_name` `GEOM` è la colonna `geom`. Fino alla 5.0.1 il confronto era esatto: la stessa tabella si apriva come due layer, e una colonna geometrica dichiarata con altre maiuscole usciva una seconda volta come attributo binario (prove `due_geometrie_sotto_nomi_di_tabella_che_differiscono_per_maiuscole_sono_rifiutate`, `la_colonna_geometrica_si_riconosce_come_la_riconosce_sqlite`). Hazard: il rifiuto chiude l'intero file, anche le altre tabelle. Vincolo del formato: requisito 30, una geometria per tabella o vista; nessuna suddivisione automatica in altre tabelle |
 | GeoPackage: layer dichiarati | una riga `features` di `gpkg_contents` senza la sua riga in `gpkg_geometry_columns` (GPKG 1.3, requisito 22), e nel verso opposto una colonna di `gpkg_geometry_columns` la cui tabella non è una riga `features` di `gpkg_contents` (assente, `attributes`, o `Features` scritto con un'altra grafia), rendono il file non leggibile: errore `data_mapping` all'apertura, invece di un elenco di layer con quella tabella mancante. Fino alla 5.x quei layer sparivano in silenzio. Le tabelle `attributes` senza geometria non sono layer di IO e non si elencano: IO legge feature table. Un file con righe orfane in `gpkg_geometry_columns` (lasciate, per esempio, da un `DROP TABLE` fatto a mano) si rifiuta per intero, dove altri lettori le ignorano: è il requisito della specifica, ed è un rifiuto in più. Prove: `una_feature_table_senza_colonna_geometrica_dichiarata_e_rifiutata`, `una_geometria_dichiarata_fuori_da_una_feature_table_e_rifiutata` |
 | GeoParquet senza metadato `geo` | la geometria si riconosce dal nome (`geometry`, `geom`, `wkb`); con **più** di quei nomi nel file l'apertura è rifiutata con `unsupported` invece di prendere il primo dell'elenco (prova `un_parquet_senza_geo_con_due_nomi_di_geometria_e_ambiguo`). Il CRS è `missing`, oppure quello che `--assume-crs` nomina, con ordine degli assi `unknown` (la convenzione longitudine prima è del metadato `geo`): il default `OGC:CRS84` di GeoParquet 1.1 vale per una colonna dichiarata nel metadato senza la chiave `crs`, e un Parquet senza `geo` non è GeoParquet. Fino alla 5.0.1 il driver lo etichettava WGS84 (prova `un_parquet_senza_geo_non_afferma_un_crs`). Hazard: un sink che pretende un CRS ora rifiuta questi file finché l'opzione non lo nomina |
-| CSV, XLSX | `wkt_column` esclude `x_column` e `y_column`: dichiararli insieme è un errore di configurazione (`invalid_configuration`), non più una precedenza silenziosa del WKT (prove `wkt_column_insieme_a_x_y_e_una_configurazione_ambigua` in `driver-csv`, `n1_resolve_geometry_nomina_la_colonna_che_manca_e_rifiuta_due_geometrie` in `driver-xls`). Un nome di `wkt_column`, `x_column` o `y_column` che l'intestazione ripete è ambiguo ed è rifiutato con `data_mapping`: prima la geometria usciva dalla prima occorrenza, scelta in silenzio, e le altre diventavano attributi (prove `una_colonna_geometrica_dal_nome_ripetuto_e_rifiutata`, `n1_resolve_geometry_rifiuta_un_nome_che_l_intestazione_ripete`) |
+| CSV, XLSX | `wkt_column` esclude `x_column` e `y_column`: dichiararli insieme è un errore di configurazione (`invalid_configuration`), non più una precedenza silenziosa del WKT (prove `wkt_column_insieme_a_x_y_e_una_configurazione_ambigua` in `driver-csv`, `n1_resolve_geometry_nomina_la_colonna_che_manca_e_rifiuta_due_geometrie` in `driver-xls`). Un nome di `wkt_column`, `x_column` o `y_column` che l'intestazione ripete è ambiguo ed è rifiutato con `invalid_configuration/validate`: prima la geometria usciva dalla prima occorrenza, scelta in silenzio, e le altre diventavano attributi (prove `una_colonna_geometrica_dal_nome_ripetuto_e_rifiutata`, `n1_resolve_geometry_rifiuta_un_nome_che_l_intestazione_ripete`) |
 | tutti | una colonna geometrica il cui nome compare **più volte** nello schema del layer è rifiutata all'apertura con `schema`, in `with_read_budget`, per ogni driver: il contratto nomina la geometria per nome, e la validazione dei batch, il conteggio dei componenti e gli esempi di perdita la cercano per nome, trovando la prima occorrenza. Un Arrow IPC con un campo `g` binario qualunque prima del campo `g` GeoArrow validava il campo sbagliato, e un GeoParquet con due colonne `geometry` le esponeva entrambe come geometria (prova `with_read_budget_rifiuta_una_colonna_geometrica_dal_nome_ripetuto`). Hazard residuo: due **attributi** con lo stesso nome restano leggibili, come la sorgente li porta, e chi li consuma per nome trova il primo; la scrittura li rifiuta già (`collisione dopo la normalizzazione`). Rientra con una regola di unicità dei nomi nel contratto |
 | GeoJSON | il membro `crs` di GeoJSON 2008, su collezione, feature, geometria o figlia di una `GeometryCollection`, è ammesso solo se è un CRS con nome che nomina CRS84 o EPSG:4326, in forma breve, URN OGC (con o senza versione) o URI `opengis.net`; ogni altro nome, un CRS per link, `null`, una forma malformata o con chiavi ripetute o estranee è rifiutato con `crs`. Prima il membro si ignorava e il documento usciva `OGC:CRS84` qualunque CRS dichiarasse (prova `il_membro_crs_storico_deve_nominare_wgs84`). EPSG:4326 si accetta come CRS84 perché GeoJSON 2008 fissa l'ordine x, y, cioè longitudine prima, qualunque CRS dichiari |
 | KML | nessun analogo: KML 2.2 non ha un elemento che dichiari un CRS, e il formato resta WGS84 fisso |
@@ -1167,3 +1328,1212 @@ GeoParquet rifiuta il tipo fisico legacy INT96 nell'intero file, anche quando
 una proiezione escluderebbe la colonna. Usare timestamp INT64 con unita'
 esplicita per file da scambiare con IO. Arrow IPC conserva i tick interi,
 anche estremi, senza convertirli implicitamente in date calendariali.
+
+Gli XLSX elencano anche chartsheet e worksheet vuoti, rifiutati rispettivamente
+con `object_chart_sheet` e `object_empty`. `xlsx.visibility` distingue visible,
+hidden e very_hidden. `sheet` distingue maiuscole e minuscole; un nome inesistente
+e' configurazione non valida. I fogli nascosti sono leggibili con selezione esplicita.
+
+KML conserva i Placemark con Model, Track, MultiTrack o estensione gx sconosciuta
+con geometria nulla; conta le geometrie omesse in `kml.unsupported_geometry`.
+Il documento resta leggibile; le perdite native sono dettagliate sotto.
+DXF espone anche i blocchi separati:
+un blocco esterno o non rappresentabile ha un rifiuto locale.
+
+GPKG `srs_id` 0 e -1 sono righe obbligatorie e valide della specifica OGC
+(requisito 11), rispettivamente geografico e cartesiano indefiniti. Non sono
+identificatori risolti: il driver legge questi layer con CRS assente;
+`--assume-crs` permette di nominarlo. Non si assegna implicitamente EPSG:4326.
+
+### Trasporto nativo GeoJSON e KML
+
+La tabella comune `plenora-io-core::loss_table` dichiara, per lettura e scrittura,
+conservazione, trasformazione con categoria o rifiuto. Le classi Arrow sono
+raffinate dai tipi stabili della stessa tabella: ad esempio Int64 GeoJSON resta
+Int64, mentre Int8 richiede `coercion tipo attributo`. Le righe sui valori
+conservati valgono per i campi effettivamente rappresentati; KML conserva
+`name` e `description`, mentre gli altri attributi scritti in ExtendedData
+non vengono letti e sono dichiarati in entrambe le direzioni. Se mancano nello
+schema sorgente, le colonne standard name/description aggiunte in rilettura
+sono dichiarate con `native_fields_reconstructed`.
+
+GeoJSON dichiara ID di feature, bbox, membri esterni di collezioni, feature e
+geometrie, incluse quelle annidate. L'inferenza dichiara valori convertiti a
+un tipo comune, oggetti/array riscritti come testo JSON, proprietà assenti rese
+null e riordino alfabetico. Un null esplicito resta null. NOT NULL e il nome
+non canonico della geometria non sopravvivono al giro e hanno categorie proprie.
+
+KML dichiara ExtendedData/SchemaData, ID, metadati temporali e visibility,
+stili, metadati di Document/Folder, gerarchie appiattite, NetworkLink e
+GroundOverlay non seguiti. Le osservazioni dei discendenti entrano nel report
+dell'aggregato e dei loro contenitori; selezionare un Placemark non include le
+perdite di un altro Placemark. LinearRing autonomo e MultiGeometry dichiarano
+la ricostruzione del tipo geometrico. Una quarta ordinata è rifiutata.
+
+`kml_altitude_mode_not_preserved` indica quote Z con modalità implicita o
+non assoluta: i numeri sono restituiti senza conversione e **non rappresentano
+quote assolute**. Il report lo esplicita. Il writer continua a emettere
+`absolute` per le geometrie Z. Le geometrie vuote non rappresentabili sono
+rifiutate; una geometria null resta null.
+
+I conteggi sono strutturali, non misure dell'errore numerico:
+
+- `native_number_precision`: valori numerici il cui decimale ricostruito
+  differisce dal testo sorgente; numeri esatti e grafie equivalenti non contano.
+- `native_dimensions_not_declared`: una dichiarazione dimensionale sorgente
+  presente che differisce da quella riletta. Una sorgente senza dichiarazione
+  non perde una dichiarazione; una ricostruzione identica non produce perdita.
+- `native_type_inference`: valori scalari convertiti al tipo comune;
+  `native_structured_value_rewritten`: valori oggetto/array riscritti;
+  `native_missing_as_null`: celle assenti, oppure elementi testuali KML
+  autochiusi, resi null. Conta inoltre i contenitori properties null/assenti
+  e i membri geometry assenti normalizzati alla rappresentazione tabellare.
+- `native_field_order_changed`: in scrittura, campi spostati nel giro; in
+  lettura GeoJSON, inversioni adiacenti osservate nelle proprietà, oppure una
+  normalizzazione dell'ordine di prima comparsa se non vi erano inversioni.
+- Le omissioni native contano i membri o elementi presenti; ExtendedData conta
+  i contenitori letti e i campi persi nel giro in scrittura. Le dichiarazioni
+  di vincoli, nomi e metadati dello schema contano campi o chiavi.
+
+Gli esempi riportano indici di layer/campo, mai nomi, ID, URI o valori del file.
+Gli esempi restano limitati; i conteggi sono aggregati. I metadati Arrow e le
+rappresentazioni CRS continuano a seguire i piani comuni per chiave.
+
+GeoPackage conserva `gpkg_contents.identifier` e `description` nelle chiavi
+Arrow `gpkg.identifier` e `gpkg.description` e le riscrive. Il writer dispone
+le colonne nell'ordine del reader (geometria, attributi, chiave primaria):
+una permutazione dell'ingresso è dichiarata in scrittura; la rilettura non
+segnala una nuova perdita. Il documento interno di identità validato e
+consumato dal reader non è metadato scartato; gli altri metadati restano
+soggetti alla tabella comune. SRS 0 e -1 indicano CRS assente, senza SRID Arrow
+e senza assumere EPSG:4326; `--assume-crs` permette di dichiarare il CRS
+quando richiesto dalla destinazione.
+
+### Perdite native Shapefile, DXF e FileGDB
+
+Le celle di lettura e scrittura di questi driver sono nella stessa tabella
+`loss_table` usata da GeoJSON e KML. Le classi Arrow e la nullabilità del catalogo
+derivano dalle celle; i limiti su valori e sottotipi geometrici restano quelli
+delle capability e dei validatori del formato. Una cella di classe non rende
+scrivibile ogni valore: per esempio FileGDB rifiuta LineString e Polygon singoli
+e accetta i corrispondenti multi, mentre Shapefile promuove i singoli.
+
+Shapefile conta i campi effettivamente spostati dal piano di scrittura.
+La lettura conserva l'ordine DBF e non dichiara il solo assemblaggio SHP/DBF.
+`native_geometry_type_changed` conta le geometrie singole promosse in scrittura;
+non conta come perdita la lettura di geometrie già multi.
+`native_ring_orientation_changed` conta gli anelli il cui orientamento cambia. Un campo
+DBF D letto come Utf8 produce `coercion tipo attributo`, con indice del campo:
+il valore testuale della data resta quello restituito dal reader. Il Point vuoto
+NaN si conserva; le collezioni vuote non rappresentabili sono rifiutate.
+
+DXF dichiara handle, colore, linetype, lineweight, thickness, larghezze, XDATA,
+attributi grafici TEXT/MTEXT e paper space. Le categorie sono rispettivamente
+`native_feature_id_not_preserved`, `native_styles_not_preserved`,
+`native_layer_metadata_not_preserved` e `native_hierarchy_flattened`; il dettaglio
+curato identifica l'elemento, senza riportarne il valore. Si contano gli elementi
+non predefiniti osservati, i contenitori XDATA e le entità testuali/paper space.
+Il testo TEXT resta una colonna; altezza, rotazione e stile non sono conservati.
+Le entità paper space rimangono nel medesimo oggetto del model space, con perdita
+esplicita della distinzione. Un blocco XREF o il model space che lo usa tramite
+INSERT è rifiutato localmente: nessun riferimento esterno viene seguito.
+`dxf_attribute_not_represented` conta le differenze degli attributi rispetto alla rilettura:
+celle diverse o mancanti e celle delle righe aggiunte, anche nelle colonne conservate;
+gli esempi ne riportano l'indice, mai il nome nella categoria o nel dettaglio.
+
+FileGDB dichiara l'ordine geometria-prima e i vincoli NOT NULL non trasportati,
+per campo. La lettura esamina anche la definizione XML nativa ottenuta da GDAL:
+alias e riferimenti a domini non vuoti, e sottotipi, sono contati come
+`native_layer_metadata_not_preserved`. Le definizioni non diventano metadati
+Arrow; i loro nomi e contenuti non entrano nel report. Le categorie restano
+separate dalla lettura degli attributi Binary, Date e DateTime: Binary diventa
+Arrow Binary; OFTDate diventa Date32; OFTDateTime diventa Timestamp in microsecondi.
+Conta il tipo effettivo restituito da OGR: un Date FileGDB esposto da GDAL come
+DateTime resta un timestamp. Il fuso UTC o l'offset esplicito fornito da OGR
+entra nel tipo Arrow; sconosciuto e locale non diventano UTC. Per GDAL 3.9,
+che lascia sconosciuto il flag di schema, viene letta la dichiarazione nativa
+IsTimeInUTC. Il flag originale di schema e' conservato nei metadati del campo.
+Fusi misti non rappresentabili in un singolo tipo Arrow sono rifiutati.
+I secondi frazionari restituiti da OGR sono arrotondati ai microsecondi:
+`native_number_precision` conta solo le celle effettivamente modificate.
+Non si ricostruiscono frazioni che il driver GDAL non fornisce. Null e Binary
+non passano attraverso conversioni testuali. In scrittura Binary e tipi
+temporali restano rifiutati prima della creazione, coerentemente con il catalogo.
+Le geometrie lette usano ISO WKB anche per Z, M e ZM.
+
+`native_coordinate_precision` conta una geometria non null sottoposta al
+renderer DXF o alla griglia FileGDB, non cifre perse o errore misurato; comprende
+la normalizzazione di -0. FileGDB conta una geometria poligonale per la
+normalizzazione degli anelli e una geometria vuota per `native_missing_as_null`.
+I conteggi dichiarano il processo nativo anche quando un valore è già esatto.
+NOT NULL e ordine sono dichiarati anche per layer senza righe. Tutti gli esempi
+usano indici di layer/campo; il limite degli esempi non cambia.
+
+
+### Perdite native CSV, XLSX, GeoPackage, GeoParquet e IPC
+
+La matrice `loss_table` comprende tutti i dieci driver e le due direzioni.
+L'inventario indipendente dei test richiede una riga per ogni elemento e un
+driver qualificato per ogni descrittore. Le classi `allowed_types` vengono
+calcolate dalle celle di scrittura; le dimensioni dalle celle M e dimensione
+sconosciuta. GeoParquet accetta XY/XYZ/unknown e rifiuta M.
+
+CSV e XLSX dichiarano il nome WKT ricostruito come `geometry`, il consumo
+delle colonne X/Y e il riordino. I writer collocano la geometria dopo gli
+attributi; i reader la espongono prima. In scrittura il conteggio è quello
+dei campi spostati; in lettura è una ricostruzione dell'ordine quando la
+prima colonna geometrica non era la prima colonna nativa. Il consumo X/Y
+conta due colonne, la rinomina WKT una colonna. Il report usa indici delle
+colonne sorgenti, senza nomi. La precisione X/Y conta solo valori decimali ricostruiti
+differenti dal testo sorgente, ignorando zeri ed esponenti equivalenti.
+CSV dichiara inoltre l'inferenza dei campi numerici e booleani.
+
+XLSX dichiara i formati numerici per cella con formato diverso da General e
+le formule per elemento formula. Restituisce il valore in cache senza
+ricalcolarlo: la dichiarazione non promette che la cache sia aggiornata.
+La precisione numerica conta valori effettivamente cambiati rispetto al testo XML;
+stringhe, null e stringhe vuote seguono le regole di trasporto già descritte.
+Le osservazioni dei fogli conservano l'indice del foglio selezionato.
+
+GeoPackage dichiara identifier e description non vuoti, righe di
+`gpkg_data_columns`, `layer_styles`, `gpkg_extensions` e
+`gpkg_metadata_reference` riferite al layer (incluse le riferite all'intero
+contenitore). Sono conteggi di membri/contenitori omessi, non delle loro
+singole stringhe. Identifier coincidente col nome della tabella non costituisce perdita.
+I metadati di identità del writer consumati nel contratto non sono omessi. Il writer genera `INTEGER PRIMARY KEY` senza AUTOINCREMENT:
+la politica AUTOINCREMENT di un file esterno resta una normalizzazione SQL
+dichiarata dal reader, mentre non viene introdotta dal writer.
+
+GeoParquet confronta il covering con quello ricostruito dalla geometria e
+dichiara solo le colonne radice differenti,
+con indice fisico della colonna. La colonna bbox generata in scrittura è un
+accessorio derivato, non un attributo sorgente perduto. La normalizzazione
+dei metadati viene confrontata con lo schema finale del footer, dopo il
+completamento dei tipi e delle dimensioni osservati nei batch.
+
+La chiave `geo` ricostruibile dai metadati nativi del contratto non è persa.
+IPC e GeoParquet confrontano i metadati originali con quelli esposti o
+scritti: ogni chiave sorgente rimossa o cambiata produce
+`arrow_metadata_not_preserved`, con indice di campo quando pertinente.
+Versione del contratto, identità, dichiarazione dei tipi, encoding,
+semantica spaziale, precisione, SRID, risoluzione CRS, formato della
+definizione, ordine degli assi, primaria ed estensioni hanno celle esplicite.
+Una chiave invariata non genera una perdita; le annotazioni nuove del
+contratto non sono contate come rimozioni di dati sorgenti. Le chiavi opache
+conservate non vengono esposte nei dettagli del report.
+
+### Lettura di un prefisso con `--limit`
+
+`read --limit N` arresta il decoder alla riga N, includendo nel limite le
+passate di inferenza. N deve essere positivo. `rows_read` non supera N.
+`truncated: true` significa «limite raggiunto, coda non esaminata», anche se
+il file contiene esattamente N righe. `truncated: false` significa che la
+lettura ha raggiunto EOF prima del limite (oppure senza un limite).
+Lo schema inferito, le osservazioni di fedeltà e la diagnostica riguardano
+il prefisso osservato. La coda non è attestata. Nell'SDK Python `complete`
+è `not truncated`: è vero soltanto quando EOF è stato osservato.
+
+CSV, GeoJSON, KML e DXF interrompono la scansione progressiva; XLSX prepara
+un prefisso XML dei fogli prima dell'inferenza e della decodifica delle celle.
+Shapefile limita anche la prevalidazione dei record e l'inferenza DBF.
+GeoPackage limita la query e FileGDB l'iteratore delle feature.
+Il limite è trasmesso ai decoder, non applicato soltanto al batch restituito.
+Parquet deve acquisire pagine/chunk del row group che contiene N; Arrow IPC
+acquisisce l'intero record batch che contiene N. I controlli strutturali
+necessari alla decodifica sicura del blocco restano applicati al blocco;
+la validazione dei valori e delle geometrie riguarda soltanto le prime N righe.
+I blocchi successivi non vengono decodificati. Cataloghi, footer, dizionari e
+metadati condivisi possono richiedere letture indipendenti dalle righe; il
+buffering del sistema o della decompressione può acquisire byte anticipati.
+`--limit` non sostituisce le quote di risorse e non è ammesso con `--output`.
+
+I tipi Arrow `LargeUtf8`/`Utf8View`, `LargeBinary`/`BinaryView` e
+`LargeList`/`ListView`/`LargeListView` hanno rispettivamente le classi pubbliche
+`utf8`, `binary` e `nested`, come i tipi base. Un writer che non li rappresenta
+usa la situazione `UnrepresentableWriteType`, con un messaggio che nomina la
+classe, senza riportare valori della cella.
+
+
+## Tabelle operative verificate
+
+<!-- generato da codice/uscite: inizio -->
+
+| Categoria | Exit |
+| --- | --- |
+| successo | 0 |
+| invalid_plan | 2 |
+| invalid_configuration | 2 |
+| schema | 3 |
+| data_mapping | 3 |
+| crs | 3 |
+| unsupported | 3 |
+| resource_limit | 4 |
+| io | 5 |
+| not_found | 5 |
+| conflict | 5 |
+| protocol | 5 |
+| authentication | 5 |
+| authorization | 5 |
+| timeout | 5 |
+| transient | 5 |
+| execution | 6 |
+| internal | 70 |
+| cancelled | 130 |
+
+<!-- generato da codice/uscite: fine -->
+
+<!-- generato da codice/errori: inizio -->
+
+| Situazione | Driver | Caso eseguito | Categoria | Fase | Codice | Exit | Messaggio |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| MissingSource | csv | sorgente assente | not_found | read | SOURCE_NOT_FOUND | 5 | sorgente o membro obbligatorio del dataset non trovato |
+| MissingSource | shp | sorgente assente | not_found | read | SOURCE_NOT_FOUND | 5 | sorgente o membro obbligatorio del dataset non trovato |
+| MissingSource | gpkg | sorgente assente | not_found | read | SOURCE_NOT_FOUND | 5 | sorgente o membro obbligatorio del dataset non trovato |
+| MissingSource | filegdb | sorgente assente | not_found | read | SOURCE_NOT_FOUND | 5 | sorgente o membro obbligatorio del dataset non trovato |
+| MissingSource | geojson | sorgente assente | not_found | read | SOURCE_NOT_FOUND | 5 | sorgente o membro obbligatorio del dataset non trovato |
+| MissingSource | kml | sorgente assente | not_found | read | SOURCE_NOT_FOUND | 5 | sorgente o membro obbligatorio del dataset non trovato |
+| MissingSource | dxf | sorgente assente | not_found | read | SOURCE_NOT_FOUND | 5 | sorgente o membro obbligatorio del dataset non trovato |
+| MissingSource | xls | sorgente assente | not_found | read | SOURCE_NOT_FOUND | 5 | sorgente o membro obbligatorio del dataset non trovato |
+| MissingSource | geoparquet | sorgente assente | not_found | read | SOURCE_NOT_FOUND | 5 | sorgente o membro obbligatorio del dataset non trovato |
+| MissingSource | ipc | sorgente assente | not_found | read | SOURCE_NOT_FOUND | 5 | sorgente o membro obbligatorio del dataset non trovato |
+| InvalidContent | csv | contenitore vuoto | data_mapping | read | FORMAT_ERROR | 3 | contenuto vuoto o struttura non valida; formato atteso: CSV |
+| InvalidContent | shp | contenitore vuoto | data_mapping | read | FORMAT_ERROR | 3 | contenuto vuoto o struttura non valida; formato atteso: Shapefile |
+| InvalidContent | gpkg | contenitore vuoto | data_mapping | read | FORMAT_ERROR | 3 | contenuto vuoto o struttura non valida; formato atteso: GeoPackage |
+| InvalidContent | filegdb | contenitore vuoto | data_mapping | read | FORMAT_ERROR | 3 | contenuto vuoto o struttura non valida; formato atteso: FileGDB |
+| InvalidContent | geojson | contenitore vuoto | data_mapping | read | FORMAT_ERROR | 3 | contenuto vuoto o struttura non valida; formato atteso: GeoJSON |
+| InvalidContent | kml | contenitore vuoto | data_mapping | read | FORMAT_ERROR | 3 | contenuto vuoto o struttura non valida; formato atteso: KML |
+| InvalidContent | dxf | contenitore vuoto | data_mapping | read | FORMAT_ERROR | 3 | contenuto vuoto o struttura non valida; formato atteso: DXF |
+| InvalidContent | xls | contenitore vuoto | data_mapping | read | FORMAT_ERROR | 3 | contenuto vuoto o struttura non valida; formato atteso: XLSX |
+| InvalidContent | geoparquet | contenitore vuoto | data_mapping | read | FORMAT_ERROR | 3 | contenuto vuoto o struttura non valida; formato atteso: Parquet |
+| InvalidContent | ipc | contenitore vuoto | data_mapping | read | FORMAT_ERROR | 3 | flusso Arrow IPC troppo corto per il formato |
+| DirectoryInsteadOfFile | csv | directory al posto del file | invalid_configuration | validate | CLI_USAGE | 2 | directory al posto del file; formato atteso: CSV |
+| DirectoryInsteadOfFile | shp | directory al posto del file | invalid_configuration | validate | CLI_USAGE | 2 | directory al posto del file; formato atteso: Shapefile |
+| DirectoryInsteadOfFile | gpkg | directory al posto del file | invalid_configuration | validate | CLI_USAGE | 2 | directory al posto del file; formato atteso: GeoPackage |
+| DirectoryInsteadOfFile | geojson | directory al posto del file | invalid_configuration | validate | CLI_USAGE | 2 | directory al posto del file; formato atteso: GeoJSON |
+| DirectoryInsteadOfFile | kml | directory al posto del file | invalid_configuration | validate | CLI_USAGE | 2 | directory al posto del file; formato atteso: KML |
+| DirectoryInsteadOfFile | dxf | directory al posto del file | invalid_configuration | validate | CLI_USAGE | 2 | directory al posto del file; formato atteso: DXF |
+| DirectoryInsteadOfFile | xls | directory al posto del file | invalid_configuration | validate | CLI_USAGE | 2 | directory al posto del file; formato atteso: XLSX |
+| DirectoryInsteadOfFile | geoparquet | directory al posto del file | invalid_configuration | validate | CLI_USAGE | 2 | directory al posto del file; formato atteso: Parquet |
+| DirectoryInsteadOfFile | ipc | directory al posto del file | invalid_configuration | validate | CLI_USAGE | 2 | directory al posto del file; formato atteso: Arrow IPC |
+| InvalidConfiguration | csv | WKT e XY insieme | invalid_configuration | validate | CLI_USAGE | 2 | csv: wkt_column esclude x_column e y_column; dichiarare una sola geometria |
+| MissingOptionColumn | csv | colonna WKT assente | invalid_configuration | validate | CLI_USAGE | 2 | colonna WKT assente dall'intestazione |
+| ContradictedCrs | geojson | assunzione EPSG:3857 su WGS84 | crs | validate | CRS_CONFLICT | 3 | il CRS assunto contraddice quello dichiarato |
+| ContradictedCrs | kml | assunzione EPSG:3857 su WGS84 | crs | validate | CRS_CONFLICT | 3 | il CRS assunto contraddice quello dichiarato |
+| ContradictedCrs | shp | assunzione EPSG:3857 su WGS84 | crs | validate | CRS_CONFLICT | 3 | il CRS assunto contraddice quello dichiarato |
+| ContradictedCrs | dxf | assunzione EPSG:3857 su WGS84 | crs | validate | CRS_CONFLICT | 3 | il CRS assunto contraddice quello dichiarato |
+| ContradictedCrs | gpkg | assunzione EPSG:3857 su WGS84 | crs | validate | CRS_CONFLICT | 3 | il CRS assunto contraddice quello dichiarato |
+| ContradictedCrs | geoparquet | assunzione EPSG:3857 su WGS84 | crs | validate | CRS_CONFLICT | 3 | il CRS assunto contraddice quello dichiarato |
+| ContradictedCrs | ipc | assunzione EPSG:3857 su WGS84 | crs | validate | CRS_CONFLICT | 3 | il CRS assunto contraddice quello dichiarato |
+| MissingGeometry | shp | schema senza geometria | unsupported | write | UNSUPPORTED | 3 | il formato di destinazione richiede una geometria |
+| MissingGeometry | kml | schema senza geometria | unsupported | write | UNSUPPORTED | 3 | il formato di destinazione richiede una geometria |
+| MissingGeometry | dxf | schema senza geometria | unsupported | write | UNSUPPORTED | 3 | il formato di destinazione richiede una geometria |
+| UnrepresentableWriteType | csv | attributo Duration | unsupported | write | UNSUPPORTED | 3 | tipo Arrow non rappresentabile in fase write, classe: temporal |
+| UnrepresentableWriteType | shp | attributo Duration | unsupported | write | UNSUPPORTED | 3 | tipo Arrow non rappresentabile in fase write, classe: temporal |
+| UnrepresentableWriteType | kml | attributo Duration | unsupported | write | UNSUPPORTED | 3 | tipo Arrow non rappresentabile in fase write, classe: temporal |
+| UnrepresentableWriteType | geojson | attributo Duration | unsupported | write | UNSUPPORTED | 3 | tipo Arrow non rappresentabile in fase write, classe: temporal |
+| UnrepresentableWriteType | gpkg | attributo Duration | unsupported | write | UNSUPPORTED | 3 | tipo Arrow non rappresentabile in fase write, classe: temporal |
+| UnrepresentableWriteType | xls | attributo Duration | unsupported | write | UNSUPPORTED | 3 | tipo Arrow non rappresentabile in fase write, classe: temporal |
+| UnrepresentableWriteValue | gpkg | UInt64 oltre INTEGER | data_mapping | write | FORMAT_ERROR | 3 | UInt64 oltre i64::MAX non rappresentabile come INTEGER GeoPackage |
+| NonFiniteWriteValue | geojson | attributo NaN | data_mapping | write | FORMAT_ERROR | 3 | Float64 non finito non rappresentabile in GeoJSON |
+| ReadMemoryExceeded | ipc | memoria 1 byte | resource_limit | read | LIMIT_EXCEEDED | 4 | memory_bytes quota superata |
+| IneffectiveCrsAssumption | ipc | assunzione senza geometria | invalid_configuration | validate | CLI_USAGE | 2 | --assume-crs senza effetto: il layer non contiene geometrie |
+| MissingLayer | csv | layer 999 | not_found | prepare | NO_LAYER | 5 | layer inesistente all'indice 999 |
+| MissingLayer | shp | layer 999 | not_found | prepare | NO_LAYER | 5 | layer inesistente all'indice 999 |
+| MissingLayer | kml | layer 999 | not_found | prepare | NO_LAYER | 5 | layer inesistente all'indice 999 |
+| MissingLayer | dxf | layer 999 | not_found | prepare | NO_LAYER | 5 | layer inesistente all'indice 999 |
+| MissingLayer | gpkg | layer 999 | not_found | prepare | NO_LAYER | 5 | layer inesistente all'indice 999 |
+| MissingLayer | geojson | layer 999 | not_found | prepare | NO_LAYER | 5 | layer inesistente all'indice 999 |
+| MissingLayer | geoparquet | layer 999 | not_found | prepare | NO_LAYER | 5 | layer inesistente all'indice 999 |
+| MissingLayer | ipc | layer 999 | not_found | prepare | NO_LAYER | 5 | layer inesistente all'indice 999 |
+| MissingLayer | xls | layer 999 | not_found | prepare | NO_LAYER | 5 | layer inesistente all'indice 999 |
+| InvalidQuota | csv | max_rows zero | invalid_configuration | validate | CLI_USAGE | 2 | max_rows deve essere un intero positivo e coerente con le altre quote |
+| InvalidQuota | shp | max_rows zero | invalid_configuration | validate | CLI_USAGE | 2 | max_rows deve essere un intero positivo e coerente con le altre quote |
+| InvalidQuota | gpkg | max_rows zero | invalid_configuration | validate | CLI_USAGE | 2 | max_rows deve essere un intero positivo e coerente con le altre quote |
+| InvalidQuota | filegdb | max_rows zero | invalid_configuration | validate | CLI_USAGE | 2 | max_rows deve essere un intero positivo e coerente con le altre quote |
+| InvalidQuota | geojson | max_rows zero | invalid_configuration | validate | CLI_USAGE | 2 | max_rows deve essere un intero positivo e coerente con le altre quote |
+| InvalidQuota | kml | max_rows zero | invalid_configuration | validate | CLI_USAGE | 2 | max_rows deve essere un intero positivo e coerente con le altre quote |
+| InvalidQuota | dxf | max_rows zero | invalid_configuration | validate | CLI_USAGE | 2 | max_rows deve essere un intero positivo e coerente con le altre quote |
+| InvalidQuota | xls | max_rows zero | invalid_configuration | validate | CLI_USAGE | 2 | max_rows deve essere un intero positivo e coerente con le altre quote |
+| InvalidQuota | geoparquet | max_rows zero | invalid_configuration | validate | CLI_USAGE | 2 | max_rows deve essere un intero positivo e coerente con le altre quote |
+| InvalidQuota | ipc | max_rows zero | invalid_configuration | validate | CLI_USAGE | 2 | max_rows deve essere un intero positivo e coerente con le altre quote |
+| InvalidSpillDirectory | csv | directory spill assente | invalid_configuration | validate | CLI_USAGE | 2 | PLENORA_SPILL_DIR non indica una directory utilizzabile |
+| InvalidSpillDirectory | shp | directory spill assente | invalid_configuration | validate | CLI_USAGE | 2 | PLENORA_SPILL_DIR non indica una directory utilizzabile |
+| InvalidSpillDirectory | gpkg | directory spill assente | invalid_configuration | validate | CLI_USAGE | 2 | PLENORA_SPILL_DIR non indica una directory utilizzabile |
+| InvalidSpillDirectory | geojson | directory spill assente | invalid_configuration | validate | CLI_USAGE | 2 | PLENORA_SPILL_DIR non indica una directory utilizzabile |
+| InvalidSpillDirectory | kml | directory spill assente | invalid_configuration | validate | CLI_USAGE | 2 | PLENORA_SPILL_DIR non indica una directory utilizzabile |
+| InvalidSpillDirectory | dxf | directory spill assente | invalid_configuration | validate | CLI_USAGE | 2 | PLENORA_SPILL_DIR non indica una directory utilizzabile |
+| InvalidSpillDirectory | xls | directory spill assente | invalid_configuration | validate | CLI_USAGE | 2 | PLENORA_SPILL_DIR non indica una directory utilizzabile |
+| InvalidSpillDirectory | geoparquet | directory spill assente | invalid_configuration | validate | CLI_USAGE | 2 | PLENORA_SPILL_DIR non indica una directory utilizzabile |
+| InvalidSpillDirectory | ipc | directory spill assente | invalid_configuration | validate | CLI_USAGE | 2 | PLENORA_SPILL_DIR non indica una directory utilizzabile |
+| MissingWriteBackend | filegdb | build senza gdal-backend | unsupported | write | UNSUPPORTED | 3 | scrittura FileGDB non disponibile: compilare con --features gdal-backend |
+
+<!-- generato da codice/errori: fine -->
+
+<!-- generato da codice/perdite: inizio -->
+
+Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara la trasformazione indicata. NotApplicable indica un elemento non esprimibile nella grammatica sorgente, con motivo e riferimento: non e' una prova passata. La scrittura riguarda la rappresentazione Arrow dell'elemento, inclusi i metadati nativi di formati diversi; non richiede un oggetto nativo del formato destinazione.
+
+| Driver | Elemento | Lettura | Scrittura |
+| --- | --- | --- | --- |
+| csv | NullGeometry | Preserved | Preserved |
+| csv | EmptyPoint | Rejected | Rejected |
+| csv | SignedZero | Preserved | Preserved |
+| csv | Subtypes | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | Aliases | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | Domains | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | TextStyle | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | PaperSpace | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | Xdata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | Width | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | Thickness | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | Lineweight | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | Linetype | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | Color | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | Handle | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | DbfDate | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Preserved |
+| csv | Utf8 | Preserved | Preserved |
+| csv | Null | Preserved | Preserved |
+| csv | EmptyString | Preserved | Preserved |
+| csv | SignedInteger | Transformed(Inference) | Transformed(ArrowCoercion) |
+| csv | UnsignedInteger | Transformed(Inference) | Transformed(ArrowCoercion) |
+| csv | Floating | Transformed(Inference) | Transformed(ArrowCoercion) |
+| csv | Boolean | Preserved | Transformed(ArrowCoercion) |
+| csv | Binary | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Rejected |
+| csv | Decimal | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Rejected |
+| csv | Temporal | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowCoercion) |
+| csv | NestedDictionary | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Rejected |
+| csv | FieldNames | Transformed(FieldNames) | Transformed(FieldNames) |
+| csv | NotNull | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(NotNull) |
+| csv | FieldOrder | Transformed(FieldOrder) | Transformed(FieldOrder) |
+| csv | SchemaMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | FieldMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | NativeMetadata | Preserved | Transformed(ArrowMetadata) |
+| csv | Z | Preserved | Preserved |
+| csv | M | Preserved | Preserved |
+| csv | Dimensions | Preserved | Preserved |
+| csv | GeometryType | Preserved | Preserved |
+| csv | RingOrientation | Preserved | Preserved |
+| csv | EmptyGeometry | Preserved | Preserved |
+| csv | CoordinatePrecision | Transformed(NumberPrecision) | Preserved |
+| csv | CrsId | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(CrsIdAbsent) |
+| csv | CrsDefinition | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(CrsDefinition) |
+| csv | FeatureId | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | Bbox | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | ForeignMembers | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | LayerMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | Styles | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | Hierarchy | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | Extensions | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | ExternalReference | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | ExtendedData | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | FeatureMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | AltitudeMode | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | Inference | Transformed(Inference) | Transformed(ArrowCoercion) |
+| csv | NumberPrecision | Transformed(NumberPrecision) | Preserved |
+| csv | StructuredValue | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Preserved |
+| csv | MissingValue | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Preserved |
+| csv | CoordinateColumns | Transformed(FieldNames) | Transformed(ArrowMetadata) |
+| csv | NumericFormat | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | Formula | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | FormulaCache | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowCoercion) |
+| csv | Identifier | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | Description | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | DataColumns | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | SqlConstraints | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | ContractVersion | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | FieldIdentity | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | TypesDeclaration | Preserved | Transformed(ArrowMetadata) |
+| csv | GeometryEncoding | Preserved | Transformed(ArrowMetadata) |
+| csv | SpatialSemantics | Preserved | Transformed(ArrowMetadata) |
+| csv | Precision | Preserved | Transformed(ArrowMetadata) |
+| csv | Srid | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | CrsResolution | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | DefinitionFormat | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | AxisOrder | Preserved | Transformed(ArrowMetadata) |
+| csv | PrimaryGeometry | Preserved | Transformed(ArrowMetadata) |
+| csv | ExtensionName | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | ExtensionMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| csv | UnknownDimensions | Preserved | Preserved |
+| csv | Covering | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 4180 section 2 (records and text fields; no schema metadata)) | Transformed(ArrowMetadata) |
+| shp | NullGeometry | Preserved | Preserved |
+| shp | EmptyPoint | Preserved | Preserved |
+| shp | SignedZero | Preserved | Preserved |
+| shp | Subtypes | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | Aliases | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | Domains | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | TextStyle | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | PaperSpace | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | Xdata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | Width | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | Thickness | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | Lineweight | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | Linetype | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | Color | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | Handle | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | DbfDate | Transformed(ArrowCoercion) | Preserved |
+| shp | Utf8 | Preserved | Preserved |
+| shp | Null | Preserved | Preserved |
+| shp | EmptyString | Rejected | Rejected |
+| shp | SignedInteger | Transformed(Inference) | Transformed(ArrowCoercion) |
+| shp | UnsignedInteger | NotApplicable: Native integer domains are signed; positive values do not declare an unsigned type (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowCoercion) |
+| shp | Floating | Preserved | Transformed(ArrowCoercion) |
+| shp | Boolean | Preserved | Preserved |
+| shp | Binary | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Rejected |
+| shp | Decimal | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Rejected |
+| shp | Temporal | Transformed(ArrowCoercion) | Transformed(ArrowCoercion) |
+| shp | NestedDictionary | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Rejected |
+| shp | FieldNames | Preserved | Transformed(FieldNames) |
+| shp | NotNull | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(NotNull) |
+| shp | FieldOrder | Transformed(FieldOrder) | Transformed(FieldOrder) |
+| shp | SchemaMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | FieldMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | NativeMetadata | Preserved | Transformed(ArrowMetadata) |
+| shp | Z | Preserved | Preserved |
+| shp | M | Preserved | Preserved |
+| shp | Dimensions | Preserved | Preserved |
+| shp | GeometryType | Transformed(GeometryType) | Transformed(GeometryType) |
+| shp | RingOrientation | Preserved | Transformed(RingOrientation) |
+| shp | EmptyGeometry | Rejected | Rejected |
+| shp | CoordinatePrecision | Preserved | Preserved |
+| shp | CrsId | Preserved | Transformed(CrsId) |
+| shp | CrsDefinition | Preserved | Transformed(CrsDefinition) |
+| shp | FeatureId | Transformed(FeatureId) | Transformed(ArrowMetadata) |
+| shp | Bbox | Transformed(Bbox) | Transformed(ArrowMetadata) |
+| shp | ForeignMembers | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | LayerMetadata | NotApplicable: SHP/SHX/DBF grammar has no layer metadata or extension registry; vendor sidecars are separate formats (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | Styles | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | Hierarchy | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | Extensions | NotApplicable: SHP/SHX/DBF grammar has no layer metadata or extension registry; vendor sidecars are separate formats (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | ExternalReference | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | ExtendedData | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | FeatureMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | AltitudeMode | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | Inference | Transformed(Inference) | Transformed(ArrowCoercion) |
+| shp | NumberPrecision | Preserved | Preserved |
+| shp | StructuredValue | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Preserved |
+| shp | MissingValue | NotApplicable: Fixed record schemas have null slots, not absent members distinct from NULL (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Preserved |
+| shp | CoordinateColumns | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | NumericFormat | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | Formula | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | FormulaCache | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowCoercion) |
+| shp | Identifier | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | Description | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | DataColumns | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | SqlConstraints | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | ContractVersion | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | FieldIdentity | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | TypesDeclaration | Preserved | Transformed(ArrowMetadata) |
+| shp | GeometryEncoding | Preserved | Transformed(ArrowMetadata) |
+| shp | SpatialSemantics | Preserved | Transformed(ArrowMetadata) |
+| shp | Precision | Preserved | Transformed(ArrowMetadata) |
+| shp | Srid | NotApplicable: No independent per-geometry SRID slot; spatial-reference authorities are covered by CrsId/CrsDefinition (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | CrsResolution | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | DefinitionFormat | Preserved | Transformed(ArrowMetadata) |
+| shp | AxisOrder | Preserved | Transformed(ArrowMetadata) |
+| shp | PrimaryGeometry | Preserved | Transformed(ArrowMetadata) |
+| shp | ExtensionName | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | ExtensionMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| shp | UnknownDimensions | Preserved | Preserved |
+| shp | Covering | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI Shapefile Technical Description, July 1998 (SHP/SHX/DBF)) | Transformed(ArrowMetadata) |
+| gpkg | NullGeometry | Preserved | Preserved |
+| gpkg | EmptyPoint | Preserved | Preserved |
+| gpkg | SignedZero | Preserved | Preserved |
+| gpkg | Subtypes | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | Aliases | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | Domains | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | TextStyle | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | PaperSpace | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | Xdata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | Width | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | Thickness | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | Lineweight | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | Linetype | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | Color | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | Handle | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | DbfDate | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Preserved |
+| gpkg | Utf8 | Preserved | Preserved |
+| gpkg | Null | Preserved | Preserved |
+| gpkg | EmptyString | Preserved | Preserved |
+| gpkg | SignedInteger | Preserved | Transformed(ArrowCoercion) |
+| gpkg | UnsignedInteger | NotApplicable: Native integer domains are signed; positive values do not declare an unsigned type (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(ArrowCoercion) |
+| gpkg | Floating | Preserved | Transformed(ArrowCoercion) |
+| gpkg | Boolean | Preserved | Transformed(ArrowCoercion) |
+| gpkg | Binary | Preserved | Preserved |
+| gpkg | Decimal | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Rejected |
+| gpkg | Temporal | Transformed(ArrowCoercion) | Rejected |
+| gpkg | NestedDictionary | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Rejected |
+| gpkg | FieldNames | Preserved | Preserved |
+| gpkg | NotNull | Preserved | Preserved |
+| gpkg | FieldOrder | Transformed(SqlSchema) | Transformed(SqlSchema) |
+| gpkg | SchemaMetadata | Preserved | Transformed(GpkgMetadata) |
+| gpkg | FieldMetadata | Preserved | Transformed(GpkgMetadata) |
+| gpkg | NativeMetadata | Preserved | Transformed(GpkgMetadata) |
+| gpkg | Z | Preserved | Preserved |
+| gpkg | M | Preserved | Preserved |
+| gpkg | Dimensions | Preserved | Preserved |
+| gpkg | GeometryType | Preserved | Preserved |
+| gpkg | RingOrientation | Preserved | Preserved |
+| gpkg | EmptyGeometry | Preserved | Preserved |
+| gpkg | CoordinatePrecision | Preserved | Preserved |
+| gpkg | CrsId | Preserved | Preserved |
+| gpkg | CrsDefinition | Preserved | Preserved |
+| gpkg | FeatureId | Preserved | Transformed(GpkgMetadata) |
+| gpkg | Bbox | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | ForeignMembers | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | LayerMetadata | Transformed(LayerMetadata) | Transformed(GpkgMetadata) |
+| gpkg | Styles | Transformed(NativeStyles) | Transformed(GpkgMetadata) |
+| gpkg | Hierarchy | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | Extensions | Transformed(LayerMetadata) | Transformed(GpkgMetadata) |
+| gpkg | ExternalReference | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | ExtendedData | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | FeatureMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | AltitudeMode | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | Inference | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(ArrowCoercion) |
+| gpkg | NumberPrecision | Preserved | Preserved |
+| gpkg | StructuredValue | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Preserved |
+| gpkg | MissingValue | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Preserved |
+| gpkg | CoordinateColumns | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | NumericFormat | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | Formula | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | FormulaCache | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(ArrowCoercion) |
+| gpkg | Identifier | Preserved | Transformed(GpkgMetadata) |
+| gpkg | Description | Preserved | Transformed(GpkgMetadata) |
+| gpkg | DataColumns | Transformed(LayerMetadata) | Transformed(GpkgMetadata) |
+| gpkg | SqlConstraints | Transformed(SqlSchema) | Transformed(GpkgMetadata) |
+| gpkg | ContractVersion | Preserved | Preserved |
+| gpkg | FieldIdentity | Preserved | Preserved |
+| gpkg | TypesDeclaration | Preserved | Transformed(GpkgMetadata) |
+| gpkg | GeometryEncoding | Preserved | Transformed(GpkgMetadata) |
+| gpkg | SpatialSemantics | Preserved | Transformed(GpkgMetadata) |
+| gpkg | Precision | Preserved | Transformed(GpkgMetadata) |
+| gpkg | Srid | Preserved | Transformed(GpkgMetadata) |
+| gpkg | CrsResolution | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| gpkg | DefinitionFormat | Preserved | Transformed(GpkgMetadata) |
+| gpkg | AxisOrder | Preserved | Transformed(GpkgMetadata) |
+| gpkg | PrimaryGeometry | Preserved | Transformed(GpkgMetadata) |
+| gpkg | ExtensionName | Preserved | Transformed(GpkgMetadata) |
+| gpkg | ExtensionMetadata | Preserved | Transformed(GpkgMetadata) |
+| gpkg | UnknownDimensions | Preserved | Preserved |
+| gpkg | Covering | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC GeoPackage 1.3.1, core tables and registered extensions) | Transformed(GpkgMetadata) |
+| filegdb | NullGeometry | Preserved | Preserved |
+| filegdb | EmptyPoint | NotApplicable: Empty shapes use the native null-shape representation; no distinct typed EMPTY value survives native storage (NullGeometry is exercised) (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(MissingValue) |
+| filegdb | SignedZero | NotApplicable: Coordinates are stored on an integer precision grid, which has no negative-zero encoding (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(CoordinatePrecision) |
+| filegdb | Subtypes | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
+| filegdb | Aliases | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
+| filegdb | Domains | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
+| filegdb | TextStyle | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | PaperSpace | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | Xdata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | Width | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | Thickness | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | Lineweight | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | Linetype | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | Color | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | Handle | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | DbfDate | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Preserved |
+| filegdb | Utf8 | Preserved | Preserved |
+| filegdb | Null | Preserved | Preserved |
+| filegdb | EmptyString | Preserved | Preserved |
+| filegdb | SignedInteger | Preserved | Transformed(ArrowCoercion) |
+| filegdb | UnsignedInteger | NotApplicable: Native integer domains are signed; positive values do not declare an unsigned type (ESRI File Geodatabase API, geodatabase schema XML) | Rejected |
+| filegdb | Floating | Preserved | Transformed(ArrowCoercion) |
+| filegdb | Boolean | NotApplicable: FileGDB field types have no Boolean domain; Short integers are not Boolean declarations (ESRI File Geodatabase API, geodatabase schema XML) | Rejected |
+| filegdb | Binary | Preserved | Rejected |
+| filegdb | Decimal | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Rejected |
+| filegdb | Temporal | Transformed(NumberPrecision) | Rejected |
+| filegdb | NestedDictionary | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Rejected |
+| filegdb | FieldNames | Preserved | Transformed(FieldNames) |
+| filegdb | NotNull | Transformed(NotNull) | Transformed(NotNull) |
+| filegdb | FieldOrder | Transformed(FieldOrder) | Transformed(FieldOrder) |
+| filegdb | SchemaMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | FieldMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | NativeMetadata | Preserved | Transformed(ArrowMetadata) |
+| filegdb | Z | Preserved | Preserved |
+| filegdb | M | Preserved | Preserved |
+| filegdb | Dimensions | Preserved | Preserved |
+| filegdb | GeometryType | Preserved | Preserved |
+| filegdb | RingOrientation | Preserved | Transformed(RingOrientation) |
+| filegdb | EmptyGeometry | NotApplicable: Empty shapes use the native null-shape representation; no distinct typed EMPTY value survives native storage (NullGeometry is exercised) (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(MissingValue) |
+| filegdb | CoordinatePrecision | Preserved | Transformed(CoordinatePrecision) |
+| filegdb | CrsId | Preserved | Transformed(CrsId) |
+| filegdb | CrsDefinition | Preserved | Transformed(CrsDefinition) |
+| filegdb | FeatureId | Transformed(FeatureId) | Transformed(ArrowMetadata) |
+| filegdb | Bbox | Transformed(Bbox) | Transformed(ArrowMetadata) |
+| filegdb | ForeignMembers | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | LayerMetadata | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
+| filegdb | Styles | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | Hierarchy | Transformed(NativeHierarchy) | Transformed(ArrowMetadata) |
+| filegdb | Extensions | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
+| filegdb | ExternalReference | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | ExtendedData | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | FeatureMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | AltitudeMode | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | Inference | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowCoercion) |
+| filegdb | NumberPrecision | Preserved | Transformed(CoordinatePrecision) |
+| filegdb | StructuredValue | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Preserved |
+| filegdb | MissingValue | NotApplicable: Fixed record schemas have null slots, not absent members distinct from NULL (ESRI File Geodatabase API, geodatabase schema XML) | Preserved |
+| filegdb | CoordinateColumns | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | NumericFormat | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | Formula | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | FormulaCache | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowCoercion) |
+| filegdb | Identifier | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | Description | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | DataColumns | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | SqlConstraints | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | ContractVersion | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | FieldIdentity | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | TypesDeclaration | Preserved | Transformed(ArrowMetadata) |
+| filegdb | GeometryEncoding | Preserved | Transformed(ArrowMetadata) |
+| filegdb | SpatialSemantics | Preserved | Transformed(ArrowMetadata) |
+| filegdb | Precision | Preserved | Transformed(ArrowMetadata) |
+| filegdb | Srid | NotApplicable: No independent per-geometry SRID slot; spatial-reference authorities are covered by CrsId/CrsDefinition (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | CrsResolution | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | DefinitionFormat | Preserved | Transformed(ArrowMetadata) |
+| filegdb | AxisOrder | Preserved | Transformed(ArrowMetadata) |
+| filegdb | PrimaryGeometry | Preserved | Transformed(ArrowMetadata) |
+| filegdb | ExtensionName | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | ExtensionMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| filegdb | UnknownDimensions | NotApplicable: Native shape/entity coordinates determine dimensions; no explicit unknown-dimensions declaration (ESRI File Geodatabase API, geodatabase schema XML) | Rejected |
+| filegdb | Covering | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ESRI File Geodatabase API, geodatabase schema XML) | Transformed(ArrowMetadata) |
+| geojson | NullGeometry | Preserved | Preserved |
+| geojson | EmptyPoint | Rejected | Rejected |
+| geojson | SignedZero | Preserved | Preserved |
+| geojson | Subtypes | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | Aliases | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | Domains | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | TextStyle | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | PaperSpace | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | Xdata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | Width | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | Thickness | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | Lineweight | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | Linetype | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | Color | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | Handle | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | DbfDate | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Preserved |
+| geojson | Utf8 | Preserved | Preserved |
+| geojson | Null | Preserved | Preserved |
+| geojson | EmptyString | Preserved | Preserved |
+| geojson | SignedInteger | Transformed(Inference) | Transformed(ArrowCoercion) |
+| geojson | UnsignedInteger | Transformed(Inference) | Transformed(ArrowCoercion) |
+| geojson | Floating | Transformed(NumberPrecision) | Transformed(ArrowCoercion) |
+| geojson | Boolean | Preserved | Preserved |
+| geojson | Binary | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Rejected |
+| geojson | Decimal | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Rejected |
+| geojson | Temporal | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowCoercion) |
+| geojson | NestedDictionary | Transformed(StructuredValue) | Rejected |
+| geojson | FieldNames | Preserved | Transformed(FieldNames) |
+| geojson | NotNull | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(NotNull) |
+| geojson | FieldOrder | Transformed(FieldOrder) | Transformed(FieldOrder) |
+| geojson | SchemaMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | FieldMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | NativeMetadata | Transformed(ForeignMembers) | Transformed(ArrowMetadata) |
+| geojson | Z | Preserved | Preserved |
+| geojson | M | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Rejected |
+| geojson | Dimensions | Transformed(Dimensions) | Transformed(Dimensions) |
+| geojson | GeometryType | Preserved | Preserved |
+| geojson | RingOrientation | Preserved | Preserved |
+| geojson | EmptyGeometry | Rejected | Rejected |
+| geojson | CoordinatePrecision | Transformed(NumberPrecision) | Preserved |
+| geojson | CrsId | Preserved | Transformed(CrsId) |
+| geojson | CrsDefinition | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(CrsDefinition) |
+| geojson | FeatureId | Transformed(FeatureId) | Transformed(ArrowMetadata) |
+| geojson | Bbox | Transformed(Bbox) | Transformed(ArrowMetadata) |
+| geojson | ForeignMembers | Transformed(ForeignMembers) | Transformed(ArrowMetadata) |
+| geojson | LayerMetadata | Transformed(ForeignMembers) | Transformed(ArrowMetadata) |
+| geojson | Styles | Transformed(ForeignMembers) | Transformed(ArrowMetadata) |
+| geojson | Hierarchy | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | Extensions | Transformed(ForeignMembers) | Transformed(ArrowMetadata) |
+| geojson | ExternalReference | Transformed(ForeignMembers) | Transformed(ArrowMetadata) |
+| geojson | ExtendedData | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | FeatureMetadata | Transformed(ForeignMembers) | Transformed(ArrowMetadata) |
+| geojson | AltitudeMode | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | Inference | Transformed(Inference) | Transformed(ArrowCoercion) |
+| geojson | NumberPrecision | Transformed(NumberPrecision) | Preserved |
+| geojson | StructuredValue | Transformed(StructuredValue) | Preserved |
+| geojson | MissingValue | Transformed(MissingValue) | Preserved |
+| geojson | CoordinateColumns | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | NumericFormat | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | Formula | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | FormulaCache | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowCoercion) |
+| geojson | Identifier | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | Description | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | DataColumns | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | SqlConstraints | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | ContractVersion | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | FieldIdentity | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | TypesDeclaration | Preserved | Transformed(ArrowMetadata) |
+| geojson | GeometryEncoding | Preserved | Transformed(ArrowMetadata) |
+| geojson | SpatialSemantics | Preserved | Transformed(ArrowMetadata) |
+| geojson | Precision | Preserved | Transformed(ArrowMetadata) |
+| geojson | Srid | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | CrsResolution | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | DefinitionFormat | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | AxisOrder | Preserved | Transformed(ArrowMetadata) |
+| geojson | PrimaryGeometry | Preserved | Transformed(ArrowMetadata) |
+| geojson | ExtensionName | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | ExtensionMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| geojson | UnknownDimensions | Preserved | Preserved |
+| geojson | Covering | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (RFC 7946 sections 3, 6 (GeoJSON objects and foreign members)) | Transformed(ArrowMetadata) |
+| kml | NullGeometry | Preserved | Preserved |
+| kml | EmptyPoint | Rejected | Rejected |
+| kml | SignedZero | Preserved | Preserved |
+| kml | Subtypes | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | Aliases | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | Domains | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | TextStyle | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | PaperSpace | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | Xdata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | Width | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | Thickness | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | Lineweight | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | Linetype | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | Color | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | Handle | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | DbfDate | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Preserved |
+| kml | Utf8 | Preserved | Preserved |
+| kml | Null | Preserved | Preserved |
+| kml | EmptyString | Preserved | Preserved |
+| kml | SignedInteger | Rejected | Transformed(ArrowCoercion) |
+| kml | UnsignedInteger | Rejected | Transformed(ArrowCoercion) |
+| kml | Floating | Rejected | Transformed(ArrowCoercion) |
+| kml | Boolean | Rejected | Transformed(ArrowCoercion) |
+| kml | Binary | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Rejected |
+| kml | Decimal | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Rejected |
+| kml | Temporal | Rejected | Transformed(ArrowCoercion) |
+| kml | NestedDictionary | Rejected | Rejected |
+| kml | FieldNames | Transformed(ExtendedData) | Transformed(FieldNames) |
+| kml | NotNull | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(NotNull) |
+| kml | FieldOrder | Transformed(FieldOrder) | Transformed(FieldOrder) |
+| kml | SchemaMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | FieldMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | NativeMetadata | Transformed(ForeignMembers) | Transformed(ArrowMetadata) |
+| kml | Z | Transformed(AltitudeMode) | Preserved |
+| kml | M | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Rejected |
+| kml | Dimensions | Transformed(Dimensions) | Transformed(Dimensions) |
+| kml | GeometryType | Transformed(GeometryType) | Transformed(GeometryType) |
+| kml | RingOrientation | Preserved | Preserved |
+| kml | EmptyGeometry | Rejected | Rejected |
+| kml | CoordinatePrecision | Transformed(NumberPrecision) | Preserved |
+| kml | CrsId | Preserved | Transformed(CrsId) |
+| kml | CrsDefinition | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(CrsDefinition) |
+| kml | FeatureId | Transformed(FeatureId) | Transformed(ArrowMetadata) |
+| kml | Bbox | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | ForeignMembers | Transformed(ForeignMembers) | Transformed(ArrowMetadata) |
+| kml | LayerMetadata | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
+| kml | Styles | Transformed(Styles) | Transformed(ArrowMetadata) |
+| kml | Hierarchy | Transformed(Hierarchy) | Transformed(ArrowMetadata) |
+| kml | Extensions | Transformed(ForeignMembers) | Transformed(ArrowMetadata) |
+| kml | ExternalReference | Transformed(ExternalReference) | Transformed(ArrowMetadata) |
+| kml | ExtendedData | Transformed(ExtendedData) | Transformed(ArrowMetadata) |
+| kml | FeatureMetadata | Transformed(FeatureMetadata) | Transformed(ArrowMetadata) |
+| kml | AltitudeMode | Transformed(AltitudeMode) | Transformed(ArrowMetadata) |
+| kml | Inference | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowCoercion) |
+| kml | NumberPrecision | Transformed(NumberPrecision) | Preserved |
+| kml | StructuredValue | Transformed(ExtendedData) | Preserved |
+| kml | MissingValue | Transformed(MissingValue) | Preserved |
+| kml | CoordinateColumns | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | NumericFormat | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | Formula | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | FormulaCache | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowCoercion) |
+| kml | Identifier | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | Description | Rejected | Transformed(ArrowMetadata) |
+| kml | DataColumns | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | SqlConstraints | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | ContractVersion | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | FieldIdentity | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | TypesDeclaration | Preserved | Transformed(ArrowMetadata) |
+| kml | GeometryEncoding | Preserved | Transformed(ArrowMetadata) |
+| kml | SpatialSemantics | Preserved | Transformed(ArrowMetadata) |
+| kml | Precision | Preserved | Transformed(ArrowMetadata) |
+| kml | Srid | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | CrsResolution | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | DefinitionFormat | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | AxisOrder | Preserved | Transformed(ArrowMetadata) |
+| kml | PrimaryGeometry | Preserved | Transformed(ArrowMetadata) |
+| kml | ExtensionName | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | ExtensionMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| kml | UnknownDimensions | Preserved | Preserved |
+| kml | Covering | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (OGC 07-147r2 (KML 2.2), Feature, Geometry and ExtendedData) | Transformed(ArrowMetadata) |
+| dxf | NullGeometry | NotApplicable: DXF has no NULL or EMPTY geometry value; omitted entities and malformed coordinates are not empty geometries (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Rejected |
+| dxf | EmptyPoint | NotApplicable: DXF has no NULL or EMPTY geometry value; omitted entities and malformed coordinates are not empty geometries (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Rejected |
+| dxf | SignedZero | Preserved | Transformed(CoordinatePrecision) |
+| dxf | Subtypes | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
+| dxf | Aliases | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
+| dxf | Domains | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
+| dxf | TextStyle | Transformed(NativeStyles) | Transformed(ArrowMetadata) |
+| dxf | PaperSpace | Transformed(NativeHierarchy) | Transformed(ArrowMetadata) |
+| dxf | Xdata | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
+| dxf | Width | Transformed(NativeStyles) | Transformed(ArrowMetadata) |
+| dxf | Thickness | Transformed(NativeStyles) | Transformed(ArrowMetadata) |
+| dxf | Lineweight | Transformed(NativeStyles) | Transformed(ArrowMetadata) |
+| dxf | Linetype | Transformed(NativeStyles) | Transformed(ArrowMetadata) |
+| dxf | Color | Transformed(NativeStyles) | Transformed(ArrowMetadata) |
+| dxf | Handle | Transformed(FeatureId) | Transformed(ArrowMetadata) |
+| dxf | DbfDate | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(DxfAttribute) |
+| dxf | Utf8 | Preserved | Transformed(DxfAttribute) |
+| dxf | Null | Preserved | Transformed(DxfAttribute) |
+| dxf | EmptyString | Preserved | Transformed(DxfAttribute) |
+| dxf | SignedInteger | Rejected | Transformed(DxfAttribute) |
+| dxf | UnsignedInteger | NotApplicable: Native integer domains are signed; positive values do not declare an unsigned type (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(DxfAttribute) |
+| dxf | Floating | Rejected | Transformed(DxfAttribute) |
+| dxf | Boolean | Rejected | Transformed(DxfAttribute) |
+| dxf | Binary | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(DxfAttribute) |
+| dxf | Decimal | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(DxfAttribute) |
+| dxf | Temporal | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(DxfAttribute) |
+| dxf | NestedDictionary | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(DxfAttribute) |
+| dxf | FieldNames | Transformed(FieldNames) | Transformed(FieldNames) |
+| dxf | NotNull | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(NotNull) |
+| dxf | FieldOrder | Transformed(FieldOrder) | Transformed(FieldOrder) |
+| dxf | SchemaMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
+| dxf | FieldMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
+| dxf | NativeMetadata | Preserved | Transformed(ArrowMetadata) |
+| dxf | Z | Preserved | Preserved |
+| dxf | M | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Rejected |
+| dxf | Dimensions | Transformed(Dimensions) | Transformed(Dimensions) |
+| dxf | GeometryType | Transformed(GeometryType) | Transformed(GeometryType) |
+| dxf | RingOrientation | Preserved | Preserved |
+| dxf | EmptyGeometry | NotApplicable: DXF has no NULL or EMPTY geometry value; omitted entities and malformed coordinates are not empty geometries (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Rejected |
+| dxf | CoordinatePrecision | Preserved | Transformed(CoordinatePrecision) |
+| dxf | CrsId | Preserved | Transformed(CrsId) |
+| dxf | CrsDefinition | Preserved | Transformed(CrsDefinition) |
+| dxf | FeatureId | Transformed(FeatureId) | Transformed(ArrowMetadata) |
+| dxf | Bbox | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
+| dxf | ForeignMembers | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
+| dxf | LayerMetadata | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
+| dxf | Styles | Transformed(NativeStyles) | Transformed(ArrowMetadata) |
+| dxf | Hierarchy | Transformed(NativeHierarchy) | Transformed(ArrowMetadata) |
+| dxf | Extensions | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
+| dxf | ExternalReference | Transformed(ExternalReference) | Transformed(ArrowMetadata) |
+| dxf | ExtendedData | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
+| dxf | FeatureMetadata | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
+| dxf | AltitudeMode | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
+| dxf | Inference | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(DxfAttribute) |
+| dxf | NumberPrecision | Preserved | Transformed(CoordinatePrecision) |
+| dxf | StructuredValue | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(DxfAttribute) |
+| dxf | MissingValue | Preserved | Transformed(DxfAttribute) |
+| dxf | CoordinateColumns | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
+| dxf | NumericFormat | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
+| dxf | Formula | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
+| dxf | FormulaCache | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(DxfAttribute) |
+| dxf | Identifier | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
+| dxf | Description | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
+| dxf | DataColumns | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
+| dxf | SqlConstraints | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
+| dxf | ContractVersion | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
+| dxf | FieldIdentity | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
+| dxf | TypesDeclaration | Preserved | Transformed(ArrowMetadata) |
+| dxf | GeometryEncoding | Preserved | Transformed(ArrowMetadata) |
+| dxf | SpatialSemantics | Preserved | Transformed(ArrowMetadata) |
+| dxf | Precision | Preserved | Transformed(ArrowMetadata) |
+| dxf | Srid | NotApplicable: No independent per-geometry SRID slot; spatial-reference authorities are covered by CrsId/CrsDefinition (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
+| dxf | CrsResolution | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
+| dxf | DefinitionFormat | Preserved | Transformed(ArrowMetadata) |
+| dxf | AxisOrder | Preserved | Transformed(ArrowMetadata) |
+| dxf | PrimaryGeometry | Preserved | Transformed(ArrowMetadata) |
+| dxf | ExtensionName | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
+| dxf | ExtensionMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
+| dxf | UnknownDimensions | NotApplicable: Native shape/entity coordinates determine dimensions; no explicit unknown-dimensions declaration (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Preserved |
+| dxf | Covering | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (Autodesk DXF Reference (HEADER, TABLES, BLOCKS, ENTITIES, OBJECTS)) | Transformed(ArrowMetadata) |
+| xls | NullGeometry | Preserved | Preserved |
+| xls | EmptyPoint | Rejected | Rejected |
+| xls | SignedZero | Preserved | Preserved |
+| xls | Subtypes | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | Aliases | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | Domains | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | TextStyle | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | PaperSpace | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | Xdata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | Width | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | Thickness | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | Lineweight | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | Linetype | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | Color | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | Handle | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | DbfDate | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Preserved |
+| xls | Utf8 | Preserved | Preserved |
+| xls | Null | Preserved | Preserved |
+| xls | EmptyString | Preserved | Preserved |
+| xls | SignedInteger | Transformed(Inference) | Transformed(ArrowCoercion) |
+| xls | UnsignedInteger | Transformed(Inference) | Transformed(ArrowCoercion) |
+| xls | Floating | Transformed(Inference) | Transformed(ArrowCoercion) |
+| xls | Boolean | Preserved | Preserved |
+| xls | Binary | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Rejected |
+| xls | Decimal | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Rejected |
+| xls | Temporal | Transformed(Inference) | Transformed(ArrowCoercion) |
+| xls | NestedDictionary | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Rejected |
+| xls | FieldNames | Transformed(FieldNames) | Transformed(FieldNames) |
+| xls | NotNull | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(NotNull) |
+| xls | FieldOrder | Transformed(FieldOrder) | Transformed(FieldOrder) |
+| xls | SchemaMetadata | Preserved | Transformed(ArrowMetadata) |
+| xls | FieldMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | NativeMetadata | Preserved | Transformed(ArrowMetadata) |
+| xls | Z | Preserved | Preserved |
+| xls | M | Preserved | Preserved |
+| xls | Dimensions | Preserved | Preserved |
+| xls | GeometryType | Preserved | Preserved |
+| xls | RingOrientation | Preserved | Preserved |
+| xls | EmptyGeometry | Preserved | Preserved |
+| xls | CoordinatePrecision | Transformed(NumberPrecision) | Preserved |
+| xls | CrsId | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(CrsIdAbsent) |
+| xls | CrsDefinition | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(CrsDefinition) |
+| xls | FeatureId | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | Bbox | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | ForeignMembers | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | LayerMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | Styles | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | Hierarchy | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | Extensions | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | ExternalReference | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | ExtendedData | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | FeatureMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | AltitudeMode | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | Inference | Transformed(Inference) | Transformed(ArrowCoercion) |
+| xls | NumberPrecision | Transformed(NumberPrecision) | Preserved |
+| xls | StructuredValue | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Preserved |
+| xls | MissingValue | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Preserved |
+| xls | CoordinateColumns | Transformed(FieldNames) | Transformed(ArrowMetadata) |
+| xls | NumericFormat | Transformed(NativeStyles) | Transformed(ArrowMetadata) |
+| xls | Formula | Transformed(LayerMetadata) | Transformed(ArrowMetadata) |
+| xls | FormulaCache | Preserved | Transformed(ArrowCoercion) |
+| xls | Identifier | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | Description | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | DataColumns | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | SqlConstraints | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | ContractVersion | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | FieldIdentity | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | TypesDeclaration | Preserved | Transformed(ArrowMetadata) |
+| xls | GeometryEncoding | Preserved | Transformed(ArrowMetadata) |
+| xls | SpatialSemantics | Preserved | Transformed(ArrowMetadata) |
+| xls | Precision | Preserved | Transformed(ArrowMetadata) |
+| xls | Srid | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | CrsResolution | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | DefinitionFormat | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | AxisOrder | Preserved | Transformed(ArrowMetadata) |
+| xls | PrimaryGeometry | Preserved | Transformed(ArrowMetadata) |
+| xls | ExtensionName | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | ExtensionMetadata | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| xls | UnknownDimensions | Preserved | Preserved |
+| xls | Covering | NotApplicable: No native grammar construct for this element; foreign Arrow transport is a Write case (ECMA-376 Part 1, 18 SpreadsheetML (cells, formulas and styles)) | Transformed(ArrowMetadata) |
+| geoparquet | NullGeometry | Preserved | Preserved |
+| geoparquet | EmptyPoint | Preserved | Preserved |
+| geoparquet | SignedZero | Preserved | Preserved |
+| geoparquet | Subtypes | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | Aliases | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | Domains | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | TextStyle | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | PaperSpace | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | Xdata | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | Width | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | Thickness | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | Lineweight | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | Linetype | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | Color | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | Handle | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | DbfDate | Rejected | Preserved |
+| geoparquet | Utf8 | Preserved | Preserved |
+| geoparquet | Null | Preserved | Preserved |
+| geoparquet | EmptyString | Preserved | Preserved |
+| geoparquet | SignedInteger | Preserved | Preserved |
+| geoparquet | UnsignedInteger | Preserved | Preserved |
+| geoparquet | Floating | Preserved | Preserved |
+| geoparquet | Boolean | Preserved | Preserved |
+| geoparquet | Binary | Preserved | Preserved |
+| geoparquet | Decimal | Preserved | Preserved |
+| geoparquet | Temporal | Preserved | Preserved |
+| geoparquet | NestedDictionary | Preserved | Preserved |
+| geoparquet | FieldNames | Preserved | Preserved |
+| geoparquet | NotNull | Preserved | Preserved |
+| geoparquet | FieldOrder | Preserved | Preserved |
+| geoparquet | SchemaMetadata | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| geoparquet | FieldMetadata | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| geoparquet | NativeMetadata | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| geoparquet | Z | Preserved | Preserved |
+| geoparquet | M | Rejected | Rejected |
+| geoparquet | Dimensions | Preserved | Preserved |
+| geoparquet | GeometryType | Preserved | Preserved |
+| geoparquet | RingOrientation | Preserved | Preserved |
+| geoparquet | EmptyGeometry | Preserved | Preserved |
+| geoparquet | CoordinatePrecision | Preserved | Preserved |
+| geoparquet | CrsId | Preserved | Preserved |
+| geoparquet | CrsDefinition | Preserved | Preserved |
+| geoparquet | FeatureId | Preserved | Transformed(ArrowMetadata) |
+| geoparquet | Bbox | Transformed(Bbox) | Transformed(ArrowMetadata) |
+| geoparquet | ForeignMembers | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | LayerMetadata | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | Styles | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | Hierarchy | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | Extensions | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | ExternalReference | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | ExtendedData | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | FeatureMetadata | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | AltitudeMode | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | Inference | Rejected | Preserved |
+| geoparquet | NumberPrecision | Preserved | Preserved |
+| geoparquet | StructuredValue | Rejected | Preserved |
+| geoparquet | MissingValue | Rejected | Preserved |
+| geoparquet | CoordinateColumns | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | NumericFormat | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | Formula | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | FormulaCache | Rejected | Preserved |
+| geoparquet | Identifier | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | Description | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | DataColumns | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | SqlConstraints | Rejected | Transformed(ArrowMetadata) |
+| geoparquet | ContractVersion | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| geoparquet | FieldIdentity | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| geoparquet | TypesDeclaration | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| geoparquet | GeometryEncoding | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| geoparquet | SpatialSemantics | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| geoparquet | Precision | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| geoparquet | Srid | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| geoparquet | CrsResolution | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| geoparquet | DefinitionFormat | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| geoparquet | AxisOrder | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| geoparquet | PrimaryGeometry | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| geoparquet | ExtensionName | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| geoparquet | ExtensionMetadata | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| geoparquet | UnknownDimensions | Preserved | Preserved |
+| geoparquet | Covering | Transformed(Bbox) | Transformed(ArrowMetadata) |
+| ipc | NullGeometry | Preserved | Preserved |
+| ipc | EmptyPoint | Preserved | Preserved |
+| ipc | SignedZero | Preserved | Preserved |
+| ipc | Subtypes | Rejected | Transformed(ArrowMetadata) |
+| ipc | Aliases | Rejected | Transformed(ArrowMetadata) |
+| ipc | Domains | Rejected | Transformed(ArrowMetadata) |
+| ipc | TextStyle | Rejected | Transformed(ArrowMetadata) |
+| ipc | PaperSpace | Rejected | Transformed(ArrowMetadata) |
+| ipc | Xdata | Rejected | Transformed(ArrowMetadata) |
+| ipc | Width | Rejected | Transformed(ArrowMetadata) |
+| ipc | Thickness | Rejected | Transformed(ArrowMetadata) |
+| ipc | Lineweight | Rejected | Transformed(ArrowMetadata) |
+| ipc | Linetype | Rejected | Transformed(ArrowMetadata) |
+| ipc | Color | Rejected | Transformed(ArrowMetadata) |
+| ipc | Handle | Rejected | Transformed(ArrowMetadata) |
+| ipc | DbfDate | Rejected | Preserved |
+| ipc | Utf8 | Preserved | Preserved |
+| ipc | Null | Preserved | Preserved |
+| ipc | EmptyString | Preserved | Preserved |
+| ipc | SignedInteger | Preserved | Preserved |
+| ipc | UnsignedInteger | Preserved | Preserved |
+| ipc | Floating | Preserved | Preserved |
+| ipc | Boolean | Preserved | Preserved |
+| ipc | Binary | Preserved | Preserved |
+| ipc | Decimal | Preserved | Preserved |
+| ipc | Temporal | Preserved | Preserved |
+| ipc | NestedDictionary | Preserved | Preserved |
+| ipc | FieldNames | Preserved | Preserved |
+| ipc | NotNull | Preserved | Preserved |
+| ipc | FieldOrder | Preserved | Preserved |
+| ipc | SchemaMetadata | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| ipc | FieldMetadata | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| ipc | NativeMetadata | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| ipc | Z | Preserved | Preserved |
+| ipc | M | Preserved | Preserved |
+| ipc | Dimensions | Preserved | Preserved |
+| ipc | GeometryType | Preserved | Preserved |
+| ipc | RingOrientation | Preserved | Preserved |
+| ipc | EmptyGeometry | Preserved | Preserved |
+| ipc | CoordinatePrecision | Preserved | Preserved |
+| ipc | CrsId | Preserved | Preserved |
+| ipc | CrsDefinition | Preserved | Preserved |
+| ipc | FeatureId | Preserved | Transformed(ArrowMetadata) |
+| ipc | Bbox | Rejected | Transformed(ArrowMetadata) |
+| ipc | ForeignMembers | Rejected | Transformed(ArrowMetadata) |
+| ipc | LayerMetadata | Rejected | Transformed(ArrowMetadata) |
+| ipc | Styles | Rejected | Transformed(ArrowMetadata) |
+| ipc | Hierarchy | Rejected | Transformed(ArrowMetadata) |
+| ipc | Extensions | Rejected | Transformed(ArrowMetadata) |
+| ipc | ExternalReference | Rejected | Transformed(ArrowMetadata) |
+| ipc | ExtendedData | Rejected | Transformed(ArrowMetadata) |
+| ipc | FeatureMetadata | Rejected | Transformed(ArrowMetadata) |
+| ipc | AltitudeMode | Rejected | Transformed(ArrowMetadata) |
+| ipc | Inference | Rejected | Preserved |
+| ipc | NumberPrecision | Preserved | Preserved |
+| ipc | StructuredValue | Rejected | Preserved |
+| ipc | MissingValue | Rejected | Preserved |
+| ipc | CoordinateColumns | Rejected | Transformed(ArrowMetadata) |
+| ipc | NumericFormat | Rejected | Transformed(ArrowMetadata) |
+| ipc | Formula | Rejected | Transformed(ArrowMetadata) |
+| ipc | FormulaCache | Rejected | Preserved |
+| ipc | Identifier | Rejected | Transformed(ArrowMetadata) |
+| ipc | Description | Rejected | Transformed(ArrowMetadata) |
+| ipc | DataColumns | Rejected | Transformed(ArrowMetadata) |
+| ipc | SqlConstraints | Rejected | Transformed(ArrowMetadata) |
+| ipc | ContractVersion | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| ipc | FieldIdentity | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| ipc | TypesDeclaration | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| ipc | GeometryEncoding | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| ipc | SpatialSemantics | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| ipc | Precision | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| ipc | Srid | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| ipc | CrsResolution | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| ipc | DefinitionFormat | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| ipc | AxisOrder | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| ipc | PrimaryGeometry | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| ipc | ExtensionName | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| ipc | ExtensionMetadata | Transformed(ArrowMetadata) | Transformed(ArrowMetadata) |
+| ipc | UnknownDimensions | Preserved | Preserved |
+| ipc | Covering | Rejected | Transformed(ArrowMetadata) |
+
+<!-- generato da codice/perdite: fine -->
+
+### Confini nativi e diagnostiche
+
+Il writer GeoPackage registra `OGC:CRS84` in `gpkg_spatial_ref_sys` come
+`EPSG:4326`: per GeoJSON RFC 7946 le coordinate restano longitudine/latitudine,
+senza inversione o riproiezione. Il confronto dello staging dichiara le effettive
+differenze delle rappresentazioni CRS; non cambia la regola di uguaglianza di
+`--assume-crs`.
+
+La codepage DBF dichiarata da `.cpg` viene applicata, ma il companion non contiene
+un'attestazione di appartenenza al dataset. Se due decoder ammettono gli stessi
+byte, un `.cpg` estraneo non e' riconoscibile per inferenza. La fedelta' di lettura
+riporta questo limite come `format_constraint`, senza inventare una perdita.
+
+La regola di apertura FileGDB e' unica: il dataset e' un catalogo
+(`a00000001.gdbtable` e accessori, con la sola tabella condivisa `GDB_Items` per schemi e metadati
+nel formato v10, identificata dal catalogo e non da un ID fisso) piu' oggetti. Il parser unico dei basename stabilisce
+l'identita' e i membri di ciascun oggetto.
+
+- Un catalogo difettoso o illeggibile produce `InvalidContent` del dataset.
+- Un membro vuoto, troncato, di contenuto non valido, non regolare,
+  illeggibile, bloccato o con identita' ambigua riguarda soltanto il proprietario.
+  L'oggetto resta elencato, non leggibile, con la categoria del rifiuto;
+  i fratelli restano elencabili e selezionabili. Nessuna scelta implicita del
+  solo oggetto leggibile tra piu' oggetti totali.
+- Le varianti ASCII di caso di prefisso, cifre esadecimali ed estensione
+  conservano l'identita' se univoche. Un file estraneo attribuibile a un oggetto
+  e' rifiutato localmente; quelli non attribuibili, inclusi gli accessori globali
+  non necessari alla lettura, producono una diagnostica di conteggio senza
+  bloccare gli oggetti. Nessun contenuto estraneo viene interpretato come dato.
+- Ogni apertura nativa e ogni lettore ricevono una vista privata costruita
+  dal piano dichiarativo `operazione ? oggetto ? membri necessari`. La vista
+  dell'elenco contiene il catalogo; quella di un oggetto contiene il catalogo
+  e soltanto i suoi membri. Nessuna copia dell'intera directory, nessuna
+  apertura, copia o lettura dei membri di un fratello da parte dell'oggetto.
+  La vista resta viva fino alla chiusura del lettore.
+
+Il piano e' condiviso da validazione strutturale, `layers`, `inspect`, `read`
+e `convert`. Con `--layer`, `read` e `convert` trasmettono la selezione
+all'apertura: anche la scoperta dello schema riguarda soltanto quell'oggetto,
+con il suo ID originale. Nessuno schema o vista viene preparato per i fratelli.
+Senza selezione, la scoperta completa conserva tutti gli stati degli oggetti. Le estensioni attribuibili senza decoder strutturale sono
+rifiutate localmente: l'apertura non ne dichiara in silenzio l'integrita'.
+Un `.gdbtable` o `.gdbtablx` assente produce `object_missing`; un membro
+vuoto produce `object_empty`. Non si attiva il recupero euristico GDAL degli
+indici: una lettura possibile con quel recupero non attesta l'integrita'.
+
+Gli avvisi GDAL sono intercettati da un solo handler. Le operazioni e i worker
+condividono soltanto un contatore di warning; testo, percorsi e nomi nativi non
+raggiungono il chiamante. I warning compaiono come ragioni `format_constraint`
+con classe e conteggio; le perdite sono accertate separatamente sullo staging.
+Il confronto usa lo stesso schema della copia Arrow pubblica: versione e identita'
+ricostruite identiche non sono perdite. I nomi dei layer FileGDB modificati sono
+segnalati con `native_layer_metadata_not_preserved` e indice, senza il nome.
+
+La tabella esaustiva `arrow_type_class` qualifica tutte le varianti fisiche Arrow;
+la famiglia e' distinta dal sottoinsieme fisico supportato dal singolo formato.
+I rifiuti di tipo indicano la famiglia e la fase `write`.
+Il gate delle buste esegue casi distinti per le posizioni delle perdite native e
+per le coercizioni di tipo; il manifesto viene confrontato con le forme osservate.

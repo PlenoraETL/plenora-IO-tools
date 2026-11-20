@@ -170,6 +170,9 @@ pub struct NativeStyles {
     dates: BTreeSet<(u32, u32)>,
     times: BTreeSet<(u32, u32)>,
     pub epoch: bool,
+    pub formulas: u64,
+    pub numeric_formats: u64,
+    pub changed_numbers: u64,
 }
 impl NativeStyles {
     pub fn date_only(&self, row: u32, col: u32) -> bool {
@@ -198,6 +201,7 @@ impl NativeStyles {
             _ => None,
         }
     }
+    #[allow(clippy::too_many_lines)] // Relazioni, stili e celle appartengono alla stessa apertura ZIP.
     pub fn read(path: &std::path::Path, sheet: &str, budget: &OperationBudget) -> Result<Self> {
         let mut zip = zip::ZipArchive::new(std::fs::File::open(path)?).map_err(|_| xml_error())?;
         let mut result = Self::default();
@@ -227,8 +231,42 @@ impl NativeStyles {
                 Ok(())
             },
         )?;
+        let part = if target.starts_with('/') {
+            target.trim_start_matches('/').to_owned()
+        } else {
+            format!("xl/{target}")
+        };
+        let member = zip
+            .by_name(&part)
+            .map_err(|_| super::sheet_error(plenora_io_model::CapabilityReason::ObjectMissing))?;
+        if member.size() == 0 {
+            return Err(super::sheet_error(
+                plenora_io_model::CapabilityReason::ObjectEmpty,
+            ));
+        }
+        drop(member);
+        super::valida_riferimenti_selezionati(&path.to_path_buf(), budget, Some(&part))?;
+        let mut numeric_cell = false;
+        scan(&mut zip, &part, budget, |tag, attrs| {
+            if tag == "worksheet/sheetData/row/c" {
+                numeric_cell = attrs.get("t").is_none_or(|t| t == "n");
+            }
+            if numeric_cell
+                && tag == "worksheet/sheetData/row/c/v/#text"
+                && attrs
+                    .get("text")
+                    .is_some_and(|text| driver_common::decimal_value_changes(text))
+            {
+                result.changed_numbers += 1;
+            }
+            if tag == "worksheet/sheetData/row/c/f" {
+                result.formulas += 1;
+            }
+            Ok(())
+        })?;
         let mut formats = BTreeMap::new();
         let mut styles = Vec::new();
+        let mut numeric = Vec::new();
         if zip.index_for_name("xl/styles.xml").is_none() {
             return Ok(result);
         }
@@ -242,6 +280,7 @@ impl NativeStyles {
                 }
                 "styleSheet/cellXfs/xf" => {
                     let id = attrs.get("numFmtId").map_or("0", String::as_str);
+                    numeric.push(id != "0");
                     styles.push(formats.get(id).map_or_else(
                         || (builtin_date(id), builtin_time(id)),
                         |code| (only_date(code), only_time(code)),
@@ -251,13 +290,15 @@ impl NativeStyles {
             }
             Ok(())
         })?;
-        let part = if target.starts_with('/') {
-            target.trim_start_matches('/').to_owned()
-        } else {
-            format!("xl/{target}")
-        };
         scan(&mut zip, &part, budget, |tag, attrs| {
             if tag == "worksheet/sheetData/row/c" {
+                let style = attrs
+                    .get("s")
+                    .and_then(|value| value.parse::<usize>().ok())
+                    .unwrap_or(0);
+                if numeric.get(style) == Some(&true) {
+                    result.numeric_formats += 1;
+                }
                 let (date, time) = attrs
                     .get("s")
                     .and_then(|v| v.parse::<usize>().ok())
@@ -402,6 +443,11 @@ where
                 if empty {
                     stack.pop();
                 }
+            }
+            quick_xml::events::Event::Text(text) => {
+                let mut attrs = BTreeMap::new();
+                attrs.insert("text".to_owned(), text.to_string());
+                visit(&format!("{}/#text", stack.join("/")), &attrs)?;
             }
             quick_xml::events::Event::End(_) => {
                 stack.pop();

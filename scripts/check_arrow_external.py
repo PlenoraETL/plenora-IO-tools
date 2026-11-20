@@ -9,6 +9,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
+def check_ipc_prefix(source):
+    """Both IPC decoders slice before validating values of the selected prefix."""
+    compact = re.sub(r"\s+", "", source)
+    expected = "valida_e_proietta(b.slice(0,b.num_rows().min(remaining)),proiezione.as_deref(),)"
+    assert compact.count(expected) == 2, "IPC must limit both file and stream before value validation"
+
 def main(runtime=True):
     arrow = ast.parse((ROOT / "sdk/python/src/plenora_io/_arrow.py").read_text(encoding="utf-8"))
     funcs = {n.name: n for n in arrow.body if isinstance(n, ast.FunctionDef)}
@@ -42,7 +48,7 @@ def main(runtime=True):
     assert adapters.count("super::next_external_batch(") == 5
     ipc = (ROOT / "crates/driver-ipc/src/lib.rs").read_text(encoding="utf-8")
     assert "File::open(&path)?, projection" not in ipc
-    assert ipc.count("valida_e_proietta(b, proiezione.as_deref())") == 2
+    check_ipc_prefix(ipc)
     # Inventario chiuso dei chiamanti operativi: nuovi usi richiedono revisione.
     expected = {
         "observe": {"driver-csv": 1, "driver-dxf": 1, "driver-filegdb": 1,
@@ -128,6 +134,7 @@ def main(runtime=True):
     for relative, count in {
         "driver/batch_worker.rs": 2, "driver/spool.rs": 1,
         "driver/validazione_geometrie.rs": 1, "ewkb.rs": 1,
+        "property_plan.rs": 1,
     }.items():
         source = (ROOT / "crates/plenora-io-core/src" / relative).read_text(encoding="utf-8")
         assert source.count("validate_external_batch(") == count, relative

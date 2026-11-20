@@ -4,7 +4,7 @@
 
 Ogni comando fa la stessa cosa: costruisce una riga di argomenti, esegue,
 decodifica una busta. La prima stesura teneva quel codice dentro il client,
-accanto ai due metodi che lo usavano; con cinque comandi sarebbe stato copiato o
+accanto ai due metodi che lo usavano; con pi? comandi sarebbe stato copiato o
 generalizzato in fretta, e il posto dove generalizzarlo e' questo.
 
 # I due flussi hanno ruoli diversi, e il protocollo lo dice
@@ -340,7 +340,7 @@ _PASSO = 0.05
 
 #: L'orologio dell'attesa: monotono, e una funzione del modulo perche' le
 #: prove lo possano leggere senza toccare `time`.
-_adesso = time.monotonic
+_adesso = time.perf_counter
 
 #: La nota, fissa e senza dati, su un'interruzione la cui chiusura del figlio
 #: non e' riuscita del tutto.
@@ -1023,6 +1023,21 @@ class Runner:
                 flusso=stream,
                 tipo=_tipo(documento),
             )
+        contratti = {
+            "--version": "plenora-io-version-v2", "-V": "plenora-io-version-v2",
+            "catalog": "plenora-io-catalog-v2",
+            "capabilities": "plenora-capabilities-v2",
+            "inspect": "plenora-io-inspect-v1", "layers": "plenora-io-layers-v1",
+            "read": "plenora-io-read-result-v2", "write": "plenora-io-write-result-v2",
+            "convert": "plenora-io-convert-v1",
+        }
+        atteso = ("plenora-error-v1" if completed.exit_code != 0
+                  else contratti.get(completed.argv[0]))
+        from ._errors import _valida_identita
+
+        if atteso is None:
+            raise _dallo_sdk(ProtocolError, "processo.contratto")
+        _valida_identita(documento, atteso)
         return documento
 
 

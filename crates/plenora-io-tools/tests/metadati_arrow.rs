@@ -67,6 +67,8 @@ fn consegna(dove: &Path, sorgente: &Path, nome: &str) -> PathBuf {
         .args([
             "read",
             sorgente.to_str().unwrap(),
+            "--layer",
+            "0",
             "--output",
             uscita.to_str().unwrap(),
             "--format",

@@ -6,8 +6,23 @@ use arrow_array::*;
 #[allow(clippy::needless_pass_by_value)]
 fn scritto(array: ArrayRef) -> Result<Vec<u8>> {
     let mut wb = Workbook::new();
-    write_cell(wb.add_worksheet(), 0, 0, &ValidatedArray::new(&array)?, 0)?;
-    wb.save_to_buffer().map_err(xls_err)
+    let mut empty_cells = BTreeSet::new();
+    write_cell(
+        wb.add_worksheet(),
+        0,
+        0,
+        &ValidatedArray::new(&array)?,
+        0,
+        &mut empty_cells,
+    )?;
+    empty_strings::encode(wb.save_to_buffer().map_err(xls_err)?, &empty_cells)
+}
+
+#[test]
+fn stringa_vuota_e_cella_stringa_presente() {
+    let bytes = scritto(Arc::new(StringArray::from(vec![Some("")]))).unwrap();
+    assert!(xml(&bytes, "xl/worksheets/sheet1.xml").contains("t=\"inlineStr\"><is><t></t></is>"));
+    assert_eq!(rileggi(bytes), Data::String(String::new()));
 }
 
 fn xml(bytes: &[u8], parte: &str) -> String {
@@ -146,7 +161,8 @@ fn tutti_i_tipi_scritti_e_rifiuti_numerici() {
         Arc::new(LargeStringArray::from(vec!["x"])) as ArrayRef,
         Arc::new(BinaryArray::from(vec![b"x".as_slice()])) as ArrayRef,
     ] {
-        assert!(scritto(array).is_err());
+        let supported = matches!(array.data_type(), arrow_schema::DataType::LargeUtf8);
+        assert_eq!(scritto(array).is_ok(), supported);
     }
     let bytes = scritto(Arc::new(Int64Array::from(vec![None::<i64>]))).unwrap();
     assert!(!xml(&bytes, "xl/worksheets/sheet1.xml").contains("<c "));
@@ -278,6 +294,7 @@ fn workbook_esterni_date_durate_errori_e_vuoti() {
         );
         assert!(XlsDriver
             .open(Source::Path(path), opzioni_lettura_wkt())
+            .and_then(rifiuta_oggetti_non_leggibili)
             .is_err());
     }
     let rows = format!(

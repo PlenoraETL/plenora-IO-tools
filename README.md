@@ -1,5 +1,16 @@
 # plenora-IO-tools
 
+<!-- generato da codice/versione: inizio -->
+
+Versione del prodotto: **10.0.0**.
+
+| Artefatto Python | Nome |
+| --- | --- |
+| wheel | plenora_io-10.0.0-py3-none-any.whl |
+| sdist | plenora_io-10.0.0.tar.gz |
+
+<!-- generato da codice/versione: fine -->
+
 Le modifiche per versione sono nelle [note di rilascio](docs/RELEASE.md).
 
 Libreria e CLI per leggere e scrivere dati geospaziali in dieci formati,
@@ -19,18 +30,22 @@ che cosa serve per chiuderle, sono in [docs/RELEASE.md](docs/RELEASE.md).
 
 ## Formati
 
-| | Lettura | Scrittura | Feature richiesta |
-|---|---|---|---|
-| CSV | sì | sì | — |
-| GeoJSON | sì | sì | — |
-| KML | sì | sì | — |
-| Shapefile | sì | sì | — |
-| GeoPackage | sì | sì | — |
-| GeoParquet | sì | sì | — |
-| Arrow IPC | sì | sì | — |
-| XLSX | sì | sì | — |
-| DXF | sì | sì | — |
-| FileGDB | sì | sì | `gdal-backend` |
+<!-- generato da codice/formati: inizio -->
+
+| Id | Estensioni | Direzione | Feature | Lettura nativa | Lettura effettiva | Pruning spaziale / predicati | Fedeltà | Tipi scrivibili |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| csv | ["csv"] | bidirectional | assente | streaming_sequential | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
+| dxf | ["dxf"] | bidirectional | assente | materialized | streaming_sequential | none / none | approximating | ["boolean","signed_integer","unsigned_integer","floating","utf8","binary","temporal","decimal","nested","other"] |
+| filegdb | ["gdb"] | bidirectional | gdal-backend | streaming_sequential | materializing | none / none | conditional | ["signed_integer","floating","utf8"] |
+| geojson | ["geojson","json"] | bidirectional | assente | streaming_sequential | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
+| geoparquet | ["parquet"] | bidirectional | assente | streaming_random | streaming_columnar | bounding_box_statistics / numeric_min_max_statistics | lossless | ["boolean","signed_integer","unsigned_integer","floating","utf8","binary","temporal","decimal","nested","other"] |
+| gpkg | ["gpkg"] | bidirectional | assente | streaming_random | streaming_sequential | optional_rtree_index / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","binary"] |
+| ipc | ["arrow","arrows"] | bidirectional | assente | streaming_random | streaming_sequential | none / none | lossless | ["boolean","signed_integer","unsigned_integer","floating","utf8","binary","temporal","decimal","nested","other"] |
+| kml | ["kml"] | bidirectional | assente | materialized | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
+| shp | ["shp","shp.d"] | bidirectional | assente | streaming_sequential | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
+| xls | ["xlsx"] | bidirectional | assente | materialized | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
+
+<!-- generato da codice/formati: fine -->
 
 Senza la feature `gdal-backend` il driver FileGDB resta uno stub tipizzato: le
 sue chiamate falliscono con una capability mancante, non con un errore di
@@ -96,14 +111,14 @@ let risultato = BindingRuntime::new(&risolutore)
   materializzato deve portare il nome dell'ultimo segmento del riferimento
   (diversi formati ne derivano il nome del layer, che esce nei risultati);
 - `io.read` consegna il flusso Arrow IPC (`application/vnd.apache.arrow.stream`)
-  **nel risultato**, con il documento `plenora-io-read-result-v1` accanto
+  **nel risultato**, con il documento `plenora-io-read-result-v2` accanto
   (`delivered` a `null`: nessuna destinazione è stata chiesta, e la
   serializzazione la dice il content type del risultato), e su questa
   superficie non scrive file del chiamante;
 - `io.write` con un artefatto Arrow stream restituisce
   `input.content_type: application/vnd.apache.arrow.stream`: il risultato
-  non valida contro `plenora-io-write-result-v1`, che ammette solo il
-  contenitore. La deviazione runtime ? dichiarata nel manifesto di adozione
+  non valida contro `plenora-io-write-result-v2`, che ammette solo il
+  contenitore. La deviazione runtime è dichiarata nel manifesto di adozione
   e nel registro dei limiti di `docs/PRODUCT.md`; rientra con `io.write@2`;
 - la discovery passa dalla stessa ammissione delle operazioni: selettore
   `capabilities`, versione `1`, contratto d'ingresso
@@ -127,73 +142,116 @@ prodotto, la differenza è dichiarata nel manifesto di adozione.
 
 ## Uso come CLI
 
-```
-plenora-io catalog                      # i dieci driver e le loro capacità
-plenora-io inspect  <file>              # schema, geometria, CRS, fedeltà
-plenora-io layers   <file>              # i layer del dataset
-plenora-io read     <file> [--limit N]  # valida fino a EOF e conta ciò che passa
-plenora-io convert  <ingresso> <uscita> # conversione fra due formati
+Gli esempi seguenti usano `esempio.geojson`, una FeatureCollection con un
+Point `[1, 2]` e proprietà `nome="esempio"`. Eseguirli in una directory vuota;
+le destinazioni devono essere assenti. Il controllo docset prepara questa fixture.
+
+```sh
+# esito: {"exit":0,"status":"ok"}
+plenora-io catalog
+# esito: {"exit":0,"status":"ok"}
+plenora-io capabilities
+# esito: {"exit":0,"status":"ok","result.format.id":"geojson"}
+plenora-io inspect esempio.geojson
+# esito: {"exit":0,"status":"ok","result.format":"geojson"}
+plenora-io layers esempio.geojson
+# esito: {"exit":0,"status":"ok","result.rows_read":1,"result.truncated":false}
+plenora-io read esempio.geojson
+# esito: {"exit":0,"status":"ok","result.rows_read":1,"result.truncated":true}
+plenora-io read esempio.geojson --limit 1
+# esito: {"exit":0,"status":"ok","result.rows_read":1}
+plenora-io read esempio.geojson --output esempio.arrow
+# esito: {"exit":0,"status":"ok"}
+plenora-io write esempio.arrow scritto.geojson --to geojson
+# esito: {"exit":0,"status":"ok"}
+plenora-io convert esempio.geojson convertito.arrow --from geojson --to ipc
+# esito: {"exit":2,"status":"error","error.category":"invalid_configuration"}
+plenora-io read esempio.geojson --limit 0
 ```
 
 Ogni comando emette un documento JSON con un contratto versionato. Gli errori
-escono su `stderr` come `plenora-io-error-v1`, con un codice stabile e un exit
+escono su `stdout` come `plenora-error-v1`, con un codice stabile e un exit
 code dedicato.
 
 **`read` non stampa le righe.** Attraversa la sorgente applicando l'intero
 contratto di lettura e riporta `rows_read`, `batches`, `truncated`, il layer e la
 fedeltà: è una validazione che conta, non un dump. I campi del documento sono
 esattamente quelli fissati da [`release/cli-protocol-v2.json`](release/cli-protocol-v2.json)
-e dal v1 congelato.
+del protocollo corrente.
 
-Una versione precedente di questo file prometteva «righe come JSON», e il comando
-non le ha **mai** emesse: la prima implementazione della CLI restituiva già
-`rows_read` e `batches`, come quella di oggi. A essere sbagliata era la riga, non
-il comando, ed è la riga a cambiare — aggiungere le righe al documento sarebbe
-stato cambiare un contratto pubblico per far tornare una frase. Esportarle sarà
-semmai una funzionalità distinta, con la propria versione di contratto; oggi il
-modo di ottenere i dati è `convert` verso un formato che si sa rileggere.
+`read --output` consegna i dati in Arrow IPC; `convert` pubblica nel formato scelto.
 
 ### Flag
 
-Valgono per tutti i comandi che aprono una sorgente. Nessuno degrada a un
-default quando il valore manca o è malformato: la CLI **fallisce chiuso**.
+I flag sono ammessi solo dai comandi pertinenti. `--layer` vale per read,
+convert e write; `--limit` e `--output` solo per read, e non insieme.
+`--from` vale solo per convert; `--to` per convert e write.
+`--durable` e `--out-opt` richiedono una destinazione. Flag ripetuti e
+posizionali in eccesso sono `invalid_configuration/CLI_USAGE`; le opzioni di
+formato possono essere ripetute solo con chiavi distinte.
+`--help` (anche `<comando> --help`), `-h`, `--version` e `-V` sono comandi di
+scoperta; `--version` non e un flag da aggiungere a read o convert.
 
-| flag | valore | effetto |
-|---|---|---|
-| `--assume-crs` | identificatore CRS | il CRS da assumere per i formati che non lo portano; `csv` lo esige |
-| `--layer` | intero | opera su un solo layer invece che su tutti |
-| `--limit` | intero | ferma `read` dopo N righe accettate e dichiara `truncated` |
-| `--durable` | — | `fsync` di file e directory prima del rename; l'esito di durabilità è riportato |
-| `--opt` | `chiave=valore` | opzione di formato per entrambe le direzioni |
-| `--in-opt` | `chiave=valore` | come `--opt`, ma sovrascrive per chiave sull'ingresso |
-| `--out-opt` | `chiave=valore` | come `--opt`, ma sovrascrive per chiave sull'uscita |
-| `--version`, `-V` | — | la versione del binario |
+<!-- generato da codice/comandi: inizio -->
+
+| Comando | Flag ammessi |
+| --- | --- |
+| inspect | --format, --opt, --in-opt, --assume-crs, --deadline-ms, --max-input-bytes, --max-input-entries, --max-output-bytes, --max-rows, --max-columns, --max-vertices, --max-geometry-components, --max-wkb-cell-bytes, --max-wkb-components, --max-wkb-depth, --memory-bytes, --spill-bytes, --output-expansion-ratio, --decompression-ratio |
+| layers | --format, --opt, --in-opt, --assume-crs, --deadline-ms, --max-input-bytes, --max-input-entries, --max-output-bytes, --max-rows, --max-columns, --max-vertices, --max-geometry-components, --max-wkb-cell-bytes, --max-wkb-components, --max-wkb-depth, --memory-bytes, --spill-bytes, --output-expansion-ratio, --decompression-ratio |
+| read | --format, --opt, --in-opt, --assume-crs, --deadline-ms, --max-input-bytes, --max-input-entries, --max-output-bytes, --max-rows, --max-columns, --max-vertices, --max-geometry-components, --max-wkb-cell-bytes, --max-wkb-components, --max-wkb-depth, --memory-bytes, --spill-bytes, --output-expansion-ratio, --decompression-ratio, --layer, --limit, --output, --durable, --out-opt |
+| write | --format, --opt, --in-opt, --assume-crs, --deadline-ms, --max-input-bytes, --max-input-entries, --max-output-bytes, --max-rows, --max-columns, --max-vertices, --max-geometry-components, --max-wkb-cell-bytes, --max-wkb-components, --max-wkb-depth, --memory-bytes, --spill-bytes, --output-expansion-ratio, --decompression-ratio, --to, --layer, --durable, --out-opt |
+| convert | --format, --opt, --in-opt, --assume-crs, --deadline-ms, --max-input-bytes, --max-input-entries, --max-output-bytes, --max-rows, --max-columns, --max-vertices, --max-geometry-components, --max-wkb-cell-bytes, --max-wkb-components, --max-wkb-depth, --memory-bytes, --spill-bytes, --output-expansion-ratio, --decompression-ratio, --from, --to, --layer, --durable, --out-opt |
+| catalog, capabilities | --format json |
+| --help, -h; <comando> --help | help testuale |
+| --version, -V | busta versione |
+
+<!-- generato da codice/comandi: fine -->
 
 Le quote finiscono tutte in `PipelineLimits` e condividono la stessa disciplina.
-Zero è rifiutato da ciascuna; i default sono quelli del modello.
+Zero e incoerenze sono `invalid_configuration/CLI_USAGE`.
+`--memory-bytes` deve essere almeno pari a `--max-wkb-cell-bytes` (64 MiB
+per default); per ridurre ulteriormente la memoria ridurre anche quel tetto.
+I default sono quelli del modello.
 
-| flag | default | governa |
-|---|---|---|
-| `--deadline-ms` | `30000` | la deadline dell'operazione |
-| `--memory-bytes` | `536870912` | la memoria della pipeline; lo spool migra su file a **metà** della capacità effettiva |
-| `--max-input-bytes` | `268435456` | i byte della sorgente, contati prima di aprirla |
-| `--max-input-entries` | `10000` | le entry di una sorgente che è una directory |
-| `--max-output-bytes` | `1073741824` | i byte della destinazione |
-| `--max-rows` | `10000000` | le righe dell'operazione |
-| `--max-columns` | `4096` | le colonne del contratto |
-| `--max-vertices` | `50000000` | i vertici complessivi |
-| `--max-wkb-cell-bytes` | `67108864` | i byte di **una** geometria; non può superare `--memory-bytes` |
-| `--max-wkb-components` | `100000` | i componenti di una geometria |
-| `--max-wkb-depth` | `32` | l'annidamento di una geometria; non può superare i 32 livelli di GEO-011 |
+<!-- generato da codice/quote: inizio -->
 
-Due vincoli di coerenza si notano solo quando si stringe:
+| Flag / campo | Default | Unità | Ambito | Fasi |
+| --- | --- | --- | --- | --- |
+| --max-input-bytes | 268435456 | byte | totale sorgente e spool dei decoder | ["read"] |
+| --max-input-entries | 10000 | entry | totale sorgente | ["read"] |
+| --max-rows | 10000000 | righe | totale operazione | ["read","write"] |
+| --max-columns | 4096 | colonne | schema layer e totale del piano di scrittura | ["validate","prepare","read","write"] |
+| --max-geometry-components | 16777216 | componenti | totale operazione | ["read","write"] |
+| --max-output-bytes | 1073741824 | byte | totale operazione | ["read","write","finalize","commit"] |
+| --output-expansion-ratio | 1073741824 | moltiplicatore | uscita / ingresso osservato non vuoto | ["read","write","finalize","commit"] |
+| --max-wkb-cell-bytes | 67108864 | byte | per geometria | ["read","write"] |
+| --max-wkb-components | 100000 | componenti | per geometria | ["read","write"] |
+| --max-wkb-depth | 32 | livelli | per geometria | ["read","write"] |
+| --max-vertices | 50000000 | componenti (coordinate e membri) | per geometria; alias storico che stringe max_wkb_components | ["read","write"] |
+| --memory-bytes | 536870912 | byte | memoria viva pipeline e pool | ["prepare","read","write","finalize"] |
+| --spill-bytes | 4294967296 | byte | spill vivo pipeline e pool | ["read","write","finalize"] |
+| --decompression-ratio | 1000 | moltiplicatore | totale archivio compresso | ["read"] |
+| concurrent_operations | 64 | operazioni | pool condiviso | ["prepare","read","write"] |
+| --deadline-ms | 30000 | ms | operazione; scadenza distinta dalle quote | timeout |
+
+<!-- generato da codice/quote: fine -->
+
+La coerenza della configurazione si verifica prima della lettura:
 
 * `--max-wkb-cell-bytes` non può superare `--memory-bytes`, e la validazione lo
   rifiuta invece di ridurlo in silenzio;
-* `--memory-bytes` deve restare **oltre il doppio** di un batch materializzato —
-  il target di default è 8 MiB — perché sotto soglia lo spool non ha ancora
-  migrato e la quota deve reggere buffer e batch insieme. Sotto quel valore
-  l'errore è `LIMIT_EXCEEDED`, «batch materializzato oltre la quota prenotata».
+* `--max-wkb-depth` non può superare 32, il limite strutturale del contratto.
+
+Il target di batch (8 MiB) non è una soglia minima di memoria: le prenotazioni
+si adattano al budget disponibile. Il superamento effettivo nomina la quota
+(`memory_bytes`, `max_rows`, `max_output_bytes`, ecc.) ed è `resource_limit`
+nella fase in cui avviene: `read`, `write` o `finalize` per la misura dello
+staging prima della pubblicazione. Un rapporto di espansione esplicitamente
+ristretto può ancora rifiutare un piccolo GPKG: il messaggio nomina
+`output_expansion_ratio`, distinto dal tetto assoluto `max_output_bytes`.
+La tabella autoritativa in codice è `plenora_io_model::quota::QUOTAS`, con
+nomi, flag, campi SDK/runtime, default, unità, ambito e fasi. Il pool runtime
+condivide memoria/spill e aggiunge `concurrent_operations` (default 64).
 
 `--deadline-ms` non è una quota come le altre: quando scade l'operazione si
 ferma e l'errore è `timeout` (`DEADLINE_EXCEEDED`, exit code `5`), come vuole
@@ -204,8 +262,7 @@ che nessun controllo chiude, e una scadenza che cade lì trova l'output già
 pubblicato. Per uno Shapefile pubblicato come file sciolti la finestra è
 l'intera sequenza dei rename: superato il controllo, la sequenza si completa,
 per non lasciare un set pubblicato in parte. Fino alla 4.1.0 usciva
-`resource_limit` (`LIMIT_EXCEEDED`, exit code `4`). Un valore a zero resta il
-rifiuto di una quota, `resource_limit`.
+`resource_limit` (`LIMIT_EXCEEDED`, exit code `4`). Un valore a zero è configurazione non valida, `invalid_configuration`.
 
 ### Ctrl+C
 
@@ -230,7 +287,7 @@ Ciò che la CI misura, e nient'altro.
 |---|---|---|
 | Linux x86-64 | suite completa, fuzz, copertura, tutti i gate | è la piattaforma di riferimento; FileGDB in scrittura richiede GDAL ≥ quella di Ubuntu 24.04 |
 | Windows x86-64 | `cargo test --workspace --all-targets`, FileGDB con GDAL nativo, publish cross-volume | il gestore di Ctrl+C c'è; la sonda che invia il segnale no, perché su Windows si applica a un gruppo di console e non a un PID |
-| macOS | le sole prove di publish e i lint di sicurezza | il resto non è misurato su questa piattaforma, e non è dichiarato |
+| macOS | non supportata | nessuna compilazione, prova CI o distribuzione |
 
 Il **recovery** di un publish Shapefile interrotto è in
 [docs/PRODUCT.md § Publish](docs/PRODUCT.md#publish-che-cosa-diventa-visibile-e-quando).
@@ -242,7 +299,7 @@ Il **recovery** di un publish Shapefile interrotto è in
 | [docs/PRODUCT.md](docs/PRODUCT.md) | che cosa offre e che cosa promette: driver, opzioni, contratti pubblici, limiti |
 | [docs/ENGINEERING.md](docs/ENGINEERING.md) | come funziona e come viene verificato: architettura, pipeline, checkpoint, fuzzing |
 | [docs/RELEASE.md](docs/RELEASE.md) | dove siamo e dove andiamo: stato misurato, blocchi aperti, ordine di lavoro |
-| [docs/INSTALL.md](docs/INSTALL.md) | installare e migrare: artefatti, profili, scoperta del binario, 1.x → 2.0.0 |
+| [docs/INSTALL.md](docs/INSTALL.md) | installare e migrare: artefatti, profili, scoperta del binario, protocollo corrente |
 | [docs/PIANO-4.0.0.md](docs/PIANO-4.0.0.md) | dove andiamo dopo la 3.0.0: scostamenti dai contratti pubblici, priorità, decisioni aperte |
 | [docs/PIANO-4.1.0.md](docs/PIANO-4.1.0.md) | maturità del codice a confronto con database-tools, residui, dipendenze e proposte d'interoperabilità |
 | [docs/CENSIMENTO-LIBRERIE-2026-09-15.md](docs/CENSIMENTO-LIBRERIE-2026-09-15.md) | che librerie ci sono e perché: uso effettivo, catena di introduzione, condizioni di rimozione |
@@ -267,3 +324,29 @@ testo della licenza sia quello pubblicato da chi l'ha scritta — non che lo
 diciamo noi.
 
 Le modifiche e la migrazione della versione corrente sono nel [CHANGELOG](CHANGELOG.md).
+
+### Selezione ed elenco degli oggetti
+
+`layers` e `inspect` elencano anche gli oggetti non leggibili: `status.readable`
+vale `false` e `status.error` contiene il motivo tipizzato, senza dati del file.
+Senza `--layer`, `read`, `write` e `convert` verso un formato a layer singolo
+usano automaticamente solo un dataset con un unico oggetto leggibile; con zero
+o piu' di un oggetto totale, anche se uno solo e' leggibile, restituiscono
+`LAYER_SELECTION_REQUIRED`, con indici e stati, e richiedono `--layer`.
+`convert` verso GPKG o FileGDB copia tutti gli oggetti leggibili e dichiara gli
+esclusi con `source_object_not_readable`, conteggio, indice e motivo tipizzato.
+`--layer` seleziona l'indice mostrato dall'elenco, inclusi gli oggetti rifiutati.
+`xls.sheet` seleziona il foglio per nome esatto anche nella conversione verso
+contenitori; un `--layer` diverso e' un errore di configurazione.
+KML sceglie automaticamente il documento aggregato: Document, Folder e Placemark
+sono viste annidate selezionabili esplicitamente, non copie aggiuntive da esportare.
+I nomi delle viste sono univoci anche ignorando le maiuscole ASCII.
+
+Gli indici sono a base zero: GPKG ordina i nomi con confronto binario SQLite;
+FileGDB segue gli identificatori del catalogo interno; XLSX l'ordine del workbook.
+KML ha all'indice zero il documento aggregato, poi Document, Folder e Placemark
+in ordine di apertura XML; DXF ha il model space all'indice zero, poi i blocchi
+nell'ordine del file. Un errore locale non elimina l'oggetto e non scala gli indici.
+Gli indici descrivono quel contenitore: aggiunte o riordinamenti possono cambiarli.
+
+Su Windows `--durable` pubblica con `published_durability_unconfirmed`: la sincronizzazione della directory non è confermata. Il file è pubblicato; non ripetere alla cieca.

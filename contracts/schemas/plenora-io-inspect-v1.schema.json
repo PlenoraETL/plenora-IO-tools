@@ -22,13 +22,14 @@
     },
     "layers": {
       "type": "array",
-      "minItems": 1,
+      "minItems": 0,
       "items": {
         "type": "object",
         "required": [
           "id",
           "name",
-          "fields"
+          "fields",
+          "status"
         ],
         "properties": {
           "id": {
@@ -133,6 +134,51 @@
                 "$comment": "ARROW-VOCABULARY-1.0 §4: `resolved` e `declared_unresolved` esigono un identificatore o una definizione **e** l'ordine degli assi; `missing` li vieta tutti. Definizione e formato o ci sono entrambi o non c'e' nessuno dei due."
               }
             }
+          },
+          "status": {
+            "type": "object",
+            "required": [
+              "readable"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "readable": {
+                "type": "boolean"
+              },
+              "visibility": {
+                "enum": [
+                  "visible",
+                  "hidden",
+                  "very_hidden"
+                ]
+              },
+              "error": {
+                "type": "object"
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "readable": {
+                      "const": false
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "error"
+                  ]
+                },
+                "else": {
+                  "not": {
+                    "required": [
+                      "error"
+                    ]
+                  }
+                }
+              }
+            ]
           }
         }
       },

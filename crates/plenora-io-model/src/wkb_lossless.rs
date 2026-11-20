@@ -361,9 +361,7 @@ impl<'a> Reader<'a> {
 
     fn charge_coordinate(&mut self) -> Result<()> {
         if self.components_left == 0 {
-            return Err(error(&PublicMessage::Curated(
-                "troppi componenti nella geometria",
-            )));
+            return Err(crate::quota::Quota::WkbComponents.exceeded(crate::ErrorPhase::Read));
         }
         self.components_left -= 1;
         Ok(())
@@ -371,9 +369,7 @@ impl<'a> Reader<'a> {
 
     fn charge_coordinates(&mut self, count: usize) -> Result<()> {
         if count > self.components_left {
-            return Err(error(&PublicMessage::Curated(
-                "troppi componenti nella geometria",
-            )));
+            return Err(crate::quota::Quota::WkbComponents.exceeded(crate::ErrorPhase::Read));
         }
         self.components_left -= count;
         Ok(())
@@ -607,6 +603,9 @@ fn read_coordinates(
 }
 
 fn read_geometry(reader: &mut Reader, depth: usize) -> Result<WkbGeometry> {
+    if depth > reader.max_depth && depth <= PROFONDITA_WKB_CONTRATTO {
+        return Err(crate::quota::Quota::WkbDepth.exceeded(crate::ErrorPhase::Read));
+    }
     if depth > reader.max_depth {
         return Err(error(&PublicMessage::Curated(
             "WKB annidato troppo in profondità",
@@ -739,6 +738,9 @@ fn byte_chiusi(byte: &[u8], larghezza: usize) -> bool {
 
 fn inspect_geometry(reader: &mut Reader, depth: usize) -> Result<WkbInspection> {
     let components_before = reader.components_left;
+    if depth > reader.max_depth && depth <= PROFONDITA_WKB_CONTRATTO {
+        return Err(crate::quota::Quota::WkbDepth.exceeded(crate::ErrorPhase::Read));
+    }
     if depth > reader.max_depth {
         return Err(error(&PublicMessage::Curated(
             "WKB annidato troppo in profondità",
@@ -838,9 +840,7 @@ pub fn inspect_wkb(bytes: &[u8], limits: &WkbLimits) -> Result<WkbInspection> {
     #[cfg(feature = "metrics")]
     crate::metrics::inc_decode();
     if bytes.len() > limits.max_cell_bytes {
-        return Err(error(&PublicMessage::Curated(
-            "cella WKB oltre il limite di byte",
-        )));
+        return Err(crate::quota::Quota::WkbCellBytes.exceeded(crate::ErrorPhase::Read));
     }
     let mut reader = Reader {
         bytes,
@@ -867,9 +867,7 @@ pub fn decode_wkb(bytes: &[u8], limits: &WkbLimits) -> Result<WkbGeometry> {
     #[cfg(feature = "metrics")]
     crate::metrics::inc_decode();
     if bytes.len() > limits.max_cell_bytes {
-        return Err(error(&PublicMessage::Curated(
-            "cella WKB oltre il limite di byte",
-        )));
+        return Err(crate::quota::Quota::WkbCellBytes.exceeded(crate::ErrorPhase::Read));
     }
     let mut reader = Reader {
         bytes,
@@ -943,10 +941,7 @@ impl BoundedSink<'_> {
 
     fn extend_from_slice(&mut self, bytes: &[u8]) -> Result<()> {
         if self.oltre_il_tetto(bytes.len()) {
-            return Err(error(&PublicMessage::CuratedWith(
-                "WKB codificato oltre il limite per cella, in byte:",
-                crate::error::NumeroStrutturale::Limite(self.max_bytes as u64),
-            )));
+            return Err(crate::quota::Quota::WkbCellBytes.exceeded(crate::ErrorPhase::Write));
         }
         self.output.extend_from_slice(bytes);
         Ok(())

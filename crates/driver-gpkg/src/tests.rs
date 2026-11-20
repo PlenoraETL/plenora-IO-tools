@@ -176,15 +176,17 @@ fn real_values_in_an_integer_column_are_reported_as_loss_not_silently_coerced() 
     assert_eq!(loss.counts.get(INTEGER_COLUMN_REAL_TRUNCATED), Some(&1));
     assert_eq!(loss.counts.get(INTEGER_COLUMN_REAL_SATURATED), Some(&1));
     // Il 7.0 convertito dall'affinita' non e' una perdita.
-    assert_eq!(loss.counts.values().sum::<u64>(), 3);
-    assert_eq!(loss.counts.get(SCHEMA_NORMALIZED), Some(&1));
+    assert_eq!(loss.counts.values().sum::<u64>(), 2);
+    assert!(!loss.counts.contains_key(SCHEMA_NORMALIZED));
     // Un esempio per coppia (campo, categoria), mai uno per riga.
-    assert_eq!(loss.esempi_trattenuti(), 3);
+    assert_eq!(loss.esempi_trattenuti(), 2);
     // Il nome della colonna non c'e' piu': al suo posto l'indice nello
     // schema, e i due esempi restano distinti per quello.
     assert!(loss.esempi_canonici().all(|example| {
         !example.context.contains("field=")
-            && (example.posizione.field_index.is_some() || example.category == SCHEMA_NORMALIZED)
+            && (example.posizione.field_index.is_some()
+                || example.category == SCHEMA_NORMALIZED
+                || example.category == "native_layer_metadata_not_preserved")
     }));
 }
 
@@ -838,11 +840,9 @@ fn undefined_and_dangling_srs_ids_fail_closed_with_raw_crs() {
     let conn = Connection::open_in_memory().unwrap();
     init_gpkg(&conn).unwrap();
 
-    for srs_id in [0, -1, 999_999] {
-        let error = crs_for(&conn, srs_id).unwrap_err();
-        assert_eq!(error.code, plenora_io_model::IoErrorCode::CrsUnresolved);
-        assert_eq!(error.driver.as_deref(), Some("gpkg"));
-    }
+    let error = crs_for(&conn, 999_999).unwrap_err();
+    assert_eq!(error.code, plenora_io_model::IoErrorCode::CrsUnresolved);
+    assert_eq!(error.driver.as_deref(), Some("gpkg"));
 
     conn.execute("DELETE FROM gpkg_spatial_ref_sys WHERE srs_id = 4326", [])
         .unwrap();
@@ -876,18 +876,12 @@ fn reader_uppercases_the_organization_in_ascii_only() {
     );
 }
 
-/// `OGC:CRS84` non ha un codice intero, e `gpkg_spatial_ref_sys` lo vuole:
-/// il writer non lo riscrive `EPSG:4326`, e lo rifiuta come limite del
-/// bersaglio. Fino alla rilettura 11 il rifiuto era `crs` («non risolto»)
-/// per un CRS risolto.
+/// RFC 7946 uses longitude/latitude WGS84; `GeoPackage` registers EPSG:4326.
 #[test]
-fn writer_does_not_relabel_crs84_as_epsg_4326() {
+fn writer_registers_crs84_as_native_wgs84() {
     let conn = Connection::open_in_memory().unwrap();
     init_gpkg(&conn).unwrap();
-    assert!(matches!(
-        register_srs(&conn, &crs("OGC:CRS84", None)),
-        Err(error) if error.category == plenora_io_model::ErrorCategory::Unsupported
-    ));
+    assert_eq!(register_srs(&conn, &crs("OGC:CRS84", None)).unwrap(), 4326);
 }
 
 /// La riga di WGS 84 porta il WKT canonico, che la regola dei lettori
@@ -1281,7 +1275,10 @@ fn una_colonna_che_oscura_il_rowid_viene_rifiutata() {
 
         // `expect_err` richiederebbe `Debug` sul trait object restituito
         // in caso di successo, che non lo implementa.
-        match driver.open(Source::Path(path), opzioni_lettura()) {
+        match driver
+            .open(Source::Path(path), opzioni_lettura())
+            .and_then(rifiuta_oggetti_non_leggibili)
+        {
             Ok(_) => panic!("colonna {nome}: il file doveva essere rifiutato"),
             Err(errore) => assert!(
                 errore.to_string().contains("oscura l'alias"),
@@ -1342,10 +1339,13 @@ fn due_colonne_geometriche_per_la_stessa_tabella_sono_rifiutate() {
     .unwrap();
     drop(conn);
 
-    match driver.open(Source::Path(path), opzioni_lettura()) {
+    match driver
+        .open(Source::Path(path), opzioni_lettura())
+        .and_then(rifiuta_oggetti_non_leggibili)
+    {
         Ok(_) => panic!("una tabella con due geometrie non deve produrre layer"),
         Err(errore) => {
-            assert_eq!(errore.code, plenora_io_model::IoErrorCode::Unsupported);
+            assert_eq!(errore.code, plenora_io_model::IoErrorCode::Capability);
             // Errori senza dati: i nomi vengono dal file.
             assert!(!errore.message.contains("segreta"), "{}", errore.message);
             assert!(!errore.message.contains("features"), "{}", errore.message);
@@ -1375,10 +1375,13 @@ fn due_geometrie_sotto_nomi_di_tabella_che_differiscono_per_maiuscole_sono_rifiu
     .unwrap();
     drop(conn);
 
-    match driver.open(Source::Path(path), opzioni_lettura()) {
+    match driver
+        .open(Source::Path(path), opzioni_lettura())
+        .and_then(rifiuta_oggetti_non_leggibili)
+    {
         Ok(_) => panic!("la stessa tabella con due geometrie non deve produrre layer"),
         Err(errore) => {
-            assert_eq!(errore.code, plenora_io_model::IoErrorCode::Unsupported);
+            assert_eq!(errore.code, plenora_io_model::IoErrorCode::Capability);
             assert!(!errore.message.contains("geom2"), "{}", errore.message);
         }
     }
@@ -1403,10 +1406,13 @@ fn una_feature_table_senza_colonna_geometrica_dichiarata_e_rifiutata() {
     .unwrap();
     drop(conn);
 
-    match driver.open(Source::Path(path), opzioni_lettura()) {
+    match driver
+        .open(Source::Path(path), opzioni_lettura())
+        .and_then(rifiuta_oggetti_non_leggibili)
+    {
         Ok(_) => panic!("un layer dichiarato e non elencabile non deve sparire"),
         Err(errore) => {
-            assert_eq!(errore.code, plenora_io_model::IoErrorCode::Format);
+            assert_eq!(errore.code, plenora_io_model::IoErrorCode::Capability);
             assert!(!errore.message.contains("seconda"), "{}", errore.message);
         }
     }
@@ -1437,12 +1443,15 @@ fn una_geometria_dichiarata_fuori_da_una_feature_table_e_rifiutata() {
         ))
         .unwrap();
         drop(conn);
-        match driver.open(Source::Path(path), opzioni_lettura()) {
+        match driver
+            .open(Source::Path(path), opzioni_lettura())
+            .and_then(rifiuta_oggetti_non_leggibili)
+        {
             Ok(_) => panic!("una geometria dichiarata non deve sparire: {scenario}"),
             Err(errore) => {
                 assert_eq!(
                     errore.code,
-                    plenora_io_model::IoErrorCode::Format,
+                    plenora_io_model::IoErrorCode::Capability,
                     "{scenario}"
                 );
                 assert!(!errore.message.contains("seconda"), "{}", errore.message);
@@ -2203,7 +2212,7 @@ fn un_layer_dal_crs_rifiutato_non_chiude_gli_altri() {
 /// Se nessun layer si legge, l'apertura fallisce con il primo rifiuto, come
 /// prima.
 #[test]
-fn se_tutti_i_layer_sono_rifiutati_l_apertura_fallisce() {
+fn se_tutti_i_layer_sono_rifiutati_i_motivi_restano_disponibili() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("due.gpkg");
     due_layer(&path);
@@ -2212,10 +2221,15 @@ fn se_tutti_i_layer_sono_rifiutati_l_apertura_fallisce() {
         &["vani", "strade"],
         Some(("EPSG", 4326, "+proj=longlat +datum=WGS84")),
     );
-    let Err(errore) = GpkgDriver.open(Source::Path(path), opzioni_lettura()) else {
-        panic!("l'apertura riesce senza layer leggibili");
-    };
-    assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
+    let dataset = GpkgDriver
+        .open(Source::Path(path), opzioni_lettura())
+        .unwrap();
+    assert_eq!(dataset.layers().len(), 2);
+    for layer in dataset.layers() {
+        let error = dataset.rifiuto_del_layer(layer.id).unwrap();
+        assert_eq!(error.category, plenora_io_model::ErrorCategory::Crs);
+        assert!(dataset.open_layer_reader(&richiesta(layer.id)).is_err());
+    }
 }
 
 /// Rilettura 9, punto 1 nel `GeoPackage`: `EPSG:4326` registrato con una
@@ -2416,6 +2430,7 @@ fn companion_comparso_durante_il_layer_impedisce_il_successo() {
         controlla_companion(&sqlite_path).unwrap();
         let schema = Arc::new(Schema::empty());
         let mut reader = GpkgReader {
+            remaining: u64::MAX,
             conn: apri_percorso_sqlite(&sqlite_path).unwrap(),
             sqlite_path,
             sql: "SELECT rowid FROM features WHERE (?1 IS NULL OR rowid > ?1) ORDER BY rowid LIMIT ?2".to_owned(),
@@ -2520,3 +2535,386 @@ fn nome_unix_non_utf8_conservato_byte_per_byte() {
 }
 
 mod identity_plan;
+
+#[test]
+fn r1_stale_wal_is_never_published_beside_a_new_database() {
+    let dir = tempfile::tempdir().unwrap();
+    let old = dir.path().join("old.db");
+    let conn = Connection::open(&old).unwrap();
+    conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; CREATE TABLE intrusa(x TEXT); INSERT INTO intrusa VALUES ('foreign');").unwrap();
+    let old_wal = std::fs::read(dir.path().join("old.db-wal")).unwrap();
+    assert!(!old_wal.is_empty());
+    let path = dir.path().join("out.gpkg");
+    let wal = dir.path().join("out.gpkg-wal");
+    std::fs::write(&wal, &old_wal).unwrap();
+    let schema = Arc::new(Schema::new(vec![geometry_field("geom", "EPSG:4326")]));
+    let plan = WritePlan {
+        layers: vec![WriteLayer {
+            name: "layer".to_owned(),
+            contract: DataContract::from_schema(schema).unwrap(),
+        }],
+    };
+    let error = GpkgDriver
+        .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
+        .err()
+        .unwrap();
+    assert_eq!(error.code, plenora_io_model::IoErrorCode::OutputExists);
+    assert!(!path.exists());
+    assert_eq!(std::fs::read(wal).unwrap(), old_wal);
+}
+
+#[test]
+fn r1_companion_appearing_after_create_blocks_publication() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("custom-name.gpkg");
+    let schema = Arc::new(Schema::new(vec![geometry_field("geom", "EPSG:4326")]));
+    let plan = WritePlan {
+        layers: vec![WriteLayer {
+            name: "layer".to_owned(),
+            contract: DataContract::from_schema(schema).unwrap(),
+        }],
+    };
+    let writer = GpkgDriver
+        .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
+        .unwrap();
+    std::fs::write(dir.path().join("custom-name.gpkg-journal"), b"foreign").unwrap();
+    assert_eq!(
+        writer.finish().err().unwrap().code,
+        plenora_io_model::IoErrorCode::OutputExists
+    );
+    assert!(!path.exists());
+}
+
+fn rifiuta_oggetti_non_leggibili(
+    dataset: Box<dyn OpenDatasetHandle>,
+) -> Result<Box<dyn OpenDatasetHandle>> {
+    for layer in dataset.layers() {
+        if let Some(error) = dataset.rifiuto_del_layer(layer.id) {
+            return Err(error);
+        }
+    }
+    Ok(dataset)
+}
+
+#[test]
+fn r2_oggetti_non_leggibili_conservano_indici_e_motivi() {
+    use plenora_io_model::CapabilityReason as R;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("objects.gpkg");
+    due_layer(&path);
+    let conn = Connection::open(&path).unwrap();
+    let cases = [
+        (
+            "a_view",
+            "CREATE VIEW a_view AS SELECT * FROM strade",
+            "features",
+            "geometry",
+            R::ObjectView,
+        ),
+        (
+            "b_attributes",
+            "CREATE TABLE b_attributes(id INTEGER)",
+            "attributes",
+            "geometry",
+            R::ObjectAttributes,
+        ),
+        (
+            "c_tiles",
+            "CREATE TABLE c_tiles(id INTEGER)",
+            "tiles",
+            "geometry",
+            R::ObjectTiles,
+        ),
+        (
+            "d_missing",
+            "SELECT 1",
+            "features",
+            "geometry",
+            R::ObjectMissing,
+        ),
+        (
+            "e_composite",
+            "CREATE TABLE e_composite(a INTEGER,b INTEGER,geom BLOB,PRIMARY KEY(a,b))",
+            "features",
+            "geom",
+            R::ObjectPrimaryKey,
+        ),
+        (
+            "f_text",
+            "CREATE TABLE f_text(id TEXT PRIMARY KEY,geom BLOB)",
+            "features",
+            "geom",
+            R::ObjectPrimaryKey,
+        ),
+        (
+            "g_column",
+            "CREATE TABLE g_column(id INTEGER PRIMARY KEY,geom BLOB)",
+            "features",
+            "absent",
+            R::ObjectGeometryColumnMissing,
+        ),
+    ];
+    for (name, ddl, kind, geometry, _) in cases {
+        conn.execute_batch(ddl).unwrap();
+        conn.execute(
+            "INSERT INTO gpkg_contents(table_name,data_type,srs_id) VALUES (?1,?2,4326)",
+            [name, kind],
+        )
+        .unwrap();
+        if kind == "features" {
+            conn.execute(
+                "INSERT INTO gpkg_geometry_columns VALUES (?1,?2,'POINT',4326,0,0)",
+                [name, geometry],
+            )
+            .unwrap();
+        }
+    }
+    drop(conn);
+    for _ in 0..2 {
+        let ds = GpkgDriver
+            .open(Source::Path(path.clone()), opzioni_lettura())
+            .unwrap();
+        assert_eq!(ds.layers().len(), cases.len() + 2);
+        for (index, (name, _, _, _, reason)) in cases.iter().enumerate() {
+            let layer = &ds.layers()[index];
+            assert_eq!(&layer.name, name);
+            assert_eq!(layer.id.0 as usize, index);
+            let listed = ds.rifiuto_del_layer(layer.id).unwrap();
+            assert_eq!(listed.capability_reason, Some(*reason));
+            let error = ds.open_layer_reader(&richiesta(layer.id)).err().unwrap();
+            assert_eq!(error.capability_reason, listed.capability_reason);
+            assert!(!error.message.contains(name));
+        }
+        let mut reader = ds
+            .open_layer_reader(&richiesta(id_del_layer(ds.as_ref(), "strade")))
+            .unwrap();
+        assert_eq!(reader.next_batch().unwrap().unwrap().num_rows(), 1);
+    }
+}
+
+#[test]
+fn r2_srs_obbligatori_non_sono_crs_risolti() {
+    let conn = Connection::open_in_memory().unwrap();
+    init_gpkg(&conn).unwrap();
+    for id in [-1, 0] {
+        let crs = crs_for(&conn, id).unwrap();
+        assert!(crs.id.is_none());
+        assert!(crs.definition.is_none());
+    }
+}
+
+#[test]
+fn native_layer_accessories_are_counted_without_payload() {
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch("CREATE TABLE gpkg_contents(table_name TEXT,identifier TEXT,description TEXT);
+        INSERT INTO gpkg_contents VALUES ('secret','private-id','private-description');
+        CREATE TABLE gpkg_data_columns(table_name TEXT); INSERT INTO gpkg_data_columns VALUES ('secret');
+        CREATE TABLE layer_styles(f_table_name TEXT); INSERT INTO layer_styles VALUES ('secret');
+        CREATE TABLE gpkg_extensions(table_name TEXT); INSERT INTO gpkg_extensions VALUES ('secret');
+        CREATE TABLE gpkg_metadata_reference(table_name TEXT); INSERT INTO gpkg_metadata_reference VALUES ('secret');").unwrap();
+    let report = schema::native_layer_loss(&conn, "secret", 3, false).unwrap();
+    assert_eq!(
+        report.counts.get("native_layer_metadata_not_preserved"),
+        Some(&3)
+    );
+    assert_eq!(report.counts.get("native_styles_not_preserved"), Some(&1));
+    let examples = serde_json::to_string(&report.esempi_canonici().collect::<Vec<_>>()).unwrap();
+    assert!(!examples.contains("secret"));
+    assert!(!examples.contains("private"));
+    assert!(report
+        .esempi_canonici()
+        .all(|e| e.posizione.layer_index == Some(3)));
+}
+
+#[test]
+fn generated_primary_key_does_not_emit_unrepresented_autoincrement() {
+    let schema = Schema::new(vec![Field::new("geometry", DataType::Binary, true)]);
+    let ddl = schema::columns_ddl(&schema, 0).join(",");
+    assert!(!ddl.contains("AUTOINCREMENT"));
+    assert!(ddl.contains("INTEGER PRIMARY KEY"));
+}
+
+#[test]
+fn generated_database_reads_without_sql_constraint_loss() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("generated.gpkg");
+    let schema = Arc::new(Schema::new(vec![geometry_field("geom", "EPSG:4326")]));
+    let plan = WritePlan {
+        layers: vec![WriteLayer {
+            name: "layer".into(),
+            contract: DataContract::from_schema(schema.clone()).unwrap(),
+        }],
+    };
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![Arc::new(BinaryArray::from(vec![None::<&[u8]>]))],
+    )
+    .unwrap();
+    let mut writer = GpkgDriver
+        .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
+        .unwrap();
+    writer.write(&batch).unwrap();
+    writer.finish().unwrap();
+    let dataset = GpkgDriver
+        .open(Source::Path(path), opzioni_lettura())
+        .unwrap();
+    assert!(dataset.layers()[0]
+        .contract
+        .schema
+        .metadata()
+        .get("gpkg.schema_normalized")
+        .is_none_or(|reasons| !reasons.split(',').any(|reason| reason == "constraints")));
+    let loss = read_all_and_loss(dataset.as_ref());
+    assert!(!loss.counts.contains_key(SCHEMA_NORMALIZED), "{loss:?}");
+    assert!(
+        !loss
+            .counts
+            .contains_key("native_layer_metadata_not_preserved"),
+        "{loss:?}"
+    );
+}
+
+#[test]
+fn undefined_srs_layers_read_with_missing_crs_and_preserve_coordinates() {
+    for id in [0_i32, -1] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("undefined.gpkg");
+        gpkg_con_un_layer_features(&path);
+        let conn = Connection::open(&path).unwrap();
+        conn.execute("UPDATE gpkg_geometry_columns SET srs_id=?1", [id])
+            .unwrap();
+        conn.execute("UPDATE gpkg_contents SET srs_id=?1", [id])
+            .unwrap();
+        let mut blob: Vec<u8> = conn
+            .query_row("SELECT geom FROM features", [], |r| r.get(0))
+            .unwrap();
+        blob[4..8].copy_from_slice(&id.to_le_bytes());
+        conn.execute("UPDATE features SET geom=?1", [blob]).unwrap();
+        drop(conn);
+        let dataset = GpkgDriver
+            .open(Source::Path(path.clone()), opzioni_lettura())
+            .unwrap();
+        let layer = &dataset.layers()[0];
+        assert!(
+            dataset.rifiuto_del_layer(layer.id).is_none(),
+            "{:?}",
+            dataset.rifiuto_del_layer(layer.id)
+        );
+        assert_eq!(
+            layer.contract.geometry.as_ref().unwrap().crs,
+            plenora_io_model::crs::CrsResolution::Missing
+        );
+        let mut reader = dataset.open_layer_reader(&richiesta(layer.id)).unwrap();
+        let batch = reader.next_batch().unwrap().unwrap();
+        assert_eq!(batch.num_rows(), 1);
+        assert!(!batch.column(0).is_null(0));
+        let assumed = GpkgDriver
+            .open(
+                Source::Path(path),
+                opzioni_lettura().with_assume_crs("EPSG:3857"),
+            )
+            .unwrap();
+        let layer = &assumed.layers()[0];
+        assert!(assumed.rifiuto_del_layer(layer.id).is_none());
+        assert_eq!(
+            layer.contract.geometry.as_ref().unwrap().crs.id(),
+            Some("EPSG:3857")
+        );
+        let mut reader = assumed.open_layer_reader(&richiesta(layer.id)).unwrap();
+        assert_eq!(reader.next_batch().unwrap().unwrap().num_rows(), 1);
+    }
+}
+
+#[test]
+fn native_identifier_description_and_io_metadata_survive_two_roundtrips() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut path = dir.path().join("original.gpkg");
+    gpkg_con_un_layer_features(&path);
+    let conn = Connection::open(&path).unwrap();
+    conn.execute("UPDATE gpkg_contents SET identifier='Identità distinta', description='Descrizione è completa'", []).unwrap();
+    drop(conn);
+    for iteration in 0..2 {
+        let dataset = GpkgDriver
+            .open(Source::Path(path.clone()), opzioni_lettura())
+            .unwrap();
+        let layer = &dataset.layers()[0];
+        assert_eq!(
+            layer.contract.schema.metadata()["gpkg.identifier"],
+            "Identità distinta"
+        );
+        assert_eq!(
+            layer.contract.schema.metadata()["gpkg.description"],
+            "Descrizione è completa"
+        );
+        let loss = read_all_and_loss(dataset.as_ref());
+        assert!(!loss.counts.contains_key(SCHEMA_NORMALIZED), "{loss:?}");
+        assert!(
+            !loss
+                .counts
+                .contains_key("native_layer_metadata_not_preserved"),
+            "{loss:?}"
+        );
+        path = dir.path().join(format!("copy-{iteration}.gpkg"));
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: layer.name.clone(),
+                contract: layer.contract.clone(),
+            }],
+        };
+        let mut writer = GpkgDriver
+            .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
+            .unwrap();
+        let mut reader = dataset.open_layer_reader(&richiesta(layer.id)).unwrap();
+        while let Some(batch) = reader.next_batch().unwrap() {
+            writer.write(&batch).unwrap();
+        }
+        writer.finish().unwrap();
+    }
+}
+
+#[test]
+fn column_permutation_is_reported_at_write_not_on_reopen() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("reordered.gpkg");
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("value", DataType::Int64, false),
+        geometry_field("geom", "EPSG:4326"),
+    ]));
+    let plan = WritePlan {
+        layers: vec![WriteLayer {
+            name: "features".into(),
+            contract: DataContract::from_schema(schema.clone()).unwrap(),
+        }],
+    };
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(Int64Array::from(vec![17])),
+            Arc::new(BinaryArray::from(vec![None::<&[u8]>])),
+        ],
+    )
+    .unwrap();
+    let mut writer = GpkgDriver
+        .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
+        .unwrap();
+    writer.write(&batch).unwrap();
+    let published = writer.finish().unwrap();
+    assert_eq!(published.loss.counts.get(SCHEMA_NORMALIZED), Some(&1));
+    let dataset = GpkgDriver
+        .open(Source::Path(path), opzioni_lettura())
+        .unwrap();
+    assert!(!read_all_and_loss(dataset.as_ref())
+        .counts
+        .contains_key(SCHEMA_NORMALIZED));
+    let mut reader = dataset.open_layer_reader(&richiesta(LayerId(0))).unwrap();
+    let batch = reader.next_batch().unwrap().unwrap();
+    assert_eq!(
+        batch
+            .column(1)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap()
+            .value(0),
+        17
+    );
+}

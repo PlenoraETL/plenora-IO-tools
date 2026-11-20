@@ -244,7 +244,7 @@ fn ipc_a_geoparquet_conserva_tutto_nel_verso_opposto() {
 fn gpkg_multi_layer_a_ipc_dichiara_i_layer_non_scelti() {
     let dir = temporanea();
     let uscita = dir.path().join("uscita.arrow");
-    let esito = converti("canonico.gpkg", &uscita, &[]);
+    let esito = converti("canonico.gpkg", &uscita, &["--layer", "0"]);
     assert!(esito.riuscito, "{}", esito.stderr);
     assert_eq!(esito.perdite(), perdite(&[]));
     // Il GeoPackage canonico ha due layer e il bersaglio ne accetta uno: la
@@ -284,12 +284,8 @@ fn shp_a_gpkg_conserva_geometria_crs_e_tipi() {
     assert!(esito.riuscito, "{}", esito.stderr);
     assert_eq!(
         esito.perdite(),
-        perdite(&[
-            ("crs_definition_not_preserved_derived", 1),
-            ("gpkg_metadata_not_preserved", 2),
-        ]),
-        "il GeoPackage riscrive la definizione dal proprio gpkg_spatial_ref_sys \
-         e dichiara i due metadata nativi SHP non rappresentati"
+        perdite(&[("gpkg_metadata_not_preserved", 1)]),
+        "la definizione ricostruita e identica; un solo metadato SHP differisce"
     );
     let righe = per_id(&uscita, &[]);
     assert_eq!(righe.len(), 2, "la fixture dei punti porta r1 e r5");
@@ -342,7 +338,10 @@ fn geojson_a_shp_conserva_anche_la_riga_senza_geometria() {
     // riportato da fuori. Fino alla rilettura 11 la perdita era `derived`.
     assert_eq!(
         esito.perdite(),
-        perdite(&[("crs_id_not_preserved_absent", 1)]),
+        perdite(&[
+            ("arrow_metadata_not_preserved", 3),
+            ("crs_id_not_preserved_absent", 1)
+        ]),
         "il .prj sintetizzato si rilegge EPSG:4326, non OGC:CRS84"
     );
     let righe = per_id(&uscita, &[]);
@@ -371,7 +370,10 @@ fn xls_a_csv_conserva_null_e_interi_larghi() {
     assert!(esito.riuscito, "{}", esito.stderr);
     assert_eq!(
         esito.perdite(),
-        perdite(&[("crs_id_not_preserved_absent", 1)]),
+        perdite(&[
+            ("arrow_metadata_not_preserved", 6),
+            ("crs_id_not_preserved_absent", 1)
+        ]),
         "il CSV non porta il CRS, e non c'e' niente da cui ricavarlo"
     );
     let righe = per_id(&uscita, &con(CRS_PROIETTATO, WKT));
@@ -397,25 +399,26 @@ fn xls_a_csv_conserva_null_e_interi_larghi() {
     }
 }
 
-/// Da un formato spaziale a uno che spaziale non e'.
+/// Il WKT conserva la geometria; il CRS resta esterno al foglio.
 #[test]
-fn kml_a_xls_dichiara_geometria_e_crs_perduti() {
+fn kml_a_xls_dichiara_il_crs_perso_e_ricostruisce_la_geometria() {
     let dir = temporanea();
     let uscita = dir.path().join("uscita.xlsx");
-    let esito = converti("canonico.kml", &uscita, &[]);
+    let esito = converti("canonico.kml", &uscita, &["--layer", "0"]);
     assert!(esito.riuscito, "{}", esito.stderr);
     assert_eq!(
         esito.perdite(),
-        perdite(&[("crs_id_not_preserved_absent", 1)]),
+        perdite(&[
+            ("arrow_metadata_not_preserved", 4),
+            ("crs_id_not_preserved_absent", 1)
+        ]),
         "il CRS e' dichiarato perduto"
     );
-    // La geometria non sparisce in silenzio: la fedelta' scende, e con la
-    // propria ragione. Le due meta' -- categorie e ragioni -- dicono cose
-    // diverse, e nessuna basta da sola.
+    // Il CRS non viaggia nel WKT: la fedelta' conserva la ragione del vincolo.
     let documento = esito.documento();
     assert_eq!(
         documento["conversion_fidelity"]["level"], "approximating",
-        "un bersaglio che la geometria non la porta non puo' dirsi lossless"
+        "un bersaglio che il CRS non lo porta non puo' dirsi lossless"
     );
     let ragioni: Vec<&str> = documento["conversion_fidelity"]["reasons"]
         .as_array()
@@ -440,12 +443,15 @@ fn geoparquet_a_csv_dichiara_la_perdita_del_crs() {
     assert_eq!(
         esito.perdite(),
         perdite(&[
-            ("coercion tipo attributo", 5),
+            ("native_not_null_not_preserved", 4),
+            ("arrow_metadata_not_preserved", 12),
+            ("native_field_order_changed", 9),
+            ("coercion tipo attributo", 2),
             ("crs_definition_not_preserved_absent", 1),
             ("crs_id_not_preserved_absent", 1),
             ("srid_not_preserved_absent", 1),
         ]),
-        "cinque tipi normalizzati e tre rappresentazioni CRS: nessuna di esse e' derivabile \
+        "due tipi cambiati e tre rappresentazioni CRS: nessuna di esse e' derivabile \
          da un CSV, e `absent` e' la categoria che lo dice"
     );
     let righe = per_id(&uscita, &con(CRS_PROIETTATO, WKT));
@@ -470,12 +476,12 @@ fn geojson_a_kml_fra_due_crs_fissi_riesce() {
     let perdite_misurate = esito.perdite();
     assert_eq!(
         perdite_misurate.get("crs_id_not_preserved_derived"),
-        Some(&1),
-        "l'identificatore si ricava dal CRS fisso del formato"
+        None,
+        "l'identificatore riletto e identico"
     );
     assert!(
-        perdite_misurate.contains_key("coercion tipo attributo"),
-        "KML porta i soli attributi testuali, e la coercizione e' dichiarata: {perdite_misurate:?}"
+        perdite_misurate.contains_key("kml_extended_data_not_preserved"),
+        "KML omette gli attributi ExtendedData: {perdite_misurate:?}"
     );
 }
 
@@ -559,22 +565,10 @@ fn ipc_con_wkt_a_dxf_dichiara_ogni_approssimazione() {
     );
     assert!(esito.riuscito, "{}", esito.stdout);
     let perdite_misurate = esito.perdite();
-    for colonna in [
-        "id",
-        "codice",
-        "etichetta",
-        "intero_largo",
-        "conteggio",
-        "misura",
-        "attivo",
-        "istante",
-    ] {
-        let categoria = format!("attributo non rappresentato in DXF: {colonna}");
-        assert!(
-            perdite_misurate.contains_key(&categoria),
-            "ogni attributo perduto va nominato, manca «{colonna}»: {perdite_misurate:?}"
-        );
-    }
+    assert_eq!(
+        perdite_misurate.get("dxf_attribute_not_represented"),
+        Some(&32)
+    );
     assert_eq!(
         esito.righe(),
         4,
@@ -628,7 +622,11 @@ fn dxf_a_geojson_restituisce_solo_cio_che_il_dxf_aveva_conservato() {
     assert!(esito.riuscito, "{}", esito.stderr);
     assert_eq!(
         esito.perdite(),
-        perdite(&[("crs_id_not_preserved_derived", 1)]),
+        perdite(&[
+            ("arrow_metadata_not_preserved", 3),
+            ("native_dimensions_not_declared", 1),
+            ("native_field_order_changed", 2)
+        ]),
         "GeoJSON fissa il proprio CRS, e l'identificatore si ricava da li'"
     );
     assert_eq!(
@@ -667,6 +665,7 @@ fn filegdb_a_gpkg_attraversa_gdal_senza_alterare_i_valori() {
         .filter(|effect| effect.rule == Rule::Removed)
         .map(|effect| serde_json::to_value(effect).unwrap())
         .collect();
+    let original = dataset.layers()[0].contract.schema.clone();
     drop(dataset);
     assert!(
         !attese.is_empty(),
@@ -674,17 +673,37 @@ fn filegdb_a_gpkg_attraversa_gdal_senza_alterare_i_valori() {
     );
     let esito = converti("canonico.gdb", &uscita, &opzioni);
     assert!(esito.riuscito, "{}", esito.stderr);
+    let output = driver_gpkg::GpkgDriver
+        .open(
+            Source::Path(uscita.clone()),
+            ReadOptions::from_read_parts(
+                plenora_io_model::budget::PipelineBudget::builder()
+                    .build()
+                    .unwrap()
+                    .into_read_parts(),
+            ),
+        )
+        .unwrap();
+    let actual = &output.layers()[0].contract.schema;
+    let mut changed = original
+        .metadata()
+        .iter()
+        .filter(|(key, value)| actual.metadata().get(key) != Some(*value))
+        .count();
+    for field in original.fields() {
+        let output = actual.field_with_name(field.name()).ok();
+        changed += field
+            .metadata()
+            .iter()
+            .filter(|(key, value)| output.and_then(|f| f.metadata().get(key)) != Some(*value))
+            .count();
+    }
     assert_eq!(
         esito.perdite(),
-        perdite(&[
-            ("crs_definition_not_preserved_derived", 1),
-            (
-                "gpkg_metadata_not_preserved",
-                u64::try_from(attese.len()).unwrap(),
-            ),
-        ]),
-        "definizione ricostruita e metadati nativi persi sono dichiarati"
+        perdite(&[("gpkg_metadata_not_preserved", changed as u64)]),
+        "il report conta solo chiavi sorgenti diverse alla rilettura"
     );
+    drop(output);
     let documento = esito.documento();
     let dichiarate: Vec<_> = documento["write_loss"]["property_changes"]
         .as_array()
@@ -717,12 +736,12 @@ fn filegdb_a_gpkg_attraversa_gdal_senza_alterare_i_valori() {
 fn filegdb_tabella_non_spaziale_diventa_un_csv_di_attributi() {
     let dir = temporanea();
     let uscita = dir.path().join("uscita.csv");
-    let opzioni = con(CRS_PROIETTATO, &["--layer", "4"]);
+    let opzioni = ["--layer", "4"];
     let esito = converti("canonico.gdb", &uscita, &opzioni);
     assert!(esito.riuscito, "{}", esito.stderr);
     assert_eq!(
         esito.perdite(),
-        perdite(&[]),
+        perdite(&[("arrow_metadata_not_preserved", 9)]),
         "una tabella senza geometria non ha un CRS da perdere"
     );
     let testo = std::fs::read_to_string(&uscita).expect("il CSV si legge");
@@ -743,7 +762,7 @@ fn csv_a_filegdb_con_i_tipi_che_il_formato_rappresenta() {
     assert!(esito.riuscito, "{}", esito.stderr);
     assert_eq!(
         esito.perdite(),
-        perdite(&[("crs_id_not_preserved_derived", 1)]),
+        perdite(&[("arrow_metadata_not_preserved", 2)]),
         "il CRS lo ricava GDAL a runtime"
     );
     assert_eq!(esito.righe(), 2, "la fixture ristretta porta r1 e r5");
@@ -756,7 +775,7 @@ fn csv_a_filegdb_con_i_tipi_che_il_formato_rappresenta() {
 fn gpkg_con_definizione_wkt_a_geoparquet_rifiuta_il_crs() {
     let dir = temporanea();
     let uscita = dir.path().join("uscita.parquet");
-    let esito = converti("canonico.gpkg", &uscita, &[]);
+    let esito = converti("canonico.gpkg", &uscita, &["--layer", "0"]);
     assert!(!esito.riuscito, "atteso un rifiuto: {}", esito.stdout);
     assert!(
         esito.messaggio().contains("PROJJSON"),
@@ -807,7 +826,7 @@ fn geojson_con_nome_lungo_a_shp_rifiuta_invece_di_troncare() {
 fn gpkg_con_riga_senza_geometria_a_dxf_rifiuta_la_riga() {
     let dir = temporanea();
     let uscita = dir.path().join("uscita.dxf");
-    let esito = converti("canonico.gpkg", &uscita, &[]);
+    let esito = converti("canonico.gpkg", &uscita, &["--layer", "0"]);
     assert!(!esito.riuscito, "atteso un rifiuto: {}", esito.stdout);
     let errore = esito.errore();
     let diagnostica = &errore["details"]["row_diagnostics"];
@@ -830,10 +849,11 @@ fn csv_con_booleano_a_filegdb_rifiuta_il_tipo() {
     let uscita = dir.path().join("uscita.gdb");
     let esito = converti("canonico.csv", &uscita, &con(CRS_PROIETTATO, WKT));
     assert!(!esito.riuscito, "atteso un rifiuto: {}", esito.stdout);
-    assert!(
-        esito.messaggio().contains("boolean"),
-        "atteso il rifiuto sul tipo, arrivato «{}»",
-        esito.messaggio()
+    assert_eq!(esito.errore()["category"], "unsupported");
+    assert_eq!(esito.errore()["phase"], "write");
+    assert_eq!(
+        esito.messaggio(),
+        "tipo Arrow non rappresentabile in fase write, classe: boolean"
     );
 }
 
@@ -842,7 +862,7 @@ fn csv_con_booleano_a_filegdb_rifiuta_il_tipo() {
 fn gpkg_proiettato_a_kml_rifiuta_il_crs() {
     let dir = temporanea();
     let uscita = dir.path().join("uscita.kml");
-    let esito = converti("canonico.gpkg", &uscita, &[]);
+    let esito = converti("canonico.gpkg", &uscita, &["--layer", "0"]);
     assert!(!esito.riuscito, "atteso un rifiuto: {}", esito.stdout);
     assert!(
         esito.messaggio().contains("CRS fisso"),
@@ -857,20 +877,17 @@ fn gpkg_proiettato_a_kml_rifiuta_il_crs() {
 fn tabella_non_spaziale_a_geoparquet_rifiuta_per_capability_del_bersaglio() {
     let dir = temporanea();
     let uscita = dir.path().join("uscita.parquet");
-    let opzioni = con(CRS_PROIETTATO, &["--layer", "4"]);
+    let opzioni = ["--layer", "4"];
     let esito = converti("canonico.gdb", &uscita, &opzioni);
     assert!(!esito.riuscito, "atteso un rifiuto: {}", esito.stdout);
     let errore = esito.errore();
     assert_eq!(
-        errore["phase"], "validate",
-        "e' una capability del bersaglio, non un errore scoperto leggendo: {errore}"
+        errore["phase"], "write",
+        "il rifiuto del sink avviene nella fase write: {errore}"
     );
-    assert!(
-        esito
-            .messaggio()
-            .contains("richiede una colonna geometrica"),
-        "arrivato «{}»",
-        esito.messaggio()
+    assert_eq!(
+        esito.messaggio(),
+        "il formato di destinazione richiede una geometria"
     );
 }
 

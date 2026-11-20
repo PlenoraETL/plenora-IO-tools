@@ -1411,7 +1411,10 @@ fn unified_defaults_stay_at_the_tightest_historical_values() {
     assert_eq!(unified.spill_bytes(), 4 * 1024 * 1024 * 1024);
     assert_eq!(unified.duration_ms(), 30_000);
     assert_eq!(unified.decompression_ratio(), 1_000);
-    assert_eq!(unified.output_expansion_ratio(), 1_000);
+    assert_eq!(
+        unified.output_expansion_ratio(),
+        crate::quota::Quota::OutputExpansionRatio.rule().default
+    );
 
     // Nuova in S1 (INV-9): una directory di migliaia di file legittimi
     // passa, uno scan illimitato no.

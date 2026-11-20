@@ -48,9 +48,9 @@
       "segmenti": [
         "driver_filegdb",
         "backend",
-        "open"
+        "open_selected"
       ],
-      "perche": "il ramo che esiste **solo** con `gdal-backend`: e' li' che il dataset viene aperto davvero. Senza la feature il driver e' uno stub, e uno stub non esercita nessun formato."
+      "perche": "FileGdbDriver::open chiama ora backend::open_selected, che apre tramite open_objects. backend::open e' solo un adattatore #[cfg(test)] e non viene compilato nel target. gdal-backend e' gia' abilitata in fuzz/Cargo.toml; requisito invariato sul backend reale."
     },
     {
       "id": "driver.contratto-geometrico",
@@ -111,8 +111,14 @@
     {
       "id": "materializzazione.parti",
       "file": "crates/driver-filegdb/src/lib.rs",
-      "ancora": "std::fs::write(dataset.join(nome), byte).map_err(errore_di_ambiente)?;",
-      "perche": "la `.gdb` viene scritta parte per parte, con i nomi presi dall'archivio e mai dal payload. E' la riga che rende il dataset completo invece che una directory con un file solo."
+      "ancora": "            dataset.join(",
+      "perche": "la fixture `.gdb` viene ancora scritta parte per parte da `materializza_gdb`, con i nomi presi dall'archivio e mai dal payload. La scrittura ora canonicalizza il nome tramite il parser comune ed e' su piu' righe: l'ancora individua la destinazione della stessa scrittura. Questo ramo del harness non e' la vecchia copia integrale della cartella nel backend, rimossa dalla ristrutturazione."
+    },
+    {
+      "id": "materializzazione.vista-oggetto",
+      "file": "crates/driver-filegdb/src/lib.rs",
+      "ancora": "let ds = apri_solo_filegdb(view.path())",
+      "perche": "in `open_objects`, questa riga viene eseguita solo dopo che `canonical_view` ha costruito con successo la vista minima dell'oggetto `file_id` e delle sue dipendenze condivise. Misura il nuovo percorso per oggetto introdotto al posto della copia integrale nel backend; la sola vista del catalogo non basta a raggiungerla. Si aggiunge alla materializzazione della fixture, che esiste ancora."
     },
     {
       "id": "materializzazione.fixture-intatta",

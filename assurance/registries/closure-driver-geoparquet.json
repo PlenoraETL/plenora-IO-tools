@@ -3,26 +3,29 @@
   "descrizione": "La closure di `driver-geoparquet` sulle piattaforme che distribuiamo: ogni crate che quel driver raggiunge, con la versione, la licenza e l'origine -- prodotto o build. E' un **censimento**, non un'istantanea: il gate lo ricalcola da `cargo tree` e pretende che coincida **coppia per coppia**, quindi una dipendenza nuova entra solo passando di qui e con la sua licenza sotto gli occhi.",
   "perche_la_closure_e_non_il_lock": "guardare l'intero `Cargo.lock` direbbe un'altra cosa, e per due ragioni. Un'altra crate del workspace puo' legittimamente dipendere da qualcosa che questo driver non deve raggiungere. E il lock elenca anche le dipendenze **opzionali non abilitate**: `geo-types` vi dichiara sei versioni di `rstar`, una per feature, e non ne accendiamo nessuna. Cio' che conta e' che cosa **questo** driver puo' eseguire, e a dirlo e' il grafo con le feature risolte.",
   "radice": "driver-geoparquet",
-  "crate_totali": 129,
+  "crate_totali": 146,
   "licenze": {
+    "(Apache-2.0 OR MIT) AND BSD-3-Clause": 1,
     "(MIT OR Apache-2.0) AND Unicode-3.0": 1,
     "0BSD OR MIT OR Apache-2.0": 1,
-    "Apache-2.0": 9,
+    "Apache-2.0": 10,
     "Apache-2.0 AND MIT": 1,
-    "Apache-2.0 OR MIT": 5,
+    "Apache-2.0 OR BSL-1.0": 1,
+    "Apache-2.0 OR MIT": 7,
     "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT": 2,
     "Apache-2.0/MIT": 1,
     "BSD-2-Clause OR Apache-2.0 OR MIT": 2,
     "BSD-3-Clause": 6,
     "BSD-3-Clause AND MIT": 1,
     "BSD-3-Clause/MIT": 1,
-    "MIT": 21,
-    "MIT OR Apache-2.0": 67,
+    "MIT": 23,
+    "MIT OR Apache-2.0": 73,
     "MIT OR Zlib OR Apache-2.0": 1,
     "MIT-0": 1,
-    "MIT/Apache-2.0": 2,
+    "MIT/Apache-2.0": 3,
     "Unlicense OR MIT": 2,
-    "Zlib": 1,
+    "Unlicense/MIT": 2,
+    "Zlib": 2,
     "interna-al-workspace": 4
   },
   "variazione_s10": {
@@ -483,6 +486,12 @@
       "origine": "prodotto"
     },
     {
+      "crate": "bumpalo",
+      "versione": "3.20.3",
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
+    },
+    {
       "crate": "bytecount",
       "versione": "0.6.9",
       "licenza": "Apache-2.0/MIT",
@@ -513,9 +522,27 @@
       "origine": "prodotto"
     },
     {
+      "crate": "core_detect",
+      "versione": "1.0.0",
+      "licenza": "MIT/Apache-2.0",
+      "origine": "prodotto"
+    },
+    {
       "crate": "crc32fast",
       "versione": "1.5.2",
       "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
+    },
+    {
+      "crate": "csv",
+      "versione": "1.4.0",
+      "licenza": "Unlicense/MIT",
+      "origine": "prodotto"
+    },
+    {
+      "crate": "csv-core",
+      "versione": "0.1.13",
+      "licenza": "Unlicense/MIT",
       "origine": "prodotto"
     },
     {
@@ -540,6 +567,12 @@
       "crate": "email_address",
       "versione": "0.2.9",
       "licenza": "MIT",
+      "origine": "prodotto"
+    },
+    {
+      "crate": "encoding_rs",
+      "versione": "0.8.41",
+      "licenza": "(Apache-2.0 OR MIT) AND BSD-3-Clause",
       "origine": "prodotto"
     },
     {
@@ -645,6 +678,12 @@
       "origine": "prodotto"
     },
     {
+      "crate": "indexmap",
+      "versione": "2.14.2",
+      "licenza": "Apache-2.0 OR MIT",
+      "origine": "prodotto"
+    },
+    {
       "crate": "itoa",
       "versione": "1.0.18",
       "licenza": "MIT OR Apache-2.0",
@@ -726,6 +765,24 @@
       "crate": "miniz_oxide",
       "versione": "0.9.1",
       "licenza": "MIT OR Zlib OR Apache-2.0",
+      "origine": "prodotto"
+    },
+    {
+      "crate": "multiversion",
+      "versione": "0.9.0",
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
+    },
+    {
+      "crate": "multiversion-macros",
+      "versione": "0.9.0",
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
+    },
+    {
+      "crate": "multiversion_no_op",
+      "versione": "1.0.0",
+      "licenza": "Apache-2.0 OR MIT",
       "origine": "prodotto"
     },
     {
@@ -843,6 +900,12 @@
       "origine": "prodotto"
     },
     {
+      "crate": "quick-xml",
+      "versione": "0.42.0",
+      "licenza": "MIT",
+      "origine": "prodotto"
+    },
+    {
       "crate": "quote",
       "versione": "1.0.47",
       "licenza": "MIT OR Apache-2.0",
@@ -897,6 +960,18 @@
       "origine": "prodotto"
     },
     {
+      "crate": "rustversion",
+      "versione": "1.0.23",
+      "licenza": "MIT OR Apache-2.0",
+      "origine": "prodotto"
+    },
+    {
+      "crate": "ryu",
+      "versione": "1.0.23",
+      "licenza": "Apache-2.0 OR BSL-1.0",
+      "origine": "prodotto"
+    },
+    {
       "crate": "scopeguard",
       "versione": "1.2.0",
       "licenza": "MIT OR Apache-2.0",
@@ -948,6 +1023,12 @@
       "crate": "simd-adler32",
       "versione": "0.3.10",
       "licenza": "MIT",
+      "origine": "prodotto"
+    },
+    {
+      "crate": "simdutf8",
+      "versione": "0.1.5",
+      "licenza": "MIT OR Apache-2.0",
       "origine": "prodotto"
     },
     {
@@ -1020,6 +1101,12 @@
       "crate": "twox-hash",
       "versione": "2.1.4",
       "licenza": "MIT",
+      "origine": "prodotto"
+    },
+    {
+      "crate": "typed-path",
+      "versione": "0.12.3",
+      "licenza": "MIT OR Apache-2.0",
       "origine": "prodotto"
     },
     {
@@ -1101,9 +1188,27 @@
       "origine": "prodotto"
     },
     {
+      "crate": "zip",
+      "versione": "9.0.5",
+      "licenza": "MIT",
+      "origine": "prodotto"
+    },
+    {
+      "crate": "zlib-rs",
+      "versione": "0.6.6",
+      "licenza": "Zlib",
+      "origine": "prodotto"
+    },
+    {
       "crate": "zmij",
       "versione": "1.0.23",
       "licenza": "MIT",
+      "origine": "prodotto"
+    },
+    {
+      "crate": "zopfli",
+      "versione": "0.8.3",
+      "licenza": "Apache-2.0",
       "origine": "prodotto"
     },
     {
@@ -1281,14 +1386,14 @@
       "x86_64-unknown-linux-gnu",
       "x86_64-pc-windows-msvc"
     ],
-    "perche_questi_due": "sono le piattaforme che `distribuzione-matrice.json` dichiara distribuite. `aarch64-apple-darwin` sta fra le `piattaforme_non_distribuite`: la CI lo costruisce, ma non se ne promette artefatto ne' supporto, e una licenza si guarda per cio' che si spedisce.",
+    "perche_questi_due": "sono le piattaforme che `distribuzione-matrice.json` dichiara distribuite. le altre piattaforme non sono supportate, compilate o verificate in CI, e una licenza si guarda per cio' che si spedisce.",
     "comando": "cargo tree -p driver-geoparquet --edges normal,build --target <bersaglio>, unito sui due bersagli"
   },
   "perimetro_esteso": {
     "che_cos_e": "lo stesso conto con `--target all`, cioe' ogni piattaforma che Cargo riconosce.",
-    "coppie": 171,
+    "coppie": 188,
     "quante_in_piu": 42,
-    "che_cosa_aggiunge": "redox, haiku, wasm, wasi, android, apple e le architetture i686 e aarch64 di Windows: da `wasm-bindgen` a `iana-time-zone-haiku`.",
+    "che_cosa_aggiunge": "piattaforme non supportate e le architetture i686 e aarch64 di Windows: da `wasm-bindgen` a `iana-time-zone-haiku`.",
     "non_e_equivalente": "e' una domanda diversa, non una versione piu' prudente della stessa. Il censimento dichiara il perimetro distribuito; questo numero sta qui misurato -- il gate lo verifica, non lo ricorda -- perche' la differenza fra i due resti visibile invece di dover essere ricalcolata da chi se lo chiede."
   },
   "di_prodotto": 120,

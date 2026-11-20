@@ -1,0 +1,1 @@
+# Rust resolves #[path = "../r2_tests.rs"] through this inline-module directory.

@@ -219,3 +219,43 @@ fn turns_panic_into_error_instead_of_eof() {
         Err(error) if error.code == plenora_io_model::IoErrorCode::Format
     ));
 }
+
+#[test]
+fn a_disconnected_producer_without_terminal_event_never_becomes_eof() {
+    let (sender, receiver) = sync_channel(1);
+    drop(sender);
+    let mut reader = BatchWorkerReader {
+        driver: "test",
+        layer: test_layer(),
+        receiver,
+        worker: None,
+        terminal: false,
+        terminal_error: None,
+    };
+    for _ in 0..2 {
+        let error = reader.next_batch().unwrap_err();
+        assert_eq!(error.code, plenora_io_model::IoErrorCode::Format);
+        assert_eq!(error.driver.as_deref(), Some("test"));
+        assert!(error.message.contains("senza stato terminale"));
+    }
+}
+
+#[test]
+fn worker_panic_after_finished_event_still_fails_the_read() {
+    let (sender, receiver) = sync_channel(1);
+    let worker = std::thread::spawn(move || {
+        sender.send(BatchWorkerEvent::Finished).unwrap();
+        panic!("producer failed after announcing success");
+    });
+    let mut reader = BatchWorkerReader {
+        driver: "test",
+        layer: test_layer(),
+        receiver,
+        worker: Some(worker),
+        terminal: false,
+        terminal_error: None,
+    };
+    let error = reader.next_batch().unwrap_err();
+    assert_eq!(error.code, plenora_io_model::IoErrorCode::Format);
+    assert!(error.message.contains("anomalo"));
+}

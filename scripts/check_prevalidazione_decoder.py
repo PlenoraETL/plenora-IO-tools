@@ -96,6 +96,19 @@ SORVEGLIATI = (
         "quanto il conteggio di punti di un record senza legarlo alla "
         "dimensione del record: su un file ostile l'esito e' un panico o "
         "un'allocazione che il processo non sopravvive",
+        presenza_richiesta=False,
+    ),
+    Sorvegliato(
+        "ShapeReader::with_shx",
+        "valida_struttura_shp",
+        ("crates/driver-shp/src/lib.rs",),
+        "geometrie e indice risolti devono essere validati prima del decoder",
+    ),
+    Sorvegliato(
+        "ShapeReader::new",
+        "valida_struttura_shp",
+        ("crates/driver-shp/src/lib.rs",),
+        "il percorso senza indice deve validare la catena dei record",
     ),
     Sorvegliato(
         "dbase::Reader::from_path",
@@ -120,6 +133,8 @@ CRATE_AMMESSE = {
     "ParquetRecordBatchReaderBuilder::try_new": ("crates/driver-geoparquet",),
     "SerializedPageReader::new": ("crates/driver-geoparquet",),
     "ShapeReader::from_path": ("crates/driver-shp",),
+    "ShapeReader::with_shx": ("crates/driver-shp",),
+    "ShapeReader::new": ("crates/driver-shp",),
     "dbase::Reader::from_path": ("crates/driver-shp",),
 }
 

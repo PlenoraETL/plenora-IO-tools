@@ -42,7 +42,9 @@ arrow-buffer = "=60.1.0"
 # I codec restano espliciti per conservare i formati gia' leggibili in IO.
 parquet = { package = "plenora-fork-parquet", version = "=60.0.0", path = "vendor/parquet", default-features = false, features = ["arrow", "snap", "brotli", "flate2-rust_backend", "lz4", "zstd", "crc"] }
 geo-types = "=0.7.20"
-geojson = { version = "=1.0.0", features = ["geo-types"] }
+# I driver convertono le geometrie esplicitamente: l'integrazione opzionale
+# geo-types attiverebbe serde e risolverebbe vecchi rstar/heapless nel lock.
+geojson = { version = "=1.0.0", default-features = false }
 csv = "=1.4.0"
 wkt = "=0.14.0"
 rusqlite = { version = "=0.41.1", features = ["bundled"] }
@@ -71,7 +73,7 @@ quick-xml = { version = "=0.42.0", features = ["encoding"] }
 # RUSTSEC-2026-0436: parser CFB con limiti e controlli prima degli accessi.
 calamine = "=0.38.0"
 rust_xlsxwriter = "=0.100.0"
-# La serie 8.x e' ritirata (yanked): pin alla 9.0.3, mantenendo solo deflate.
+# Pin alla 9.0.5, mantenendo solo deflate; supera i difetti della serie 8.x.
 zip = { version = "=9.0.5", default-features = false, features = ["deflate"] }
 dxf = { package = "plenora-fork-dxf", version = "=0.6.1", path = "vendor/dxf" }
 gdal = { package = "plenora-fork-gdal", version = "=0.19.0", path = "vendor/gdal" }

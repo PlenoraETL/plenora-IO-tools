@@ -8,7 +8,6 @@
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Write as _};
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use arrow_array::RecordBatch;
 use arrow_ipc::reader::{FileReader, StreamReader};
@@ -24,26 +23,26 @@ use plenora_io_core::driver::{
     Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
+use plenora_io_core::loss_table::{self, NativeDriver, TransportDirection};
+
 use plenora_io_core::publish::StagedFile;
 use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
     validate_write, with_write_validation, AttributeWriteSupport, CrsRepresentationCapabilities,
     CrsRepresentationState, CrsWriteSupport, FormatWriteCapabilities, NullabilitySupport,
-    SinkPathConstraint, TypeCoercionPolicy, WritePlan, ALL_ARROW_TYPES, UTF8_FIELD_NAMES,
+    SinkPathConstraint, TypeCoercionPolicy, WritePlan, UTF8_FIELD_NAMES,
     WKB_EWKB_PASSTHROUGH_GEOMETRY,
 };
 use plenora_io_model::contract::{
     DataContract, FieldId, GeometryColumnContract, LayerContract, LayerId,
 };
-#[cfg(test)]
-use plenora_io_model::crs::CrsKind;
+
 use plenora_io_model::crs::CrsResolution;
 use plenora_io_model::geometry::{
     is_geometry_field, read_geometry_contract_metadata, validate_contract_version,
-    validate_geometry_field_identity, with_contract_version, with_field_identity,
-    with_geometry_contract_metadata, PLENORA_CONTRACT_VERSION_KEY,
+    validate_geometry_field_identity, PLENORA_CONTRACT_VERSION_KEY,
 };
-use plenora_io_model::{NumeroStrutturale, PlenoraIoError, PublicMessage, Result};
+use plenora_io_model::{PlenoraIoError, PublicMessage, Result};
 
 fn err(reason: &PublicMessage) -> PlenoraIoError {
     PlenoraIoError::formato_redatto("ipc", reason)
@@ -51,6 +50,7 @@ fn err(reason: &PublicMessage) -> PlenoraIoError {
 
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     "ipc",
+    &plenora_io_core::dataset_files::FILE_SETS[9],
     Direction::Bidirectional,
     ReadMode::StreamingSequential,
     // INV-7: footer IPC con gli offset dei blocchi.
@@ -78,10 +78,13 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     None,
     Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
-        allowed_types: ALL_ARROW_TYPES,
+        allowed_types: plenora_io_core::loss_table::IPC.allowed_types,
         type_coercion: TypeCoercionPolicy::Reject,
         attributes: AttributeWriteSupport::All,
-        geometry: WKB_EWKB_PASSTHROUGH_GEOMETRY,
+        geometry: plenora_io_core::GeometryWriteSupport {
+            dimensions: plenora_io_core::loss_table::IPC.dimensions,
+            ..WKB_EWKB_PASSTHROUGH_GEOMETRY
+        },
         crs: CrsWriteSupport::EmbeddedOptional,
         crs_representations: CrsRepresentationCapabilities::new(
             CrsRepresentationState::Preserved,
@@ -191,21 +194,31 @@ impl FormatDriver for IpcDriver {
     }
 
     fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = plenora_io_core::preflight_source(self.descriptor(), source, &mut opts)?;
+        let path = driver_common::structure::preflight_with(
+            self.descriptor(),
+            source,
+            &mut opts,
+            |path, options| match serializzazione_del_file(path)? {
+                Serializzazione::File => driver_common::prevalida_arrow::valida_file_ipc_prefix(
+                    "arrow",
+                    path,
+                    options.row_limit,
+                ),
+                Serializzazione::Flusso => {
+                    driver_common::prevalida_arrow::valida_flusso_ipc_prefix(
+                        "arrow",
+                        path,
+                        options.row_limit,
+                    )
+                }
+            },
+        )?;
         // FZ-0: schema e buffer dichiarati vengono verificati **prima** che
         // arrow li converta. `try_new` restituisce `Result`, ma la conversione
         // dello schema e l'affettamento del corpo sono infallibili nel tipo e
         // panicano sull'input non conforme; la barriera `leggendo_arrow` sotto
         // resta come difesa in profondita', non come mitigazione.
         let serializzazione = serializzazione_del_file(&path)?;
-        match serializzazione {
-            Serializzazione::File => {
-                driver_common::prevalida_arrow::valida_file_ipc("arrow", &path)?;
-            }
-            Serializzazione::Flusso => {
-                driver_common::prevalida_arrow::valida_flusso_ipc("arrow", &path)?;
-            }
-        }
         let schema = plenora_io_core::driver::leggendo_arrow("arrow", || match serializzazione {
             Serializzazione::File => FileReader::try_new(File::open(&path)?, None)
                 .map(|lettore| lettore.schema())
@@ -288,6 +301,7 @@ impl FormatDriver for IpcDriver {
             &opts.format_options,
         )?;
         let Sink::Path(path) = sink;
+        self.descriptor().files().ensure_absent(&path)?;
         if path.exists() {
             return Err(PlenoraIoError::destinazione_esistente());
         }
@@ -313,38 +327,7 @@ impl FormatDriver for IpcDriver {
             ));
         }
         let layer = &plan.layers[0].contract;
-        let fields = layer
-            .schema
-            .fields()
-            .iter()
-            .map(|field| {
-                layer
-                    .geometry
-                    .as_ref()
-                    .filter(|geometry| geometry.name.as_str() == field.name().as_str())
-                    .map_or_else(
-                        || field.as_ref().clone(),
-                        |geometry| with_geometry_contract_metadata(field, geometry),
-                    )
-            })
-            .collect::<Vec<_>>();
-        // ARROW-003: l'identita' dei campi deve sopravvivere al round trip, e
-        // il round trip e' una forma di prima classe -- `io.read` e `io.write`
-        // sono dichiarate l'una l'inversa dell'altra. Gli id che arrivano dalla
-        // sorgente non vengono riscritti: e' cio' che distingue una
-        // conservazione da un ricalcolo.
-        let fields = with_field_identity(fields);
-        // Le chiavi di schema che IO non possiede passano (ARROW-010), anche un
-        // `geo` che contraddice il campo: limite dichiarato in docs/PRODUCT.md
-        // («un `geo` di schema passa tale e quale»).
-        let schema = with_contract_version(Arc::new(arrow_schema::Schema::new_with_metadata(
-            fields,
-            layer.schema.metadata().clone(),
-        )));
-        let schema = plenora_io_model::primary::emit(
-            &schema,
-            layer.geometry.as_ref().map(|g| g.field_id.0 as usize),
-        )?;
+        let schema = plenora_io_model::geometry::interchange_schema(layer)?;
         // Guardia del produttore: lo schema porta la versione, quindi vale la
         // verifica di `open` (REJ-001/002), qui prima dello staging: un file che
         // IO stesso rifiuterebbe in lettura non si produce in silenzio.
@@ -374,7 +357,8 @@ impl FormatDriver for IpcDriver {
             opts.durable,
             opts.max_output_bytes(),
             opts.budget().context(),
-        )?;
+        )?
+        .for_dataset(*DESCRIPTOR.files())?;
         let scrittore = if flusso {
             ScrittoreIpc::Flusso(
                 StreamWriter::try_new(BufWriter::new(staging.reopen()?), &schema)
@@ -388,6 +372,12 @@ impl FormatDriver for IpcDriver {
         };
         with_write_validation(
             Box::new(IpcWriter {
+                loss: loss_table::metadata_changes(
+                    NativeDriver::Ipc,
+                    TransportDirection::Write,
+                    &layer.schema,
+                    &schema,
+                ),
                 staging,
                 writer: Some(scrittore),
                 schema,
@@ -416,12 +406,13 @@ impl OpenDatasetHandle for IpcDataset {
         )
     }
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
+        if !self.layers.iter().any(|layer| layer.id == request.layer) {
+            return Err(plenora_io_model::error_table::Situation::MissingLayer.error());
+        }
+
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
         if request.layer != self.layers[0].id {
-            return Err(err(&PublicMessage::CuratedWith(
-                "layer runtime inesistente, indice",
-                NumeroStrutturale::Indice(u64::from(request.layer.0)),
-            )));
+            return Err(plenora_io_model::error_table::Situation::MissingLayer.error());
         }
 
         let source_layer = &self.layers[0];
@@ -435,10 +426,24 @@ impl OpenDatasetHandle for IpcDataset {
         let serializzazione = serializzazione_del_file(&path)?;
         match serializzazione {
             Serializzazione::File => {
-                driver_common::prevalida_arrow::valida_file_ipc("arrow", &path)?;
+                driver_common::prevalida_arrow::valida_file_ipc_prefix(
+                    "arrow",
+                    &path,
+                    match request.scope {
+                        plenora_io_core::ReadScope::Complete => None,
+                        plenora_io_core::ReadScope::AcceptedRows(n) => Some(n),
+                    },
+                )?;
             }
             Serializzazione::Flusso => {
-                driver_common::prevalida_arrow::valida_flusso_ipc("arrow", &path)?;
+                driver_common::prevalida_arrow::valida_flusso_ipc_prefix(
+                    "arrow",
+                    &path,
+                    match request.scope {
+                        plenora_io_core::ReadScope::Complete => None,
+                        plenora_io_core::ReadScope::AcceptedRows(n) => Some(n),
+                    },
+                )?;
             }
         }
         let reader = plenora_io_core::driver::leggendo_arrow("arrow", move || {
@@ -472,11 +477,65 @@ impl OpenDatasetHandle for IpcDataset {
             )));
         }
         Ok(plenora_io_core::with_batch_target(
-            Box::new(IpcReader { reader, layer }),
+            loss_table::with_native_report(
+                Box::new(IpcReader {
+                    reader,
+                    layer,
+                    remaining: match request.scope {
+                        plenora_io_core::ReadScope::Complete => usize::MAX,
+                        plenora_io_core::ReadScope::AcceptedRows(limit) => {
+                            usize::try_from(limit).unwrap_or(usize::MAX)
+                        }
+                    },
+                }),
+                read_metadata_changes(&self.received_schema, &self.layers[0].contract.schema),
+            ),
             request.batch_target,
             request.cancellation.clone(),
         ))
     }
+}
+
+// An explicit selection of the only geometry and its implicit selection
+// express the same contract. Compare the selection before counting a removed
+// Arrow key, while preserving explicit `none` and multi-geometry distinctions.
+fn read_metadata_changes(
+    before: &arrow_schema::Schema,
+    after: &arrow_schema::Schema,
+) -> plenora_io_core::LossReport {
+    use plenora_io_model::primary::{PrimaryState, KEY};
+    let sole_geometry = |schema: &arrow_schema::Schema| {
+        schema
+            .fields()
+            .iter()
+            .filter(|f| is_geometry_field(f))
+            .count()
+            == 1
+    };
+    let selected_name = |schema: &arrow_schema::Schema| {
+        PrimaryState::read(schema)
+            .ok()
+            .and_then(|primary| primary.position(schema))
+            .map(|index| schema.field(index).name().clone())
+    };
+    let mut compared = before.clone();
+    if before.metadata().contains_key(KEY)
+        && !after.metadata().contains_key(KEY)
+        && sole_geometry(before)
+        && sole_geometry(after)
+        && selected_name(before).is_some()
+        && selected_name(before) == selected_name(after)
+    {
+        let mut metadata = before.metadata().clone();
+        metadata.remove(KEY);
+        compared = compared.with_metadata(metadata);
+    }
+    loss_table::metadata_changes(
+        NativeDriver::Ipc,
+        TransportDirection::Read,
+        &compared,
+        after,
+    )
 }
 
 /// Le due serializzazioni dietro la stessa interfaccia di lettura.
@@ -498,6 +557,7 @@ enum LettoreIpc {
 }
 
 struct IpcReader {
+    remaining: usize,
     reader: LettoreIpc,
     layer: LayerContract,
 }
@@ -507,6 +567,10 @@ impl LayerReader for IpcReader {
         &self.layer
     }
     fn next_batch(&mut self) -> Result<Option<RecordBatch>> {
+        if self.remaining == 0 {
+            return Ok(None);
+        }
+        let remaining = self.remaining;
         // Anche qui serve la barriera, non solo sullo schema: arrow decodifica
         // i buffer del batch a ogni `next()`, e un offset oltre la lunghezza
         // dichiarata panica in `arrow-buffer` invece di restituire un errore.
@@ -522,7 +586,10 @@ impl LayerReader for IpcReader {
                 proiezione,
             } => match lettore.next() {
                 None => Ok(None),
-                Some(Ok(b)) => valida_e_proietta(b, proiezione.as_deref()),
+                Some(Ok(b)) => valida_e_proietta(
+                    b.slice(0, b.num_rows().min(remaining)),
+                    proiezione.as_deref(),
+                ),
                 Some(Err(_)) => Err(err(&PublicMessage::Curated("batch IPC non leggibile"))),
             },
             LettoreIpc::Flusso {
@@ -530,11 +597,15 @@ impl LayerReader for IpcReader {
                 proiezione,
             } => match lettore.next() {
                 None => Ok(None),
-                Some(Ok(b)) => valida_e_proietta(b, proiezione.as_deref()),
+                Some(Ok(b)) => valida_e_proietta(
+                    b.slice(0, b.num_rows().min(remaining)),
+                    proiezione.as_deref(),
+                ),
                 Some(Err(_)) => Err(err(&PublicMessage::Curated("batch IPC non leggibile"))),
             },
         })?
         .map(|batch| {
+            self.remaining = self.remaining.saturating_sub(batch.num_rows());
             RecordBatch::try_new_with_options(
                 schema,
                 batch.columns().to_vec(),
@@ -603,6 +674,7 @@ impl ScrittoreIpc {
 }
 
 struct IpcWriter {
+    loss: LossReport,
     staging: StagedFile,
     writer: Option<ScrittoreIpc>,
     schema: SchemaRef,
@@ -634,7 +706,7 @@ impl FormatWriter for IpcWriter {
         let (bytes, outcome) = self.staging.publish()?;
         Ok(Published {
             bytes,
-            loss: LossReport::default(),
+            loss: self.loss,
             fidelity: plenora_io_core::FidelityAssessment::lossless(),
             outcome,
         })

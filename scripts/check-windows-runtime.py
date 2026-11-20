@@ -15,7 +15,7 @@ versione. Non esiste `$ORIGIN`: il caricatore cerca accanto all'eseguibile, ed
 e' per questo che le DLL stanno in `bin/` e non in `lib/`.
 
 Cio' che resta uguale e' la **forma del risultato**: il referto che il gate
-finale riconta e' lo stesso di Linux e di macOS.
+finale riconta e' lo stesso di Linux.
 
 # Che cosa pretende
 

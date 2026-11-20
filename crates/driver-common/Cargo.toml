@@ -11,8 +11,16 @@ workspace = true
 
 [dependencies]
 plenora-io-model = { path = "../plenora-io-model" }
+plenora-io-core = { path = "../plenora-io-core" }
+quick-xml.workspace = true
+zip.workspace = true
+csv.workspace = true
 arrow-array.workspace = true
 arrow-schema.workspace = true
 arrow-ipc.workspace = true
 serde_json.workspace = true
+serde.workspace = true
 wkt.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

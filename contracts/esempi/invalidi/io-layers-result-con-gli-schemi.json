@@ -38,7 +38,10 @@
           "nullable": true,
           "geometry": false
         }
-      ]
+      ],
+      "status": {
+        "readable": true
+      }
     }
   ]
 }

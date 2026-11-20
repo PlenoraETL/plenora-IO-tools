@@ -72,6 +72,8 @@ fn dataset_arrow(directory: &Path, sorgente: &Path) -> PathBuf {
     let esito = esegui(&[
         "read",
         sorgente.to_str().unwrap(),
+        "--layer",
+        "0",
         "--output",
         arrow.to_str().unwrap(),
     ]);
@@ -325,8 +327,8 @@ fn un_formato_che_il_catalogo_non_nomina_e_rifiutato() {
         "shapefile",
     ]);
     assert!(!esito.riuscita, "{}", esito.stdout);
-    assert_eq!(esito.errore()["category"], "unsupported");
-    assert_eq!(esito.errore()["code"], "UNKNOWN_FORMAT");
+    assert_eq!(esito.errore()["category"], "invalid_configuration");
+    assert_eq!(esito.errore()["code"], "CLI_USAGE");
     // Il nome sbagliato non deve tornare nel messaggio: viene da argv.
     let messaggio = esito.errore()["message"]
         .as_str()

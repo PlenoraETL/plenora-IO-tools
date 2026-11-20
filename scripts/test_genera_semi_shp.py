@@ -86,9 +86,8 @@ class SondeDellaForma(unittest.TestCase):
             self.assertEqual(parole, lunghezza, "lunghezza del record")
 
     def test_i_due_semi_disallineati_differiscono_solo_per_l_indice(self) -> None:
-        """Sono due rami diversi dello stesso rifiuto — all'apertura e durante
-        il drenaggio — e se differissero anche nel `.shp` o nel `.dbf` non
-        proverebbero piu' che a cambiare e' solo la presenza dell'indice."""
+        """Il confronto strutturale deve rifiutare con e senza indice:
+        a cambiare fra i due casi deve essere solo la presenza dello SHX."""
         con = diviso(self.prodotti["disallineati-con-indice.bundle"])
         senza = diviso(self.prodotti["disallineati-senza-indice.bundle"])
         self.assertEqual((con[0], con[2], con[3]), (senza[0], senza[2], senza[3]))

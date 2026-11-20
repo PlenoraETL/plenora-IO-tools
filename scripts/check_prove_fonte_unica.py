@@ -295,6 +295,8 @@ def run_all(commands: list[list[str]], directory: Path, root: Path = ROOT) -> li
                     output.write('\nDiscovery vuota: zero test non e un verde.\n')
         results.append(record)
         print(f"{'OK' if code == 0 else 'FAIL'} {' '.join(command)}", flush=True)
+        if code:
+            print(log.read_text(encoding='utf-8', errors='replace'), flush=True)
         (directory / "results.json").write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")
     return results
 

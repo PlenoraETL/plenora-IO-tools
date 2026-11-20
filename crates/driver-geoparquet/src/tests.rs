@@ -4186,7 +4186,8 @@ fn le_chiavi_del_formato_della_sorgente_non_entrano_nello_schema_incorporato() {
         .create(Sink::Path(percorso.clone()), &plan, &opzioni_scrittura())
         .expect("il writer si apre");
     writer.write(&batch).expect("scrittura");
-    writer.finish().expect("chiusura");
+    let published = writer.finish().expect("chiusura");
+    assert!(published.loss.counts["arrow_metadata_not_preserved"] >= 2);
 
     let (incorporato, geo) = schema_incorporato(&percorso);
     assert_eq!(geo.len(), 1, "il footer porta il solo `geo` del writer");
@@ -4201,6 +4202,37 @@ fn le_chiavi_del_formato_della_sorgente_non_entrano_nello_schema_incorporato() {
     assert!(!geometria
         .metadata()
         .contains_key("ARROW:extension:metadata"));
+    let dataset = GeoParquetDriver
+        .open(Source::Path(percorso), opzioni_lettura())
+        .unwrap();
+    let mut reader = dataset
+        .open_layer_reader(&ReadRequest {
+            layer: LayerId(0),
+            projected_fields: None,
+            projection_mode: ProjectionMode::BestEffort,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: ReadScope::Complete,
+            batch_target: BatchTarget::default(),
+            cancellation: CancellationToken::default(),
+        })
+        .unwrap();
+    let batch = reader.next_batch().unwrap().unwrap();
+    assert_eq!(batch.num_columns(), 2);
+    assert_eq!(
+        batch
+            .column(1)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap()
+            .value(0),
+        1
+    );
+    assert!(reader.next_batch().unwrap().is_none());
+    assert_eq!(
+        reader.loss_report().counts.get("native_bbox_not_preserved"),
+        None
+    );
 }
 
 /// In lettura il `geo` e' consumato nel contratto: su 777c5a1 restava nei
@@ -4216,6 +4248,22 @@ fn il_geo_letto_non_resta_nei_metadati_del_contratto() {
     let contratto = &dataset.layers()[0].contract;
     assert!(!contratto.schema.metadata().contains_key("geo"));
     assert!(!contratto.schema.metadata().contains_key("ARROW:schema"));
+    let mut reader = dataset
+        .open_layer_reader(&ReadRequest {
+            layer: LayerId(0),
+            projected_fields: None,
+            projection_mode: ProjectionMode::BestEffort,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: ReadScope::Complete,
+            batch_target: BatchTarget::default(),
+            cancellation: CancellationToken::default(),
+        })
+        .unwrap();
+    while reader.next_batch().unwrap().is_some() {}
+    let report = reader.loss_report();
+    assert_eq!(report.counts.get("native_bbox_not_preserved"), None);
+    assert!(!report.counts.contains_key("arrow_metadata_not_preserved"));
 }
 
 // --- rilettura 13: l'epoca delle coordinate e i `geo` discordi -------------
@@ -4489,6 +4537,84 @@ fn le_opzioni_private_ritirate_sono_sconosciute() {
             .err()
             .expect("opzione ritirata");
         assert!(error.message.contains("opzione sconosciuta"));
-        assert!(error.message.contains(key));
+        assert!(!error.message.contains(key));
+    }
+}
+
+#[test]
+fn covering_loss_is_exactly_the_observed_difference() {
+    for changed in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("covering.parquet");
+        let geo = build_geo_metadata(
+            "geometry",
+            &BTreeSet::from([(GeometryType::Point, CoordinateDimensions::Xy)]),
+            &CrsDaScrivere::Omesso,
+            None,
+        )
+        .unwrap();
+        let schema = Arc::new(Schema::new_with_metadata(
+            vec![
+                Field::new("geometry", DataType::Binary, true)
+                    .with_metadata(geometry_field_meta("OGC:CRS84")),
+                bbox_field(true),
+            ],
+            HashMap::from([("geo".to_owned(), geo.clone())]),
+        ));
+        let point = to_wkb(&Geometry::Point(Point::new(1.0, 2.0))).unwrap();
+        let geometry = BinaryArray::from(vec![Some(point.as_slice())]);
+        let mut bbox = build_bbox_columns(&geometry, true).unwrap().remove(0);
+        if changed {
+            let original = bbox
+                .as_any()
+                .downcast_ref::<arrow_array::StructArray>()
+                .unwrap();
+            let mut columns = original.columns().to_vec();
+            columns[0] = Arc::new(arrow_array::Float64Array::from(vec![99.0]));
+            bbox = Arc::new(arrow_array::StructArray::new(
+                original.fields().clone(),
+                columns,
+                original.nulls().cloned(),
+            ));
+        }
+        let batch = RecordBatch::try_new(schema.clone(), vec![Arc::new(geometry), bbox]).unwrap();
+        let props = WriterProperties::builder()
+            .set_key_value_metadata(Some(vec![KeyValue::new("geo".to_owned(), geo)]))
+            .build();
+        let mut writer =
+            ArrowWriter::try_new(File::create(&path).unwrap(), schema, Some(props)).unwrap();
+        writer.write(&batch).unwrap();
+        writer.close().unwrap();
+        let dataset = GeoParquetDriver
+            .open(Source::Path(path), opzioni_lettura())
+            .unwrap();
+        let mut reader = dataset
+            .open_layer_reader(&ReadRequest {
+                layer: LayerId(0),
+                projected_fields: None,
+                projection_mode: ProjectionMode::BestEffort,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                scope: ReadScope::Complete,
+                batch_target: BatchTarget::default(),
+                cancellation: CancellationToken::default(),
+            })
+            .unwrap();
+        let actual = reader.next_batch().unwrap().unwrap();
+        assert_eq!(actual.column(0), batch.column(0));
+        assert!(reader.next_batch().unwrap().is_none());
+        assert_eq!(
+            reader
+                .loss_report()
+                .counts
+                .get("native_bbox_not_preserved")
+                .copied()
+                .unwrap_or(0),
+            u64::from(changed)
+        );
+        assert!(!reader
+            .loss_report()
+            .counts
+            .contains_key("arrow_metadata_not_preserved"));
     }
 }

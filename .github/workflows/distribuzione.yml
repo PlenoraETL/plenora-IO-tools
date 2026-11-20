@@ -1,15 +1,13 @@
 # I quattro artefatti, costruiti e verificati ciascuno sulla propria piattaforma.
 #
-# Due piattaforme per due profili. macOS e' **fuori dal perimetro** della v1 --
-# una decisione di prodotto registrata in `distribuzione-matrice.json` sotto
-# `piattaforme_non_distribuite`, non un job che manca -- e il gate finale
-# deriva il perimetro da li'.
+# Due piattaforme supportate per due profili: Linux e Windows.
+# Il gate finale deriva il perimetro da `distribuzione-matrice.json`.
 #
 # # Perche' job nativi e non una cross-compilazione
 #
 # Perche' cio' che si verifica non e' il binario ma l'**artefatto**: la chiusura
 # delle sue dipendenze, i percorsi che porta cotti dentro, e se funziona una
-# volta spostato. Un artefatto macOS costruito su Linux non si puo' eseguire, e
+# volta spostato. Un artefatto Windows costruito su Linux non si puo' eseguire, e
 # uno smoke che non si esegue non dice niente.
 #
 # Ogni job produce dei **referti**, che il gate finale riconta. Non basta che i

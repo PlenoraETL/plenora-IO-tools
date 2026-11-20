@@ -328,7 +328,14 @@ fn nessun_driver_fa_uscire_il_payload_in_apertura() {
         let percorso = fixture(file);
         assert!(percorso.exists(), "{nome}: fixture {file} assente");
 
-        match driver.open(Source::Path(percorso), opzioni_lettura()) {
+        let mut options = opzioni_lettura();
+        if nome == "csv" {
+            options
+                .format_options
+                .insert("wkt_column".to_owned(), "geometry".to_owned());
+            options.assume_crs = Some("EPSG:4326".to_owned());
+        }
+        match driver.open(Source::Path(percorso), options) {
             Ok(_) => panic!("{nome}: la fixture ostile e' stata accettata in apertura"),
             Err(errore) => verifica(&format!("{nome}/apertura"), &errore, None),
         }
@@ -638,7 +645,13 @@ fn una_destinazione_esistente_non_viene_sovrascritta_ne_fa_uscire_il_percorso() 
 #[cfg(not(feature = "gdal-backend"))]
 fn filegdb_senza_feature_e_uno_stub_tipizzato() {
     let driver = driver_filegdb::FileGdbDriver;
-    let esito = driver.open(Source::Path(fixture("apertura.gdb")), opzioni_lettura());
+    let esito = driver.open(
+        Source::Path(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/canoniche/canonico.gdb"),
+        ),
+        opzioni_lettura(),
+    );
 
     let Err(errore) = esito else {
         panic!("senza `gdal-backend` l'apertura non puo' riuscire");

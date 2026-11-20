@@ -64,10 +64,6 @@ const OPZIONE_WKT: &str = "wkt_column=geom";
 /// `LIMIT_EXCEEDED`: una quota invece di una scadenza. `timeout` proietta `5`.
 const EXIT_TIMEOUT: i32 = 5;
 
-/// La proiezione di `resource_limit`, secondo CLI 2.0 §8: il rifiuto di una
-/// quota a zero, che non e' una scadenza.
-const EXIT_LIMITE: i32 = 4;
-
 /// `128 + SIGINT`, l'exit code della categoria `Cancelled`.
 ///
 /// La convenzione e' POSIX, e con lei il modulo che la usa.
@@ -217,10 +213,10 @@ fn una_deadline_a_zero_e_rifiutata() {
         .output()
         .expect("il binario si esegue");
 
-    assert_eq!(output.status.code(), Some(EXIT_LIMITE));
+    assert_eq!(output.status.code(), Some(2));
     assert_eq!(
         busta(&String::from_utf8_lossy(&output.stdout))["error"]["code"],
-        "LIMIT_EXCEEDED"
+        "CLI_USAGE"
     );
     assert!(!uscita.exists());
 }

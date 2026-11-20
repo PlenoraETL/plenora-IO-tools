@@ -3,7 +3,10 @@
 //! conversione array Arrow → JSON. Nessuna logica di formato qui.
 #![forbid(unsafe_code)]
 
+pub mod csv_wire;
+pub mod filegdb_names;
 pub mod prevalida_arrow;
+pub mod structure;
 pub mod wkt_lossless;
 // L'analisi progressiva del WKT: usata da `wkt_lossless`, non esposta.
 // Il confine pubblico resta `parse_wkt_bounded`, che aggiunge il tetto in byte
@@ -886,24 +889,31 @@ fn json_validated(array: &ArrayRef, row: usize) -> Result<JsonValue> {
     if let Some(x) = a.downcast_ref::<UInt64Array>() {
         return Ok(JsonValue::from(x.value(row)));
     }
+    if let Some(x) = a.downcast_ref::<arrow_array::Float16Array>() {
+        return Number::from_f64(x.value(row).to_f64())
+            .map(JsonValue::Number)
+            .ok_or_else(|| plenora_io_model::error_table::Situation::NonFiniteWriteValue.error());
+    }
     if let Some(x) = a.downcast_ref::<Float32Array>() {
         return Number::from_f64(f64::from(x.value(row)))
             .map(JsonValue::Number)
-            .ok_or_else(|| {
-                PlenoraIoError::schema_redatto(&PublicMessage::Curated("Float32 non finito"))
-            });
+            .ok_or_else(|| plenora_io_model::error_table::Situation::NonFiniteWriteValue.error());
     }
     if let Some(x) = a.downcast_ref::<Float64Array>() {
         return Number::from_f64(x.value(row))
             .map(JsonValue::Number)
-            .ok_or_else(|| {
-                PlenoraIoError::schema_redatto(&PublicMessage::Curated("Float64 non finito"))
-            });
+            .ok_or_else(|| plenora_io_model::error_table::Situation::NonFiniteWriteValue.error());
     }
     if let Some(x) = a.downcast_ref::<BooleanArray>() {
         return Ok(JsonValue::Bool(x.value(row)));
     }
     if let Some(x) = a.downcast_ref::<StringArray>() {
+        return Ok(JsonValue::String(x.value(row).to_owned()));
+    }
+    if let Some(x) = a.downcast_ref::<arrow_array::LargeStringArray>() {
+        return Ok(JsonValue::String(x.value(row).to_owned()));
+    }
+    if let Some(x) = a.downcast_ref::<arrow_array::StringViewArray>() {
         return Ok(JsonValue::String(x.value(row).to_owned()));
     }
     if let Some(testo) = testo_temporale(array, row)? {
@@ -913,11 +923,8 @@ fn json_validated(array: &ArrayRef, row: usize) -> Result<JsonValue> {
     // nomi di campo e metadati letti dal file, e non e' un formato che arrow
     // abbia promesso di tenere stabile. Al suo posto la classe, che e' un
     // vocabolario nostro.
-    Err(PlenoraIoError::non_supportato_redatto(
-        &PublicMessage::CuratedPair(
-            "tipo Arrow non convertibile in JSON senza perdita, classe:",
-            classe_arrow(array.data_type()),
-        ),
+    Err(plenora_io_core::capabilities::unsupported_arrow_type(
+        array.data_type(),
     ))
 }
 
@@ -939,37 +946,10 @@ pub const fn saturating_u64(value: usize) -> u64 {
 
 /// Classe statica di un tipo Arrow, per i messaggi pubblici.
 ///
-/// `driver-common` non dipende da `plenora-io-core` e non vede
-/// `ArrowTypeClass`: questo e' lo stesso vocabolario, dichiarato dove serve.
-/// Non e' una tassonomia completa dei tipi Arrow — e' l'insieme delle classi
-/// che questo bordo distingue, e `altro` copre per costruzione tutto il resto.
+/// Nome della famiglia dalla tabella unica del core.
 #[must_use]
 pub const fn classe_arrow(tipo: &DataType) -> &'static str {
-    match tipo {
-        DataType::Boolean => "boolean",
-        DataType::Int8 | DataType::Int16 | DataType::Int32 | DataType::Int64 => "signed_integer",
-        DataType::UInt8 | DataType::UInt16 | DataType::UInt32 | DataType::UInt64 => {
-            "unsigned_integer"
-        }
-        DataType::Float16 | DataType::Float32 | DataType::Float64 => "floating",
-        DataType::Utf8 | DataType::LargeUtf8 => "utf8",
-        DataType::Binary | DataType::LargeBinary | DataType::FixedSizeBinary(_) => "binary",
-        DataType::Date32
-        | DataType::Date64
-        | DataType::Time32(_)
-        | DataType::Time64(_)
-        | DataType::Timestamp(_, _)
-        | DataType::Duration(_)
-        | DataType::Interval(_) => "temporal",
-        DataType::Decimal128(_, _) | DataType::Decimal256(_, _) => "decimal",
-        DataType::List(_)
-        | DataType::LargeList(_)
-        | DataType::FixedSizeList(_, _)
-        | DataType::Struct(_)
-        | DataType::Union(_, _)
-        | DataType::Map(_, _) => "nested",
-        _ => "altro",
-    }
+    plenora_io_core::capabilities::arrow_type_class(tipo).nome()
 }
 
 /// Rappresentazione testuale lossless di una cella Arrow, con `None` per null.
@@ -985,3 +965,44 @@ pub fn cell_string(array: &ArrayRef, row: usize) -> Result<Option<String>> {
 
 #[cfg(test)]
 mod tests;
+
+/// Whether parsing a native decimal and writing its shortest round-trip decimal
+/// changes its value. Decimal spelling (zeros, exponent) is not data loss.
+#[must_use]
+pub fn decimal_value_changes(text: &str) -> bool {
+    fn canonical(text: &str) -> Option<(bool, String, i64)> {
+        let text = text.trim();
+        let negative = text.starts_with('-');
+        let text = text.trim_start_matches(['-', '+']);
+        let (mantissa, exponent) = text
+            .split_once(['e', 'E'])
+            .map_or(Some((text, 0)), |(m, e)| {
+                e.parse::<i64>().ok().map(|e| (m, e))
+            })?;
+        let decimals = mantissa.split_once('.').map_or(0, |(_, f)| f.len());
+        let mut digits: String = mantissa.chars().filter(|&c| c != '.').collect();
+        if digits.is_empty() || !digits.bytes().all(|c| c.is_ascii_digit()) {
+            return None;
+        }
+        digits = digits.trim_start_matches('0').to_owned();
+        if digits.is_empty() {
+            return Some((negative, String::from("0"), 0));
+        }
+        let trailing = digits.len() - digits.trim_end_matches('0').len();
+        digits.truncate(digits.len() - trailing);
+        let exponent = exponent
+            .checked_sub(i64::try_from(decimals).ok()?)?
+            .checked_add(i64::try_from(trailing).ok()?)?;
+        Some((negative, digits, exponent))
+    }
+    let Ok(value) = text.trim().parse::<f64>() else {
+        return false;
+    };
+    if !value.is_finite() {
+        return true;
+    }
+    canonical(text) != canonical(&value.to_string())
+}
+
+#[cfg(test)]
+mod decimal_comparison_tests;

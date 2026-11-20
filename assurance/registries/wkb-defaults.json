@@ -33,6 +33,7 @@
   "test|crates/driver-filegdb/src/lib.rs::filegdb_measure_round_trip_preserves_xym_and_xyzm": 1,
   "test|crates/driver-filegdb/src/lib.rs::filegdb_multipart_xyzm_round_trip_preserves_every_ordinate": 1,
   "test|crates/driver-filegdb/src/lib.rs::filegdb_xyz_round_trip_preserves_z_and_contract_metadata": 1,
+  "test|crates/driver-filegdb/src/lib.rs::geometry_losses_match_the_reopened_database": 2,
   "test|crates/driver-filegdb/src/lib.rs::repeated_filegdb_writes_are_semantically_deterministic": 1,
   "test|crates/driver-geojson/src/geometria_progressiva/sonde.rs::accetta_esattamente_cio_che_accettava_il_confine_precedente": 1,
   "test|crates/driver-geojson/src/geometria_progressiva/sonde.rs::i_componenti_coincidono_con_quelli_del_parser_condiviso": 1,
@@ -83,5 +84,16 @@
   "test|crates/plenora-io-model/src/wkb/tests.rs::lossless_codec_roundtrips_every_concrete_canonical_type": 2,
   "test|crates/plenora-io-model/src/wkb/tests.rs::un_poligono_vuoto_fa_andata_e_ritorno": 1,
   "test|crates/plenora-io-model/src/wkb/tests.rs::xy_adapter_uses_lossless_ewkb_parser": 2,
-  "test|crates/plenora-io-model/src/wkb_lossless/tests.rs::un_membro_di_altre_dimensioni_e_malformato_nel_codec": 1
+  "test|crates/plenora-io-model/src/wkb_lossless/tests.rs::un_membro_di_altre_dimensioni_e_malformato_nel_codec": 1,
+  "test|crates/plenora-io-model/tests/metrics_contract.rs::codec_counters_and_reset_describe_the_observed_round_trip": 1,
+  "test|crates/plenora-io-tools/tests/loss_enumeration/constraints.rs::rejection": 1,
+  "test|crates/plenora-io-tools/tests/loss_enumeration/generated.rs::compare": 1,
+  "test|crates/plenora-io-tools/tests/loss_enumeration/generated.rs::compare_geometry": 2,
+  "test|crates/plenora-io-tools/tests/loss_enumeration/group_b_dxf.rs::write": 1,
+  "test|crates/plenora-io-tools/tests/loss_enumeration/group_b_gpkg.rs::write": 1,
+  "test|crates/plenora-io-tools/tests/loss_enumeration/group_b_read.rs::exercise": 1,
+  "test|crates/plenora-io-tools/tests/loss_enumeration/group_b_read_parquet.rs::exercise": 1,
+  "test|crates/plenora-io-tools/tests/loss_enumeration/group_b_shp.rs::write": 1,
+  "test|crates/plenora-io-tools/tests/loss_enumeration/native.rs::exercise": 1,
+  "test|crates/plenora-io-tools/tests/loss_enumeration/native.rs::native_fixtures": 1
 }

@@ -5,8 +5,11 @@
 //! una riga la superficie pubblica del crate.
 
 use super::*;
+use plenora_io_model::crs::CrsKind;
 use plenora_io_model::crs::ResolvedCrs;
-use plenora_io_model::geometry::GEO_CRS_KEY;
+use plenora_io_model::geometry::{
+    with_contract_version, with_geometry_contract_metadata, GEO_CRS_KEY,
+};
 
 mod arrow_60_1;
 mod buffer_ipc;
@@ -1371,6 +1374,7 @@ fn conforming_canonical_metadata_is_published_without_changing_values() {
         .unwrap();
     let read = reader.next_batch().unwrap().unwrap();
     assert_eq!(read.schema(), layer.contract.schema);
+    assert!(reader.loss_report().is_empty());
 
     let plan = WritePlan {
         layers: vec![WriteLayer {
@@ -1382,7 +1386,7 @@ fn conforming_canonical_metadata_is_published_without_changing_values() {
         .create(Sink::Path(output.clone()), &plan, &opzioni_scrittura())
         .unwrap();
     writer.write(&read).unwrap();
-    writer.finish().unwrap();
+    assert!(writer.finish().unwrap().loss.is_empty());
 
     let mut published = FileReader::try_new(File::open(&output).unwrap(), None).unwrap();
     assert_eq!(published.schema().field(0).metadata(), &metadata);

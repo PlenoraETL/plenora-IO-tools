@@ -20,10 +20,9 @@ implementazione, e chi la usa non deve piu' indovinare.
 # Che cosa non fa
 
 Non e' un parser di Rust. Legge le dichiarazioni `mod nome;` e l'attributo che
-le precede, che e' quanto basta per questa domanda, e non prova a capire
-`#[path = "..."]`: se un giorno servisse, il gate che ne ha bisogno lo dira'
-diventando rosso invece che sbagliando in silenzio -- vedi
-[`file_non_raggiunti`].
+le precede. Per `#[path = "..."]` accetta soltanto una risoluzione univoca
+fra la directory sorgente e le directory dei moduli inline; se e' ambigua
+il file resta non raggiunto e il gate fallisce chiuso.
 """
 
 from __future__ import annotations
@@ -93,7 +92,15 @@ def classifica(radice_del_crate: pathlib.Path) -> tuple[set[pathlib.Path], set[p
         except OSError:
             continue
         for trovata in DICHIARAZIONE.finditer(testo):
-            figlio = _file_del_modulo(percorso, trovata.group("nome"))
+            explicit = re.search(r'#\[path\s*=\s*"([^"]+)"\]', trovata.group("attributi"))
+            if explicit:
+                # Il path nel modulo inline backend e' relativo alla sua directory.
+                candidates = [percorso.parent / explicit.group(1)]
+                candidates.extend(directory / explicit.group(1) for directory in percorso.parent.iterdir() if directory.is_dir())
+                matches = {candidate.resolve() for candidate in candidates if candidate.is_file()}
+                figlio = next(iter(matches)) if len(matches) == 1 else None
+            else:
+                figlio = _file_del_modulo(percorso, trovata.group("nome"))
             if figlio is None:
                 continue
             da_visitare.append(

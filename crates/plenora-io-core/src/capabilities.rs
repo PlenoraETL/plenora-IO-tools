@@ -23,7 +23,26 @@ fn violation(
     reason: CapabilityReason,
     detail: &PublicMessage,
 ) -> PlenoraIoError {
-    PlenoraIoError::capability_redatta(driver, field, reason, detail)
+    let mut error = PlenoraIoError::capability_redatta(driver, field, reason, detail);
+    let situation = match reason {
+        CapabilityReason::TypeNotRepresentable => {
+            Some(plenora_io_model::error_table::Situation::UnrepresentableWriteType)
+        }
+        CapabilityReason::GeometryNotSupported if field.is_none() => {
+            Some(plenora_io_model::error_table::Situation::MissingGeometry)
+        }
+        _ => None,
+    };
+    if let Some(situation) = situation {
+        let rule = situation.rule();
+        error.category = rule.category;
+        error.phase = rule.phase;
+        error.code = rule.code;
+        if reason != CapabilityReason::TypeNotRepresentable {
+            rule.message.clone_into(&mut error.message);
+        }
+    }
+    error
 }
 
 /// L'ordine memorizzato che il campo dichiara; `unknown` senza CRS, perche'
@@ -223,8 +242,21 @@ pub const fn arrow_type_class(data_type: &DataType) -> ArrowTypeClass {
         | Struct(_)
         | Union(_, _)
         | Map(_, _) => ArrowTypeClass::Nested,
-        _ => ArrowTypeClass::Other,
+        DataType::Null | DataType::Dictionary(_, _) | DataType::RunEndEncoded(_, _) => {
+            ArrowTypeClass::Other
+        }
     }
+}
+
+/// Rifiuto di tipo con classe e fase, senza nomi o valori Arrow.
+#[must_use]
+pub fn unsupported_arrow_type(data_type: &DataType) -> PlenoraIoError {
+    plenora_io_model::error_table::Situation::UnrepresentableWriteType.error_with(
+        &PublicMessage::CuratedPair(
+            "tipo Arrow non rappresentabile in fase write, classe:",
+            arrow_type_class(data_type).nome(),
+        ),
+    )
 }
 
 /// Valida tutto ciò che è determinabile dal contratto statico. Vincoli che
@@ -311,16 +343,8 @@ pub fn validate_write(
             ));
         }
         if layer.contract.schema.fields().len() > max_columns {
-            return Err(PlenoraIoError::limite_redatto(
-                &PublicMessage::CuratedBetween(
-                    "layer con",
-                    NumeroStrutturale::Conteggio(crate::driver::saturating_u64(
-                        layer.contract.schema.fields().len(),
-                    )),
-                    "colonne oltre il limite di",
-                    NumeroStrutturale::Limite(crate::driver::saturating_u64(max_columns)),
-                ),
-            ));
+            return Err(plenora_io_model::quota::Quota::Columns
+                .exceeded(plenora_io_model::ErrorPhase::Validate));
         }
 
         plenora_io_model::primary::validate_contract(&layer.contract)?;
@@ -450,6 +474,18 @@ pub fn validate_write(
                 | AttributeWriteSupport::LossReported => {}
             }
 
+            if matches!(driver, "shp" | "kml") && matches!(field.data_type(), DataType::Duration(_))
+            {
+                return Err(violation(
+                    driver,
+                    campo.as_ref(),
+                    CapabilityReason::TypeNotRepresentable,
+                    &PublicMessage::CuratedPair(
+                        "tipo Arrow non rappresentabile in fase write, classe:",
+                        arrow_type_class(field.data_type()).nome(),
+                    ),
+                ));
+            }
             let class = arrow_type_class(field.data_type());
             if !caps.allowed_types.contains(&class)
                 && caps.type_coercion == TypeCoercionPolicy::Reject
@@ -458,7 +494,10 @@ pub fn validate_write(
                     driver,
                     campo.as_ref(),
                     CapabilityReason::TypeNotRepresentable,
-                    &PublicMessage::Curated(class.nome()),
+                    &PublicMessage::CuratedPair(
+                        "tipo Arrow non rappresentabile in fase write, classe:",
+                        class.nome(),
+                    ),
                 ));
             }
             if caps.nullability == NullabilitySupport::NoNulls && field.is_nullable() {
@@ -504,7 +543,10 @@ pub fn validate_write(
                     driver,
                     ContractIdentifier::from_geometry_column(geometry).as_ref(),
                     CapabilityReason::CoordinateDimensions,
-                    &PublicMessage::Curated(geometry.dimensions.nome()),
+                    &PublicMessage::CuratedPair(
+                        "dimensioni geometriche non rappresentabili nel formato di destinazione:",
+                        geometry.dimensions.nome(),
+                    ),
                 ));
             }
             if !caps

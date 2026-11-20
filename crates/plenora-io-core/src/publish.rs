@@ -9,7 +9,7 @@ use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 
 use plenora_io_model::budget::PipelineContext;
-use plenora_io_model::{ErrorPhase, NumeroStrutturale, PublicMessage};
+use plenora_io_model::{ErrorPhase, PublicMessage};
 use plenora_io_model::{PlenoraIoError, RemoteEffect, Result, RetryDisposition};
 use tempfile::{NamedTempFile, TempDir};
 
@@ -55,6 +55,7 @@ pub enum PublishOutcome {
 /// essere riutilizzato o pubblicato una seconda volta.
 pub struct StagedFile {
     temp: Option<NamedTempFile>,
+    files: crate::dataset_files::FileSet,
     destination: PathBuf,
     durable: bool,
     max_output_bytes: u64,
@@ -76,6 +77,7 @@ impl StagedFile {
     ) -> Result<Self> {
         Ok(Self {
             temp: Some(create_staged_file(destination)?),
+            files: crate::dataset_files::SINGLE,
             destination: destination.to_owned(),
             durable,
             max_output_bytes,
@@ -99,11 +101,22 @@ impl StagedFile {
     ) -> Result<Self> {
         Ok(Self {
             temp: Some(create_staged_file_with_suffix(destination, suffix)?),
+            files: crate::dataset_files::SINGLE,
             destination: destination.to_owned(),
             durable,
             max_output_bytes,
             contesto: contesto.clone(),
         })
+    }
+
+    /// Associa l'insieme dichiarato al controllo prima del publish.
+    ///
+    /// # Errors
+    /// Destinazione o companion gia' esistenti.
+    pub fn for_dataset(mut self, files: crate::dataset_files::FileSet) -> Result<Self> {
+        files.ensure_absent(&self.destination)?;
+        self.files = files;
+        Ok(self)
     }
 
     /// Percorso dello staging file.
@@ -157,6 +170,7 @@ impl StagedFile {
     /// esiste già, o l'errore di I/O di `fsync`/rename.
     pub fn publish(&mut self) -> Result<(u64, PublishOutcome)> {
         let temp = self.temp.take().ok_or_else(Self::terminal_state_error)?;
+        self.files.ensure_absent(&self.destination)?;
         publish_file_atomic_limited(
             temp,
             &self.destination,
@@ -261,12 +275,11 @@ pub fn publish_file_atomic_limited(
         // scadenza e' passata li', viene prima della quota.
         return Err(crate::driver::limite_o_scadenza(
             contesto,
-            PlenoraIoError::limite_alla_pubblicazione_redatto(&PublicMessage::CuratedBetween(
-                "output da",
-                NumeroStrutturale::Conteggio(bytes),
-                "byte oltre il limite di",
-                NumeroStrutturale::Limite(max_output_bytes),
-            )),
+            contesto.output_quota(max_output_bytes).exceeded_measured(
+                ErrorPhase::Finalize,
+                bytes,
+                max_output_bytes,
+            ),
             ErrorPhase::Finalize,
         ));
     }
@@ -358,9 +371,8 @@ pub fn publish_files_ordered_limited(
         bytes = bytes.checked_add(metadata.len()).ok_or_else(|| {
             crate::driver::limite_o_scadenza(
                 contesto,
-                PlenoraIoError::limite_alla_pubblicazione_redatto(&PublicMessage::Curated(
-                    "overflow nel conteggio dell'output",
-                )),
+                plenora_io_model::quota::Quota::OutputBytes
+                    .exceeded(plenora_io_model::ErrorPhase::Finalize),
                 ErrorPhase::Finalize,
             )
         })?;
@@ -368,12 +380,11 @@ pub fn publish_files_ordered_limited(
     if bytes > max_output_bytes {
         return Err(crate::driver::limite_o_scadenza(
             contesto,
-            PlenoraIoError::limite_alla_pubblicazione_redatto(&PublicMessage::CuratedBetween(
-                "output da",
-                NumeroStrutturale::Conteggio(bytes),
-                "byte oltre il limite di",
-                NumeroStrutturale::Limite(max_output_bytes),
-            )),
+            contesto.output_quota(max_output_bytes).exceeded_measured(
+                ErrorPhase::Finalize,
+                bytes,
+                max_output_bytes,
+            ),
             ErrorPhase::Finalize,
         ));
     }
@@ -466,11 +477,7 @@ fn destination_parent(dest: &Path) -> &Path {
 }
 
 fn ensure_destination_absent(dest: &Path) -> Result<()> {
-    match std::fs::symlink_metadata(dest) {
-        Ok(_) => Err(PlenoraIoError::destinazione_esistente()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(PlenoraIoError::Io(error)),
-    }
+    crate::dataset_files::SINGLE.ensure_absent(dest)
 }
 
 fn publish_rename_error(error: std::io::Error, dest: &Path) -> PlenoraIoError {
@@ -487,13 +494,12 @@ fn rename_noclobber(source: &Path, destination: &Path) -> Result<()> {
         .map_err(|error| publish_rename_error(error, destination))
 }
 
-#[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+#[cfg(target_os = "linux")]
 fn rename_noclobber_os(source: &Path, destination: &Path) -> std::io::Result<()> {
     use rustix::fs::{renameat_with, RenameFlags, CWD};
 
-    // Linux/Android usano renameat2(RENAME_NOREPLACE); sulle piattaforme Apple
-    // rustix traduce la stessa API in renameatx_np(RENAME_EXCL). Entrambe le
-    // primitive sono atomiche anche per directory e rifiutano un nome apparso
+    // Linux usa renameat2(RENAME_NOREPLACE): la primitiva e' atomica
+    // anche per directory e rifiuta un nome apparso
     // dopo il preflight.
     renameat_with(CWD, source, CWD, destination, RenameFlags::NOREPLACE).map_err(Into::into)
 }
@@ -503,23 +509,8 @@ fn rename_noclobber_os(source: &Path, destination: &Path) -> std::io::Result<()>
     atomicwrites::move_atomic(source, destination)
 }
 
-#[cfg(not(any(
-    target_os = "linux",
-    target_os = "android",
-    target_vendor = "apple",
-    windows
-)))]
-fn rename_noclobber_os(source: &Path, destination: &Path) -> std::io::Result<()> {
-    let metadata = std::fs::symlink_metadata(source)?;
-    if !metadata.is_file() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "publish directory no-clobber non supportato su questa piattaforma",
-        ));
-    }
-    std::fs::hard_link(source, destination)?;
-    std::fs::remove_file(source)
-}
+#[cfg(not(any(target_os = "linux", windows)))]
+compile_error!("plenora-io-core: piattaforma non supportata; usare Linux o Windows");
 
 fn ensure_same_filesystem(staging: &Path, destination_parent: &Path) -> Result<()> {
     if same_filesystem(staging, destination_parent)? {

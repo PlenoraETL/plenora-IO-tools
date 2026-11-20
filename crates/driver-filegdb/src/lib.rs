@@ -5,37 +5,24 @@
 #![forbid(unsafe_code)]
 
 use plenora_io_core::descriptor::{
-    ArrowTypeClass, CrsHandling, Direction, Fidelity, FormatDescriptor, GeometryWriteSupport,
-    ReadMode, ReaderConcurrency, Runtime, WriteMode,
+    CrsHandling, Direction, Fidelity, FormatDescriptor, GeometryWriteSupport, ReadMode,
+    ReaderConcurrency, Runtime, WriteMode,
 };
 use plenora_io_core::driver::{
     FormatDriver, FormatWriter, OpenDatasetHandle, ReadOptions, Sink, Source, WriteOptions,
 };
 use plenora_io_core::{
     validate_write, AttributeWriteSupport, CrsDerivation, CrsRepresentationCapabilities,
-    CrsRepresentationState, CrsWriteSupport, FormatWriteCapabilities, NullabilitySupport,
-    SinkPathConstraint, TypeCoercionPolicy, WritePlan, UTF8_FIELD_NAMES,
+    CrsRepresentationState, CrsWriteSupport, FormatWriteCapabilities, SinkPathConstraint,
+    TypeCoercionPolicy, WritePlan, UTF8_FIELD_NAMES,
 };
-use plenora_io_model::contract::{
-    CoordinateDimensions, GeometryEncoding, GeometryType, SpatialSemantics,
-};
+use plenora_io_model::contract::{GeometryEncoding, GeometryType, SpatialSemantics};
 use plenora_io_model::Result;
-
-const FILEGDB_ATTRIBUTE_TYPES: &[ArrowTypeClass] = &[
-    ArrowTypeClass::SignedInteger,
-    ArrowTypeClass::Floating,
-    ArrowTypeClass::Utf8,
-];
 
 const FILEGDB_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport {
     supported: true,
     encodings: &[GeometryEncoding::Wkb],
-    dimensions: &[
-        CoordinateDimensions::Xy,
-        CoordinateDimensions::Xyz,
-        CoordinateDimensions::Xym,
-        CoordinateDimensions::Xyzm,
-    ],
+    dimensions: plenora_io_core::loss_table::FILEGDB.dimensions,
     spatial_semantics: &[SpatialSemantics::Geometry],
     geometry_types: &[
         GeometryType::Point,
@@ -50,6 +37,7 @@ const FILEGDB_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport {
 
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     "filegdb",
+    &plenora_io_core::dataset_files::FILE_SETS[3],
     Direction::Bidirectional,
     ReadMode::Materializing,
     // INV-7: `for feature in layer.features()`, iteratore GDAL in avanti.
@@ -78,7 +66,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     None,
     Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
-        allowed_types: FILEGDB_ATTRIBUTE_TYPES,
+        allowed_types: plenora_io_core::loss_table::FILEGDB.allowed_types,
         type_coercion: TypeCoercionPolicy::Reject,
         attributes: AttributeWriteSupport::All,
         geometry: FILEGDB_GEOMETRY,
@@ -91,7 +79,9 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
             CrsRepresentationState::Absent,
             CrsRepresentationState::Derived(CrsDerivation::RuntimeResolved),
         ),
-        nullability: NullabilitySupport::FormatDefined,
+        nullability: plenora_io_core::loss_table::native_nullability(
+            plenora_io_core::loss_table::NativeDriver::FileGdb,
+        ),
         multi_layer: true,
         sink_path: SinkPathConstraint::Free,
     }),
@@ -106,22 +96,8 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
 
 pub struct FileGdbDriver;
 
-/// Rifiuta la lettura di un layer che dichiara piu' di un campo geometrico.
-///
-/// Il modello porta un contratto geometrico per layer, e il reader prendeva il
-/// primo campo: gli altri non comparivano nemmeno nello schema, e sparivano.
-/// E' la scelta al posto di chi legge che GEO-012 vieta. Il layer resta
-/// enumerato -- rifiutare all'apertura chiuderebbe anche i layer leggibili
-/// accanto a lui -- e la scoperta ne dichiara il numero in
-/// `filegdb.geometry_field_count`.
-///
-/// Sta fuori dal backend perche' la decisione non dipende da GDAL e si prova
-/// anche senza: `OpenFileGDB` non scrive layer con due geometrie, e nessuna
-/// fixture del driver saprebbe produrne uno.
-///
-/// # Errors
-///
-/// `Unsupported` con piu' di un campo geometrico.
+/// Rifiuta piu' campi geometrici: il contratto porta una geometria per layer.
+/// La verifica esiste anche nello stub; il rifiuto riguarda il singolo layer.
 #[cfg_attr(not(feature = "gdal-backend"), allow(dead_code))]
 fn rifiuta_piu_geometrie(campi_geometrici: usize) -> plenora_io_model::Result<()> {
     if campi_geometrici > 1 {
@@ -135,42 +111,11 @@ fn rifiuta_piu_geometrie(campi_geometrici: usize) -> plenora_io_model::Result<()
     Ok(())
 }
 
-// --- la superficie del fuzz target -----------------------------------------
-//
-// Vive qui, e non dentro `fuzz/fuzz_targets/`, per la stessa ragione per cui ci
-// vive quella di `driver-shp`: qui e' **provabile**. Le sonde del driver
-// chiamano lo stesso entry point del target sulla stessa fixture, e verificano
-// cio' che un replay senza crash non verifica -- che l'isolamento fra
-// invocazioni ci sia, che i nomi dei file non vengano dal payload, che una
-// lettura riuscita porti davvero delle righe.
-
-/// Le parti di un FileGDB, per nome, lette dall'archivio della fixture.
-///
-/// Un FileGDB non e' un file: e' una **directory** di tabelle che si citano a
-/// vicenda per GUID. Il fuzzer consegna pero' un solo blob, e da un blob non si
-/// costruisce una directory coerente -- non perche' sia difficile, ma perche' il
-/// formato e' proprietario e ricostruito per reverse engineering: costruirlo da
-/// zero significherebbe riscrivere `OpenFileGDB` e produrre file validi rispetto
-/// alla nostra idea del formato invece che a quella di GDAL.
-///
-/// La strada e' l'opposta. Si parte da un FileGDB **vero**, prodotto da GDAL da
-/// un GeoJSON committato, e il fuzzer ne sostituisce **una parte per volta**.
-/// Cio' che muta e' il contenuto di una tabella; cio' che resta e' una directory
-/// che il driver ha una ragione di aprire.
-///
-/// ```text
-/// PLENORA-GDB-FIXTURE-1\n
-/// u32          numero di parti
-/// per parte:   u16 lunghezza del nome, nome ASCII, u32 lunghezza, byte
-/// ```
-///
-/// L'archivio e' nostro e non viene dal fuzzer: e' `include_bytes!` dal lato del
-/// target. Qui e' un parametro proprio per questo -- il driver di produzione non
-/// porta dentro di se' cinquantadue kilobyte di fixture, e la sonda puo' passare
-/// l'archivio letto dal disco.
-///
-/// `None` = archivio malformato. Non e' un caso che il fuzzer possa produrre:
-/// l'archivio non e' l'input.
+/// Legge il bundle canonico GDAL, non il payload del fuzzer.
+/// Formato: magic `PLENORA-GDB-FIXTURE-1\n`, u32 parti; per parte u16
+/// lunghezza nome, nome ASCII, u32 lunghezza contenuto, contenuto (little endian).
+/// Il parser condiviso normalizza i basename e rifiuta percorsi e alias.
+/// `None` indica un bundle malformato o vuoto; la fixture resta esterna al binario.
 #[cfg(feature = "gdal-backend")]
 #[doc(hidden)]
 #[must_use]
@@ -181,6 +126,7 @@ pub fn __fuzz_parti_della_fixture(archivio: &[u8]) -> Option<Vec<(String, &[u8])
     let quante = u32::from_le_bytes([grezzo[0], grezzo[1], grezzo[2], grezzo[3]]);
 
     let mut parti = Vec::new();
+    let mut names = std::collections::BTreeSet::new();
     for _ in 0..quante {
         let (grezzo, dopo) = resto.split_at_checked(2)?;
         let lunghezza_nome = usize::from(u16::from_le_bytes([grezzo[0], grezzo[1]]));
@@ -190,13 +136,11 @@ pub fn __fuzz_parti_della_fixture(archivio: &[u8]) -> Option<Vec<(String, &[u8])
         let (contenuto, dopo) = dopo.split_at_checked(usize::try_from(lunghezza).ok()?)?;
 
         let nome = std::str::from_utf8(nome).ok()?;
-        if !nome_di_parte_ammesso(nome) {
-            // Il nome finisce in un percorso. Non viene dal fuzzer -- viene
-            // dall'archivio, che e' nostro -- ma un archivio corrotto non deve
-            // poter far scrivere fuori dalla directory.
+        let member = driver_common::filegdb_names::parse(nome)?;
+        if !names.insert(member.canonical.clone()) {
             return None;
         }
-        parti.push((nome.to_owned(), contenuto));
+        parti.push((member.canonical, contenuto));
         resto = dopo;
     }
     if !resto.is_empty() {
@@ -211,54 +155,23 @@ pub fn __fuzz_parti_della_fixture(archivio: &[u8]) -> Option<Vec<(String, &[u8])
     Some(parti)
 }
 
-/// I soli nomi che una parte di `FileGDB` puo' avere.
-///
-/// Ogni parte che `OpenFileGDB` scrive comincia con una lettera minuscola --
-/// `gdb`, `timestamps`, `a00000001.gdbtable` -- e prosegue con minuscole,
-/// cifre, punti e trattini bassi. Niente separatori e niente nomi vuoti: un
-/// nome che finisce in un `join` e non e' stato guardato e' un percorso
-/// costruito da dei byte.
-///
-/// La condizione sulla **prima** lettera non e' un dettaglio estetico: senza,
-/// `".."` sarebbe fatto di soli caratteri ammessi e passerebbe. E' il buco che
-/// la sonda di questo file ha trovato nella prima stesura.
-#[cfg(feature = "gdal-backend")]
+/// Basenames accepted by the shared `FileGDB` member parser.
+#[cfg(all(test, feature = "gdal-backend"))]
 fn nome_di_parte_ammesso(nome: &str) -> bool {
-    let mut byte = nome.bytes();
-    byte.next().is_some_and(|primo| primo.is_ascii_lowercase())
-        && byte.all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.' || b == b'_')
+    driver_common::filegdb_names::parse(nome).is_some()
 }
 
-/// Un errore dell'ambiente non e' un difetto del file letto.
-///
-/// Un filesystem pieno o una directory non creabile diventano un errore
-/// tipizzato e non un panico: un panico dell'harness verrebbe archiviato dal
-/// fuzzer come finding del driver, e la campagna misurerebbe il proprio
-/// scaffolding.
+/// Un guasto di materializzazione e' un errore tipizzato, non un finding.
 #[cfg(feature = "gdal-backend")]
 fn errore_di_ambiente(_: std::io::Error) -> plenora_io_model::PlenoraIoError {
-    // Lo stesso costruttore del resto del driver, e non `non_supportato_redatto`.
-    //
-    // In questa crate `Unsupported` ha un significato preciso e difeso da
-    // `tests/ostili.rs`: «il binario non e' stato costruito per parlare con
-    // GDAL». Riusarlo per «il filesystem non ha collaborato» farebbe cercare a
-    // chi legge una libreria da installare, e annacquerebbe la sola categoria
-    // che distingue lo stub dal guasto. `driver-shp` fa la stessa scelta per il
-    // proprio errore d'ambiente.
+    // Unsupported resta riservato al backend non compilato.
     backend::err(&plenora_io_model::PublicMessage::Curated(
         "materializzazione della .gdb fallita: e' l'ambiente, non il file letto",
     ))
 }
 
-/// Scrive le parti dentro una directory **gia' esistente**, sostituendone una.
-///
-/// Separata da `__fuzz_leggi_gdb` per una ragione sola: cosi' una sonda puo'
-/// passarle una radice inesistente e osservare l'errore, invece di forzare il
-/// fallimento mutando `TMPDIR` -- che renderebbe il difetto visibile agli altri
-/// test in parallelo e il fallimento intermittente invece che riproducibile.
-///
-/// `sostituita` e' un **indice**, non un nome: il payload sceglie quale parte
-/// cambiare, mai come si chiama. Nessun percorso deriva dai byte del fuzzer.
+/// Materializza in una directory esistente; il payload sceglie un indice,
+/// mai un nome. Separato per provare gli errori senza modificare `TMPDIR`.
 #[cfg(feature = "gdal-backend")]
 fn materializza_gdb(
     radice: &std::path::Path,
@@ -274,52 +187,35 @@ fn materializza_gdb(
         } else {
             originale
         };
-        std::fs::write(dataset.join(nome), byte).map_err(errore_di_ambiente)?;
+        std::fs::write(
+            dataset.join(
+                driver_common::filegdb_names::parse(nome)
+                    .ok_or_else(|| {
+                        backend::err(&plenora_io_model::PublicMessage::Curated(
+                            "nome membro FileGDB non valido",
+                        ))
+                    })?
+                    .canonical,
+            ),
+            byte,
+        )
+        .map_err(errore_di_ambiente)?;
     }
     Ok(dataset)
 }
 
-// L'ultima directory che `__fuzz_leggi_gdb` ha usato, per la sola sonda che
-// prova l'isolamento.
-//
-// Serve perche' l'isolamento **non si vede dall'esito**: la materializzazione
-// riscrive tutte le parti a ogni invocazione, quindi una directory riusata
-// darebbe gli stessi risultati di una nuova. Una sonda che si limitasse a
-// rileggere la fixture dopo averne rotta una parte passerebbe in entrambi i
-// casi, e proverebbe soltanto che la riscrittura funziona.
-//
-// Cio' che va provato e' che la directory sia **diversa** ogni volta, e per
-// provarlo bisogna vederla. Il seam esiste solo sotto `cfg(test)`: in campagna
-// non c'e' niente da registrare.
+// Seam di test: osserva che ogni invocazione usi una directory diversa,
+// anche quando riscrivere la stessa directory darebbe gli stessi risultati.
 #[cfg(all(test, feature = "gdal-backend"))]
 thread_local! {
     static ULTIMA_DIRECTORY: std::cell::RefCell<Vec<std::path::PathBuf>> =
         const { std::cell::RefCell::new(Vec::new()) };
 }
 
-/// Entry point non stabile per libFuzzer: una `.gdb` completa, letta davvero.
-///
-/// L'input del fuzzer si legge cosi':
-///
-/// ```text
-/// byte 0    quale parte sostituire (modulo il numero di parti)
-/// byte 1..  il contenuto che prende il suo posto
-/// ```
-///
-/// Il modulo non e' pigrizia: **ogni** byte deve scegliere una parte, altrimenti
-/// il fuzzer passerebbe il tempo a produrre input scartati invece che input che
-/// arrivano al driver. Un input vuoto materializza la fixture intatta, ed e' il
-/// caso che prova che la base si legge.
-///
-/// La directory e' **nuova a ogni invocazione**. Riusarla farebbe sopravvivere
-/// la tabella mutata dall'input precedente, e la campagna misurerebbe la propria
-/// directory invece del formato.
-///
-/// # Che cosa `Err` significa qui
-///
-/// Quasi tutto. Una tabella sostituita con byte casuali non e' un FileGDB, e il
-/// rifiuto tipizzato e' l'esito atteso. Il finding e' il **panico**, l'abort, o
-/// un output parziale consegnato prima di un errore terminale.
+/// Entry point non stabile: il byte iniziale seleziona una parte modulo il
+/// numero di membri; i byte restanti la sostituiscono. Input vuoto = fixture
+/// intatta. Ogni invocazione usa una directory nuova e drena tutte le righe.
+/// Un rifiuto tipizzato e' atteso; panico, abort o consegna parziale sono finding.
 #[cfg(feature = "gdal-backend")]
 #[doc(hidden)]
 pub fn __fuzz_leggi_gdb(archivio: &[u8], dati: &[u8], opts: ReadOptions) -> Result<usize> {
@@ -478,18 +374,27 @@ impl FormatDriver for FileGdbDriver {
     // `mut` serve solo al ramo con `gdal-backend`, che passa `&mut opts` al
     // preflight. Senza la feature nessuno la muta, e clippy ha ragione: il
     // lint si spegne dove il ramo non c'e', non dappertutto.
-    #[cfg_attr(not(feature = "gdal-backend"), allow(unused_mut))]
-    fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
+    fn open(&self, source: Source, opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
+        self.open_selected(source, opts, None)
+    }
+
+    #[cfg_attr(not(feature = "gdal-backend"), allow(unused_mut, unused_variables))]
+    fn open_selected(
+        &self,
+        source: Source,
+        mut opts: ReadOptions,
+        selected: Option<plenora_io_model::contract::LayerId>,
+    ) -> Result<Box<dyn OpenDatasetHandle>> {
         #[cfg(feature = "gdal-backend")]
         {
             radici::applica();
-            let path = plenora_io_core::preflight_source(self.descriptor(), source, &mut opts)?;
-            let dataset = backend::open(&path, opts.assume_crs.as_deref())?;
-            return plenora_io_core::with_read_budget(dataset, &opts, false);
+            let path = driver_common::structure::preflight(self.descriptor(), source, &mut opts)?;
+            let dataset = backend::open_selected(&path, opts.assume_crs.as_deref(), selected)?;
+            plenora_io_core::with_read_budget(dataset, &opts, false)
         }
         #[cfg(not(feature = "gdal-backend"))]
         {
-            let _ = (source, opts);
+            let _ = driver_common::structure::preflight(self.descriptor(), source, &mut opts)?;
             Err(plenora_io_model::PlenoraIoError::non_supportato_redatto(
                 &plenora_io_model::PublicMessage::Curated(
                     "FileGDB richiede il tier GDB: compilare con --features gdal-backend",
@@ -505,6 +410,15 @@ impl FormatDriver for FileGdbDriver {
         plan: &WritePlan,
         opts: &WriteOptions,
     ) -> Result<Box<dyn FormatWriter>> {
+        if !cfg!(feature = "gdal-backend") {
+            plenora_io_model::format_options::valida_opzioni(
+                self.descriptor().id(),
+                self.descriptor().format_options(),
+                &opts.format_options,
+                plenora_io_model::format_options::FaseOpzione::Scrittura,
+            )?;
+            return Err(plenora_io_model::error_table::Situation::MissingWriteBackend.error());
+        }
         validate_write(
             self.descriptor(),
             plan,
@@ -514,6 +428,7 @@ impl FormatDriver for FileGdbDriver {
         #[cfg(feature = "gdal-backend")]
         {
             let Sink::Path(path) = sink;
+            self.descriptor().files().ensure_absent(&path)?;
             return backend::create(&path, plan, opts).and_then(|writer| {
                 plenora_io_core::with_write_validation(writer, self.descriptor(), plan, opts)
             });
@@ -535,12 +450,15 @@ mod backend {
     use super::DESCRIPTOR;
 
     use std::collections::{HashMap, HashSet};
-    use std::fs::{File, OpenOptions, TryLockError};
+    #[cfg(test)]
+    use std::fs::TryLockError;
+    use std::fs::{File, OpenOptions};
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Arc;
 
     use arrow_array::builder::{
-        BinaryBuilder, Float64Builder, Int32Builder, Int64Builder, StringBuilder,
+        BinaryBuilder, Date32Builder, Float64Builder, Int32Builder, Int64Builder, StringBuilder,
+        TimestampMicrosecondBuilder,
     };
     use arrow_array::{
         ArrayRef, BinaryArray, Float64Array, Int32Array, RecordBatch, RecordBatchOptions,
@@ -566,12 +484,74 @@ mod backend {
     };
 
     pub fn runtime_available() -> bool {
+        install_diagnostics();
         let Ok(driver) = DriverManager::get_driver_by_name("OpenFileGDB") else {
             return false;
         };
         ["DCAP_VECTOR", "DCAP_OPEN", "DCAP_CREATE"]
             .into_iter()
             .all(|capability| driver.metadata_item(capability, "") == Some("YES".to_owned()))
+    }
+
+    #[derive(Clone, Default)]
+    struct Diagnostics(std::sync::Arc<std::sync::atomic::AtomicU64>);
+    thread_local! {
+        static DIAGNOSTICS: std::cell::RefCell<Option<Diagnostics>> = const { std::cell::RefCell::new(None) };
+    }
+    struct DiagnosticScope(Option<Diagnostics>);
+    impl Drop for DiagnosticScope {
+        fn drop(&mut self) {
+            DIAGNOSTICS.with(|slot| *slot.borrow_mut() = self.0.take());
+        }
+    }
+    impl Diagnostics {
+        fn record_warning(&self) {
+            let mut count = self.0.load(Ordering::Relaxed);
+            while count != u64::MAX {
+                match self.0.compare_exchange_weak(
+                    count,
+                    count + 1,
+                    Ordering::Relaxed,
+                    Ordering::Relaxed,
+                ) {
+                    Ok(_) => break,
+                    Err(observed) => count = observed,
+                }
+            }
+        }
+        fn enter(&self) -> DiagnosticScope {
+            install_diagnostics();
+            DiagnosticScope(DIAGNOSTICS.with(|slot| slot.replace(Some(self.clone()))))
+        }
+        fn assessment(&self) -> plenora_io_core::FidelityAssessment {
+            let mut assessment = plenora_io_core::FidelityAssessment::lossless();
+            let count = self.0.load(std::sync::atomic::Ordering::Relaxed);
+            if count != 0 {
+                assessment.add_reason(
+                    plenora_io_core::loss::FidelityReasonCode::FormatConstraint,
+                    format!("diagnostica libreria GDAL: classe warning; conteggio {count}; testo nativo redatto"),
+                );
+            }
+            assessment
+        }
+    }
+    fn with_native_diagnostics<T>(operation: impl FnOnce() -> T) -> T {
+        install_diagnostics();
+        operation()
+    }
+    fn install_diagnostics() {
+        static INSTALL: std::sync::Once = std::sync::Once::new();
+        INSTALL.call_once(|| {
+            gdal::config::set_error_handler(|severity, _, _| {
+                if severity == gdal::errors::CplErrType::Warning {
+                    DIAGNOSTICS.with(|slot| {
+                        if let Some(diagnostics) = slot.borrow().as_ref() {
+                            diagnostics.record_warning();
+                        }
+                    });
+                }
+            });
+        });
     }
 
     // --- scrittura (tier GDB via GDAL OpenFileGDB) --------------------------
@@ -587,13 +567,17 @@ mod backend {
 
     use plenora_io_core::driver::{FormatWriter, Published, WriteOptions};
     use plenora_io_core::loss::LossReport;
+    use plenora_io_core::loss_table::{
+        native_write_report, observe_native, NativeDriver, NativeElement, TransportDirection,
+    };
+
     use plenora_io_core::publish::publish_dir_atomic;
     use plenora_io_core::{SingleReaderGate, WriteLayer, WritePlan};
 
     const OGR_FIELD_TYPE_KEY: &str = "plenora.filegdb.ogr_field_type";
     const OGR_FIELD_WIDTH_KEY: &str = "plenora.filegdb.width";
     const OGR_FIELD_PRECISION_KEY: &str = "plenora.filegdb.precision";
-    const STAGING_MARKER: &str = ".plenora-tmp-";
+    const STAGING_MARKER: &str = plenora_io_core::dataset_files::FILEGDB_STAGING_MARKER;
     static STAGING_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
     #[derive(Clone, Copy)]
@@ -609,17 +593,12 @@ mod backend {
                 DataType::Int32 => Self::Int32,
                 DataType::Float64 => Self::Float64,
                 DataType::Utf8 => Self::Utf8,
-                other => {
-                    return Err(PlenoraIoError::capability_redatta(
-                        "filegdb",
-                        None,
-                        CapabilityReason::TypeNotRepresentable,
-                        &PublicMessage::CuratedPair(
-                            "tipo Arrow non round-trip nativo (supportati esattamente Int32, \
-                             Float64 e Utf8), classe:",
-                            driver_common::classe_arrow(other),
-                        ),
-                    ));
+                _ => {
+                    let mut error =
+                        plenora_io_core::capabilities::unsupported_arrow_type(field.data_type());
+                    error.driver = Some("filegdb".to_owned());
+                    error.capability_reason = Some(CapabilityReason::TypeNotRepresentable);
+                    return Err(error);
                 }
             };
             Ok(kind)
@@ -684,7 +663,7 @@ mod backend {
 
     impl StagingGuard {
         fn create(dest: &Path) -> Result<Self> {
-            recover_orphaned_staging(dest)?;
+            DESCRIPTOR.files().ensure_absent(dest)?;
             let parent = dataset_parent(dest);
             let prefix = staging_prefix(dest);
             loop {
@@ -740,6 +719,9 @@ mod backend {
     }
 
     struct GdbWriter {
+        diagnostics: Diagnostics,
+        metadata_check: plenora_io_core::property_plan::NativeMetadataCheck,
+        loss: LossReport,
         ds: Option<Dataset>,
         staging: StagingGuard,
         dest: PathBuf,
@@ -748,6 +730,12 @@ mod backend {
         /// Scadenza e cancellazione, per l'ultimo controllo prima del rename.
         contesto: plenora_io_model::budget::PipelineContext,
         layers: Vec<PlanLayer>,
+        geometry_source: std::fs::File,
+        geometry_count: u64,
+        geometry_spill: Vec<plenora_io_model::budget::SpillLease>,
+        geometry_written: u64,
+        geometry_reserved: u64,
+        wkb_limits: plenora_io_model::limits::WkbLimits,
     }
 
     impl Drop for GdbWriter {
@@ -906,6 +894,7 @@ mod backend {
         format!("{stem}{STAGING_MARKER}")
     }
 
+    #[cfg(test)]
     fn recover_orphaned_staging(dest: &Path) -> Result<usize> {
         let parent = dataset_parent(dest);
         let prefix = staging_prefix(dest);
@@ -1051,6 +1040,8 @@ mod backend {
         plan: &WritePlan,
         opts: &WriteOptions,
     ) -> Result<Box<dyn FormatWriter>> {
+        let diagnostics = Diagnostics::default();
+        let _scope = diagnostics.enter();
         if path.exists() {
             return Err(PlenoraIoError::destinazione_esistente());
         }
@@ -1211,6 +1202,9 @@ mod backend {
         }
 
         Ok(Box::new(GdbWriter {
+            diagnostics,
+            metadata_check: plenora_io_core::property_plan::NativeMetadataCheck::new(plan, opts),
+            loss: native_write_report(NativeDriver::FileGdb, plan),
             ds: Some(ds),
             staging,
             dest: path.to_owned(),
@@ -1218,7 +1212,174 @@ mod backend {
             max_output_bytes: opts.max_output_bytes(),
             contesto: opts.budget().context().clone(),
             layers: infos,
+            geometry_source: tempfile::tempfile_in(
+                plenora_io_core::driver::spool::spill_directory()?,
+            )?,
+            geometry_count: 0,
+            geometry_spill: Vec::new(),
+            geometry_written: 0,
+            geometry_reserved: 0,
+            wkb_limits: opts.wkb_limits(),
         }))
+    }
+
+    impl GdbWriter {
+        fn compare_written_geometry(&mut self) -> Result<()> {
+            use plenora_io_model::wkb::decode_wkb;
+            use std::io::{Read, Seek};
+            self.geometry_source.rewind()?;
+            let dataset = Dataset::open(self.staging.path()).map_err(|_| {
+                err(&PublicMessage::Curated(
+                    "rilettura del FileGDB scritto fallita",
+                ))
+            })?;
+            for _ in 0..self.geometry_count {
+                self.contesto.ensure_active()?;
+                let mut integer = || -> Result<u64> {
+                    let mut bytes = [0; 8];
+                    self.geometry_source.read_exact(&mut bytes)?;
+                    Ok(u64::from_le_bytes(bytes))
+                };
+                let layer = integer()?;
+                let fid = integer()?;
+                let length = integer()?;
+                let mut source = vec![
+                    0;
+                    usize::try_from(length).map_err(|_| {
+                        err(&PublicMessage::Curated(
+                            "dimensione geometria non rappresentabile",
+                        ))
+                    })?
+                ];
+                self.geometry_source.read_exact(&mut source)?;
+                let layer_index = usize::try_from(layer).map_err(|_| {
+                    err(&PublicMessage::Curated("indice layer non rappresentabile"))
+                })?;
+                let info = self
+                    .layers
+                    .get(layer_index)
+                    .ok_or_else(|| err(&PublicMessage::Curated("indice layer fuori intervallo")))?;
+                let native = dataset.layer(info.gdal_idx).map_err(|_| {
+                    err(&PublicMessage::Curated(
+                        "rilettura del layer scritto fallita",
+                    ))
+                })?;
+                let feature = native.feature(fid).ok_or_else(|| {
+                    err(&PublicMessage::Curated(
+                        "feature scritta assente alla rilettura",
+                    ))
+                })?;
+                let before = decode_wkb(&source, &self.wkb_limits)?;
+                let geometry = match feature.geometry_by_index(0) {
+                    Ok(geometry) => Some(geometry),
+                    Err(GdalError::NullPointer {
+                        method_name: "OGR_F_GetGeomFieldRef",
+                        ..
+                    }) => None,
+                    Err(_) => {
+                        return Err(err(&PublicMessage::Curated(
+                            "lettura della geometria scritta fallita",
+                        )))
+                    }
+                };
+                let Some(geometry) = geometry else {
+                    observe_native(
+                        &mut self.loss,
+                        (NativeDriver::FileGdb, TransportDirection::Write),
+                        NativeElement::EmptyGeometry,
+                        1,
+                        layer,
+                        Some(info.geom_idx as u64),
+                    );
+                    continue;
+                };
+                let bytes = geometry.iso_wkb().map_err(|_| {
+                    err(&PublicMessage::Curated(
+                        "lettura WKB della geometria scritta fallita",
+                    ))
+                })?;
+                let after = decode_wkb(&bytes, &self.wkb_limits)?;
+                let (coordinates_before, orientation_before) = geometry_signature(&before);
+                let (coordinates_after, orientation_after) = geometry_signature(&after);
+                for (element, changed) in [
+                    (
+                        NativeElement::CoordinatePrecision,
+                        coordinates_before != coordinates_after,
+                    ),
+                    (
+                        NativeElement::RingOrientation,
+                        orientation_before != orientation_after,
+                    ),
+                ] {
+                    observe_native(
+                        &mut self.loss,
+                        (NativeDriver::FileGdb, TransportDirection::Write),
+                        element,
+                        u64::from(changed),
+                        layer,
+                        Some(info.geom_idx as u64),
+                    );
+                }
+            }
+            Ok(())
+        }
+    }
+
+    // Coordinate multisets are insensitive to ring reversal. Ring signs are
+    // compared separately, so orientation alone never reports quantization.
+    fn geometry_signature(
+        geometry: &plenora_io_model::wkb::WkbGeometry,
+    ) -> (Vec<[Option<u64>; 4]>, Vec<i8>) {
+        use plenora_io_model::wkb::{WkbCoordinate, WkbGeometry, WkbValue};
+        fn visit(g: &WkbGeometry, coordinates: &mut Vec<[Option<u64>; 4]>, signs: &mut Vec<i8>) {
+            let mut push = |c: &WkbCoordinate| {
+                coordinates.push([
+                    Some(c.x.to_bits()),
+                    Some(c.y.to_bits()),
+                    c.z.map(f64::to_bits),
+                    c.m.map(f64::to_bits),
+                ]);
+            };
+            match &g.value {
+                WkbValue::Point(c) => push(c),
+                WkbValue::LineString(cs) | WkbValue::CircularString(cs) => cs.iter().for_each(push),
+                WkbValue::Polygon(rings) | WkbValue::Triangle(rings) => {
+                    for ring in rings {
+                        ring.iter().for_each(&mut push);
+                        let area: f64 = ring
+                            .windows(2)
+                            .map(|p| p[1].x.mul_add(-p[0].y, p[0].x * p[1].y))
+                            .sum();
+                        signs.push(if area > 0.0 {
+                            1
+                        } else if area < 0.0 {
+                            -1
+                        } else {
+                            0
+                        });
+                    }
+                }
+                WkbValue::MultiPoint(gs)
+                | WkbValue::MultiLineString(gs)
+                | WkbValue::MultiPolygon(gs)
+                | WkbValue::GeometryCollection(gs)
+                | WkbValue::CompoundCurve(gs)
+                | WkbValue::CurvePolygon(gs)
+                | WkbValue::MultiCurve(gs)
+                | WkbValue::MultiSurface(gs)
+                | WkbValue::PolyhedralSurface(gs)
+                | WkbValue::Tin(gs) => {
+                    for child in gs {
+                        visit(child, coordinates, signs);
+                    }
+                }
+            }
+        }
+        let mut coordinates = Vec::new();
+        let mut signs = Vec::new();
+        visit(geometry, &mut coordinates, &mut signs);
+        coordinates.sort_unstable();
+        (coordinates, signs)
     }
 
     impl FormatWriter for GdbWriter {
@@ -1227,12 +1388,10 @@ mod backend {
         }
 
         fn write_to_layer(&mut self, layer: LayerId, batch: &RecordBatch) -> Result<()> {
+            let _scope = self.diagnostics.enter();
             let li = layer.0 as usize;
             if li >= self.layers.len() {
-                return Err(err(&PublicMessage::CuratedWith(
-                    "layer inesistente, indice",
-                    NumeroStrutturale::Indice(u64::from(layer.0)),
-                )));
+                return Err(plenora_io_model::error_table::Situation::MissingLayer.error());
             }
             let geom_idx = self.layers[li].geom_idx;
             let geom_col = batch
@@ -1299,6 +1458,31 @@ mod backend {
                 feature
                     .create(&gl)
                     .map_err(|_| err(&PublicMessage::Curated("scrittura della feature fallita")))?;
+                if !geom_col.is_null(row) {
+                    use std::io::Write;
+                    let bytes = geom_col.value(row).len() as u64 + 24;
+                    let needed = self.geometry_written.saturating_add(bytes);
+                    if needed > self.geometry_reserved {
+                        let missing = needed - self.geometry_reserved;
+                        let lease = self
+                            .contesto
+                            .lease_spill(missing.max(1024 * 1024))
+                            .or_else(|_| self.contesto.lease_spill(missing))?;
+                        self.geometry_reserved += lease.bytes();
+                        self.geometry_spill.push(lease);
+                    }
+                    self.geometry_written = needed;
+                    let fid = feature.fid().ok_or_else(|| {
+                        err(&PublicMessage::Curated(
+                            "identita' della feature scritta assente",
+                        ))
+                    })?;
+                    for value in [u64::from(layer.0), fid, geom_col.value(row).len() as u64] {
+                        self.geometry_source.write_all(&value.to_le_bytes())?;
+                    }
+                    self.geometry_source.write_all(geom_col.value(row))?;
+                    self.geometry_count += 1;
+                }
             }
             #[cfg(test)]
             crash_failpoint("after_write");
@@ -1306,28 +1490,40 @@ mod backend {
         }
 
         fn finish(mut self: Box<Self>) -> Result<Published> {
+            let _scope = self.diagnostics.enter();
             let ds = self
                 .ds
                 .take()
                 .ok_or_else(|| err(&PublicMessage::Curated("dataset writer già chiuso")))?;
             drop(ds); // chiude e flush della .gdb
+            self.compare_written_geometry()?;
+            self.loss.merge(&self.metadata_check.compare(
+                &crate::FileGdbDriver,
+                plenora_io_core::loss_table::NativeDriver::FileGdb,
+                self.staging.path(),
+            )?);
             let bytes = dir_size(self.staging.path());
             if bytes > self.max_output_bytes {
                 // Misurata dopo la chiusura della .gdb: una scadenza passata
                 // li' viene prima della quota.
                 return Err(plenora_io_core::driver::limite_o_scadenza(
                     &self.contesto,
-                    PlenoraIoError::limite_redatto(&PublicMessage::CuratedBetween(
-                        "output FileGDB da",
-                        NumeroStrutturale::Conteggio(bytes),
-                        "byte oltre il limite di",
-                        NumeroStrutturale::Limite(self.max_output_bytes),
-                    )),
+                    self.contesto
+                        .output_quota(self.max_output_bytes)
+                        .exceeded_measured(
+                            plenora_io_model::ErrorPhase::Finalize,
+                            bytes,
+                            self.max_output_bytes,
+                        ),
                     plenora_io_model::ErrorPhase::Finalize,
                 ));
             }
             #[cfg(test)]
             crash_failpoint("before_publish");
+            DESCRIPTOR.files().ensure_absent_except_staging(
+                &self.dest,
+                &[self.staging.path(), &self.staging.lock_path],
+            )?;
             let outcome = publish_dir_atomic(
                 self.staging.path(),
                 &self.dest,
@@ -1339,8 +1535,8 @@ mod backend {
             self.staging.disarm();
             Ok(Published {
                 bytes,
-                loss: LossReport::default(),
-                fidelity: plenora_io_core::FidelityAssessment::lossless(),
+                loss: self.loss.clone(),
+                fidelity: self.diagnostics.assessment(),
                 outcome,
             })
         }
@@ -1458,152 +1654,627 @@ mod backend {
         geometry
     }
 
-    /// Apre il percorso con il **solo** driver `OpenFileGDB`.
-    ///
-    /// `Dataset::open` lascia scegliere a GDAL fra tutti i driver registrati,
-    /// e una directory `.gdb` che contiene altro -- per esempio dei CSV, che il
-    /// driver CSV di GDAL apre come directory -- veniva letta come se fosse un
-    /// `FileGDB`: un'interpretazione scelta da GDAL al posto di chi legge, con
-    /// le regole di un altro formato. Ora o e' un `FileGDB`, o l'apertura
-    /// fallisce.
+    /// Apre con il solo `OpenFileGDB`: una directory `.gdb` contenente CSV
+    /// non deve attivare implicitamente un altro driver GDAL.
     fn apri_solo_filegdb(path: &std::path::Path) -> gdal::errors::Result<Dataset> {
-        Dataset::open_ex(
+        with_native_diagnostics(|| {
+            Dataset::open_ex(
+                path,
+                gdal::DatasetOptions {
+                    open_flags: gdal::GdalOpenFlags::GDAL_OF_READONLY
+                        | gdal::GdalOpenFlags::GDAL_OF_VECTOR,
+                    allowed_drivers: Some(&["OpenFileGDB"]),
+                    open_options: None,
+                    sibling_files: None,
+                },
+            )
+        })
+    }
+
+    struct CatalogObjects {
+        objects: Vec<(u64, String)>,
+        metadata: Vec<u64>,
+    }
+
+    fn catalog_objects(path: &std::path::Path) -> Result<CatalogObjects> {
+        let catalog = apri_solo_filegdb(&driver_common::filegdb_names::resolve(
             path,
-            gdal::DatasetOptions {
-                open_flags: gdal::GdalOpenFlags::GDAL_OF_READONLY
-                    | gdal::GdalOpenFlags::GDAL_OF_VECTOR,
-                allowed_drivers: Some(&["OpenFileGDB"]),
-                open_options: None,
-                sibling_files: None,
-            },
+            "a00000002.gdbtable",
+        )?)
+        .map_err(|_| err(&PublicMessage::Curated("catalogo FileGDB non leggibile")))?;
+        let mut layer = catalog
+            .layer(0)
+            .map_err(|_| err(&PublicMessage::Curated("catalogo FileGDB assente")))?;
+        let mut objects = Vec::new();
+        let mut metadata = Vec::new();
+        for feature in layer.features() {
+            let id = feature
+                .fid()
+                .ok_or_else(|| err(&PublicMessage::Curated("identita catalogo FileGDB assente")))?;
+            let name = feature
+                .field_as_string(0)
+                .map_err(|_| err(&PublicMessage::Curated("voce catalogo FileGDB non valida")))?
+                .ok_or_else(|| {
+                    err(&PublicMessage::Curated(
+                        "nome oggetto catalogo FileGDB assente",
+                    ))
+                })?;
+            if matches!(
+                name.as_str(),
+                "GDB_Items" | "GDB_FeatureClasses" | "GDB_ObjectClasses"
+            ) {
+                metadata.push(id);
+            }
+            if !matches!(
+                name.as_str(),
+                "GDB_FeatureClasses"
+                    | "GDB_ObjectClasses"
+                    | "GDB_SystemCatalog"
+                    | "GDB_DBTune"
+                    | "GDB_SpatialRefs"
+                    | "GDB_Items"
+                    | "GDB_ItemTypes"
+                    | "GDB_ItemRelationships"
+                    | "GDB_ItemRelationshipTypes"
+                    | "GDB_ReplicaLog"
+            ) {
+                objects.push((id, name));
+            }
+        }
+        objects.sort_by_key(|(id, _)| *id);
+        Ok(CatalogObjects { objects, metadata })
+    }
+
+    fn internal_file_error(reason: plenora_io_model::CapabilityReason) -> PlenoraIoError {
+        PlenoraIoError::capability_redatta(
+            "filegdb",
+            None,
+            reason,
+            &PublicMessage::Curated(
+                "oggetto FileGDB non leggibile; file interno assente, vuoto o non rappresentabile",
+            ),
         )
     }
 
+    #[cfg(test)]
     pub fn open(
         path: &std::path::Path,
         assume_crs: Option<&str>,
     ) -> Result<Box<dyn OpenDatasetHandle>> {
+        open_selected(path, assume_crs, None)
+    }
+
+    pub fn open_selected(
+        path: &std::path::Path,
+        assume_crs: Option<&str>,
+        selected: Option<LayerId>,
+    ) -> Result<Box<dyn OpenDatasetHandle>> {
+        install_diagnostics();
+        with_native_diagnostics(|| open_objects(path, assume_crs, selected))
+    }
+
+    // Each native handle sees its own physical dependencies, even with canonical input.
+    fn canonical_view(
+        path: &std::path::Path,
+        operation: driver_common::filegdb_names::Operation<'_>,
+        catalog: Option<&std::path::Path>,
+    ) -> Result<std::sync::Arc<tempfile::TempDir>> {
+        let view = tempfile::Builder::new()
+            .prefix("plenora-filegdb-")
+            .suffix(".gdb")
+            .tempdir()?;
+        let members = driver_common::filegdb_names::required(path, operation)?;
+        for (source, member) in members {
+            let shared = match operation {
+                driver_common::filegdb_names::Operation::Catalog => true,
+                driver_common::filegdb_names::Operation::Object { catalog, .. } => member
+                    .id
+                    .is_some_and(|id| id == 1 || catalog.contains(&u64::from(id))),
+            };
+            let source = if shared {
+                catalog.map_or_else(|| source.clone(), |root| root.join(&member.canonical))
+            } else {
+                source
+            };
+            // Decode the catalog as a standalone table: GDAL otherwise loads
+            // GDB_Items before exposing its rows. The private ID has no siblings.
+            let destination =
+                if matches!(operation, driver_common::filegdb_names::Operation::Catalog) {
+                    member.canonical.replacen("a00000001", "a00000002", 1)
+                } else {
+                    member.canonical
+                };
+            if !std::fs::symlink_metadata(&source)?.is_file() {
+                return Err(err(&PublicMessage::Curated("membro FileGDB non regolare")));
+            }
+            std::fs::copy(source, view.path().join(destination))?;
+        }
+        Ok(std::sync::Arc::new(view))
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn open_objects(
+        path: &std::path::Path,
+        assume_crs: Option<&str>,
+        selected: Option<LayerId>,
+    ) -> Result<Box<dyn OpenDatasetHandle>> {
+        let catalog = canonical_view(path, driver_common::filegdb_names::Operation::Catalog, None)
+            .map_err(|_| plenora_io_model::error_table::Situation::InvalidContent.error())?;
+        let diagnostics = Diagnostics::default();
+        let _scope = diagnostics.enter();
         // Schema dai def GDAL, SENZA leggere feature (poi il reader streamma).
-        let ds = apri_solo_filegdb(path)
-            .map_err(|_| err(&PublicMessage::Curated("apertura GDAL fallita")))?;
         let mut layers = Vec::new();
         let mut metas = Vec::new();
-        for (i, layer) in ds.layers().enumerate() {
-            // Il campo geometrico si cerca **per primo**, e la sua assenza non
-            // e' un errore.
-            //
-            // Un FileGDB e' fatto di feature class **e** di tabelle: le seconde
-            // non hanno geometria, il formato le ammette, ed e' cosi' che sono
-            // fatte le GDB reali. Il driver le trattava come un layer rotto e
-            // rifiutava l'intero dataset, in fase di apertura: quattro feature
-            // class valide diventavano inaccessibili perche' accanto a loro
-            // c'era una tabella, e nessun `--layer` poteva aggirarlo, perche'
-            // il rifiuto precedeva la scelta.
-            //
-            // Una tabella viene percio' **enumerata**, con `geometry: None`.
-            // Non saltata: saltarla sposterebbe gli indici di layer sotto i
-            // piedi di chi li ha letti dal catalogo, e `--layer 1`
-            // significherebbe due cose diverse a seconda di che cosa il driver
-            // ha deciso di nascondere.
-            let ogr_geometry_type = layer
-                .defn()
-                .geom_fields()
-                .next()
-                .map(|field| field.field_type());
-            // Quanti campi geometrici il layer dichiara. Il contratto ne porta
-            // uno, il primo: gli altri sparivano senza traccia. Ora la scoperta
-            // li conta, e la lettura del layer si rifiuta (GEO-012).
-            let campi_geometrici = layer.defn().geom_fields().count();
-            // Il CRS si risolve solo per chi ha una geometria: pretenderlo da
-            // una tabella significava chiedere un `--assume-crs` per dei dati
-            // che non sono spaziali, con un messaggio che parlava di geometria.
-            let crs_e_geometria = match ogr_geometry_type {
-                Some(ogr_geometry_type) => {
-                    let crs = resolve_layer_crs(layer.spatial_ref(), assume_crs)?;
-                    let mut geometria = geometry_contract_from_ogr(ogr_geometry_type, crs);
-                    if campi_geometrici > 1 {
-                        // Il limite si vede dalla scoperta, come chiede
-                        // GEO-012: il numero e' strutturale, non un dato.
-                        geometria.native_metadata.insert(
-                            "filegdb.geometry_field_count".to_owned(),
-                            campi_geometrici.to_string(),
-                        );
-                    }
-                    Some(geometria)
-                }
-                None => None,
-            };
-            let native_fields: Vec<(LayerFieldMeta, Field)> = layer
-                .defn()
-                .fields()
-                .map(|field| {
-                    let name = field.name();
-                    let field_type = field.field_type();
-                    ogr_to_arrow(field_type).map(|data_type| {
-                        let metadata = HashMap::from([
-                            (OGR_FIELD_TYPE_KEY.to_owned(), field_type.to_string()),
-                            (OGR_FIELD_WIDTH_KEY.to_owned(), field.width().to_string()),
-                            (
-                                OGR_FIELD_PRECISION_KEY.to_owned(),
-                                field.precision().to_string(),
-                            ),
-                        ]);
-                        let arrow_field =
-                            Field::new(&name, data_type.clone(), true).with_metadata(metadata);
-                        (
-                            LayerFieldMeta {
-                                name,
-                                data_type,
-                                ogr_type: field_type,
-                            },
-                            arrow_field,
-                        )
+        let mut rifiuti = std::collections::BTreeMap::new();
+        let CatalogObjects { objects, metadata } = catalog_objects(catalog.path())
+            .map_err(|_| plenora_io_model::error_table::Situation::InvalidContent.error())?;
+        for &id in &metadata {
+            driver_common::structure::filegdb_object(path, id)
+                .map_err(|_| plenora_io_model::error_table::Situation::InvalidContent.error())?;
+        }
+        let catalog = canonical_view(
+            path,
+            driver_common::filegdb_names::Operation::Object {
+                id: 1,
+                catalog: &metadata,
+            },
+            None,
+        )
+        .map_err(|_| plenora_io_model::error_table::Situation::InvalidContent.error())?;
+        // Validate shared native metadata before attributing errors to objects.
+        drop(
+            apri_solo_filegdb(&catalog.path().join("a00000001.gdbtable"))
+                .map_err(|_| plenora_io_model::error_table::Situation::InvalidContent.error())?,
+        );
+        let unowned_members = std::fs::read_dir(path)?.try_fold(0_u64, |count, entry| {
+            let entry = entry?;
+            let owned = entry
+                .file_name()
+                .to_str()
+                .and_then(driver_common::filegdb_names::parse)
+                .is_some_and(|member| {
+                    member.id.is_some_and(|id| {
+                        id == 1
+                            || metadata.contains(&u64::from(id))
+                            || objects.iter().any(|(object, _)| *object == u64::from(id))
                     })
-                })
-                .collect::<Result<Vec<_>>>()?;
-            let (fields, attribute_arrow_fields): (Vec<_>, Vec<_>) =
-                native_fields.into_iter().unzip();
-            let (arrow_fields, geometry) = match crs_e_geometria {
-                Some(geometry) => {
-                    let geometry_arrow_field = super::native_geometry_field(&geometry);
-                    let mut campi = vec![geometry_arrow_field];
-                    campi.extend(attribute_arrow_fields);
-                    (campi, Some(geometry))
+                });
+            Ok::<_, std::io::Error>(count.saturating_add(u64::from(!owned)))
+        })?;
+        for (i, (file_id, name)) in objects.into_iter().enumerate() {
+            if selected.is_some_and(|layer| u64::from(layer.0) != i as u64) {
+                continue;
+            }
+            let result = (|| -> Result<(LayerContract, LayerMeta)> {
+                driver_common::structure::filegdb_object(path, file_id)?;
+                let view = canonical_view(
+                    path,
+                    driver_common::filegdb_names::Operation::Object {
+                        id: file_id,
+                        catalog: &metadata,
+                    },
+                    Some(catalog.path()),
+                )?;
+                let ds = apri_solo_filegdb(view.path())
+                    .map_err(|_| err(&PublicMessage::Curated("apertura oggetto GDAL fallita")))?;
+                let gdal_names: Vec<_> = ds.layers().map(|layer| layer.name()).collect();
+                let gdal_idx = gdal_names
+                    .iter()
+                    .position(|candidate| candidate == &name)
+                    .ok_or_else(|| {
+                        internal_file_error(plenora_io_model::CapabilityReason::ObjectMissing)
+                    })?;
+                let layer = ds.layer(gdal_idx).map_err(|_| {
+                    internal_file_error(plenora_io_model::CapabilityReason::ObjectMissing)
+                })?;
+                // Anche le tabelle senza geometria sono valide. Quando presente,
+                // la geometria precede gli attributi Arrow.
+                let ogr_geometry_type = layer
+                    .defn()
+                    .geom_fields()
+                    .next()
+                    .map(|field| field.field_type());
+                // Quanti campi geometrici il layer dichiara. Il contratto ne porta
+                // uno, il primo: gli altri sparivano senza traccia. Ora la scoperta
+                // li conta, e la lettura del layer si rifiuta (GEO-012).
+                let campi_geometrici = layer.defn().geom_fields().count();
+                // Il CRS si risolve solo per chi ha una geometria: pretenderlo da
+                // una tabella significava chiedere un `--assume-crs` per dei dati
+                // che non sono spaziali, con un messaggio che parlava di geometria.
+                let crs_e_geometria = match ogr_geometry_type {
+                    Some(ogr_geometry_type) => {
+                        let crs = resolve_layer_crs(layer.spatial_ref(), assume_crs)?;
+                        let mut geometria = geometry_contract_from_ogr(ogr_geometry_type, crs);
+                        if campi_geometrici > 1 {
+                            // Il limite si vede dalla scoperta, come chiede
+                            // GEO-012: il numero e' strutturale, non un dato.
+                            geometria.native_metadata.insert(
+                                "filegdb.geometry_field_count".to_owned(),
+                                campi_geometrici.to_string(),
+                            );
+                        }
+                        Some(geometria)
+                    }
+                    None => None,
+                };
+                let (mut loss, time_in_utc, native_order) =
+                    native_definition_report(&ds, &name, i as u64)?;
+                let empty_feature = Feature::new(layer.defn()).map_err(|_| {
+                    err(&PublicMessage::Curated(
+                        "lettura schema temporale FileGDB fallita",
+                    ))
+                })?;
+                let native_fields: Vec<(LayerFieldMeta, Field)> = layer
+                    .defn()
+                    .fields()
+                    .enumerate()
+                    .map(|(field_index, field)| {
+                        observe_native(
+                            &mut loss,
+                            (NativeDriver::FileGdb, TransportDirection::Read),
+                            NativeElement::NotNull,
+                            u64::from(!field.is_nullable()),
+                            i as u64,
+                            Some(field_index as u64 + u64::from(ogr_geometry_type.is_some())),
+                        );
+                        let name = field.name();
+                        let field_type = field.field_type();
+                        let mut data_type = ogr_to_arrow(field_type)?;
+                        let mut timezone_metadata = None;
+                        if field_type == gdal::vector::OGRFieldType::OFTDateTime {
+                            let raw_flag = empty_feature
+                                .field_datetime_timezone_flag(field_index)
+                                .map_err(|_| {
+                                    err(&PublicMessage::Curated("lettura fuso FileGDB fallita"))
+                                })?;
+                            let mut flag = schema_timezone_flag(raw_flag, time_in_utc)?;
+                            // GDAL 3.9 exposes the row flag but leaves the field flag
+                            // unknown. Its native layer definition carries IsTimeInUTC.
+                            timezone_metadata = raw_flag.map(|flag| flag.to_string());
+                            if flag == 0 && time_in_utc == Some(true) {
+                                flag = 100;
+                            }
+                            data_type = DataType::Timestamp(
+                                arrow_schema::TimeUnit::Microsecond,
+                                ogr_timezone(flag)?,
+                            );
+                        }
+                        Ok({
+                            let mut metadata = HashMap::from([
+                                (OGR_FIELD_TYPE_KEY.to_owned(), field_type.to_string()),
+                                (OGR_FIELD_WIDTH_KEY.to_owned(), field.width().to_string()),
+                                (
+                                    OGR_FIELD_PRECISION_KEY.to_owned(),
+                                    field.precision().to_string(),
+                                ),
+                            ]);
+                            if let Some(flag) = timezone_metadata {
+                                metadata.insert("filegdb.ogr_timezone_flag".to_owned(), flag);
+                            }
+                            let arrow_field =
+                                Field::new(&name, data_type.clone(), true).with_metadata(metadata);
+                            (
+                                LayerFieldMeta {
+                                    name,
+                                    data_type,
+                                    ogr_type: field_type,
+                                },
+                                arrow_field,
+                            )
+                        })
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                let (fields, attribute_arrow_fields): (Vec<_>, Vec<_>) =
+                    native_fields.into_iter().unzip();
+                let (arrow_fields, geometry) = match crs_e_geometria {
+                    Some(geometry) => {
+                        let geometry_arrow_field = super::native_geometry_field(&geometry);
+                        let mut campi = vec![geometry_arrow_field];
+                        campi.extend(attribute_arrow_fields);
+                        (campi, Some(geometry))
+                    }
+                    // Una tabella: gli attributi e basta, senza una colonna
+                    // geometrica davanti. E' anche cio' che sposta gli indici, e il
+                    // reader lo rilegge da `ha_geometria`.
+                    None => (attribute_arrow_fields, None),
+                };
+                let delivered_names = arrow_fields
+                    .iter()
+                    .map(|f| f.name().as_str())
+                    .collect::<Vec<_>>();
+                // OID is GDAL's separate feature identity, not an attribute.
+                // Compare the relative order of the fields actually delivered.
+                let native_geometry_name =
+                    layer.defn().geom_fields().next().map(|field| field.name());
+                let order_changed = native_order
+                    .iter()
+                    .map(String::as_str)
+                    .map(|name| {
+                        if Some(name) == native_geometry_name.as_deref() {
+                            GEOMETRY
+                        } else {
+                            name
+                        }
+                    })
+                    .filter(|name| delivered_names.contains(name))
+                    .ne(delivered_names.iter().copied());
+                let schema: SchemaRef = Arc::new(Schema::new(arrow_fields));
+                let ha_geometria = geometry.is_some();
+                let contract = DataContract::new(
+                    plenora_io_model::geometry::with_contract_version(schema),
+                    geometry,
+                );
+                plenora_io_model::primary::reconcile_schema_contract(&contract)?;
+                // Indice di layer di un FileGDB: il formato ne ammette al piu'
+                // qualche migliaio, il cast a u32 non puo' troncare.
+                #[allow(clippy::cast_possible_truncation)]
+                let layer_id = LayerId(i as u32);
+                let contract = LayerContract {
+                    id: layer_id,
+                    name: layer.name(),
+                    contract,
+                };
+                observe_native(
+                    &mut loss,
+                    (NativeDriver::FileGdb, TransportDirection::Read),
+                    NativeElement::FieldOrder,
+                    u64::from(order_changed),
+                    i as u64,
+                    Some(0),
+                );
+                let meta = LayerMeta {
+                    view: Some(view),
+                    loss,
+                    gdal_idx,
+                    fields,
+                    ha_geometria,
+                    campi_geometrici,
+                };
+                Ok((contract, meta))
+            })();
+            let (contract, meta) = match result {
+                Ok(value) => value,
+                Err(error) => {
+                    let id = LayerId(u32::try_from(i).map_err(|_| {
+                        plenora_io_model::quota::Quota::InputEntries
+                            .exceeded(plenora_io_model::ErrorPhase::Read)
+                    })?);
+                    rifiuti.insert(id.0, error);
+                    (
+                        LayerContract {
+                            id,
+                            name: name.clone(),
+                            contract: DataContract::new(Arc::new(Schema::empty()), None),
+                        },
+                        LayerMeta {
+                            view: None,
+                            loss: LossReport::default(),
+                            gdal_idx: i,
+                            fields: Vec::new(),
+                            ha_geometria: false,
+                            campi_geometrici: 0,
+                        },
+                    )
                 }
-                // Una tabella: gli attributi e basta, senza una colonna
-                // geometrica davanti. E' anche cio' che sposta gli indici, e il
-                // reader lo rilegge da `ha_geometria`.
-                None => (attribute_arrow_fields, None),
             };
-            let schema: SchemaRef = Arc::new(Schema::new(arrow_fields));
-            let ha_geometria = geometry.is_some();
-            let contract = DataContract::new(
-                plenora_io_model::geometry::with_contract_version(schema.clone()),
-                geometry,
-            );
-            plenora_io_model::primary::reconcile_schema_contract(&contract)?;
-            // Indice di layer di un FileGDB: il formato ne ammette al piu'
-            // qualche migliaio, il cast a u32 non puo' troncare.
-            #[allow(clippy::cast_possible_truncation)]
-            let layer_id = LayerId(i as u32);
-            layers.push(LayerContract {
-                id: layer_id,
-                name: layer.name(),
-                contract,
-            });
-            metas.push(LayerMeta {
-                gdal_idx: i,
-                fields,
-                ha_geometria,
-                campi_geometrici,
-            });
+            layers.push(contract);
+            metas.push(meta);
         }
         Ok(Box::new(GdbDataset {
-            path: path.to_owned(),
+            unowned_members,
+            diagnostics,
             layers,
             metas,
+            rifiuti,
             reader_gate: SingleReaderGate::new(DESCRIPTOR.id()),
         }))
+    }
+
+    fn native_definition_report(
+        ds: &Dataset,
+        name: &str,
+        layer: u64,
+    ) -> Result<(LossReport, Option<bool>, Vec<String>)> {
+        let mut report = LossReport::default();
+        let mut time_in_utc = None;
+        let mut field_order = Vec::new();
+        let query = format!("GetLayerDefinition {name}");
+        let mut result = ds
+            .execute_sql(&query, None, gdal::vector::sql::Dialect::DEFAULT)
+            .map_err(|_| {
+                err(&PublicMessage::Curated(
+                    "definizione nativa FileGDB non leggibile",
+                ))
+            })?
+            .ok_or_else(|| {
+                err(&PublicMessage::Curated(
+                    "definizione nativa FileGDB assente",
+                ))
+            })?;
+        for feature in result.features() {
+            let definition = feature.field_as_string(0).map_err(|_| {
+                err(&PublicMessage::Curated(
+                    "definizione nativa FileGDB non testuale",
+                ))
+            })?;
+            if let Some(definition) = definition {
+                observe_definition_xml(&mut report, &definition, layer)?;
+                time_in_utc = definition_time_in_utc(&definition)?;
+                field_order = definition_field_order(&definition)?;
+            }
+        }
+        drop(result);
+        if let Some(mut metadata) = ds
+            .execute_sql(
+                format!("GetLayerMetadata {name}"),
+                None,
+                gdal::vector::sql::Dialect::DEFAULT,
+            )
+            .map_err(|_| temporal_error())?
+        {
+            for feature in metadata.features() {
+                if feature
+                    .field_as_string(0)
+                    .map_err(|_| temporal_error())?
+                    .is_some_and(|xml| !xml.trim().is_empty())
+                {
+                    observe_native(
+                        &mut report,
+                        (NativeDriver::FileGdb, TransportDirection::Read),
+                        NativeElement::LayerMetadata,
+                        1,
+                        layer,
+                        None,
+                    );
+                }
+            }
+        }
+        Ok((report, time_in_utc, field_order))
+    }
+
+    fn definition_field_order(xml: &str) -> Result<Vec<String>> {
+        use quick_xml::events::Event;
+        let mut reader = quick_xml::Reader::from_str(xml);
+        let mut stack = Vec::new();
+        let mut names = Vec::new();
+        loop {
+            match reader.read_event() {
+                Ok(Event::Start(tag))
+                    if tag.local_name().as_ref() == "Name"
+                        && stack.last().is_some_and(|name: &String| {
+                            matches!(name.as_str(), "Field" | "GPFieldInfoEx")
+                        }) =>
+                {
+                    let text = reader.read_text(tag.name()).map_err(|_| temporal_error())?;
+                    names.push(
+                        quick_xml::escape::unescape(&text)
+                            .map_err(|_| temporal_error())?
+                            .into_owned(),
+                    );
+                }
+                Ok(Event::Start(tag)) => stack.push(tag.local_name().as_ref().to_owned()),
+                Ok(Event::End(_)) => {
+                    stack.pop();
+                }
+                Ok(Event::Eof) => return Ok(names),
+                Err(_) => {
+                    return Err(err(&PublicMessage::Curated(
+                        "XML nativo FileGDB non valido",
+                    )))
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn definition_time_in_utc(xml: &str) -> Result<Option<bool>> {
+        use quick_xml::events::Event;
+        let mut reader = quick_xml::Reader::from_str(xml);
+        let mut result = None;
+        loop {
+            match reader.read_event() {
+                Ok(Event::Start(element)) if element.local_name().as_ref() == "IsTimeInUTC" => {
+                    let text = reader
+                        .read_text(element.name())
+                        .map_err(|_| temporal_error())?;
+                    let value = match text.trim() {
+                        "true" | "1" => true,
+                        "false" | "0" => false,
+                        _ => return Err(temporal_error()),
+                    };
+                    if result.is_some_and(|previous| previous != value) {
+                        return Err(temporal_error());
+                    }
+                    result = Some(value);
+                }
+                Ok(Event::Eof) => return Ok(result),
+                Err(_) => return Err(temporal_error()),
+                _ => {}
+            }
+        }
+    }
+
+    fn observe_definition_xml(report: &mut LossReport, xml: &str, layer: u64) -> Result<()> {
+        use quick_xml::events::Event;
+        let mut reader = quick_xml::Reader::from_str(xml);
+        let mut stack = Vec::new();
+        loop {
+            match reader.read_event() {
+                Ok(Event::Start(tag)) if tag.local_name().as_ref() == "ExtensionProperties" => {
+                    let payload = reader.read_text(tag.name()).map_err(|_| temporal_error())?;
+                    observe_native(
+                        report,
+                        (NativeDriver::FileGdb, TransportDirection::Read),
+                        NativeElement::Extensions,
+                        u64::from(!payload.trim().is_empty()),
+                        layer,
+                        None,
+                    );
+                }
+                Ok(Event::Start(tag)) if tag.local_name().as_ref() == "CatalogPath" => {
+                    let path = reader.read_text(tag.name()).map_err(|_| temporal_error())?;
+                    let depth = path.split('\\').filter(|part| !part.is_empty()).count();
+                    observe_native(
+                        report,
+                        (NativeDriver::FileGdb, TransportDirection::Read),
+                        NativeElement::Hierarchy,
+                        u64::from(depth > 1),
+                        layer,
+                        None,
+                    );
+                }
+                Ok(Event::Start(tag)) => {
+                    let element = match tag.local_name().as_ref() {
+                        "DomainName" => Some(NativeElement::Domains),
+                        "AliasName" => Some(NativeElement::Aliases),
+                        "Subtype" => Some(NativeElement::Subtypes),
+                        _ => None,
+                    };
+                    if element == Some(NativeElement::Subtypes) {
+                        observe_native(
+                            report,
+                            (NativeDriver::FileGdb, TransportDirection::Read),
+                            NativeElement::Subtypes,
+                            1,
+                            layer,
+                            None,
+                        );
+                    }
+                    stack.push(element);
+                }
+                Ok(event @ (Event::Text(_) | Event::CData(_) | Event::GeneralRef(_))) => {
+                    let present = match event {
+                        Event::Text(text) => !text.as_ref().is_empty(),
+                        Event::CData(text) => !text.as_ref().is_empty(),
+                        Event::GeneralRef(_) => true,
+                        _ => false,
+                    };
+                    if let Some(element @ (NativeElement::Domains | NativeElement::Aliases)) =
+                        stack.last_mut().filter(|_| present).and_then(Option::take)
+                    {
+                        observe_native(
+                            report,
+                            (NativeDriver::FileGdb, TransportDirection::Read),
+                            element,
+                            1,
+                            layer,
+                            None,
+                        );
+                    }
+                }
+                Ok(Event::End(_)) => {
+                    stack.pop();
+                }
+                Ok(Event::Eof) => break,
+                Err(_) => {
+                    return Err(err(&PublicMessage::Curated(
+                        "XML nativo FileGDB non valido",
+                    )))
+                }
+                _ => {}
+            }
+        }
+        Ok(())
     }
 
     fn ogr_to_arrow(ft: gdal::vector::OGRFieldType::Type) -> Result<DataType> {
@@ -1616,6 +2287,15 @@ mod backend {
             Ok(DataType::Float64)
         } else if ft == OGRFieldType::OFTString || ft == OGRFieldType::OFTWideString {
             Ok(DataType::Utf8)
+        } else if ft == OGRFieldType::OFTBinary {
+            Ok(DataType::Binary)
+        } else if ft == OGRFieldType::OFTDate {
+            Ok(DataType::Date32)
+        } else if ft == OGRFieldType::OFTDateTime {
+            Ok(DataType::Timestamp(
+                arrow_schema::TimeUnit::Microsecond,
+                None,
+            ))
         } else {
             // Ne' il nome ne' il codice del tipo OGR escono: entrambi vengono
             // dallo schema che GDAL ha letto dal file.
@@ -1627,6 +2307,35 @@ mod backend {
                     "tipo campo OGR non ancora rappresentato senza perdita nel bordo Arrow",
                 ),
             ))
+        }
+    }
+
+    fn schema_timezone_flag(raw: Option<i32>, time_in_utc: Option<bool>) -> Result<i32> {
+        raw.or_else(|| time_in_utc.map(|utc| if utc { 100 } else { 0 }))
+            .ok_or_else(|| PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated("GDAL non espone il fuso del campo e la definizione FileGDB non dichiara IsTimeInUTC"),
+            ))
+    }
+
+    fn ogr_timezone(flag: i32) -> Result<Option<Arc<str>>> {
+        match flag {
+            0 | 1 => Ok(None),
+            100 => Ok(Some("UTC".into())),
+            3..=199 => {
+                let minutes = (flag - 100) * 15;
+                Ok(Some(
+                    format!(
+                        "{}{:02}:{:02}",
+                        if minutes < 0 { '-' } else { '+' },
+                        minutes.abs() / 60,
+                        minutes.abs() % 60
+                    )
+                    .into(),
+                ))
+            }
+            _ => Err(err(&PublicMessage::Curated(
+                "fusi OGR misti o non rappresentabili nello stesso campo Arrow",
+            ))),
         }
     }
 
@@ -1657,11 +2366,14 @@ mod backend {
     /// un layer che quel campo non ha.
     #[derive(Clone, Copy)]
     struct GeometriaDelLayer {
+        row_limit: usize,
         presente: bool,
         inclusa: bool,
     }
 
     struct LayerMeta {
+        view: Option<std::sync::Arc<tempfile::TempDir>>,
+        loss: LossReport,
         gdal_idx: usize,
         fields: Vec<LayerFieldMeta>,
         /// Il layer porta una colonna geometrica.
@@ -1678,34 +2390,55 @@ mod backend {
     }
 
     struct GdbDataset {
-        path: PathBuf,
+        unowned_members: u64,
+        diagnostics: Diagnostics,
         layers: Vec<LayerContract>,
         metas: Vec<LayerMeta>,
+        rifiuti: std::collections::BTreeMap<u32, PlenoraIoError>,
         reader_gate: SingleReaderGate,
     }
 
     impl OpenDatasetHandle for GdbDataset {
+        fn preserves_unreadable_objects(&self) -> bool {
+            true
+        }
         fn layers(&self) -> &[LayerContract] {
             &self.layers
         }
+        fn rifiuto_del_layer(&self, layer: LayerId) -> Option<PlenoraIoError> {
+            self.rifiuti.get(&layer.0).cloned()
+        }
         fn fidelity_assessment(&self) -> plenora_io_core::FidelityAssessment {
-            plenora_io_core::FidelityAssessment::for_format(
+            let mut assessment = plenora_io_core::FidelityAssessment::for_format(
                 DESCRIPTOR.id(),
                 DESCRIPTOR.fidelity_class(),
-            )
+            );
+            assessment.merge(&self.diagnostics.assessment());
+            if self.unowned_members != 0 {
+                assessment.add_reason(
+                    plenora_io_core::loss::FidelityReasonCode::FormatConstraint,
+                    format!(
+                        "membri FileGDB non attribuiti esclusi dalla lettura; conteggio {}",
+                        self.unowned_members
+                    ),
+                );
+            }
+            assessment
         }
         fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
+            if !self.layers.iter().any(|layer| layer.id == request.layer) {
+                return Err(plenora_io_model::error_table::Situation::MissingLayer.error());
+            }
+
+            if let Some(error) = self.rifiuto_del_layer(request.layer) {
+                return Err(error);
+            }
             plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
             let idx = self
                 .layers
                 .iter()
                 .position(|l| l.id.0 == request.layer.0)
-                .ok_or_else(|| {
-                    err(&PublicMessage::CuratedWith(
-                        "layer runtime inesistente, indice",
-                        NumeroStrutturale::Indice(u64::from(request.layer.0)),
-                    ))
-                })?;
+                .ok_or_else(|| plenora_io_model::error_table::Situation::MissingLayer.error())?;
             let m = &self.metas[idx];
             super::rifiuta_piu_geometrie(m.campi_geometrici)?;
             let (indices, layer_contract) =
@@ -1739,11 +2472,23 @@ mod backend {
             );
             let reader = self.reader_gate.open(request.layer, || {
                 spawn_reader(
-                    self.path.clone(),
+                    self.diagnostics.clone(),
+                    m.view
+                        .as_ref()
+                        .ok_or_else(|| err(&PublicMessage::Curated("vista oggetto assente")))?
+                        .path()
+                        .to_owned(),
+                    m.view.clone(),
                     m.gdal_idx,
                     layer_contract.contract.schema.clone(),
                     fields,
                     GeometriaDelLayer {
+                        row_limit: match request.scope {
+                            plenora_io_core::ReadScope::Complete => usize::MAX,
+                            plenora_io_core::ReadScope::AcceptedRows(limit) => {
+                                usize::try_from(limit).unwrap_or(usize::MAX)
+                            }
+                        },
                         presente: m.ha_geometria,
                         inclusa: include_geometry,
                     },
@@ -1752,7 +2497,7 @@ mod backend {
                 )
             })?;
             Ok(plenora_io_core::with_cancellation(
-                reader,
+                plenora_io_core::loss_table::with_native_report(reader, m.loss.clone()),
                 request.cancellation.clone(),
             ))
         }
@@ -1788,8 +2533,56 @@ mod backend {
         Ok(())
     }
 
+    fn configure_read_layer(
+        layer: &mut gdal::vector::Layer<'_>,
+        fields: &[ProjectedField],
+        geometria: GeometriaDelLayer,
+    ) -> Result<()> {
+        // Il worker riapre il dataset: prima di usare gli indici OGR
+        // pre-risolti verifica che nessuno abbia cambiato lo schema.
+        let actual_fields: Vec<_> = layer
+            .defn()
+            .fields()
+            .map(|field| (field.name(), field.field_type()))
+            .collect();
+        verifica_schema_invariato(&actual_fields, fields)?;
+        let selected_fields: HashSet<usize> = fields.iter().map(|field| field.ogr_index).collect();
+        let mut ignored_fields = actual_fields
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| !selected_fields.contains(index))
+            .map(|(_, (name, _))| name.as_str())
+            .collect::<Vec<_>>();
+        // `OGR_GEOMETRY` si ignora solo dove esiste: su una tabella
+        // non c'e' campo geometrico da nominare, e nominarlo sarebbe
+        // una projection su un campo che il layer non ha.
+        if geometria.presente && !geometria.inclusa {
+            ignored_fields.push("OGR_GEOMETRY");
+        }
+        layer.set_ignored_fields(&ignored_fields).map_err(|_| {
+            err(&PublicMessage::Curated(
+                "projection fisica FileGDB non applicabile",
+            ))
+        })?;
+        Ok(())
+    }
+
+    fn observe_feature_identity(report: &mut LossReport, feature: &Feature<'_>, layer: u64) {
+        observe_native(
+            report,
+            (NativeDriver::FileGdb, TransportDirection::Read),
+            NativeElement::FeatureId,
+            u64::from(feature.fid().is_some()),
+            layer,
+            None,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn spawn_reader(
+        diagnostics: Diagnostics,
         path: PathBuf,
+        view: Option<std::sync::Arc<tempfile::TempDir>>,
         gdal_idx: usize,
         schema: SchemaRef,
         fields: Vec<ProjectedField>,
@@ -1797,101 +2590,127 @@ mod backend {
         mut batch_sizer: plenora_io_core::AdaptiveBatchSizer,
         contract: LayerContract,
     ) -> Result<Box<dyn LayerReader>> {
-        spawn_batch_reader(
+        let (loss_tx, loss_rx) = std::sync::mpsc::channel();
+        let layer_index = u64::from(contract.id.0);
+        let reader = spawn_batch_reader(
             DESCRIPTOR.id(),
             contract,
             2,
             move |emitter: BatchEmitter| {
-                let ds = apri_solo_filegdb(&path)
-                    .map_err(|_| err(&PublicMessage::Curated("apertura del FileGDB fallita")))?;
-                let mut layer = ds.layer(gdal_idx).map_err(|_| {
-                    err(&PublicMessage::Curated(
-                        "apertura del layer FileGDB fallita",
-                    ))
-                })?;
-                // Il worker riapre il dataset: prima di usare gli indici OGR
-                // pre-risolti verifica che nessuno abbia cambiato lo schema.
-                let actual_fields: Vec<_> = layer
-                    .defn()
-                    .fields()
-                    .map(|field| (field.name(), field.field_type()))
-                    .collect();
-                verifica_schema_invariato(&actual_fields, &fields)?;
-                let selected_fields: HashSet<usize> =
-                    fields.iter().map(|field| field.ogr_index).collect();
-                let mut ignored_fields = actual_fields
-                    .iter()
-                    .enumerate()
-                    .filter(|(index, _)| !selected_fields.contains(index))
-                    .map(|(_, (name, _))| name.as_str())
-                    .collect::<Vec<_>>();
-                // `OGR_GEOMETRY` si ignora solo dove esiste: su una tabella
-                // non c'e' campo geometrico da nominare, e nominarlo sarebbe
-                // una projection su un campo che il layer non ha.
-                if geometria.presente && !geometria.inclusa {
-                    ignored_fields.push("OGR_GEOMETRY");
-                }
-                layer.set_ignored_fields(&ignored_fields).map_err(|_| {
-                    err(&PublicMessage::Curated(
-                        "projection fisica FileGDB non applicabile",
-                    ))
-                })?;
-                let mut geom = geometria.inclusa.then(BinaryBuilder::new);
-                let mut builders: Vec<ReadCol> = fields
-                    .iter()
-                    .map(|field| ReadCol::new(&field.data_type))
-                    .collect();
-                let mut n = 0usize;
-                for feature in layer.features() {
-                    if let Some(builder) = &mut geom {
-                        match feature.geometry_by_index(0) {
-                            Ok(geometry) => {
-                                let bytes = geometry.wkb().map_err(|_| {
-                                    err(&PublicMessage::Curated(
-                                        "conversione della geometria FileGDB in WKB fallita",
-                                    ))
-                                })?;
-                                builder.append_value(&bytes);
-                            }
-                            Err(GdalError::NullPointer {
-                                method_name: "OGR_F_GetGeomFieldRef",
-                                ..
-                            }) => {
-                                builder.append_null();
-                            }
-                            Err(_) => {
-                                return Err(err(&PublicMessage::Curated(
-                                    "lettura della geometria FileGDB fallita",
-                                )))
+                let _view = view;
+                let _scope = diagnostics.enter();
+                with_native_diagnostics(|| {
+                    let ds = apri_solo_filegdb(&path).map_err(|_| {
+                        err(&PublicMessage::Curated("apertura del FileGDB fallita"))
+                    })?;
+                    let mut layer = ds.layer(gdal_idx).map_err(|_| {
+                        err(&PublicMessage::Curated(
+                            "apertura del layer FileGDB fallita",
+                        ))
+                    })?;
+                    configure_read_layer(&mut layer, &fields, geometria)?;
+                    let mut geom = geometria.inclusa.then(BinaryBuilder::new);
+                    let mut builders: Vec<ReadCol> = fields
+                        .iter()
+                        .map(|field| ReadCol::new(&field.data_type))
+                        .collect();
+                    let mut n = 0usize;
+                    let mut batch_loss = LossReport::default();
+                    for feature in layer.features().take(geometria.row_limit) {
+                        observe_feature_identity(&mut batch_loss, &feature, layer_index);
+                        if let Some(builder) = &mut geom {
+                            match feature.geometry_by_index(0) {
+                                Ok(geometry) => {
+                                    let bytes = geometry.iso_wkb().map_err(|_| {
+                                        err(&PublicMessage::Curated(
+                                            "conversione della geometria FileGDB in WKB fallita",
+                                        ))
+                                    })?;
+                                    builder.append_value(&bytes);
+                                }
+                                Err(GdalError::NullPointer {
+                                    method_name: "OGR_F_GetGeomFieldRef",
+                                    ..
+                                }) => {
+                                    builder.append_null();
+                                }
+                                Err(_) => {
+                                    return Err(err(&PublicMessage::Curated(
+                                        "lettura della geometria FileGDB fallita",
+                                    )))
+                                }
                             }
                         }
+                        for (index, (builder, field)) in
+                            builders.iter_mut().zip(&fields).enumerate()
+                        {
+                            if builder.append_feature(&feature, field)? {
+                                observe_native(
+                                    &mut batch_loss,
+                                    (NativeDriver::FileGdb, TransportDirection::Read),
+                                    NativeElement::Temporal,
+                                    1,
+                                    layer_index,
+                                    Some(driver_common::saturating_u64(
+                                        index + usize::from(geometria.inclusa),
+                                    )),
+                                );
+                            }
+                        }
+                        n += 1;
+                        if n >= batch_sizer.rows() {
+                            let batch = finish_read_batch(&schema, &mut geom, &mut builders, n)?;
+                            plenora_io_core::driver::validate_external_batch(
+                                &batch,
+                                plenora_io_model::ErrorPhase::Read,
+                            )?;
+                            batch_sizer.observe(&batch);
+                            if loss_tx.send(std::mem::take(&mut batch_loss)).is_err()
+                                || !emitter.send(batch)
+                            {
+                                return Ok(());
+                            }
+                            n = 0;
+                        }
                     }
-                    for (builder, field) in builders.iter_mut().zip(&fields) {
-                        builder.append_feature(&feature, field)?;
-                    }
-                    n += 1;
-                    if n >= batch_sizer.rows() {
+                    if n > 0 {
                         let batch = finish_read_batch(&schema, &mut geom, &mut builders, n)?;
-                        plenora_io_core::driver::validate_external_batch(
-                            &batch,
-                            plenora_io_model::ErrorPhase::Read,
-                        )?;
-                        batch_sizer.observe(&batch);
-                        if !emitter.send(batch) {
+                        if loss_tx.send(batch_loss).is_err() || !emitter.send(batch) {
                             return Ok(());
                         }
-                        n = 0;
                     }
-                }
-                if n > 0 {
-                    let batch = finish_read_batch(&schema, &mut geom, &mut builders, n)?;
-                    if !emitter.send(batch) {
-                        return Ok(());
-                    }
-                }
-                Ok(())
+                    Ok(())
+                })
             },
-        )
+        )?;
+        Ok(Box::new(TemporalLossReader {
+            reader,
+            loss_rx,
+            loss: LossReport::default(),
+        }))
+    }
+
+    struct TemporalLossReader {
+        reader: Box<dyn LayerReader>,
+        loss_rx: std::sync::mpsc::Receiver<LossReport>,
+        loss: LossReport,
+    }
+
+    impl LayerReader for TemporalLossReader {
+        fn contract(&self) -> &LayerContract {
+            self.reader.contract()
+        }
+        fn next_batch(&mut self) -> Result<Option<RecordBatch>> {
+            let batch = self.reader.next_batch()?;
+            if batch.is_some() {
+                self.loss
+                    .merge(&self.loss_rx.recv().map_err(|_| temporal_error())?);
+            }
+            Ok(batch)
+        }
+        fn loss_report(&self) -> LossReport {
+            self.loss.clone()
+        }
     }
 
     fn finish_read_batch(
@@ -1916,11 +2735,57 @@ mod backend {
         })
     }
 
+    fn temporal_error() -> PlenoraIoError {
+        err(&PublicMessage::Curated(
+            "data o fuso OGR non rappresentabile senza ambiguita'",
+        ))
+    }
+
+    // OGR exposes seconds as f32. Round to Arrow microseconds; the reader
+    // reports a precision loss only if the supplied value actually changes.
+    #[allow(clippy::cast_possible_truncation)]
+    fn temporal_value(components: (i32, i32, i32, i32, i32, f32, i32), zoned: bool) -> Result<i64> {
+        let (year, month, day, hour, minute, second, flag) = components;
+        if !second.is_finite()
+            || !(0.0..60.0).contains(&second)
+            || zoned != ogr_timezone(flag)?.is_some()
+        {
+            return Err(temporal_error());
+        }
+        let date = chrono::NaiveDate::from_ymd_opt(
+            year,
+            u32::try_from(month).map_err(|_| temporal_error())?,
+            u32::try_from(day).map_err(|_| temporal_error())?,
+        )
+        .ok_or_else(temporal_error)?;
+        let value = date
+            .and_hms_opt(
+                u32::try_from(hour).map_err(|_| temporal_error())?,
+                u32::try_from(minute).map_err(|_| temporal_error())?,
+                0,
+            )
+            .ok_or_else(temporal_error)?;
+        let offset = if zoned {
+            i64::from(flag - 100) * 900_000_000
+        } else {
+            0
+        };
+        value
+            .and_utc()
+            .timestamp_micros()
+            .checked_add((f64::from(second) * 1_000_000.0).round() as i64)
+            .and_then(|v| v.checked_sub(offset))
+            .ok_or_else(temporal_error)
+    }
+
     enum ReadCol {
         I32(Int32Builder),
         I64(Int64Builder),
         F64(Float64Builder),
         Str(StringBuilder),
+        Bin(BinaryBuilder),
+        Date(Date32Builder),
+        Time(TimestampMicrosecondBuilder, bool),
     }
 
     impl ReadCol {
@@ -1929,10 +2794,21 @@ mod backend {
                 DataType::Int32 => Self::I32(Int32Builder::new()),
                 DataType::Int64 => Self::I64(Int64Builder::new()),
                 DataType::Float64 => Self::F64(Float64Builder::new()),
+                DataType::Binary => Self::Bin(BinaryBuilder::new()),
+                DataType::Date32 => Self::Date(Date32Builder::new()),
+                DataType::Timestamp(_, tz) => Self::Time(
+                    TimestampMicrosecondBuilder::new().with_timezone_opt(tz.clone()),
+                    tz.is_some(),
+                ),
                 _ => Self::Str(StringBuilder::new()),
             }
         }
-        fn append_feature(&mut self, feature: &Feature<'_>, field: &ProjectedField) -> Result<()> {
+        fn append_feature(
+            &mut self,
+            feature: &Feature<'_>,
+            field: &ProjectedField,
+        ) -> Result<bool> {
+            let mut rounded = false;
             // Ne' il nome del campo ne' il testo di GDAL escono: il primo
             // viene dallo schema letto dal file, il secondo dalla dipendenza.
             let read_error = |_| {
@@ -1948,6 +2824,36 @@ mod backend {
                 ))
             };
             match self {
+                Self::Bin(builder) => builder.append_option(
+                    feature
+                        .field_as_binary(field.ogr_index)
+                        .map_err(read_error)?,
+                ),
+                Self::Date(builder) => {
+                    let value = feature
+                        .field_as_datetime_components(field.ogr_index)
+                        .map_err(read_error)?;
+                    builder.append_option(
+                        value
+                            .map(|v| {
+                                temporal_value(v, false).and_then(|v| {
+                                    i32::try_from(v.div_euclid(86_400_000_000))
+                                        .map_err(|_| temporal_error())
+                                })
+                            })
+                            .transpose()?,
+                    );
+                }
+                Self::Time(builder, zoned) => {
+                    let value = feature
+                        .field_as_datetime_components(field.ogr_index)
+                        .map_err(read_error)?;
+                    if let Some(v) = value {
+                        let micros = (f64::from(v.5) * 1_000_000.0).round();
+                        rounded = (micros / 1_000_000.0).to_bits() != f64::from(v.5).to_bits();
+                    }
+                    builder.append_option(value.map(|v| temporal_value(v, *zoned)).transpose()?);
+                }
                 Self::I32(builder) => {
                     match feature
                         .field_as_integer(field.ogr_index)
@@ -1985,7 +2891,7 @@ mod backend {
                     }
                 }
             }
-            Ok(())
+            Ok(rounded)
         }
         fn finish(&mut self) -> ArrayRef {
             match self {
@@ -1993,9 +2899,16 @@ mod backend {
                 Self::I64(b) => Arc::new(b.finish()),
                 Self::F64(b) => Arc::new(b.finish()),
                 Self::Str(b) => Arc::new(b.finish()),
+                Self::Bin(b) => Arc::new(b.finish()),
+                Self::Date(b) => Arc::new(b.finish()),
+                Self::Time(b, _) => Arc::new(b.finish()),
             }
         }
     }
+
+    #[cfg(test)]
+    #[path = "../r2_tests.rs"]
+    mod r2_tests;
 
     #[cfg(test)]
     mod tests {
@@ -2030,6 +2943,89 @@ mod backend {
         use plenora_io_model::CancellationToken;
         use std::process::{Child, Command, ExitStatus};
         use std::time::{Duration, Instant};
+
+        #[test]
+        fn geometry_losses_match_the_reopened_database() {
+            let dir = tempfile::tempdir().unwrap();
+            for (index, wkt) in [
+                "POINT (1 2)",
+                "POINT (1.1234567891234567 2.987654321987654)",
+                "MULTIPOLYGON (((0 0, 2 0, 2 2, 0 2, 0 0)))",
+                "MULTIPOLYGON (((0 0, 0 2, 2 2, 2 0, 0 0)))",
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let source = Geometry::from_wkt(wkt).unwrap().iso_wkb().unwrap();
+                let original = decode_wkb(&source, &WkbLimits::default()).unwrap();
+                let mut geometry = GeometryColumnContract::wkb_xy(
+                    FieldId(0),
+                    GEOMETRY,
+                    ResolvedCrs::new(Some("EPSG:3857".to_owned()), CrsKind::Projected, None),
+                    true,
+                );
+                geometry.set_exact_geometry_types(vec![if index < 2 {
+                    GeometryType::Point
+                } else {
+                    GeometryType::MultiPolygon
+                }]);
+                let schema = Arc::new(Schema::new(vec![geometry_field(GEOMETRY, "EPSG:3857")]));
+                let plan = WritePlan {
+                    layers: vec![WriteLayer {
+                        name: "features".to_owned(),
+                        contract: declared(&schema, geometry),
+                    }],
+                };
+                let batch = RecordBatch::try_new(
+                    plan.layers[0].contract.schema.clone(),
+                    vec![Arc::new(BinaryArray::from(vec![source.as_slice()]))],
+                )
+                .unwrap();
+                let path = dir.path().join(format!("case{index}.gdb"));
+                let driver = super::super::FileGdbDriver;
+                let mut writer = driver
+                    .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
+                    .unwrap();
+                writer.write(&batch).unwrap();
+                let published = writer.finish().unwrap();
+                let dataset = driver.open(Source::Path(path), opzioni_lettura()).unwrap();
+                let mut reader = dataset.open_layer_reader(&read_request()).unwrap();
+                let batch = reader.next_batch().unwrap().unwrap();
+                let column = batch
+                    .column(0)
+                    .as_any()
+                    .downcast_ref::<BinaryArray>()
+                    .unwrap();
+                let actual = decode_wkb(column.value(0), &WkbLimits::default()).unwrap();
+                let (before_coordinates, before_orientation) = geometry_signature(&original);
+                let (after_coordinates, after_orientation) = geometry_signature(&actual);
+                let precision_changed = before_coordinates != after_coordinates;
+                let orientation_changed = before_orientation != after_orientation;
+                if index == 0 {
+                    assert!(!precision_changed);
+                }
+                if index == 1 {
+                    assert!(precision_changed);
+                }
+                if index == 2 {
+                    assert!(orientation_changed);
+                }
+                if index == 3 {
+                    assert!(!orientation_changed);
+                }
+                for (category, changed) in [
+                    ("native_coordinate_precision", precision_changed),
+                    ("native_ring_orientation_changed", orientation_changed),
+                ] {
+                    assert_eq!(
+                        published.loss.counts.get(category).copied().unwrap_or(0),
+                        u64::from(changed),
+                        "{index}: {:?}",
+                        published.loss
+                    );
+                }
+            }
+        }
 
         fn read_request() -> ReadRequest {
             ReadRequest {
@@ -2435,7 +3431,7 @@ mod backend {
             assert_eq!(published.fidelity.level, Fidelity::Approximating);
             assert_eq!(
                 published.loss.counts.get("crs_id_not_preserved_derived"),
-                Some(&1)
+                None
             );
 
             let dataset = driver.open(Source::Path(path), opzioni_lettura()).unwrap();
@@ -2658,7 +3654,18 @@ mod backend {
                 .as_any()
                 .downcast_ref::<BinaryArray>()
                 .unwrap();
-            let decoded = decode_wkb(geometry.value(0), &WkbLimits::default()).unwrap();
+            let bytes = geometry.value(0);
+            let type_code = if bytes[0] == 1 {
+                u32::from_le_bytes(bytes[1..5].try_into().unwrap())
+            } else {
+                u32::from_be_bytes(bytes[1..5].try_into().unwrap())
+            };
+            assert_eq!(
+                type_code & 0xe000_0000,
+                0,
+                "ISO WKB must not carry EWKB/25D flags"
+            );
+            let decoded = decode_wkb(bytes, &WkbLimits::default()).unwrap();
             assert_eq!(decoded.dimensions, CoordinateDimensions::Xyz);
             assert_eq!(
                 decoded.value,
@@ -2707,12 +3714,13 @@ mod backend {
             writer.write(&batch).unwrap();
             writer.finish().unwrap();
 
-            let Err(errore) = driver.open(
-                Source::Path(path.clone()),
-                opzioni_lettura().with_assume_crs("EPSG:3003"),
-            ) else {
-                panic!("--assume-crs in conflitto col CRS incorporato: ignorato");
-            };
+            let dataset = driver
+                .open(
+                    Source::Path(path.clone()),
+                    opzioni_lettura().with_assume_crs("EPSG:3003"),
+                )
+                .unwrap();
+            let errore = dataset.rifiuto_del_layer(LayerId(0)).unwrap();
             assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
             let concorde = driver
                 .open(
@@ -2772,7 +3780,18 @@ mod backend {
                     .as_any()
                     .downcast_ref::<BinaryArray>()
                     .unwrap();
-                let decoded = decode_wkb(geometry.value(0), &WkbLimits::default()).unwrap();
+                let bytes = geometry.value(0);
+                let type_code = if bytes[0] == 1 {
+                    u32::from_le_bytes(bytes[1..5].try_into().unwrap())
+                } else {
+                    u32::from_be_bytes(bytes[1..5].try_into().unwrap())
+                };
+                assert_eq!(
+                    type_code & 0xe000_0000,
+                    0,
+                    "ISO WKB must not carry EWKB/25D flags"
+                );
+                let decoded = decode_wkb(bytes, &WkbLimits::default()).unwrap();
                 assert_eq!(decoded.dimensions, dimensions);
                 assert_eq!(
                     decoded.value,
@@ -2851,7 +3870,18 @@ mod backend {
                 .as_any()
                 .downcast_ref::<BinaryArray>()
                 .unwrap();
-            let decoded = decode_wkb(geometry.value(0), &WkbLimits::default()).unwrap();
+            let bytes = geometry.value(0);
+            let type_code = if bytes[0] == 1 {
+                u32::from_le_bytes(bytes[1..5].try_into().unwrap())
+            } else {
+                u32::from_be_bytes(bytes[1..5].try_into().unwrap())
+            };
+            assert_eq!(
+                type_code & 0xe000_0000,
+                0,
+                "ISO WKB must not carry EWKB/25D flags"
+            );
+            let decoded = decode_wkb(bytes, &WkbLimits::default()).unwrap();
             assert_eq!(decoded, geometry_value);
         }
 
@@ -2907,6 +3937,25 @@ mod backend {
         }
 
         #[test]
+        fn foreign_staging_lock_before_finish_blocks_publication() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("locked.gdb");
+            let (plan, batch) = point_write_fixture();
+            let mut writer = super::super::FileGdbDriver
+                .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
+                .unwrap();
+            writer.write(&batch).unwrap();
+            let foreign = dir.path().join("LOCKED.PLENORA-TMP-FOREIGN.LOCK");
+            std::fs::write(&foreign, b"foreign").unwrap();
+            assert_eq!(
+                writer.finish().err().unwrap().code,
+                plenora_io_model::IoErrorCode::OutputExists
+            );
+            assert!(!path.exists());
+            assert_eq!(std::fs::read(foreign).unwrap(), b"foreign");
+        }
+
+        #[test]
         fn filegdb_concurrent_staging_does_not_delete_active_writer() {
             let dir = tempfile::tempdir().unwrap();
             let path = dir.path().join("concurrent.gdb");
@@ -2923,13 +3972,14 @@ mod backend {
             let first_artifacts = staging_artifacts(&path);
             assert_eq!(first_artifacts.len(), 2);
 
-            let second = super::super::FileGdbDriver
+            let error = super::super::FileGdbDriver
                 .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
+                .err()
                 .unwrap();
-            assert_eq!(staging_artifacts(&path).len(), 4);
+            assert_eq!(error.code, plenora_io_model::IoErrorCode::OutputExists);
+            assert_eq!(staging_artifacts(&path).len(), 2);
             assert!(first_artifacts.iter().all(|artifact| artifact.exists()));
 
-            drop(second);
             assert!(first_artifacts.iter().all(|artifact| artifact.exists()));
             first.finish().unwrap();
             assert!(path.exists());
@@ -2980,12 +4030,13 @@ mod backend {
 
             let active_artifacts = staging_artifacts(&path);
             let (plan, _) = point_write_fixture();
-            let second = super::super::FileGdbDriver
+            let error = super::super::FileGdbDriver
                 .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
+                .err()
                 .unwrap();
-            let both_stagings_exist = staging_artifacts(&path).len() == 4;
+            assert_eq!(error.code, plenora_io_model::IoErrorCode::OutputExists);
+            let only_active_staging_exists = staging_artifacts(&path).len() == 2;
             let active_was_preserved = active_artifacts.iter().all(|artifact| artifact.exists());
-            drop(second);
             let active_survived_second_cleanup =
                 active_artifacts.iter().all(|artifact| artifact.exists());
 
@@ -2993,7 +4044,7 @@ mod backend {
             let status = child.wait().unwrap();
             assert!(status.success(), "writer attivo fallito: {status}");
             assert_eq!(active_artifacts.len(), 2);
-            assert!(both_stagings_exist);
+            assert!(only_active_staging_exists);
             assert!(active_was_preserved);
             assert!(active_survived_second_cleanup);
             assert!(staging_artifacts(&path).is_empty());
@@ -3046,6 +4097,12 @@ mod backend {
                     assert_eq!(orphaned.len(), 2, "staging orfano atteso");
 
                     let (plan, batch) = point_write_fixture();
+                    let error = super::super::FileGdbDriver
+                        .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
+                        .err()
+                        .unwrap();
+                    assert_eq!(error.code, plenora_io_model::IoErrorCode::OutputExists);
+                    assert_eq!(recover_orphaned_staging(&path).unwrap(), 1);
                     let mut writer = super::super::FileGdbDriver
                         .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
                         .unwrap();
@@ -3303,7 +4360,12 @@ mod backend {
                 (DataType::Int64, "int64"),
                 (DataType::Boolean, "boolean"),
                 (DataType::Date32, "date32"),
+                (
+                    DataType::Timestamp(arrow_schema::TimeUnit::Microsecond, Some("UTC".into())),
+                    "datetime",
+                ),
                 (DataType::Binary, "binary"),
+                (DataType::LargeBinary, "large_binary"),
             ] {
                 let dir = tempfile::tempdir().unwrap();
                 let path = dir.path().join(format!("{suffix}.gdb"));

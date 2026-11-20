@@ -77,8 +77,9 @@
     "src/lib.rs": "I6: checked local datetime, years 1..9999, whole seconds and exact quarter-hour offset; UTC flag 100. Returns DateError before FFI on invalid input. Prove: temporal::tests::temporal_ogr_boundaries; native roundtrip pending: GDAL development library unavailable locally",
     "src/temporal.rs": "I6: checked local datetime, years 1..9999, whole seconds and exact quarter-hour offset; UTC flag 100. Returns DateError before FFI on invalid input. Prove: temporal::tests::temporal_ogr_boundaries; native roundtrip pending: GDAL development library unavailable locally",
     "src/temporal/tests.rs": "I6: checked local datetime, years 1..9999, whole seconds and exact quarter-hour offset; UTC flag 100. Returns DateError before FFI on invalid input. Prove: temporal::tests::temporal_ogr_boundaries; native roundtrip pending: GDAL development library unavailable locally",
-    "src/vector/feature.rs": "I6: checked local datetime, years 1..9999, whole seconds and exact quarter-hour offset; UTC flag 100. Returns DateError before FFI on invalid input. Prove: temporal::tests::temporal_ogr_boundaries; native roundtrip pending: GDAL development library unavailable locally",
-    "src/vector/feature/temporal_tests.rs": "I6: checked local datetime, years 1..9999, whole seconds and exact quarter-hour offset; UTC flag 100. Returns DateError before FFI on invalid input. Prove: temporal::tests::temporal_ogr_boundaries; native roundtrip pending: GDAL development library unavailable locally"
+    "src/vector/feature.rs": "I6: checked local datetime, years 1..9999, whole seconds and exact quarter-hour offset; UTC flag 100. Returns DateError before FFI on invalid input. Prove: temporal::tests::temporal_ogr_boundaries; native roundtrip pending: GDAL development library unavailable locally CI-114 parte 3: Accessor timezone sempre disponibile in Rust; riferimento C OGR_Fld_GetTZFlag compilato solo con i cfg derivati da GDAL >= 3.8. Prima restituisce None; driver-filegdb richiede evidenza IsTimeInUTC o restituisce Unsupported. Prova dei riferimenti LLVM: scripts/check_gdal_symbols.py.",
+    "src/vector/feature/temporal_tests.rs": "I6: checked local datetime, years 1..9999, whole seconds and exact quarter-hour offset; UTC flag 100. Returns DateError before FFI on invalid input. Prove: temporal::tests::temporal_ogr_boundaries; native roundtrip pending: GDAL development library unavailable locally",
+    "build.rs": "CI-114 parte 3: traccia GDAL_VERSION rilevata dal chiamante per invalidare i cfg quando cambia la dipendenza nativa; corregge il controllo del minimo a GDAL 3.4."
   },
   "aggiornamento_0_19_0": {
     "quando": "2026-09-10, da 0.17.1",
@@ -105,5 +106,22 @@
   "temporal_2026_11_15": {
     "cambiamento": "I6: checked local datetime, years 1..9999, whole seconds and exact quarter-hour offset; UTC flag 100. Returns DateError before FFI on invalid input.",
     "prove": "temporal::tests::temporal_ogr_boundaries; native roundtrip pending: GDAL development library unavailable locally"
+  },
+  "object_error_isolation": {
+    "file": "vendor/gdal/src/config.rs",
+    "api": "with_quiet_errors",
+    "reason": "Handler silenzioso GDAL limitato al thread e alla durata della chiamata; ripristino RAII anche durante unwinding. Impedisce stderr nativo con percorsi e nomi degli oggetti durante le aperture FileGDB. Gli errori pubblici restano quelli redatti del driver.",
+    "verification": "driver-filegdb con gdal-backend; riproduzioni raccolta-a sotto target/r2-reproductions. Non costituisce una nuova misura fuzz o benchmark."
+  },
+  "native_fields_2026_11_18": {
+    "file": "vendor/gdal/src/vector/feature.rs",
+    "motivo": "Lettura FileGDB Binary e Date/DateTime senza conversione testuale, troncamento dei secondi o assegnazione implicita di UTC. Flag di schema per le versioni GDAL che lo forniscono; GDAL 3.9 OpenFileGDB dichiara UTC anche nel proprio XML IsTimeInUTC.",
+    "api": [
+      "Feature::field_as_binary(usize) -> Result<Option<Vec<u8>>>",
+      "Feature::field_as_datetime_components(usize) -> Result<Option<(i32, i32, i32, i32, i32, f32, i32)>>",
+      "Feature::field_datetime_timezone_flag(usize) -> Result<i32> (GDAL >= 3.8)"
+    ],
+    "proposta_upstream": "contributi-upstream/gdal-campi-nativi/patch.diff",
+    "prove": "driver-filegdb --features gdal-backend: valori nativi, null, indici invalidi, frazioni, offset; nessuna nuova misura fuzz o benchmark."
   }
 }

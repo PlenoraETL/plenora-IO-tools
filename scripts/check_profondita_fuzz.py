@@ -173,7 +173,9 @@ BERSAGLI: dict[str, Bersaglio] = {
             "drenaggio.batch": "funzioni",
             "prevalidazione.conteggi-del-multipunto": "righe",
             "rifiuto.conteggi-all-apertura": "righe",
-            "rifiuto.cardinalita-nel-drenaggio": "righe",
+            # La cardinalita' cambiata dopo l'inferenza richiede stato mutato:
+            # fuori dal target statico, provata in driver-shp (vedi non_e_qui
+            # del registro). I conteggi statici restano obbligatori sopra.
         },
         perimetro_obbligatorio=frozenset(
             {

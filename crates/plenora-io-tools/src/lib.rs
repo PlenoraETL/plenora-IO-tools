@@ -35,30 +35,11 @@ use plenora_io_model::{
 /// Errore CLI: (exit code, documento JSON d'errore).
 pub type CliResult = Result<Value, (i32, Value)>;
 
-/// Le estensioni che la CLI riconosce. Vocabolario chiuso di letterali
-/// nostri: puo' comparire in un messaggio pubblico.
-pub(crate) const ESTENSIONI_AMMESSE: &str =
-    "parquet, geojson, csv, gpkg, shp, kml, xlsx, xls, dxf, gdb, arrow";
-
-/// I flag che la CLI riconosce. Stessa ragione.
-/// Gli identificatori di formato che `--to` accetta, nell'ordine del catalogo.
-///
-/// Sta accanto a `ESTENSIONI_AMMESSE` e non lo sostituisce: sono due
-/// vocabolari diversi, uno del filesystem e uno del catalogo, e confonderli e'
-/// esattamente cio' che `--to` esiste per evitare.
+/// Gli identificatori di formato che --to accetta.
 pub(crate) const FORMATI_AMMESSI: &str =
     "geoparquet, geojson, csv, gpkg, shp, kml, xls, dxf, filegdb, ipc";
 
-pub(crate) const OPZIONI_AMMESSE: &str = "--assume-crs, --deadline-ms, --durable, --in-opt, --layer,      --limit, --max-columns, --max-input-bytes, --max-input-entries,      --max-output-bytes, --max-rows, --max-vertices, --max-wkb-cell-bytes,      --format, --max-wkb-components, --max-wkb-depth, --memory-bytes, --opt,      --out-opt, --output, --from, --to, --version";
-
-#[allow(clippy::cast_possible_truncation)]
-const fn saturating_u64(value: usize) -> u64 {
-    if usize::BITS > u64::BITS && value > u64::MAX as usize {
-        u64::MAX
-    } else {
-        value as u64
-    }
-}
+pub(crate) const OPZIONI_AMMESSE: &str = "--assume-crs, --deadline-ms, --durable, --in-opt, --layer, --limit, --max-columns, --max-geometry-components, --max-input-bytes, --max-input-entries, --max-output-bytes, --max-rows, --max-vertices, --max-wkb-cell-bytes, --format, --max-wkb-components, --max-wkb-depth, --memory-bytes, --spill-bytes, --output-expansion-ratio, --decompression-ratio, --opt, --out-opt, --output, --from, --to";
 
 /// I tetti della diagnostica nella busta e il troncamento che li dichiara.
 pub mod busta;
@@ -146,6 +127,20 @@ fn err_doc(code: &str, error: &PlenoraIoError) -> Value {
             }
         }
     }
+    if let Some(quota) = &error.quota_details {
+        if error_document.get("details").is_none() {
+            error_document["details"] = json!({});
+        }
+        error_document["details"]["quota"] = json!(quota.quota);
+        error_document["details"]["observed"] = json!(quota.observed);
+        error_document["details"]["limit"] = json!(quota.limit);
+    }
+    if let Some(reason) = error.capability_reason {
+        if error_document.get("details").is_none() {
+            error_document["details"] = json!({});
+        }
+        error_document["details"]["capability_reason"] = json!(reason);
+    }
     let busta_intera = json!({
         "status": "error",
         "protocol_version": busta::PROTOCOLLO,
@@ -177,6 +172,13 @@ fn local_err_doc(
     phase: ErrorPhase,
     message: &PublicMessage,
 ) -> (i32, Value) {
+    let code = if category == ErrorCategory::InvalidConfiguration {
+        plenora_io_model::error_table::Situation::InvalidConfiguration
+            .rule()
+            .wire_code
+    } else {
+        code
+    };
     let documento = err_doc(
         code,
         // `redatto` con `Generic`, non un costruttore di famiglia: il sito
@@ -341,6 +343,10 @@ fn map_err(e: plenora_io_model::PlenoraIoError) -> (i32, Value) {
     // generico e usciva `FORMAT_ERROR`, che a chi legge diceva un file
     // malformato.
     let code = match (e.category, e.code) {
+        (ErrorCategory::InvalidConfiguration, _) => "CLI_USAGE",
+        (ErrorCategory::Crs, IoErrorCode::Generic) => "CRS_CONFLICT",
+        (ErrorCategory::NotFound, IoErrorCode::Io) => "SOURCE_NOT_FOUND",
+        (ErrorCategory::NotFound, _) => "NO_LAYER",
         (ErrorCategory::Cancelled, _) => "CANCELLED",
         (ErrorCategory::Timeout, IoErrorCode::Cancelled) => "DEADLINE_EXCEEDED",
         _ => code,
@@ -429,7 +435,7 @@ fn driver_for_path(path: &Path) -> Result<Box<dyn FormatDriver>, (i32, Value)> {
                     ErrorCategory::Unsupported,
                     ErrorPhase::Validate,
                     &PublicMessage::Curated(
-                        "capability drop esplicita: il contenitore binario BIFF .xls                          non e' supportato; usare .xlsx",
+                        "capability drop esplicita: il contenitore binario BIFF .xls non e' supportato; usare .xlsx",
                     ),
                 ),
             )
@@ -447,12 +453,14 @@ fn driver_for_path(path: &Path) -> Result<Box<dyn FormatDriver>, (i32, Value)> {
         // prova — in forma di binding — che non entra nel messaggio.
         _ => {
             return Err(local_err_doc(
-                    "UNSUPPORTED",
-                    ErrorCategory::Unsupported,
+                    "CLI_USAGE",
+                    ErrorCategory::InvalidConfiguration,
                     ErrorPhase::Validate,
-                    &PublicMessage::CuratedPair(
+                    &PublicMessage::CuratedList(
                         "estensione non riconosciuta; ammesse:",
-                        ESTENSIONI_AMMESSE,
+                        capability::driver_registry().descriptors().iter()
+                            .flat_map(|descriptor| descriptor.recognised_suffixes().iter().copied())
+                            .collect(),
                     ),
                 ),
             )
@@ -575,6 +583,7 @@ fn read_options(cli: &Cli) -> Result<ReadOptions, PlenoraIoError> {
     // la comune, per chiave.
     let mut opzioni = read_pipeline(cli)?.with_format_options(opts_uniti(&cli.opts, &cli.in_opts));
     opzioni.assume_crs.clone_from(&cli.assume_crs);
+    opzioni.row_limit = cli.limit.map(|limit| limit as u64);
     Ok(opzioni)
 }
 
@@ -599,18 +608,60 @@ fn open_source(cli: &Cli) -> Result<(Box<dyn FormatDriver>, PathBuf), (i32, Valu
     Ok((driver, path))
 }
 
-/// `io.inspect` e `io.layers` descrivono **tutti** i layer: un layer rifiutato
-/// ([`plenora_io_core::driver::OpenDatasetHandle::rifiuto_del_layer`], un CRS
-/// che non passa le verifiche comuni) li fa fallire con il suo rifiuto, invece di comparire nell'elenco
-/// come se fosse leggibile. Gli altri layer restano leggibili con
-/// `io.read --layer`.
-fn tutti_i_layer_descrivibili(
-    ds: &dyn plenora_io_core::driver::OpenDatasetHandle,
-) -> Result<(), PlenoraIoError> {
-    ds.layers()
+fn selected_layer_id(
+    cli: &Cli,
+    dataset: &dyn plenora_io_core::driver::OpenDatasetHandle,
+) -> Result<u32, (i32, Value)> {
+    let explicit = dataset.explicit_layer();
+    if let Some(id) = cli.layer {
+        if explicit.is_some_and(|selected| selected.0 != id) {
+            return Err(usage_err(&PublicMessage::Curated(
+                "selezione oggetto in fase validate: opzione di formato e layer indicano oggetti diversi",
+            )));
+        }
+        return Ok(id);
+    }
+    if let Some(id) = explicit.or_else(|| dataset.default_layer()) {
+        return Ok(id.0);
+    }
+    let readable: Vec<_> = dataset
+        .layers()
         .iter()
-        .find_map(|layer| ds.rifiuto_del_layer(layer.id))
-        .map_or(Ok(()), Err)
+        .filter(|layer| dataset.rifiuto_del_layer(layer.id).is_none())
+        .collect();
+    if readable.len() == 1 && dataset.layers().len() == 1 {
+        return Ok(readable[0].id.0);
+    }
+    let mut error = local_err_doc(
+        "LAYER_SELECTION_REQUIRED",
+        ErrorCategory::InvalidPlan,
+        ErrorPhase::Prepare,
+        &PublicMessage::Curated(
+            "scegliere --layer: selezione automatica richiede un solo oggetto totale e leggibile",
+        ),
+    );
+    error.1["error"]["details"] = json!({"objects": dataset.layers().iter().map(|layer|
+        json!({"index": layer.id.0, "status": layer_status(dataset, layer.id)})
+    ).collect::<Vec<_>>()});
+    Err(error)
+}
+
+fn layer_status(
+    ds: &dyn plenora_io_core::driver::OpenDatasetHandle,
+    id: plenora_io_model::contract::LayerId,
+) -> Value {
+    let mut status = ds.rifiuto_del_layer(id).map_or_else(
+        || json!({"readable": true}),
+        |error| json!({"readable": false, "error": map_err(error).1}),
+    );
+    if let Some(visibility) = ds
+        .layers()
+        .get(id.0 as usize)
+        .and_then(|layer| layer.contract.schema.metadata().get("xlsx.visibility"))
+    {
+        status["visibility"] = json!(visibility);
+    }
+    status
 }
 
 /// `io.inspect`. La porta pubblica e' `operazioni::inspect`.
@@ -623,9 +674,16 @@ pub fn cmd_inspect(cli: &Cli) -> CliResult {
     let (driver, path) = open_source(cli)?;
     let ropts = read_options(cli).map_err(map_err)?;
     let ds = driver.open(Source::Path(path), ropts).map_err(map_err)?;
-    tutti_i_layer_descrivibili(ds.as_ref()).map_err(map_err)?;
     let fidelity = ds.fidelity_assessment();
-    let layers: Vec<Value> = ds.layers().iter().map(layer_json).collect();
+    let layers: Vec<Value> = ds
+        .layers()
+        .iter()
+        .map(|layer| {
+            let mut value = layer_json(layer);
+            value["status"] = layer_status(ds.as_ref(), layer.id);
+            value
+        })
+        .collect();
     Ok(json!({
 
         "format": serde_json::to_value(driver.descriptor()).unwrap_or(Value::Null),
@@ -643,7 +701,6 @@ pub fn cmd_layers(cli: &Cli) -> CliResult {
     let (driver, path) = open_source(cli)?;
     let ropts = read_options(cli).map_err(map_err)?;
     let ds = driver.open(Source::Path(path), ropts).map_err(map_err)?;
-    tutti_i_layer_descrivibili(ds.as_ref()).map_err(map_err)?;
     let fidelity = ds.fidelity_assessment();
     let layers: Vec<Value> = ds
         .layers()
@@ -651,6 +708,7 @@ pub fn cmd_layers(cli: &Cli) -> CliResult {
         .map(|l| {
             json!({
                 "id": l.id.0,
+                "status": layer_status(ds.as_ref(), l.id),
                 "name": l.name,
                 "geometry_crs": l
                     .contract
@@ -702,15 +760,13 @@ const fn esito_di_pubblicazione(esito: PublishOutcome) -> &'static str {
 
 /// La forma di `io.read` che legge e **non** consegna.
 ///
-/// Non e' una lettura a meta': e' una lettura completa di cui si conserva il
-/// giudizio invece dei dati, ed e' il modo in cui si risponde a «questa
-/// sorgente si legge?» senza pagare il disco.
+/// Conserva il giudizio invece dei dati. Senza limite arriva a EOF; con
+/// limite valida il prefisso richiesto senza esaminare la coda.
 fn legge_senza_consegnare(
     cli: &Cli,
     ds: &dyn plenora_io_core::driver::OpenDatasetHandle,
     driver: &dyn FormatDriver,
     contract: &LayerContract,
-    fidelity_iniziale: &FidelityAssessment,
     layer_id: u32,
     scopo: ReadScope,
 ) -> CliResult {
@@ -718,22 +774,30 @@ fn legge_senza_consegnare(
         .open_layer_reader(&read_request(cli, layer_id, scopo))
         .map_err(map_err)?;
     let (mut rows, mut batches) = (0usize, 0usize);
+    let mut truncated = false;
     while let Some(batch) = reader.next_batch().map_err(map_err)? {
-        rows += batch.num_rows();
-        batches += 1;
-        if cli.limit.is_some_and(|l| rows >= l) {
+        let remaining = cli
+            .limit
+            .map_or(usize::MAX, |limit| limit.saturating_sub(rows));
+        if batch.num_rows() >= remaining {
+            rows += remaining;
+            batches += usize::from(remaining > 0);
+            truncated = true;
             break;
         }
+        rows += batch.num_rows();
+        batches += 1;
     }
     let perdita = reader.loss_report();
+    let fidelity_iniziale = ds.fidelity_assessment();
     Ok(json!({
         "format": driver.descriptor().id(),
         "fidelity": fidelity_doc(&fidelity_iniziale.clone().with_loss_report(&perdita))?,
-        "loss": loss_doc(fidelity_iniziale, &perdita)?,
+        "loss": loss_doc(&fidelity_iniziale, &perdita)?,
         "layer": layer_json(contract),
         "rows_read": rows,
         "batches": batches,
-        "truncated": cli.limit.is_some_and(|l| rows >= l),
+        "truncated": truncated,
         "delivered": Value::Null,
     }))
 }
@@ -773,8 +837,8 @@ fn ingresso_ammissibile(cli: &Cli) -> Result<(), (i32, Value)> {
 
     if cli.limit.is_some() && cli.output.is_some() {
         return Err(local_err_doc(
-            "LIMIT_WITH_DELIVERY",
-            ErrorCategory::InvalidPlan,
+            "CLI_USAGE",
+            ErrorCategory::InvalidConfiguration,
             ErrorPhase::Validate,
             &PublicMessage::Curated(
                 "--limit e --output insieme non sono ammessi: io.read non \
@@ -820,8 +884,8 @@ fn driver_per_formato(id: &str) -> Result<Box<dyn FormatDriver>, (i32, Value)> {
         // porta invece l'elenco chiuso di cio' che si puo' chiedere.
         _ => {
             return Err(local_err_doc(
-                "UNKNOWN_FORMAT",
-                ErrorCategory::Unsupported,
+                "CLI_USAGE",
+                ErrorCategory::InvalidConfiguration,
                 ErrorPhase::Validate,
                 &PublicMessage::CuratedPair(
                     "formato non riconosciuto; gli identificatori sono quelli di \
@@ -854,9 +918,9 @@ fn strati_da_pubblicare(
         .map(|l| vec![l])
         .ok_or_else(|| {
             local_err_doc(
-                "LAYER_NOT_FOUND",
-                ErrorCategory::InvalidPlan,
-                ErrorPhase::Validate,
+                "NO_LAYER",
+                ErrorCategory::NotFound,
+                ErrorPhase::Prepare,
                 &PublicMessage::Curated("il layer richiesto non esiste nell'ingresso"),
             )
         })
@@ -915,10 +979,30 @@ fn piano_di_scrittura(
 /// e' il giudizio combinato, che e' quello dell'operazione.
 /// # Errors
 ///
-/// La busta d'errore del contratto comune. Fra i casi propri: `UNKNOWN_FORMAT`
+/// La busta d'errore del contratto comune. Fra i casi propri: `CLI_USAGE`
 /// per un `--to` fuori dal catalogo, l'errore d'uso senza `--to`, e i rifiuti
 /// di capacita' del formato di destinazione.
 pub fn cmd_write(cli: &Cli) -> CliResult {
+    cmd_write_inner(cli).map_err(|(code, mut document)| {
+        let error = &mut document["error"];
+        if error["category"] == "resource_limit"
+            && error["phase"] == "read"
+            && error["message"]
+                .as_str()
+                .is_some_and(|message| message.starts_with("max_output_bytes "))
+        {
+            error["phase"] = json!("write");
+            if error.get("details").is_none() {
+                error["details"] = json!({});
+            }
+            error["details"]["quota"] = json!("max_output_bytes");
+            error["details"]["limit"] = json!(cli.limits.max_output_bytes());
+        }
+        (code, document)
+    })
+}
+
+fn cmd_write_inner(cli: &Cli) -> CliResult {
     if cli.positionals.len() < 2 {
         return Err(usage_err(&PublicMessage::Curated(
             "write richiede <ingresso.arrow> <destinazione> --to <formato>",
@@ -947,9 +1031,9 @@ pub fn cmd_write(cli: &Cli) -> CliResult {
     let ds = sorgente
         .open(Source::Path(in_path), ropts)
         .map_err(map_err)?;
-    let fedelta_ingresso = ds.fidelity_assessment();
 
-    let selezionati = strati_da_pubblicare(ds.layers(), cli.layer)?;
+    let selezionati =
+        strati_da_pubblicare(ds.layers(), Some(selected_layer_id(cli, ds.as_ref())?))?;
     let plenora_io_core::ewkb::PreparedWrite {
         plan: piano,
         conversions: conversioni,
@@ -984,14 +1068,16 @@ pub fn cmd_write(cli: &Cli) -> CliResult {
         .map_err(map_err)?;
         perdita_in_ingresso.merge(&reader.loss_report());
         righe_totali = righe_totali.checked_add(righe).ok_or_else(|| {
-            map_err(PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                "overflow nel conteggio delle righe scritte",
-            )))
+            map_err(
+                plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Read),
+            )
         })?;
         rapporti.push(json!({"name": strato.name, "rows": righe, "batches": batch}));
     }
     let pubblicato = writer.finish().map_err(map_err)?;
-    let fedelta_ingresso = fedelta_ingresso.with_loss_report(&perdita_in_ingresso);
+    let fedelta_ingresso = ds
+        .fidelity_assessment()
+        .with_loss_report(&perdita_in_ingresso);
     let combinata = combined_fidelity(&fedelta_ingresso, &pubblicato.fidelity);
 
     let ingresso = fidelity_doc(&fedelta_ingresso)?;
@@ -1057,9 +1143,14 @@ pub fn cmd_write(cli: &Cli) -> CliResult {
 pub fn cmd_read(cli: &Cli) -> CliResult {
     let (driver, path) = open_source(cli)?;
     let ropts = read_options(cli).map_err(map_err)?;
-    let ds = driver.open(Source::Path(path), ropts).map_err(map_err)?;
-    let fidelity_iniziale = ds.fidelity_assessment();
-    let layer_id = cli.layer.unwrap_or(0);
+    let ds = driver
+        .open_selected(
+            Source::Path(path),
+            ropts,
+            cli.layer.map(plenora_io_model::contract::LayerId),
+        )
+        .map_err(map_err)?;
+    let layer_id = selected_layer_id(cli, ds.as_ref())?;
     let contract = ds
         .layers()
         .iter()
@@ -1133,7 +1224,6 @@ pub fn cmd_read(cli: &Cli) -> CliResult {
             ds.as_ref(),
             driver.as_ref(),
             &contract,
-            &fidelity_iniziale,
             layer_id,
             scopo,
         );
@@ -1182,6 +1272,7 @@ pub fn cmd_read(cli: &Cli) -> CliResult {
     // di questa operazione, ed e' anche il caso che non si presenta -- Arrow e'
     // la rappresentazione, non una traduzione. Riportare una fedelta' combinata
     // attribuirebbe alla lettura qualcosa che la lettura non ha fatto.
+    let fidelity_iniziale = ds.fidelity_assessment();
     let fedelta = fidelity_iniziale.clone().with_loss_report(&perdita);
     // I byte del file consegnato. `map_or` e non `map().unwrap_or()`: la
     // seconda forma costruisce un `Result` intermedio per buttarlo via.
@@ -1194,7 +1285,7 @@ pub fn cmd_read(cli: &Cli) -> CliResult {
         "layer": layer_json(&contract),
         "rows_read": rows,
         "batches": batches,
-        "truncated": cli.limit.is_some_and(|l| rows >= l),
+        "truncated": false,
         "delivered": {
             "content_type": content_type_consegnato(&cli.out_opts),
             "interchange_contract": "plenora-arrow-interchange-v1",
@@ -1258,9 +1349,7 @@ fn trasferisci_layer(
     let (mut rows, mut batches) = (0usize, 0usize);
     while let Some(batch) = corrente.take() {
         rows = rows.checked_add(batch.num_rows()).ok_or_else(|| {
-            PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                "overflow nel conteggio righe CLI",
-            ))
+            plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Read)
         })?;
         batches = batches.checked_add(1).ok_or_else(|| {
             PlenoraIoError::limite_redatto(&PublicMessage::Curated(
@@ -1289,7 +1378,7 @@ fn trasferisci_layer(
 /// # Errors
 ///
 /// La busta d'errore del contratto comune. Fra i casi propri: l'errore d'uso
-/// senza i due formati espliciti, `UNKNOWN_FORMAT` per un identificatore fuori
+/// senza i due formati espliciti, `CLI_USAGE` per un identificatore fuori
 /// dal catalogo, e i rifiuti di capacita' dei due formati.
 pub fn cmd_convert(cli: &Cli) -> CliResult {
     if cli.positionals.len() < 2 {
@@ -1346,40 +1435,32 @@ pub fn cmd_convert(cli: &Cli) -> CliResult {
     // ingresso e uscita; `--in-opt` (e `--out-opt`) sovrascrivono per chiave
     // la stessa opzione, come dichiarato dal README.
     ropts.format_options = opts_uniti(&cli.opts, &cli.in_opts);
-    let ds = src.open(Source::Path(in_path), ropts).map_err(map_err)?;
-    let initial_read_fidelity = ds.fidelity_assessment();
+    let ds = src
+        .open_selected(
+            Source::Path(in_path),
+            ropts,
+            cli.layer.map(plenora_io_model::contract::LayerId),
+        )
+        .map_err(map_err)?;
 
-    // Layer da convertire: `--layer` ne sceglie uno, altrimenti tutti.
-    let all: Vec<LayerContract> = ds.layers().to_vec();
-    let selected: Vec<LayerContract> = match cli.layer {
-        Some(id) => vec![all.iter().find(|l| l.id.0 == id).cloned().ok_or_else(|| {
-            local_err_doc(
-                "NO_LAYER",
-                ErrorCategory::NotFound,
-                ErrorPhase::Prepare,
-                &PublicMessage::CuratedWith(
-                    "layer inesistente all'indice",
-                    NumeroStrutturale::Indice(u64::from(id)),
-                ),
-            )
-        })?],
-        None => all,
+    let selected = if cli.layer.is_none()
+        && ds.explicit_layer().is_none()
+        && ds.default_layer().is_none()
+        && dst.descriptor().multi_layer()
+    {
+        let layers: Vec<_> = ds
+            .layers()
+            .iter()
+            .filter(|layer| ds.rifiuto_del_layer(layer.id).is_none())
+            .cloned()
+            .collect();
+        if layers.is_empty() {
+            selected_layer_id(cli, ds.as_ref())?;
+        }
+        layers
+    } else {
+        strati_da_pubblicare(ds.layers(), Some(selected_layer_id(cli, ds.as_ref())?))?
     };
-    // Multi-layer verso destinazione single-layer: vietato (fail-closed).
-    if selected.len() > 1 && !dst.descriptor().multi_layer() {
-        return Err(local_err_doc(
-                "SINGLE_LAYER_SINK",
-                ErrorCategory::InvalidPlan,
-                ErrorPhase::Validate,
-                &PublicMessage::CuratedWith(
-                    "destinazione single-layer ma la sorgente dichiara piu' layer;                      usare --layer per sceglierne uno. Layer nella sorgente:",
-                    NumeroStrutturale::Conteggio(saturating_u64(
-                        selected.len(),
-                    )),
-                ),
-            ),
-        );
-    }
 
     // Un layer rifiutato si rifiuta prima di preparare il sink, come in
     // `io.read`: il rifiuto che esce e' il suo.
@@ -1406,6 +1487,26 @@ pub fn cmd_convert(cli: &Cli) -> CliResult {
     let mut layer_reports = Vec::new();
     let mut total_rows = 0usize;
     let mut read_loss = LossReport::default();
+    if cli.layer.is_none()
+        && ds.explicit_layer().is_none()
+        && ds.default_layer().is_none()
+        && dst.descriptor().multi_layer()
+    {
+        for layer in ds.layers() {
+            if let Some(reason) = ds.rifiuto_del_layer(layer.id) {
+                read_loss.record("source_object_not_readable", 1);
+                read_loss.add_example(plenora_io_core::loss::LossExample {
+                    category: "source_object_not_readable".to_owned(),
+                    posizione: plenora_io_core::loss::Posizione {
+                        layer_index: Some(u64::from(layer.id.0)),
+                        field_index: None,
+                        type_class: None,
+                    },
+                    context: format!("{:?}: {:?}", reason.code, reason.capability_reason),
+                });
+            }
+        }
+    }
     for (sink_idx, l) in selected.iter().enumerate() {
         let mut reader = ds
             .open_layer_reader(&read_request(cli, l.id.0, ReadScope::Complete))
@@ -1432,7 +1533,7 @@ pub fn cmd_convert(cli: &Cli) -> CliResult {
         layer_reports.push(json!({"name": l.name, "rows": rows, "batches": batches}));
     }
     let published = writer.finish().map_err(map_err)?;
-    let read_fidelity = initial_read_fidelity.with_loss_report(&read_loss);
+    let read_fidelity = ds.fidelity_assessment().with_loss_report(&read_loss);
     let conversion_fidelity = combined_fidelity(&read_fidelity, &published.fidelity);
 
     let outcome = esito_di_pubblicazione(published.outcome);
@@ -1527,8 +1628,8 @@ COMANDI
     convert IN OUT --from F --to G   converte fra due formati espliciti
 
 SCOPERTA
-    --help             questo testo
-    --version          la versione del componente, nella busta comune
+    --help, -h         questo testo; anche <comando> --help
+    --version, -V      la versione del componente, nella busta comune
 
 Ogni comando emette un documento JSON su stdout e niente su stderr. Il codice
 d'uscita e' la proiezione della categoria d'errore: 0 riuscito, 2 configurazione
@@ -1560,6 +1661,17 @@ pub fn run() -> EsitoDelComando {
 /// segnali li governa l'interprete. Le due vie chiamano questa funzione, e
 /// rendono quindi lo stesso esito per gli stessi argomenti.
 pub fn esegui(args: &[String], cancellazione: &CancellationToken) -> EsitoDelComando {
+    if args.len() >= 2
+        && matches!(
+            args[0].as_str(),
+            "catalog" | "capabilities" | "read" | "write" | "convert" | "inspect" | "layers"
+        )
+        && args[1..]
+            .iter()
+            .any(|arg| matches!(arg.as_str(), "--help" | "-h"))
+    {
+        return ("help", Ok(Value::Null));
+    }
     if let Some(nome @ ("inspect" | "layers" | "read" | "write" | "convert")) =
         args.first().map(String::as_str)
     {
@@ -1567,6 +1679,9 @@ pub fn esegui(args: &[String], cancellazione: &CancellationToken) -> EsitoDelCom
             Ok(cli) => cli,
             Err(errore) => return (nome_canonico(nome), Err(errore)),
         };
+        if let Err(error) = cli::validate_command(nome, &cli) {
+            return (nome_canonico(nome), Err(error));
+        }
         let esito = match nome {
             "inspect" => cmd_inspect(&cli),
             "layers" => cmd_layers(&cli),
@@ -1621,7 +1736,7 @@ pub fn esegui(args: &[String], cancellazione: &CancellationToken) -> EsitoDelCom
         _ => (
             COMANDO_IGNOTO,
             Err(usage_err(&PublicMessage::Curated(
-                "uso: plenora-io <catalog|inspect|layers|read|convert> [--format json] \
+                "uso: plenora-io <capabilities|catalog|inspect|layers|read|write|convert> [--format json] \
                  | --help | --version",
             ))),
         ),
@@ -1640,7 +1755,7 @@ pub fn uscita_del_processo(esito: EsitoDelComando) -> (i32, String) {
         // `--help` e' l'unico esito che non e' una busta: e' testo per
         // persone, e CLI 2.0 non vincola il formato umano. Esce 0 su stdout
         // come ogni successo.
-        ("help", Ok(Value::Null)) => (0, AIUTO.to_owned()),
+        ("help", Ok(Value::Null)) => (0, format!("{AIUTO}\nFLAG DEI COMANDI\n{OPZIONI_AMMESSE}\n")),
         (comando, Ok(corpo)) => (0, format!("{}\n", busta_di_successo(comando, corpo))),
         // La busta d'errore esce su **stdout**, e stderr resta vuoto.
         (comando, Err((uscita, documento))) => {
@@ -1718,12 +1833,12 @@ fn messaggio_del_panico(payload: &(dyn std::any::Any + Send)) -> String {
 //    CLI promette redazione dei valori derivati dall'input.
 // 2. Il primo fix installava un hook che scriveva su stderr
 //    `[panic] impronta=... location=...`. La redazione era rispettata, ma
-//    la CLI promette anche "un solo documento JSON su stderr per errore".
+//    la CLI promette anche "un solo documento JSON su stdout per errore".
 //    Nel caso di panico caught dalla barriera `leggendo_arrow`, l'hook
 //    stampava una riga E la CLI stampava l'envelope JSON: due uscite.
 // 3. Questo fix silenzia il hook. Il wrapping `catch_unwind` in `main`
 //    intercetta i panici che sfuggono al `run()` e li converte in un
-//    unico envelope `plenora-io-error-v1` su stderr. La correlabilita' e'
+//    unico envelope `plenora-error-v1` su stdout. La correlabilita' e'
 //    preservata via l'impronta calcolata dentro l'envelope; il caso
 //    "panico caught dentro la libreria" resta invisibile perche' la
 //    libreria stessa produce gia' l'envelope corretto tramite

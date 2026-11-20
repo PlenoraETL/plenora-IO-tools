@@ -132,7 +132,7 @@ fn il_budget_d_uscita_esaurito_non_lascia_destinazione_ne_residui() {
     // e' avvenuta, la scrittura e' finita e si sta pubblicando. Era `validate`
     // fino a questa correzione, e diceva a chi legge che l'operazione non
     // aveva cominciato.
-    assert_eq!(errore["phase"], "commit", "{busta}");
+    assert_eq!(errore["phase"], "finalize", "{busta}");
 
     // L'attestazione del lavoro svolto: il messaggio nomina i byte **prodotti**,
     // che coincidono con quelli della corsa riuscita. Solo uno staging scritto
@@ -186,8 +186,8 @@ fn un_wkt_malformato_e_rifiutato_dall_inferenza_prima_dello_stream() {
     // Valeva `validate` finche' la fase la dichiarava il parser, che non sa in
     // quale passata sta girando.
     assert_eq!(
-        errore["phase"], "prepare",
-        "l'inferenza gira dentro `open`, come `reader_busy`: {busta}"
+        errore["phase"], "read",
+        "il contenuto viene analizzato nella fase read: {busta}"
     );
 
     assert!(!uscita.exists(), "la destinazione non deve esistere");
@@ -238,13 +238,13 @@ fn un_guasto_nel_loop_di_lettura_dichiara_la_fase_di_lettura() {
 
     let (codice, busta) = converti(&ingresso, &uscita, &["--max-wkb-cell-bytes", "1000"]);
 
-    assert_eq!(codice, Some(3), "il codice d'uscita del formato: {busta}");
+    assert_eq!(codice, Some(4), "il codice d'uscita del formato: {busta}");
     let errore = &busta["error"];
     assert_eq!(
         errore["phase"], "read",
         "il rifiuto arriva nel loop, dopo che `read_record` e' riuscito: {busta}"
     );
-    assert_eq!(errore["category"], "data_mapping", "{busta}");
+    assert_eq!(errore["category"], "resource_limit", "{busta}");
     assert_eq!(errore["retry"]["kind"], "never", "{busta}");
     assert_eq!(errore["remote_effect"], "none", "{busta}");
 

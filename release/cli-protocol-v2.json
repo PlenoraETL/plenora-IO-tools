@@ -1097,7 +1097,7 @@
           "tipi": [
             "object"
           ],
-          "sempre": true
+          "sempre": false
         },
         ".result.conversion_fidelity.reasons[].code": {
           "tipi": [
@@ -1710,6 +1710,36 @@
             "integer"
           ],
           "sempre": true
+        },
+        ".result.read_loss.esempi[].field_index": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": false
+        },
+        ".result.conversion_fidelity.reasons[].type_class": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
+        },
+        ".result.read_fidelity.reasons[].field_index": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": false
+        },
+        ".result.read_fidelity.reasons[].layer_index": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": false
+        },
+        ".result.write_fidelity.reasons[].type_class": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
         }
       },
       "required_result_fields": [
@@ -1814,7 +1844,7 @@
           "tipi": [
             "object"
           ],
-          "sempre": true
+          "sempre": false
         },
         ".error.details.row_diagnostics.completeness": {
           "tipi": [
@@ -1953,6 +1983,12 @@
             "string"
           ],
           "sempre": true
+        },
+        ".error.details.capability_reason": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
         }
       },
       "stato": "contratto separato, riutilizzato dal v2 senza modifiche",
@@ -2676,6 +2712,108 @@
             "string"
           ],
           "sempre": true
+        },
+        ".result.layers[].status": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": false
+        },
+        ".result.layers[].status.error.contract": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error.category": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error.code": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error.details": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error.details.capability_reason": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error.message": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error.phase": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error.remote_effect": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error.retry": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error.retry.kind": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.protocol_version": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.status": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.readable": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.visibility": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
         }
       },
       "required_result_fields": [
@@ -2859,6 +2997,108 @@
             "string"
           ],
           "sempre": true
+        },
+        ".result.layers[].status": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": false
+        },
+        ".result.layers[].status.error.contract": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error.category": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error.code": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error.details": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error.details.capability_reason": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error.message": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error.phase": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error.remote_effect": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error.retry": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.error.retry.kind": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.protocol_version": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.error.status": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.readable": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".result.layers[].status.visibility": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
         }
       },
       "required_result_fields": [
@@ -3349,24 +3589,39 @@
             "integer"
           ],
           "sempre": true
+        },
+        ".result.loss.esempi[].field_index": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": false
+        },
+        ".result.fidelity.reasons[].field_index": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": false
+        },
+        ".result.fidelity.reasons[].layer_index": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": false
         }
       },
       "semantica": {
-        "nota": "il **significato** di due valori, che la struttura non dice. La ratifica del 2026-09-04 ha censito la forma delle buste -- quali campi escono, di che tipo, e se ci siano sempre -- e non che cosa affermino. Per `rows_read` e `truncated` la differenza si vede, perche' i nomi suggeriscono qualcosa di piu' forte di cio' che il prodotto misura.",
+        "nota": "R4e: arresto alla riga N, senza esame della coda.",
         "limit": {
-          "clausola": "`--limit` e' una soglia verificata **fra un batch e il successivo**, non un taglio dentro un batch. Il ciclo di lettura chiede il batch, lo conta per intero, e solo allora guarda se il limite sia stato raggiunto: `rows_read` puo' percio' superare il limite della parte residua del batch corrente, e su un file letto in un colpo solo lo supera sempre.",
-          "perche": "e' una conseguenza dello streaming. Fermarsi a meta' di un batch vorrebbe dire consegnarne uno parziale a chi lo conta, e il conteggio non direbbe piu' quante righe il reader ha davvero decodificato -- che e' cio' che `rows_read` promette.",
-          "cosa_non_e": "un tetto di sicurezza. Chi deve limitare il lavoro in modo stretto usa `--max-rows`, che e' un limite del budget e produce un rifiuto tipizzato; `--limit` e' un assaggio, e si ferma appena puo'.",
+          "clausola": "--limit N ferma lettura e inferenza alla riga N; zero e rifiutato come invalid_configuration.",
+          "cosa_non_e": "Una quota di byte: i formati a blocchi possono acquisire il blocco contenente N e i metadati condivisi, ma non validano i valori delle righe oltre N.",
           "verificata_da": [
-            "read_limit_is_checked_between_batches_so_rows_may_exceed_it"
+            "read_limit_counts_exact_rows"
           ]
         },
         "truncated": {
-          "clausola": "**arresto per limite con EOF non accertato**. Dice che la lettura si e' fermata perche' il limite e' stato raggiunto, e che il reader non ha osservato la fine del file. Non dice che esistano altre righe: con un limite pari al numero di righe del file esce `true` pur avendole lette tutte.",
-          "perche_prudente": "per sapere che non c'e' altro bisognerebbe chiedere un batch in piu' e vederlo tornare vuoto, cioe' leggere oltre il limite che il chiamante ha imposto. Affermare l'EOF senza averlo osservato sarebbe la peggiore delle due imprecisioni: chi si fidasse concluderebbe che il file e' finito quando potrebbe non esserlo.",
-          "cosa_non_distingue": "«mi sono fermato al limite e c'era altro» da «mi sono fermato al limite e non c'era altro». Nessun campo della busta li separa, e separarli richiederebbe un campo nuovo -- non un valore diverso in questo.",
+          "clausola": "true significa limite raggiunto, coda non esaminata, anche con esattamente N righe; false significa EOF osservato prima del limite o in lettura senza limite.",
           "verificata_da": [
-            "read_truncated_means_stopped_at_the_limit_not_that_more_rows_exist"
+            "read_truncated_means_limit_reached"
           ]
         }
       },
@@ -3588,7 +3843,7 @@
           "tipi": [
             "object"
           ],
-          "sempre": true
+          "sempre": false
         },
         ".result.fidelity.reasons[].code": {
           "tipi": [
@@ -3870,7 +4125,7 @@
           "tipi": [
             "object"
           ],
-          "sempre": true
+          "sempre": false
         },
         ".result.write_fidelity.reasons[].code": {
           "tipi": [
@@ -3918,7 +4173,7 @@
           "tipi": [
             "object"
           ],
-          "sempre": true
+          "sempre": false
         },
         ".result.write_loss.counts[].categoria": {
           "tipi": [
@@ -3942,7 +4197,7 @@
           "tipi": [
             "object"
           ],
-          "sempre": true
+          "sempre": false
         },
         ".result.write_loss.esempi[].category": {
           "tipi": [
@@ -4090,6 +4345,18 @@
             "string"
           ],
           "sempre": true
+        },
+        ".result.fidelity.reasons[].type_class": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
+        },
+        ".result.write_fidelity.reasons[].type_class": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
         }
       }
     }

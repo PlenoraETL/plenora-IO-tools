@@ -306,6 +306,15 @@ class SondeScopeCoverage(unittest.TestCase):
         radice = self.albero()
         self.assertTrue(verifica_report(radice, self.con_lcov(radice, "")))
 
+    def test_report_con_mappature_di_un_sorgente_precedente(self) -> None:
+        radice = self.albero()
+        percorso = self.con_lcov(
+            radice,
+            LCOV + "SF:/work/crates/libro/src/lib.rs\nDA:9999,0\nend_of_record\n",
+        )
+        errori = verifica_report(radice, percorso)
+        self.assertTrue(any("oltre la fine del sorgente" in m for m in errori), errori)
+
     def test_report_assente(self) -> None:
         radice = self.albero()
         self.assertTrue(verifica_report(radice, radice / "lcov.info"))

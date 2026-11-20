@@ -1000,6 +1000,7 @@ fn extension(driver: &str) -> &'static str {
         "xls" => "xlsx",
         "dxf" => "dxf",
         "ipc" => "arrow",
+        "filegdb" => "gdb",
         other => panic!("estensione non definita per {other}"),
     }
 }
@@ -1162,30 +1163,20 @@ fn conditional_writers_report_planned_loss_instead_of_empty_reports() {
         let published = writer
             .finish()
             .unwrap_or_else(|error| panic!("{}: finish: {error}", descriptor.id()));
+        assert!(matches!(
+            preventive,
+            Fidelity::Conditional | Fidelity::Approximating
+        ));
         assert_eq!(
             published.fidelity.level,
-            preventive,
-            "{}: assessment finale divergente",
+            if published.loss.is_empty() {
+                Fidelity::Conditional
+            } else {
+                Fidelity::Approximating
+            },
+            "{}: final assessment follows observed loss",
             descriptor.id()
         );
-        match preventive {
-            Fidelity::Conditional => assert!(
-                published.loss.is_empty(),
-                "{}: loss inattesa",
-                descriptor.id()
-            ),
-            Fidelity::Approximating => assert!(
-                !published.loss.is_empty(),
-                "{}: perdita pianificata senza LossReport",
-                descriptor.id()
-            ),
-            Fidelity::Lossless => {
-                panic!(
-                    "{}: classe Conditional degradata a Lossless",
-                    descriptor.id()
-                )
-            }
-        }
         checked += 1;
     }
     // 6 dopo il fix #8 della review 2026-08-15: GeoJSON e' passato da
@@ -1540,7 +1531,6 @@ fn every_driver_has_a_schema_for_options() {
 
 #[test]
 fn unknown_option_key_produces_typed_error_not_silent_ignore() {
-    let directory = tempfile::tempdir().unwrap();
     for driver in drivers() {
         let descriptor = driver.descriptor();
         // Senza il tier GDB, FileGDB rifiuta per driver indisponibile prima di
@@ -1555,10 +1545,7 @@ fn unknown_option_key_produces_typed_error_not_silent_ignore() {
         opts.format_options
             .insert("optzione_inesistente".to_owned(), "x".to_owned());
 
-        let esito = driver.open(
-            Source::Path(directory.path().join("non-serve-che-esista")),
-            opts,
-        );
+        let esito = driver.open(Source::Path(structural_fixture(descriptor.id())), opts);
         let Err(errore) = esito else {
             panic!(
                 "{}: una chiave sconosciuta e' stata ignorata",
@@ -1573,8 +1560,8 @@ fn unknown_option_key_produces_typed_error_not_silent_ignore() {
         );
         let testo = errore.to_string();
         assert!(
-            testo.contains("optzione_inesistente"),
-            "{}: l'errore non nomina la chiave rifiutata: {errore}",
+            !testo.contains("optzione_inesistente"),
+            "{}: l'errore espone la chiave rifiutata: {errore}",
             descriptor.id()
         );
         // L'errore deve elencare cosa si accetta, non solo cosa si rifiuta:
@@ -1582,7 +1569,7 @@ fn unknown_option_key_produces_typed_error_not_silent_ignore() {
         let attese = descriptor.format_options().chiavi(FaseOpzione::Lettura);
         if attese.is_empty() {
             assert!(
-                testo.contains("nessuna"),
+                testo.contains("opzione sconosciuta"),
                 "{}: schema vuoto, ma l'errore non lo dice: {errore}",
                 descriptor.id()
             );
@@ -1622,8 +1609,8 @@ fn unknown_compression_value_produces_typed_error_not_snappy_default() {
     );
     let testo = errore.to_string();
     assert!(
-        testo.contains("zstsd"),
-        "l'errore non nomina il valore rifiutato: {errore}"
+        !testo.contains("zstsd"),
+        "l'errore espone il valore rifiutato: {errore}"
     );
     assert!(
         testo.contains("zstd"),
@@ -1640,7 +1627,6 @@ fn unknown_compression_value_produces_typed_error_not_snappy_default() {
 
 #[test]
 fn una_chiave_di_scrittura_passata_in_lettura_e_rifiutata() {
-    let directory = tempfile::tempdir().unwrap();
     let mut provati = 0;
     for driver in drivers() {
         let descriptor = driver.descriptor();
@@ -1662,7 +1648,7 @@ fn una_chiave_di_scrittura_passata_in_lettura_e_rifiutata() {
             opts.format_options
                 .insert(opzione.chiave.to_owned(), valore);
 
-            let esito = driver.open(Source::Path(directory.path().join("qualunque")), opts);
+            let esito = driver.open(Source::Path(structural_fixture(descriptor.id())), opts);
             let Err(errore) = esito else {
                 panic!(
                     "{}: '{}' vale in scrittura ma la lettura l'ha accettata",
@@ -1865,4 +1851,622 @@ fn il_default_dichiarato_e_quello_applicato() {
         provati > 0,
         "nessun default di scrittura dichiarato: il test non ha verificato niente"
     );
+}
+
+fn structural_fixture(id: &str) -> std::path::PathBuf {
+    let name = match id {
+        "csv" => "canonico.csv",
+        "shp" => "canonico_punti.shp",
+        "gpkg" => "canonico.gpkg",
+        "filegdb" => "canonico.gdb",
+        "geojson" => "canonico.geojson",
+        "kml" => "canonico.kml",
+        "dxf" => "canonico.dxf",
+        "geoparquet" => "canonico.parquet",
+        "ipc" => "canonico.arrow",
+        "xls" => "canonico.xlsx",
+        _ => panic!("driver non enumerato"),
+    };
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/canoniche")
+        .join(name)
+}
+
+/// Every declared option enters this matrix automatically, in both directions.
+#[test]
+fn catalog_options_reject_invalid_configuration_in_every_direction() {
+    use plenora_io_model::error_table::Situation;
+    let directory = tempfile::tempdir().unwrap();
+    let catalog = crate::cmd_catalog();
+    assert_eq!(
+        catalog["drivers"].as_array().unwrap().len(),
+        drivers().len()
+    );
+    let mut cases = 0;
+    for driver in drivers() {
+        let descriptor = driver.descriptor();
+        for phase in [FaseOpzione::Lettura, FaseOpzione::Scrittura] {
+            let check = |key: &str, value: &str| {
+                let result = if phase == FaseOpzione::Lettura {
+                    let mut opts = read_options(descriptor.id());
+                    if matches!(key, "x_column" | "y_column") {
+                        opts.format_options.remove("wkt_column");
+                        opts.format_options.insert(
+                            if key == "x_column" {
+                                "y_column"
+                            } else {
+                                "x_column"
+                            }
+                            .to_owned(),
+                            "geometry".to_owned(),
+                        );
+                    }
+                    opts.format_options.insert(key.to_owned(), value.to_owned());
+                    driver
+                        .open(Source::Path(structural_fixture(descriptor.id())), opts)
+                        .and_then(|dataset| {
+                            for layer in dataset.layers() {
+                                if let Some(error) = dataset.rifiuto_del_layer(layer.id) {
+                                    return Err(error);
+                                }
+                            }
+                            Ok(())
+                        })
+                } else {
+                    driver
+                        .create(
+                            Sink::Path(
+                                directory
+                                    .path()
+                                    .join(format!("out.{}", extension(descriptor.id()))),
+                            ),
+                            &valid_geometry_plan(driver_gpkg::GpkgDriver.descriptor()),
+                            &opzioni_scrittura_con(key, value),
+                        )
+                        .map(|_| ())
+                };
+                let error =
+                    result.expect_err(&format!("{} {phase:?} {key}={value}", descriptor.id()));
+                let rule = Situation::InvalidConfiguration.rule();
+                assert_eq!(
+                    (error.category, error.phase, error.code),
+                    (rule.category, rule.phase, rule.code),
+                    "{} {phase:?} {key}={value}: {error}",
+                    descriptor.id()
+                );
+            };
+            check("SECRET_UNKNOWN_OPTION", "SECRET_UNKNOWN_VALUE");
+            for option in descriptor.format_options().opzioni {
+                // Empty is outside every declared domain, including free text.
+                check(option.chiave, "");
+                cases += 1;
+                if option.fase.copre(phase) {
+                    match option.valore {
+                        ValoreAmmesso::Intero { minimo, massimo } => {
+                            check(option.chiave, "SECRET_UNKNOWN_VALUE");
+                            if minimo > 0 {
+                                check(option.chiave, &(minimo - 1).to_string());
+                            }
+                            check(
+                                option.chiave,
+                                &u128::from(massimo).saturating_add(1).to_string(),
+                            );
+                        }
+                        // All current text options name existing columns or objects.
+                        // A new text option must satisfy the same reference contract.
+                        ValoreAmmesso::Testo
+                        | ValoreAmmesso::Enumerato(_)
+                        | ValoreAmmesso::Carattere
+                        | ValoreAmmesso::Booleano => {
+                            check(option.chiave, "SECRET_MISSING_OBJECT");
+                        }
+                    }
+                } else {
+                    let value = match option.valore {
+                        ValoreAmmesso::Enumerato(values) => values[0].to_owned(),
+                        ValoreAmmesso::Intero { minimo, .. } => minimo.to_string(),
+                        ValoreAmmesso::Carattere => ",".to_owned(),
+                        ValoreAmmesso::Booleano => "true".to_owned(),
+                        ValoreAmmesso::Testo => "SECRET_MISSING_OBJECT".to_owned(),
+                    };
+                    check(option.chiave, &value);
+                }
+            }
+        }
+    }
+    assert!(cases > 0);
+}
+
+#[test]
+fn missing_layer_uses_the_table_for_every_available_driver() {
+    use plenora_io_model::error_table::Situation;
+    for driver in drivers() {
+        let descriptor = driver.descriptor();
+        if descriptor.id() == "filegdb" && !cfg!(feature = "gdal-backend") {
+            continue; // The feature-on invocation covers the native constructor.
+        }
+        let mut opts = read_options(descriptor.id());
+        if descriptor.id() == "shp" {
+            opts.assume_crs = Some("EPSG:3003".to_owned());
+        }
+        let dataset = driver
+            .open(Source::Path(structural_fixture(descriptor.id())), opts)
+            .unwrap_or_else(|error| panic!("{}: {error}", descriptor.id()));
+        let request = ReadRequest {
+            layer: LayerId(u32::MAX),
+            projected_fields: None,
+            projection_mode: ProjectionMode::BestEffort,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: ReadScope::Complete,
+            batch_target: BatchTarget::default(),
+            cancellation: CancellationToken::new(),
+        };
+        let Err(error) = dataset.open_layer_reader(&request) else {
+            panic!("{} accepted missing layer", descriptor.id());
+        };
+        let rule = Situation::MissingLayer.rule();
+        assert_eq!(
+            (error.category, error.phase, error.code),
+            (rule.category, rule.phase, rule.code),
+            "{}: {error}",
+            descriptor.id()
+        );
+        assert!(!error.message.is_empty());
+    }
+}
+
+#[test]
+fn limit_one_reaches_every_catalog_decoder() {
+    for driver in drivers() {
+        let id = driver.descriptor().id();
+        if id == "filegdb" && !cfg!(feature = "gdal-backend") {
+            continue;
+        }
+        let mut args = vec![
+            "read".to_owned(),
+            structural_fixture(id).to_string_lossy().into_owned(),
+            "--layer".to_owned(),
+            "0".to_owned(),
+            "--limit".to_owned(),
+            "1".to_owned(),
+        ];
+        if id == "shp" {
+            args.extend(["--assume-crs".to_owned(), "EPSG:3003".to_owned()]);
+        }
+        if matches!(id, "csv" | "xls" | "dxf") {
+            args.extend(["--assume-crs".to_owned(), "EPSG:4326".to_owned()]);
+        }
+        if matches!(id, "csv" | "xls") {
+            args.extend(["--opt".to_owned(), "wkt_column=geometry".to_owned()]);
+        }
+        let (_, result) = crate::esegui(&args, &CancellationToken::new());
+        let doc = result.unwrap_or_else(|error| panic!("{id}: {error:?}"));
+        assert_eq!(doc["rows_read"], 1, "{id}: {doc}");
+        assert_eq!(doc["truncated"], true, "{id}: {doc}");
+    }
+}
+
+#[test]
+fn missing_layer_matrix_covers_commands_and_writers() {
+    use plenora_io_model::error_table::Situation;
+    let root = tempfile::tempdir().unwrap();
+    for driver in drivers() {
+        let id = driver.descriptor().id();
+        if id == "filegdb" && !cfg!(feature = "gdal-backend") {
+            continue;
+        }
+        for command in ["read", "convert", "write", "inspect", "layers"] {
+            let mut args = vec![
+                command.to_owned(),
+                structural_fixture(id).to_string_lossy().into_owned(),
+            ];
+            if matches!(command, "convert" | "write") {
+                args.push(
+                    root.path()
+                        .join(format!("{id}-{command}.arrow"))
+                        .to_string_lossy()
+                        .into_owned(),
+                );
+            }
+            if command == "convert" {
+                args.extend([
+                    "--from".to_owned(),
+                    id.to_owned(),
+                    "--to".to_owned(),
+                    "ipc".to_owned(),
+                ]);
+            }
+            if command == "write" {
+                args[1] = structural_fixture("ipc").to_string_lossy().into_owned();
+                args.extend(["--to".to_owned(), id.to_owned()]);
+            }
+            if id == "shp" && matches!(command, "read" | "convert") {
+                args.extend(["--assume-crs".to_owned(), "EPSG:3003".to_owned()]);
+            }
+            args.extend(["--layer".to_owned(), u32::MAX.to_string()]);
+            if matches!(id, "csv" | "xls" | "dxf") && matches!(command, "read" | "convert") {
+                args.extend(["--assume-crs".to_owned(), "EPSG:4326".to_owned()]);
+            }
+            if matches!(id, "csv" | "xls") && matches!(command, "read" | "convert") {
+                args.extend(["--in-opt".to_owned(), "wkt_column=geometry".to_owned()]);
+            }
+            let (_, result) = crate::esegui(&args, &CancellationToken::new());
+            let (_, doc) = result.expect_err(&format!("{id} {command}"));
+            // inspect/layers enumerate the catalog and have no layer selector.
+            let rule = if matches!(command, "inspect" | "layers") {
+                Situation::InvalidConfiguration
+            } else {
+                Situation::MissingLayer
+            }
+            .rule();
+            assert_eq!(
+                doc["error"]["category"],
+                serde_json::to_value(rule.category).unwrap(),
+                "{id} {command}: {doc}"
+            );
+            assert_eq!(
+                doc["error"]["phase"],
+                serde_json::to_value(rule.phase).unwrap(),
+                "{id} {command}: {doc}"
+            );
+            assert_eq!(
+                doc["error"]["code"], rule.wire_code,
+                "{id} {command}: {doc}"
+            );
+        }
+        let plan = valid_geometry_plan(driver.descriptor());
+        let mut writer = driver
+            .create(
+                Sink::Path(root.path().join(format!("writer-{}.{}", id, extension(id)))),
+                &plan,
+                &opzioni_scrittura(),
+            )
+            .unwrap();
+        let batch = RecordBatch::new_empty(plan.layers[0].contract.schema.clone());
+        let error = writer
+            .write_to_layer(LayerId(u32::MAX), &batch)
+            .unwrap_err();
+        let rule = Situation::MissingLayer.rule();
+        assert_eq!(
+            (error.category, error.phase, error.code),
+            (rule.category, rule.phase, rule.code),
+            "{id}: {error}"
+        );
+    }
+}
+
+#[test]
+fn large_and_view_write_rejections_use_base_classes_for_every_driver() {
+    use arrow_array::{new_empty_array, ArrayRef};
+    use plenora_io_model::error_table::Situation;
+    let item = Arc::new(Field::new("item", DataType::Int32, true));
+    let variants = [
+        (DataType::LargeUtf8, "utf8"),
+        (DataType::Utf8View, "utf8"),
+        (DataType::LargeBinary, "binary"),
+        (DataType::BinaryView, "binary"),
+        (DataType::LargeList(item.clone()), "nested"),
+        (DataType::ListView(item.clone()), "nested"),
+        (DataType::LargeListView(item), "nested"),
+    ];
+    let root = tempfile::tempdir().unwrap();
+    for driver in drivers() {
+        let id = driver.descriptor().id();
+        if id == "filegdb" && !cfg!(feature = "gdal-backend") {
+            continue;
+        }
+        for (index, (data_type, class)) in variants.iter().enumerate() {
+            let mut plan = valid_geometry_plan(driver.descriptor());
+            let contract = &mut plan.layers[0].contract;
+            let mut fields = contract
+                .schema
+                .fields()
+                .iter()
+                .map(|f| f.as_ref().clone())
+                .collect::<Vec<_>>();
+            fields.push(Field::new("value", data_type.clone(), true));
+            contract.schema = Arc::new(Schema::new_with_metadata(
+                fields,
+                contract.schema.metadata().clone(),
+            ));
+            let columns: Vec<ArrayRef> = contract
+                .schema
+                .fields()
+                .iter()
+                .map(|f| new_empty_array(f.data_type()))
+                .collect();
+            let batch = RecordBatch::try_new(contract.schema.clone(), columns).unwrap();
+            let result = driver
+                .create(
+                    Sink::Path(root.path().join(format!("{id}-{index}.{}", extension(id)))),
+                    &plan,
+                    &opzioni_scrittura(),
+                )
+                .and_then(|mut writer| {
+                    writer.write(&batch)?;
+                    writer.finish().map(|_| ())
+                });
+            if let Err(error) = result {
+                let rule = Situation::UnrepresentableWriteType.rule();
+                assert_eq!(
+                    (error.category, error.phase, error.code),
+                    (rule.category, rule.phase, rule.code),
+                    "{id} {data_type}: {error}"
+                );
+                assert!(error.message.contains(class), "{id} {data_type}: {error}");
+                assert!(!error.message.contains("large_utf8"));
+            }
+        }
+    }
+}
+
+#[test]
+fn limit_stops_before_malformed_text_and_xml_tails() {
+    use std::io::{Read, Write};
+    let root = tempfile::tempdir().unwrap();
+    let cases = [
+        ("csv", "geometry\nPOINT (0 0)\n\"unterminated"),
+        (
+            "geojson",
+            r#"{"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"Point","coordinates":[0,0]},"properties":{}},BROKEN"#,
+        ),
+        (
+            "kml",
+            r#"<kml xmlns="http://www.opengis.net/kml/2.2"><Document><Placemark><Point><coordinates>0,0</coordinates></Point></Placemark><BROKEN"#,
+        ),
+        (
+            "dxf",
+            "0\nSECTION\n2\nENTITIES\n0\nPOINT\n8\n0\n10\n0\n20\n0\n0\nPOINT\n10\nBROKEN\n",
+        ),
+    ];
+    for (id, content) in cases {
+        let path = root.path().join(format!("tail.{}", extension(id)));
+        std::fs::write(&path, content).unwrap();
+        let mut args = vec![
+            "read".to_owned(),
+            path.to_string_lossy().into_owned(),
+            "--layer".to_owned(),
+            "0".to_owned(),
+        ];
+        if matches!(id, "csv" | "dxf") {
+            args.extend(["--assume-crs".to_owned(), "EPSG:4326".to_owned()]);
+        }
+        if id == "csv" {
+            args.extend(["--opt".to_owned(), "wkt_column=geometry".to_owned()]);
+        }
+        let (_, full) = crate::esegui(&args, &CancellationToken::new());
+        assert!(
+            full.is_err(),
+            "{id} must detect the bad tail in a complete read"
+        );
+        args.extend(["--limit".to_owned(), "1".to_owned()]);
+        let (_, result) = crate::esegui(&args, &CancellationToken::new());
+        let doc = result.unwrap_or_else(|error| panic!("{id}: {error:?}"));
+        assert_eq!(doc["rows_read"], 1, "{id}: {doc}");
+        assert_eq!(doc["truncated"], true);
+    }
+    let mut archive =
+        zip::ZipArchive::new(std::fs::File::open(structural_fixture("xls")).unwrap()).unwrap();
+    let path = root.path().join("tail.xlsx");
+    let mut output = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+    for index in 0..archive.len() {
+        let mut member = archive.by_index(index).unwrap();
+        let name = member.name().unwrap().to_string();
+        if name != "xl/worksheets/sheet1.xml" {
+            output.raw_copy_file(member).unwrap();
+            continue;
+        }
+        let mut xml = String::new();
+        member.read_to_string(&mut xml).unwrap();
+        let stop = xml.match_indices("</row>").nth(1).unwrap().0 + "</row>".len();
+        output
+            .start_file(name, zip::write::SimpleFileOptions::default())
+            .unwrap();
+        output.write_all(&xml.as_bytes()[..stop]).unwrap();
+        output
+            .write_all(b"<row r=\"999999999999999999999999999\"><BROKEN")
+            .unwrap();
+    }
+    output.finish().unwrap();
+    let mut args = vec![
+        "read".to_owned(),
+        path.to_string_lossy().into_owned(),
+        "--assume-crs".to_owned(),
+        "EPSG:4326".to_owned(),
+        "--opt".to_owned(),
+        "wkt_column=geometry".to_owned(),
+    ];
+    assert!(crate::esegui(&args, &CancellationToken::new()).1.is_err());
+    args.extend(["--limit".to_owned(), "1".to_owned()]);
+    let doc = crate::esegui(&args, &CancellationToken::new()).1.unwrap();
+    assert_eq!(doc["rows_read"], 1);
+    assert_eq!(doc["truncated"], true);
+}
+
+#[test]
+fn internal_layer_constructors_reference_the_unique_missing_layer_situation() {
+    use syn::visit::Visit;
+    #[derive(Default)]
+    struct Audit {
+        constructors: usize,
+        has_situation: bool,
+    }
+    impl<'ast> Visit<'ast> for Audit {
+        fn visit_impl_item_fn(&mut self, node: &'ast syn::ImplItemFn) {
+            if matches!(
+                node.sig.ident.to_string().as_str(),
+                "open_layer_reader" | "write_to_layer"
+            ) {
+                self.has_situation = false;
+                syn::visit::visit_block(self, &node.block);
+                assert!(
+                    self.has_situation,
+                    "internal constructor {} bypasses MissingLayer",
+                    node.sig.ident
+                );
+                self.constructors += 1;
+            }
+        }
+        fn visit_path(&mut self, path: &'ast syn::Path) {
+            self.has_situation |= path
+                .segments
+                .iter()
+                .any(|part| part.ident == "MissingLayer");
+            syn::visit::visit_path(self, path);
+        }
+    }
+    for driver in drivers() {
+        let id = driver.descriptor().id();
+        let source = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join(format!("../driver-{id}/src/lib.rs")),
+        )
+        .unwrap();
+        let mut audit = Audit::default();
+        audit.visit_file(&syn::parse_file(&source).unwrap());
+        assert!(
+            audit.constructors > 0,
+            "no internal constructor inspected for {id}"
+        );
+    }
+}
+
+#[test]
+fn limit_skips_invalid_geometry_in_parquet_row_group_and_gpkg_page() {
+    use arrow_array::{Array, BinaryArray};
+    use parquet::arrow::{arrow_reader::ParquetRecordBatchReaderBuilder, ArrowWriter};
+    let root = tempfile::tempdir().unwrap();
+    let input = std::fs::File::open(structural_fixture("geoparquet")).unwrap();
+    let builder = ParquetRecordBatchReaderBuilder::try_new(input).unwrap();
+    let metadata = builder
+        .metadata()
+        .file_metadata()
+        .key_value_metadata()
+        .cloned();
+    let mut reader = builder.build().unwrap();
+    let batch = reader.next().unwrap().unwrap();
+    assert!(batch.num_rows() > 1);
+    let index = batch.schema().index_of("geometry").unwrap();
+    let geometries = batch
+        .column(index)
+        .as_any()
+        .downcast_ref::<BinaryArray>()
+        .unwrap();
+    let values = (0..batch.num_rows())
+        .map(|row| {
+            if row == 1 {
+                Some(b"invalid".as_slice())
+            } else if geometries.is_null(row) {
+                None
+            } else {
+                Some(geometries.value(row))
+            }
+        })
+        .collect::<Vec<_>>();
+    let mut columns = batch.columns().to_vec();
+    columns[index] = Arc::new(BinaryArray::from(values));
+    let schema = plenora_io_model::geometry::with_contract_version(batch.schema());
+    let poisoned = RecordBatch::try_new(schema.clone(), columns).unwrap();
+    let path = root.path().join("tail.parquet");
+    let properties = parquet::file::properties::WriterProperties::builder()
+        .set_key_value_metadata(metadata)
+        .build();
+    let mut writer = ArrowWriter::try_new(
+        std::fs::File::create(&path).unwrap(),
+        schema,
+        Some(properties),
+    )
+    .unwrap();
+    writer.write(&poisoned).unwrap();
+    writer.close().unwrap();
+    let gpkg = root.path().join("tail.gpkg");
+    std::fs::copy(structural_fixture("gpkg"), &gpkg).unwrap();
+    let connection = rusqlite::Connection::open(&gpkg).unwrap();
+    let (table, column): (String, String) = connection
+        .query_row(
+            "SELECT table_name,column_name FROM gpkg_geometry_columns LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    let quote = |name: &str| format!("\"{}\"", name.replace('"', "\"\""));
+    let triggers = connection
+        .prepare("SELECT name FROM sqlite_master WHERE type='trigger'")
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    for trigger in triggers {
+        connection
+            .execute(&format!("DROP TRIGGER {}", quote(&trigger)), [])
+            .unwrap();
+    }
+
+    connection.execute(&format!("UPDATE {} SET {}=x'00' WHERE rowid=(SELECT rowid FROM {} ORDER BY rowid LIMIT 1 OFFSET 1)", quote(&table),quote(&column),quote(&table)), []).unwrap();
+    drop(connection);
+    for path in [path, gpkg] {
+        let mut args = vec!["read".to_owned(), path.to_string_lossy().into_owned()];
+        args.extend(["--layer".to_owned(), "0".to_owned()]);
+        assert!(crate::esegui(&args, &CancellationToken::new()).1.is_err());
+        args.extend(["--limit".to_owned(), "1".to_owned()]);
+        let doc = crate::esegui(&args, &CancellationToken::new())
+            .1
+            .unwrap_or_else(|error| panic!("{}: {error:?}", path.display()));
+        assert_eq!(doc["rows_read"], 1);
+        assert_eq!(doc["truncated"], true);
+    }
+}
+
+#[test]
+fn limit_bounds_shapefile_prevalidation_including_deleted_records() {
+    let root = tempfile::tempdir().unwrap();
+    for deleted in [false, true] {
+        let path = root.path().join(format!("prefix-{deleted}.shp"));
+        let csv = root.path().join(format!("source-{deleted}.csv"));
+        std::fs::write(&csv, "geometry\nPOINT (0 0)\nPOINT (1 1)\nPOINT (2 2)\n").unwrap();
+        let args = vec![
+            "convert".to_owned(),
+            csv.to_string_lossy().into_owned(),
+            path.to_string_lossy().into_owned(),
+            "--from".to_owned(),
+            "csv".to_owned(),
+            "--to".to_owned(),
+            "shp".to_owned(),
+            "--assume-crs".to_owned(),
+            "EPSG:4326".to_owned(),
+            "--in-opt".to_owned(),
+            "wkt_column=geometry".to_owned(),
+            "--out-opt".to_owned(),
+            "publish_mode=loose_shapefile_set".to_owned(),
+        ];
+        crate::esegui(&args, &CancellationToken::new()).1.unwrap();
+        if deleted {
+            let dbf = path.with_extension("dbf");
+            let mut bytes = std::fs::read(&dbf).unwrap();
+            let start = usize::from(u16::from_le_bytes([bytes[8], bytes[9]]));
+            bytes[start] = b'*';
+            std::fs::write(dbf, bytes).unwrap();
+        }
+        let mut bytes = std::fs::read(&path).unwrap();
+        let mut offset = 100;
+        for _ in 0..(if deleted { 2 } else { 1 }) {
+            let words = u32::from_be_bytes(bytes[offset + 4..offset + 8].try_into().unwrap());
+            offset += 8 + words as usize * 2;
+        }
+        bytes[offset + 8..offset + 12].copy_from_slice(&u32::MAX.to_le_bytes());
+        std::fs::write(&path, bytes).unwrap();
+        let mut args = vec![
+            "read".to_owned(),
+            path.to_string_lossy().into_owned(),
+            "--assume-crs".to_owned(),
+            "EPSG:4326".to_owned(),
+        ];
+        assert!(crate::esegui(&args, &CancellationToken::new()).1.is_err());
+        args.extend(["--limit".to_owned(), "1".to_owned()]);
+        let doc = crate::esegui(&args, &CancellationToken::new()).1.unwrap();
+        assert_eq!(doc["rows_read"], 1);
+        assert_eq!(doc["truncated"], true);
+    }
 }

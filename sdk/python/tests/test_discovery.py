@@ -187,18 +187,11 @@ class LaScoperta(SenzaAmbiente):
         os.environ[VARIABILE] = str(albero.binario)
         self.assertEqual(trova_binario(), albero.binario.resolve())
 
-    def test_un_esplicito_inesistente_non_zittisce_l_ambiente(self) -> None:
-        """L'ordine e' una preferenza, non un'esclusione.
-
-        Un percorso indicato e assente non deve interrompere la ricerca: chi lo
-        ha scritto ha detto «prova prima qui», non «solo qui». Ma deve comparire
-        fra i posti guardati, se poi non si trova niente.
-        """
-        albero = AlberoFinto(self.tmp / "albero")
+    def test_un_esplicito_inesistente_non_ripiega_sull_ambiente(self) -> None:
+        albero = AlberoFinto(self.tmp / "altro")
         os.environ[VARIABILE] = str(albero.binario)
-        self.assertEqual(
-            trova_binario(self.tmp / "non-esiste"), albero.binario.resolve()
-        )
+        with self.assertRaises(BinaryNotFound):
+            trova_binario(self.tmp / "inesistente")
 
     def test_senza_niente_dice_dove_ha_cercato(self) -> None:
         """Il valore dell'errore non e' che ci sia: e' che sia leggibile.
@@ -214,10 +207,10 @@ class LaScoperta(SenzaAmbiente):
         self.assertNotIn("niente", messaggio)
         self.assertNotIn(str(self.tmp), messaggio)
         self.assertIn("Client(binary=...)", messaggio)
-        self.assertIn(VARIABILE, messaggio)
-        self.assertIn("PATH", messaggio)
+        self.assertNotIn("la variabile d?ambiente", " ".join(preso.exception.searched))
+        self.assertNotIn("PATH", messaggio)
         self.assertIn("non lo scarica", messaggio)
-        self.assertEqual(len(preso.exception.searched), 4)
+        self.assertEqual(len(preso.exception.searched), 1)
 
     def test_una_directory_bin_qualunque_non_e_un_albero(self) -> None:
         """I due indizi, e perche' ce ne vogliono due.

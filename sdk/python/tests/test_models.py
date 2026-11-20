@@ -209,6 +209,7 @@ def strato_sano(**modifiche):
             {"name": "codice", "type": "Utf8", "nullable": True, "geometry": False},
         ],
         "geometry": geometria_sana(),
+        "status": {"readable": True},
     }
     documento.update(modifiche)
     return documento
@@ -257,7 +258,7 @@ def layers_sano(**modifiche):
         "format": "gpkg",
         "fidelity": fedelta_sana(),
         "layers": [
-            {"id": 0, "name": "principale", "field_count": 9, "geometry_crs": "EPSG:3003"}
+            {"id": 0, "name": "principale", "field_count": 9, "status": {"readable": True}, "geometry_crs": "EPSG:3003"}
         ],
     }
     documento.update(modifiche)
@@ -319,8 +320,6 @@ class LaSezioneDiFedelta(unittest.TestCase):
                 self.assertEqual(getattr(fedelta.omesse, causa), 3)
 
     def test_una_ragione_localizzata_porta_i_due_indici(self) -> None:
-        """Vengono insieme o non vengono: una ragione che nomina un campo nomina
-        anche il layer in cui sta."""
         generica = FidelityReason.from_json({"code": "c", "detail": "d"})
         self.assertFalse(generica.localized)
         self.assertIsNone(generica.field_index)
@@ -330,6 +329,19 @@ class LaSezioneDiFedelta(unittest.TestCase):
         )
         self.assertTrue(precisa.localized)
         self.assertEqual((precisa.field_index, precisa.layer_index), (2, 0))
+
+    def test_ragione_con_classe_arrow_e_localizzazione_opzionale(self) -> None:
+        for location in ({}, {"layer_index": 0}, {"field_index": 2},
+                         {"layer_index": 0, "field_index": 2}):
+            document = dict(code="c", detail="d", type_class="temporal", **location)
+            reason = FidelityReason.from_json(document)
+            self.assertEqual(reason.type_class, "temporal")
+            self.assertEqual(reason.raw, document)
+            self.assertEqual(reason.localized, "field_index" in location)
+        self.assertIsNone(FidelityReason.from_json(dict(code="c", detail="d")).type_class)
+        for value in (None, 3, False, [], {}):
+            with self.subTest(value=value), self.assertRaises(ProtocolError):
+                FidelityReason.from_json(dict(code="c", detail="d", type_class=value))
 
     def test_un_campo_mancante_e_un_errore(self) -> None:
         for campo in Fidelity._OBBLIGATORI:
@@ -594,10 +606,10 @@ class StratiSenzaGeometriaOSenzaCrs(unittest.TestCase):
     che `plenora-io inspect` rende sui vettori `tipi_comuni` e `geo_senza_crs`.
     """
 
-    SENZA_GEOMETRIA = {"fields": [{"geometry": False, "name": "id", "nullable": False,
+    SENZA_GEOMETRIA = {"status": {"readable": True}, "fields": [{"geometry": False, "name": "id", "nullable": False,
                                    "type": "Int64"}],
                        "geometry": None, "id": 0, "name": "tipi_comuni"}
-    SENZA_CRS = {"fields": [{"geometry": True, "name": "geom", "nullable": True,
+    SENZA_CRS = {"status": {"readable": True}, "fields": [{"geometry": True, "name": "geom", "nullable": True,
                              "type": "Binary"}],
                  "geometry": {"crs": None, "crs_resolution": {"status": "missing"},
                               "kind": "Unresolved", "name": "geom"},
@@ -616,7 +628,7 @@ class StratiSenzaGeometriaOSenzaCrs(unittest.TestCase):
         self.assertIsNone(strato.geometry.crs_resolution.axis_order)
 
     def test_un_riassunto_senza_crs_si_legge(self) -> None:
-        voce = {"id": 0, "name": "tipi_comuni", "field_count": 1, "geometry_crs": None}
+        voce = {"id": 0, "name": "tipi_comuni", "field_count": 1, "status": {"readable": True}, "geometry_crs": None}
         self.assertIsNone(Layers.from_json(layers_sano(layers=[voce])).layers[0].geometry_crs)
 
     def test_lo_stato_resta_obbligatorio(self) -> None:

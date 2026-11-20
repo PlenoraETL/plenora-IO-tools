@@ -178,8 +178,6 @@ fn colonne_di_coordinate_in_epsg_4326_sono_lon_lat() {
         dir.path(),
         sorgente.to_str().unwrap(),
         &[
-            "--from",
-            "csv",
             "--assume-crs",
             "EPSG:4326",
             "--in-opt",
@@ -206,14 +204,7 @@ fn una_colonna_wkt_non_stabilisce_l_ordine() {
     let (metadati, ordinate) = consegna(
         dir.path(),
         sorgente.to_str().unwrap(),
-        &[
-            "--from",
-            "csv",
-            "--assume-crs",
-            "EPSG:4326",
-            "--in-opt",
-            "wkt_column=geom",
-        ],
+        &["--assume-crs", "EPSG:4326", "--in-opt", "wkt_column=geom"],
     );
     assert_eq!(assi(&metadati), "unknown");
     assert_eq!(ordinate, (LONGITUDINE, LATITUDINE));
@@ -286,8 +277,6 @@ fn xlsx_con_colonne_di_coordinate_e_lon_lat() {
         dir.path(),
         &xlsx,
         &[
-            "--from",
-            "xls",
             "--assume-crs",
             "EPSG:4326",
             "--in-opt",

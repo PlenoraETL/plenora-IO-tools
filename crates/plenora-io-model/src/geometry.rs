@@ -800,3 +800,38 @@ fn genere_dai_metadati(
 
 #[cfg(test)]
 mod tests;
+
+/// Schema of the faithful public Arrow copy, shared by delivery and native comparison.
+/// Existing field identities and foreign metadata are preserved.
+/// # Errors
+/// Rejects an invalid primary geometry declaration.
+pub fn interchange_schema(
+    contract: &crate::contract::DataContract,
+) -> Result<arrow_schema::SchemaRef> {
+    let fields = contract
+        .schema
+        .fields()
+        .iter()
+        .map(|field| {
+            contract
+                .geometry
+                .as_ref()
+                .filter(|geometry| geometry.name == *field.name())
+                .map_or_else(
+                    || field.as_ref().clone(),
+                    |geometry| with_geometry_contract_metadata(field, geometry),
+                )
+        })
+        .collect();
+    let schema = with_contract_version(Arc::new(arrow_schema::Schema::new_with_metadata(
+        with_field_identity(fields),
+        contract.schema.metadata().clone(),
+    )));
+    crate::primary::emit(
+        &schema,
+        contract
+            .geometry
+            .as_ref()
+            .map(|geometry| geometry.field_id.0 as usize),
+    )
+}

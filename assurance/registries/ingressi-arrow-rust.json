@@ -167,7 +167,8 @@
       "classificazione": "ingresso guardato",
       "motivazione": "Protocollo FormatWriter: i create pubblici installano with_write_validation; LimitedWriter valida il batch prima del writer concreto privato. Non esiste costruttore pubblico del writer concreto.",
       "tipi": [
-        "arrow_array::RecordBatch"
+        "arrow_array::RecordBatch",
+        "driver_csv::CsvWriter"
       ]
     },
     "driver-dxf/src/lib.rs::driver_dxf::DxfDataset[OpenDatasetHandle]::fidelity_assessment": {
@@ -223,7 +224,8 @@
       "classificazione": "ingresso guardato",
       "motivazione": "Protocollo FormatWriter: i create pubblici installano with_write_validation; LimitedWriter valida il batch prima del writer concreto privato. Non esiste costruttore pubblico del writer concreto.",
       "tipi": [
-        "arrow_array::RecordBatch"
+        "arrow_array::RecordBatch",
+        "driver_dxf::DxfWriterState"
       ]
     },
     "driver-filegdb/src/lib.rs::driver_filegdb::FileGdbDriver[FormatDriver]::create": {
@@ -258,14 +260,16 @@
       "classificazione": "ingresso guardato",
       "motivazione": "Protocollo FormatWriter: i create pubblici installano with_write_validation; LimitedWriter valida il batch prima del writer concreto privato. Non esiste costruttore pubblico del writer concreto.",
       "tipi": [
-        "arrow_array::RecordBatch"
+        "arrow_array::RecordBatch",
+        "driver_filegdb::backend::GdbWriter"
       ]
     },
     "driver-filegdb/src/lib.rs::driver_filegdb::backend::GdbWriter[FormatWriter]::write_to_layer": {
       "classificazione": "ingresso guardato",
       "motivazione": "Protocollo FormatWriter: i create pubblici installano with_write_validation; LimitedWriter valida il batch prima del writer concreto privato. Non esiste costruttore pubblico del writer concreto.",
       "tipi": [
-        "arrow_array::RecordBatch"
+        "arrow_array::RecordBatch",
+        "driver_filegdb::backend::GdbWriter"
       ]
     },
     "driver-filegdb/src/lib.rs::driver_filegdb::backend::create": {
@@ -349,7 +353,8 @@
       "classificazione": "ingresso guardato",
       "motivazione": "Protocollo FormatWriter: i create pubblici installano with_write_validation; LimitedWriter valida il batch prima del writer concreto privato. Non esiste costruttore pubblico del writer concreto.",
       "tipi": [
-        "arrow_array::RecordBatch"
+        "arrow_array::RecordBatch",
+        "driver_geojson::GeoJsonWriter"
       ]
     },
     "driver-geojson/src/lib.rs::driver_geojson::PropsSink<'_>[DeserializeSeed<'de>]::deserialize": {
@@ -637,14 +642,16 @@
       "classificazione": "ingresso guardato",
       "motivazione": "Protocollo FormatWriter: i create pubblici installano with_write_validation; LimitedWriter valida il batch prima del writer concreto privato. Non esiste costruttore pubblico del writer concreto.",
       "tipi": [
-        "arrow_array::RecordBatch"
+        "arrow_array::RecordBatch",
+        "driver_gpkg::GpkgWriter"
       ]
     },
     "driver-gpkg/src/lib.rs::driver_gpkg::GpkgWriter[FormatWriter]::write_to_layer": {
       "classificazione": "ingresso guardato",
       "motivazione": "Protocollo FormatWriter: i create pubblici installano with_write_validation; LimitedWriter valida il batch prima del writer concreto privato. Non esiste costruttore pubblico del writer concreto.",
       "tipi": [
-        "arrow_array::RecordBatch"
+        "arrow_array::RecordBatch",
+        "driver_gpkg::GpkgWriter"
       ]
     },
     "driver-gpkg/src/schema.rs::driver_gpkg::schema::columns_ddl": {
@@ -771,7 +778,8 @@
       "classificazione": "ingresso guardato",
       "motivazione": "Protocollo FormatWriter: i create pubblici installano with_write_validation; LimitedWriter valida il batch prima del writer concreto privato. Non esiste costruttore pubblico del writer concreto.",
       "tipi": [
-        "arrow_array::RecordBatch"
+        "arrow_array::RecordBatch",
+        "driver_kml::KmlWriterState"
       ]
     },
     "driver-shp/src/lib.rs::driver_shp::ShpDataset[OpenDatasetHandle]::fidelity_assessment": {
@@ -827,7 +835,8 @@
       "classificazione": "ingresso guardato",
       "motivazione": "Protocollo FormatWriter: i create pubblici installano with_write_validation; LimitedWriter valida il batch prima del writer concreto privato. Non esiste costruttore pubblico del writer concreto.",
       "tipi": [
-        "arrow_array::RecordBatch"
+        "arrow_array::RecordBatch",
+        "driver_shp::ShpWriter"
       ]
     },
     "driver-xls/src/date_native.rs::driver_xls::date_native::restore": {
@@ -913,6 +922,13 @@
     "plenora-io-core/src/driver.rs::plenora_io_core::driver::FormatDriver::open": {
       "classificazione": "non riceve dati esterni",
       "motivazione": "Registro o protocollo driver contenente riferimenti a schemi/reader: registra o seleziona implementazioni, senza consumare celle Arrow.",
+      "tipi": [
+        "plenora_io_core::driver::FormatDriver"
+      ]
+    },
+    "plenora-io-core/src/driver.rs::plenora_io_core::driver::FormatDriver::open_selected": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Seleziona l'oggetto prima della scoperta del driver; riceve Source, ReadOptions e LayerId, senza array o buffer Arrow. I batch passano dal reader e dai suoi ingressi guardati.",
       "tipi": [
         "plenora_io_core::driver::FormatDriver"
       ]
@@ -1697,6 +1713,344 @@
       "tipi": [
         "arrow_schema::Schema"
       ]
+    },
+    "driver-csv/src/lib.rs::driver_csv::CsvWriter[FormatWriter]::finish": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo sullo stato interno del reader/writer; riceve solo self o indici/conteggi. Non accetta batch esterni: la scrittura passa da with_write_validation e la lettura dal confine comune.",
+      "tipi": [
+        "driver_csv::CsvWriter"
+      ]
+    },
+    "driver-dxf/src/lib.rs::driver_dxf::DxfDataset[OpenDatasetHandle]::preserves_unreadable_objects": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo sullo stato interno del reader/writer; riceve solo self o indici/conteggi. Non accetta batch esterni: la scrittura passa da with_write_validation e la lettura dal confine comune.",
+      "tipi": [
+        "driver_dxf::DxfDataset"
+      ]
+    },
+    "driver-dxf/src/lib.rs::driver_dxf::DxfDataset[OpenDatasetHandle]::rifiuto_del_layer": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo sullo stato interno del reader/writer; riceve solo self o indici/conteggi. Non accetta batch esterni: la scrittura passa da with_write_validation e la lettura dal confine comune.",
+      "tipi": [
+        "driver_dxf::DxfDataset"
+      ]
+    },
+    "driver-dxf/src/lib.rs::driver_dxf::DxfWriterState[FormatWriter]::declare_input_total": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo sullo stato interno del reader/writer; riceve solo self o indici/conteggi. Non accetta batch esterni: la scrittura passa da with_write_validation e la lettura dal confine comune.",
+      "tipi": [
+        "driver_dxf::DxfWriterState"
+      ]
+    },
+    "driver-dxf/src/lib.rs::driver_dxf::DxfWriterState[FormatWriter]::finish": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo sullo stato interno del reader/writer; riceve solo self o indici/conteggi. Non accetta batch esterni: la scrittura passa da with_write_validation e la lettura dal confine comune.",
+      "tipi": [
+        "driver_dxf::DxfWriterState"
+      ]
+    },
+    "driver-filegdb/src/lib.rs::driver_filegdb::backend::GdbDataset[OpenDatasetHandle]::preserves_unreadable_objects": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo sullo stato interno del reader/writer; riceve solo self o indici/conteggi. Non accetta batch esterni: la scrittura passa da with_write_validation e la lettura dal confine comune.",
+      "tipi": [
+        "driver_filegdb::backend::GdbDataset"
+      ]
+    },
+    "driver-filegdb/src/lib.rs::driver_filegdb::backend::GdbDataset[OpenDatasetHandle]::rifiuto_del_layer": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo sullo stato interno del reader/writer; riceve solo self o indici/conteggi. Non accetta batch esterni: la scrittura passa da with_write_validation e la lettura dal confine comune.",
+      "tipi": [
+        "driver_filegdb::backend::GdbDataset"
+      ]
+    },
+    "driver-filegdb/src/lib.rs::driver_filegdb::backend::GdbWriter[Drop]::drop": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo sullo stato interno del reader/writer; riceve solo self o indici/conteggi. Non accetta batch esterni: la scrittura passa da with_write_validation e la lettura dal confine comune.",
+      "tipi": [
+        "driver_filegdb::backend::GdbWriter"
+      ]
+    },
+    "driver-filegdb/src/lib.rs::driver_filegdb::backend::GdbWriter[FormatWriter]::finish": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo sullo stato interno del reader/writer; riceve solo self o indici/conteggi. Non accetta batch esterni: la scrittura passa da with_write_validation e la lettura dal confine comune.",
+      "tipi": [
+        "driver_filegdb::backend::GdbWriter"
+      ]
+    },
+    "driver-filegdb/src/lib.rs::driver_filegdb::backend::TemporalLossReader[LayerReader]::contract": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo sullo stato interno del reader/writer; riceve solo self o indici/conteggi. Non accetta batch esterni: la scrittura passa da with_write_validation e la lettura dal confine comune.",
+      "tipi": [
+        "driver_filegdb::backend::TemporalLossReader"
+      ]
+    },
+    "driver-filegdb/src/lib.rs::driver_filegdb::backend::TemporalLossReader[LayerReader]::loss_report": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo sullo stato interno del reader/writer; riceve solo self o indici/conteggi. Non accetta batch esterni: la scrittura passa da with_write_validation e la lettura dal confine comune.",
+      "tipi": [
+        "driver_filegdb::backend::TemporalLossReader"
+      ]
+    },
+    "driver-filegdb/src/lib.rs::driver_filegdb::backend::TemporalLossReader[LayerReader]::next_batch": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Adattatore di un LayerReader gia costruito dal driver: inoltra i batch senza accedere ai buffer; il consumatore usa next_external_batch e la validazione comune.",
+      "tipi": [
+        "driver_filegdb::backend::TemporalLossReader"
+      ]
+    },
+    "driver-geojson/src/lib.rs::driver_geojson::GeoJsonWriter[FormatWriter]::finish": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo sullo stato interno del reader/writer; riceve solo self o indici/conteggi. Non accetta batch esterni: la scrittura passa da with_write_validation e la lettura dal confine comune.",
+      "tipi": [
+        "driver_geojson::GeoJsonWriter"
+      ]
+    },
+    "driver-geoparquet/src/lib.rs::driver_geoparquet::GeoParquetReader[LayerReader]::loss_report": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo sullo stato interno del reader/writer; riceve solo self o indici/conteggi. Non accetta batch esterni: la scrittura passa da with_write_validation e la lettura dal confine comune.",
+      "tipi": [
+        "driver_geoparquet::GeoParquetReader"
+      ]
+    },
+    "driver-gpkg/src/lib.rs::driver_gpkg::GpkgDataset[OpenDatasetHandle]::preserves_unreadable_objects": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo sullo stato interno del reader/writer; riceve solo self o indici/conteggi. Non accetta batch esterni: la scrittura passa da with_write_validation e la lettura dal confine comune.",
+      "tipi": [
+        "driver_gpkg::GpkgDataset"
+      ]
+    },
+    "driver-gpkg/src/lib.rs::driver_gpkg::GpkgWriter[Drop]::drop": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo sullo stato interno del reader/writer; riceve solo self o indici/conteggi. Non accetta batch esterni: la scrittura passa da with_write_validation e la lettura dal confine comune.",
+      "tipi": [
+        "driver_gpkg::GpkgWriter"
+      ]
+    },
+    "driver-gpkg/src/lib.rs::driver_gpkg::GpkgWriter[FormatWriter]::finish": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo sullo stato interno del reader/writer; riceve solo self o indici/conteggi. Non accetta batch esterni: la scrittura passa da with_write_validation e la lettura dal confine comune.",
+      "tipi": [
+        "driver_gpkg::GpkgWriter"
+      ]
+    },
+    "driver-kml/src/lib.rs::driver_kml::KmlDataset[OpenDatasetHandle]::preserves_unreadable_objects": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo sullo stato interno del reader/writer; riceve solo self o indici/conteggi. Non accetta batch esterni: la scrittura passa da with_write_validation e la lettura dal confine comune.",
+      "tipi": [
+        "driver_kml::KmlDataset"
+      ]
+    },
+    "driver-kml/src/lib.rs::driver_kml::KmlDataset[OpenDatasetHandle]::rifiuto_del_layer": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo sullo stato interno del reader/writer; riceve solo self o indici/conteggi. Non accetta batch esterni: la scrittura passa da with_write_validation e la lettura dal confine comune.",
+      "tipi": [
+        "driver_kml::KmlDataset"
+      ]
+    },
+    "driver-kml/src/lib.rs::driver_kml::KmlReader[LayerReader]::loss_report": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo sullo stato interno del reader/writer; riceve solo self o indici/conteggi. Non accetta batch esterni: la scrittura passa da with_write_validation e la lettura dal confine comune.",
+      "tipi": [
+        "driver_kml::KmlReader"
+      ]
+    },
+    "driver-kml/src/lib.rs::driver_kml::KmlWriterState[FormatWriter]::declare_input_total": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo sullo stato interno del reader/writer; riceve solo self o indici/conteggi. Non accetta batch esterni: la scrittura passa da with_write_validation e la lettura dal confine comune.",
+      "tipi": [
+        "driver_kml::KmlWriterState"
+      ]
+    },
+    "driver-kml/src/lib.rs::driver_kml::KmlWriterState[FormatWriter]::finish": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo sullo stato interno del reader/writer; riceve solo self o indici/conteggi. Non accetta batch esterni: la scrittura passa da with_write_validation e la lettura dal confine comune.",
+      "tipi": [
+        "driver_kml::KmlWriterState"
+      ]
+    },
+    "driver-shp/src/lib.rs::driver_shp::ShpWriter[FormatWriter]::declare_input_total": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo sullo stato interno del reader/writer; riceve solo self o indici/conteggi. Non accetta batch esterni: la scrittura passa da with_write_validation e la lettura dal confine comune.",
+      "tipi": [
+        "driver_shp::ShpWriter"
+      ]
+    },
+    "driver-shp/src/lib.rs::driver_shp::ShpWriter[FormatWriter]::finish": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo sullo stato interno del reader/writer; riceve solo self o indici/conteggi. Non accetta batch esterni: la scrittura passa da with_write_validation e la lettura dal confine comune.",
+      "tipi": [
+        "driver_shp::ShpWriter"
+      ]
+    },
+    "driver-xls/src/lib.rs::driver_xls::XlsDataset[OpenDatasetHandle]::preserves_unreadable_objects": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo sullo stato interno del reader/writer; riceve solo self o indici/conteggi. Non accetta batch esterni: la scrittura passa da with_write_validation e la lettura dal confine comune.",
+      "tipi": [
+        "driver_xls::XlsDataset"
+      ]
+    },
+    "driver-xls/src/lib.rs::driver_xls::XlsDataset[OpenDatasetHandle]::rifiuto_del_layer": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo sullo stato interno del reader/writer; riceve solo self o indici/conteggi. Non accetta batch esterni: la scrittura passa da with_write_validation e la lettura dal confine comune.",
+      "tipi": [
+        "driver_xls::XlsDataset"
+      ]
+    },
+    "plenora-io-core/src/driver.rs::plenora_io_core::driver::OpenDatasetHandle::default_layer": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo sullo stato interno del reader/writer; riceve solo self o indici/conteggi. Non accetta batch esterni: la scrittura passa da with_write_validation e la lettura dal confine comune.",
+      "tipi": [
+        "plenora_io_core::driver::OpenDatasetHandle"
+      ]
+    },
+    "plenora-io-core/src/driver.rs::plenora_io_core::driver::OpenDatasetHandle::preserves_unreadable_objects": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo sullo stato interno del reader/writer; riceve solo self o indici/conteggi. Non accetta batch esterni: la scrittura passa da with_write_validation e la lettura dal confine comune.",
+      "tipi": [
+        "plenora_io_core::driver::OpenDatasetHandle"
+      ]
+    },
+    "plenora-io-core/src/driver/perdita_pianificata.rs::plenora_io_core::driver::perdita_pianificata::observed_geometry_metadata_loss": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Legge soltanto schema, metadati e descrittori tramite API sicure; non dereferenzia buffer Arrow. Il confronto nativo riapre il driver attraverso il preflight e il budget comuni.",
+      "tipi": [
+        "plenora_io_model::contract::DataContract"
+      ]
+    },
+    "plenora-io-core/src/driver/reader_adapters.rs::plenora_io_core::driver::reader_adapters::BudgetedDataset[OpenDatasetHandle]::default_layer": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo sullo stato interno del reader/writer; riceve solo self o indici/conteggi. Non accetta batch esterni: la scrittura passa da with_write_validation e la lettura dal confine comune.",
+      "tipi": [
+        "plenora_io_core::driver::reader_adapters::BudgetedDataset"
+      ]
+    },
+    "plenora-io-core/src/driver/reader_adapters.rs::plenora_io_core::driver::reader_adapters::BudgetedDataset[OpenDatasetHandle]::preserves_unreadable_objects": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo sullo stato interno del reader/writer; riceve solo self o indici/conteggi. Non accetta batch esterni: la scrittura passa da with_write_validation e la lettura dal confine comune.",
+      "tipi": [
+        "plenora_io_core::driver::reader_adapters::BudgetedDataset"
+      ]
+    },
+    "plenora-io-core/src/loss_table.rs::plenora_io_core::loss_table::NativeReportReader[crate::LayerReader]::accepted_total": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo sullo stato interno del reader/writer; riceve solo self o indici/conteggi. Non accetta batch esterni: la scrittura passa da with_write_validation e la lettura dal confine comune.",
+      "tipi": [
+        "plenora_io_core::loss_table::NativeReportReader"
+      ]
+    },
+    "plenora-io-core/src/loss_table.rs::plenora_io_core::loss_table::NativeReportReader[crate::LayerReader]::contract": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo sullo stato interno del reader/writer; riceve solo self o indici/conteggi. Non accetta batch esterni: la scrittura passa da with_write_validation e la lettura dal confine comune.",
+      "tipi": [
+        "plenora_io_core::loss_table::NativeReportReader"
+      ]
+    },
+    "plenora-io-core/src/loss_table.rs::plenora_io_core::loss_table::NativeReportReader[crate::LayerReader]::loss_report": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Metodo sullo stato interno del reader/writer; riceve solo self o indici/conteggi. Non accetta batch esterni: la scrittura passa da with_write_validation e la lettura dal confine comune.",
+      "tipi": [
+        "plenora_io_core::loss_table::NativeReportReader"
+      ]
+    },
+    "plenora-io-core/src/loss_table.rs::plenora_io_core::loss_table::NativeReportReader[crate::LayerReader]::next_batch": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Adattatore di un LayerReader gia costruito dal driver: inoltra i batch senza accedere ai buffer; il consumatore usa next_external_batch e la validazione comune.",
+      "tipi": [
+        "plenora_io_core::loss_table::NativeReportReader"
+      ]
+    },
+    "plenora-io-core/src/loss_table.rs::plenora_io_core::loss_table::metadata_changes": {
+      "classificazione": "helper non fallibile con precondizione dichiarata",
+      "motivazione": "Legge soltanto schema, metadati e descrittori tramite API sicure; non dereferenzia buffer Arrow. Il confronto nativo riapre il driver attraverso il preflight e il budget comuni.",
+      "tipi": [
+        "arrow_schema::Schema"
+      ]
+    },
+    "plenora-io-core/src/loss_table.rs::plenora_io_core::loss_table::native_write_report": {
+      "classificazione": "helper non fallibile con precondizione dichiarata",
+      "motivazione": "Legge soltanto schema, metadati e descrittori tramite API sicure; non dereferenzia buffer Arrow. Il confronto nativo riapre il driver attraverso il preflight e il budget comuni.",
+      "tipi": [
+        "plenora_io_core::request::WritePlan"
+      ]
+    },
+    "plenora-io-core/src/loss_table.rs::plenora_io_core::loss_table::normalizes_type": {
+      "classificazione": "helper non fallibile con precondizione dichiarata",
+      "motivazione": "Legge soltanto schema, metadati e descrittori tramite API sicure; non dereferenzia buffer Arrow. Il confronto nativo riapre il driver attraverso il preflight e il budget comuni.",
+      "tipi": [
+        "arrow_schema::DataType"
+      ]
+    },
+    "plenora-io-core/src/loss_table.rs::plenora_io_core::loss_table::with_native_report": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Adattatore di un LayerReader gia costruito dal driver: inoltra i batch senza accedere ai buffer; il consumatore usa next_external_batch e la validazione comune.",
+      "tipi": [
+        "plenora_io_core::driver::LayerReader"
+      ]
+    },
+    "plenora-io-core/src/property_plan.rs::plenora_io_core::property_plan::NativeMetadataCheck::compare": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Legge soltanto schema, metadati e descrittori tramite API sicure; non dereferenzia buffer Arrow. Il confronto nativo riapre il driver attraverso il preflight e il budget comuni.",
+      "tipi": [
+        "plenora_io_core::driver::FormatDriver",
+        "plenora_io_core::property_plan::NativeMetadataCheck"
+      ]
+    },
+    "plenora-io-core/src/property_plan.rs::plenora_io_core::property_plan::NativeMetadataCheck::new": {
+      "classificazione": "helper non fallibile con precondizione dichiarata",
+      "motivazione": "Legge soltanto schema, metadati e descrittori tramite API sicure; non dereferenzia buffer Arrow. Il confronto nativo riapre il driver attraverso il preflight e il budget comuni.",
+      "tipi": [
+        "plenora_io_core::request::WritePlan"
+      ]
+    },
+    "driver-kml/src/lib.rs::driver_kml::KmlDataset[OpenDatasetHandle]::default_layer": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Selezione di un identificatore strutturale dal dataset gia aperto; non riceve nuovi buffer Arrow.",
+      "tipi": [
+        "driver_kml::KmlDataset"
+      ]
+    },
+    "driver-xls/src/lib.rs::driver_xls::XlsDataset[OpenDatasetHandle]::explicit_layer": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Selezione di un identificatore strutturale dal dataset gia aperto; non riceve nuovi buffer Arrow.",
+      "tipi": [
+        "driver_xls::XlsDataset"
+      ]
+    },
+    "plenora-io-core/src/capabilities.rs::plenora_io_core::capabilities::unsupported_arrow_type": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Classifica un DataType dello schema senza leggere array o buffer; messaggio statico per famiglia.",
+      "tipi": [
+        "arrow_schema::DataType"
+      ]
+    },
+    "plenora-io-core/src/driver/reader_adapters.rs::plenora_io_core::driver::reader_adapters::BudgetedDataset[OpenDatasetHandle]::explicit_layer": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Selezione di un identificatore strutturale dal dataset gia aperto; non riceve nuovi buffer Arrow.",
+      "tipi": [
+        "plenora_io_core::driver::reader_adapters::BudgetedDataset"
+      ]
+    },
+    "plenora-io-core/src/driver.rs::plenora_io_core::driver::OpenDatasetHandle::explicit_layer": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Selezione di un identificatore strutturale dal dataset gia aperto; non riceve nuovi buffer Arrow.",
+      "tipi": [
+        "plenora_io_core::driver::OpenDatasetHandle"
+      ]
+    },
+    "plenora-io-model/src/geometry.rs::plenora_io_model::geometry::interchange_schema": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Ricostruisce soltanto metadati dello schema del contratto gia validato; non legge buffer Arrow, con la stessa funzione usata dalla consegna IPC.",
+      "tipi": [
+        "plenora_io_model::contract::DataContract"
+      ]
+    },
+    "plenora-io-core/src/property_plan.rs::plenora_io_core::property_plan::NativeMetadataCheck::observe_attributes": {
+      "classificazione": "ingresso guardato",
+      "motivazione": "Valida il batch esterno prima di proiettare gli attributi e di accodarli nello spool soggetto alle quote. Il confronto rilegge solo batch validati.",
+      "tipi": [
+        "arrow_array::RecordBatch",
+        "plenora_io_core::property_plan::NativeMetadataCheck"
+      ]
     }
   },
   "macro_items": {
@@ -1731,6 +2085,38 @@
     "plenora-io-tools/src/runtime/sonde.rs::plenora_io_tools::runtime::sonde::dceb41e8f81743a10bcd977563fd1efe0893e862564655947e04643fd6589b7e": {
       "classificazione": "non riceve dati esterni",
       "motivazione": "thread_local di attrezzaggio: genera storage privato di ganci o percorsi di test, nessun ingresso con dati Arrow; hash dei token vincolato."
+    },
+    "plenora-io-core/src/loss_table.rs::plenora_io_core::loss_table::a873faa48c8fe54a6ec43badcb1206c7cbbaf91109e005ba12fa80a6398189d4": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Espansione riesaminata: enum e tabelle costanti di regole/quote; nessun parametro Arrow, alias o ingresso dati. Le funzioni rule/rules restituiscono soltanto costanti."
+    },
+    "plenora-io-model/src/error_table.rs::plenora_io_model::error_table::49d51213a03dcee27bdeb660588f46c40528a503ca2021ac8680c818c014e5fb": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Espansione riesaminata: enum e tabelle costanti di regole/quote; nessun parametro Arrow, alias o ingresso dati. Le funzioni rule/rules restituiscono soltanto costanti."
+    },
+    "plenora-io-model/src/quota.rs::plenora_io_model::quota::da05fe3cd4c2b74d0ba392d58fe15bf82e2ac50075a309551e9585b055917f6c": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Espansione riesaminata: enum e tabelle costanti di regole/quote; nessun parametro Arrow, alias o ingresso dati. Le funzioni rule/rules restituiscono soltanto costanti."
+    },
+    "plenora-io-model/src/quota.rs::plenora_io_model::quota::68b45b2a33cd7ae3e10efafe4123d9172848c42a81e3eec1f0035b0e6f4c50d1": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Espansione riesaminata: enum e tabelle costanti di regole/quote; nessun parametro Arrow, alias o ingresso dati. Le funzioni rule/rules restituiscono soltanto costanti."
+    },
+    "plenora-io-core/src/loss_table.rs::plenora_io_core::loss_table::9354374855832fceec78a2000fcd2158693caab99043918893a5b8274d7dc816": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Espansione riesaminata: native_elements! genera NativeElement, NATIVE_ELEMENTS e rules(self)->[NativeRule;20]; rules! genera Situation, ERROR_RULES e rule(self)->ErrorRule. I token delle invocazioni sono soltanto regole costanti; nessun parametro Arrow, alias o ingresso dati esterni."
+    },
+    "plenora-io-model/src/error_table.rs::plenora_io_model::error_table::348e229050e8a81f3c7ef7c9267355474c3adc7fbc253a72a36d613154debd28": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Espansione riesaminata: native_elements! genera NativeElement, NATIVE_ELEMENTS e rules(self)->[NativeRule;20]; rules! genera Situation, ERROR_RULES e rule(self)->ErrorRule. I token delle invocazioni sono soltanto regole costanti; nessun parametro Arrow, alias o ingresso dati esterni."
+    },
+    "plenora-io-core/src/publish.rs::plenora_io_core::publish::4abe8418f8e77b62b7490dea64a96047cfaaecbcfba2aab065c50a061fcde239": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "compile_error! rifiuta in compilazione le piattaforme diverse da Linux e Windows. Non genera API, tipi o ingressi Arrow; nessun dato runtime."
+    },
+    "driver-filegdb/src/lib.rs::driver_filegdb::backend::d5cbf14516e14201ae4b97e3c46ec61595a86afebdbc6c6a3cfafb950b92c9b2": {
+      "classificazione": "non riceve dati esterni",
+      "motivazione": "Storage thread-local privato del contatore di warning GDAL; nessun testo nativo e nessun dato Arrow."
     }
   },
   "reexports": {
@@ -1742,6 +2128,9 @@
     },
     "plenora-io-core/src/driver.rs::plenora_io_core::driver::pub use batch_worker :: { spawn_batch_reader , BatchEmitter } ;": {
       "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
+    },
+    "plenora-io-core/src/driver.rs::plenora_io_core::driver::pub use perdita_pianificata :: planned_write_loss ;": {
+      "motivazione": "Riesporta il planner condiviso gia classificato; accetta il piano con schemi, non buffer di celle."
     },
     "plenora-io-core/src/driver.rs::plenora_io_core::driver::pub use reader_adapters :: { with_batch_target , with_cancellation , with_read_budget , SingleReaderGate , } ;": {
       "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
@@ -1766,6 +2155,12 @@
     },
     "plenora-io-core/src/lib.rs::plenora_io_core::pub use request :: { effective_batch_rows , incremental_batch_memory_size , project_layer_contract , validate_read_projection , AdaptiveBatchSizer , BatchTarget , Bbox , ProjectionMode , PruningComparison , PruningPredicate , PruningScalar , ReadRequest , ReadScope , WriteLayer , WritePlan , } ;": {
       "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
+    },
+    "plenora-io-core/src/loss_table.rs::plenora_io_core::loss_table::pub use applicability :: { read_applicability , ReadApplicability } ;": {
+      "motivazione": "Riesportazione della classificazione di applicabilita Read e della relativa funzione; tipi scalari della matrice delle perdite, nessun ingresso Arrow."
+    },
+    "plenora-io-core/src/property_plan.rs::plenora_io_core::property_plan::pub use crate :: loss_table :: PROPERTIES ;": {
+      "motivazione": "Riesporta la tabella costante delle proprieta di trasporto dalla fonte comune; non introduce funzioni, alias Arrow o ingressi esterni."
     },
     "plenora-io-model/src/geometry.rs::plenora_io_model::geometry::pub use crs_metadata :: reconcile_crs_declarations ;": {
       "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
@@ -1794,17 +2189,14 @@
     "plenora-io-tools/src/busta.rs::plenora_io_tools::busta::pub use plenora_io_core :: loss :: MAX_BYTE_ID_CATEGORIA ;": {
       "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
     },
-    "plenora-io-tools/src/lib.rs::plenora_io_tools::pub use cli :: { parse , Cli } ;": {
+    "plenora-io-tools/src/lib.rs::plenora_io_tools::pub use capability :: capabilities_document ;": {
       "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
     },
-    "plenora-io-tools/src/lib.rs::plenora_io_tools::pub use capability :: capabilities_document ;": {
+    "plenora-io-tools/src/lib.rs::plenora_io_tools::pub use cli :: { parse , Cli } ;": {
       "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
     },
     "plenora-io-tools/src/runtime.rs::plenora_io_tools::runtime::# [doc = \" Il canale di cancellazione che l'applicazione passa a [`BindingRuntime::invoca`].\"] # [doc = \"\"] # [doc = \" Riesportato qui perche' un'applicazione che ospita il binding non debba\"] # [doc = \" dipendere da `plenora-io-model`, che e' un crate interno e instabile.\"] pub use plenora_io_model :: CancellationToken ;": {
       "motivazione": "Riesporta API definite nei sorgenti del workspace: inventario conservativo anche nei moduli privati; nessuna nuova implementazione. Riesaminare ogni modifica del re-export."
-    },
-    "plenora-io-core/src/driver.rs::plenora_io_core::driver::pub use perdita_pianificata :: planned_write_loss ;": {
-      "motivazione": "Riesporta il planner condiviso gia classificato; accetta il piano con schemi, non buffer di celle."
     }
   },
   "correzione_2": {

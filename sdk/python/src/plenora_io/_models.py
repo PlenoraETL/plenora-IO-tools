@@ -1,4 +1,4 @@
-"""I modelli delle due buste che questo ciclo copre: bootstrap e catalogo.
+"""I modelli delle risposte delle operazioni, della versione e delle capability.
 
 # I nomi sono quelli del wire
 
@@ -36,7 +36,7 @@ from __future__ import annotations
 
 import types
 import typing
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from ._argomenti import testo
@@ -435,7 +435,7 @@ class Catalog:
         return FrozenList([driver for driver in self.drivers if driver.available])
 
 
-# --- la sezione di fedelta', che tre buste su cinque portano ----------------
+# --- la sezione di fedelta', che le buste delle operazioni sui dati portano ----------------
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -476,19 +476,19 @@ class Omissions:
 class FidelityReason:
     """Una ragione per cui la fedelta' non e' esatta.
 
-    `field_index` e `layer_index` vengono **insieme** o non vengono: una ragione
-    che nomina un campo nomina anche il layer in cui sta. Quelle che riguardano
-    il formato nel suo insieme non ne hanno, ed e' perche' sono opzionali qui.
+    Gli indici sono opzionali e indipendenti: una ragione puo' riguardare
+    un layer intero o un campo. `type_class` conserva la classe Arrow, se nota.
     """
 
     code: str
     detail: str
     field_index: int | None = None
     layer_index: int | None = None
+    type_class: str | None = None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     _OBBLIGATORI = ("code", "detail")
-    _OPZIONALI = ("field_index", "layer_index")
+    _OPZIONALI = ("field_index", "layer_index", "type_class")
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "FidelityReason":
@@ -498,6 +498,7 @@ class FidelityReason:
             detail=documento["detail"],
             field_index=documento.get("field_index"),
             layer_index=documento.get("layer_index"),
+            type_class=documento.get("type_class"),
             raw=dict(documento),
         )
 
@@ -648,6 +649,21 @@ class Geometry:
         )
 
 
+def _stato_del_layer(documento: dict[str, Any]) -> dict[str, Any]:
+    from ._errors import ErrorEnvelope, _valida_identita
+
+    status = documento["status"]
+    if type(status.get("readable")) is not bool:
+        raise _dallo_sdk(ProtocolError, "layer.stato")
+    if not status["readable"]:
+        error = status.get("error")
+        if type(error) is not dict:
+            raise _dallo_sdk(ProtocolError, "layer.stato")
+        _valida_identita(error, "plenora-error-v1")
+        ErrorEnvelope.from_json(error)
+    return status
+
+
 @dataclass(frozen=True, kw_only=True)
 class Layer:
     """Un layer con il suo schema, come `inspect` lo descrive."""
@@ -659,7 +675,9 @@ class Layer:
     geometry: Geometry | None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
-    _OBBLIGATORI = ("id", "name", "fields", "geometry")
+    status: dict[str, Any]
+
+    _OBBLIGATORI = ("id", "name", "fields", "geometry", "status")
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Layer":
@@ -674,6 +692,7 @@ class Layer:
         return cls(
             id=documento["id"],
             name=documento["name"],
+            status=_stato_del_layer(documento),
             fields=[Field.from_json(voce) for voce in colonne],
             geometry=(
                 None
@@ -714,11 +733,14 @@ class LayerSummary:
     geometry_crs: str | None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
-    _OBBLIGATORI = ("id", "name", "field_count", "geometry_crs")
+    status: dict[str, Any]
+
+    _OBBLIGATORI = ("id", "name", "field_count", "geometry_crs", "status")
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "LayerSummary":
         documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "layers.layers[]", cls)
+        _stato_del_layer(documento)
         return cls(
             **{campo: documento[campo] for campo in _schema(cls)._OBBLIGATORI},
             raw=dict(documento),
@@ -845,11 +867,11 @@ class Delivered:
 
 @dataclass(frozen=True, kw_only=True)
 class Validation:
-    """L'esito di `validate()`, cioe' della busta `plenora-io-read-result-v1`.
+    """L'esito di `validate()`, cioe' della busta `plenora-io-read-result-v2`.
 
     # Che cosa dice, e che cosa non da'
 
-    Il comando legge il file **per intero** -- decodifica ogni geometria, applica
+    Senza limite il comando legge il file **per intero** -- decodifica ogni geometria, applica
     ogni tetto, accumula la diagnostica di perdita -- e poi butta via le righe.
     Restituisce quante ne ha lette, in quanti batch, se si e' fermato prima
     della fine, e con quale fedelta'.
@@ -860,10 +882,9 @@ class Validation:
 
     # `truncated` non e' un dettaglio
 
-    Dice che il conteggio **non e' quello del file**: si e' fermato a un limite,
-    e le righe oltre non sono state guardate. Un consumatore che leggesse
-    `rows_read` senza guardarlo concluderebbe che il file ha meno righe di
-    quante ne abbia, e la differenza non si vede da nessun'altra parte.
+    True significa limite raggiunto, coda non esaminata. Il file potrebbe
+    contenere esattamente `rows_read` righe: non si legge una riga aggiuntiva
+    per accertarlo. False significa EOF osservato prima del limite.
     """
 
     format: str
@@ -893,7 +914,9 @@ class Validation:
         consegna = documento["delivered"]
         return cls(
             format=documento["format"],
-            layer=Layer.from_json(documento["layer"]),
+            # La busta read non porta status: il successo attesta la leggibilità.
+            layer=replace(Layer.from_json({**documento["layer"], "status": {"readable": True}}),
+                          raw=documento["layer"]),
             rows_read=documento["rows_read"],
             batches=documento["batches"],
             truncated=documento["truncated"],
@@ -907,7 +930,9 @@ class Validation:
 
     @property
     def complete(self) -> bool:
-        """Il file e' stato letto fino in fondo.
+        """EOF osservato, prima del limite se specificato.
+
+        False anche quando il limite coincide con il numero di righe del file.
 
         E' il contrario di `truncated`, e sta qui perche' il nome positivo e'
         quello che si scrive in un `if`: `if esito.complete` invece di

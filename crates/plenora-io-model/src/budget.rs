@@ -96,6 +96,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::clock::PipelineClock;
+use crate::quota::{Quota, QUOTAS};
 
 use serde::{Deserialize, Serialize};
 
@@ -148,24 +149,15 @@ fn lock_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 // tipizzazione in `LimitKind` arriva con S9, che sostituisce il testo libero
 // con un enum; qui i messaggi restano costanti di compilazione.
 const LIMIT_MUST_BE_POSITIVE: &str = "i limiti di pipeline devono essere maggiori di zero";
-const CELL_BYTES_ABOVE_MEMORY: &str = "max_wkb_cell_bytes supera il budget di memoria";
+const CELL_BYTES_ABOVE_MEMORY: &str = "max_wkb_cell_bytes supera memory_bytes: abbassare --max-wkb-cell-bytes o aumentare --memory-bytes";
 const CELL_BYTES_NOT_REPRESENTABLE: &str = "max_wkb_cell_bytes non rappresentabile in u64";
 const WKB_DEPTH_ABOVE_CONTRACT: &str =
     "max_wkb_depth oltre i 32 livelli di annidamento del contratto (GEO-011)";
 const DEADLINE_BEYOND_INSTANT: &str = "deadline della pipeline oltre Instant";
 const LEASE_MUST_BE_POSITIVE: &str = "una lease deve essere maggiore di zero";
-const MEMORY_EXHAUSTED: &str = "budget di memoria esaurito";
-const SPILL_EXHAUSTED: &str = "budget di spill esaurito";
-const CONCURRENCY_EXHAUSTED: &str = "operazioni concorrenti oltre la quota del pool";
-const COUNTER_EXHAUSTED: &str = "contatore cumulativo dell'operazione esaurito";
-const OUTPUT_LIMIT_EXCEEDED: &str = "output oltre il tetto derivato dall'input osservato";
 const COMMIT_NOT_VALID: &str = "consumo non valido per la lease";
-const TOO_MANY_ENTRIES: &str = "numero di entry di input oltre il limite";
-const ENTRIES_OVERFLOW: &str = "overflow nel conteggio delle entry di input";
 const PERMIT_FOREIGN: &str = "permit non emesso da questa pipeline";
 const INPUT_ALREADY_OBSERVED: &str = "input gia' osservato per questa pipeline";
-const TOO_MANY_INPUT_BYTES: &str = "byte di input oltre il limite";
-const INPUT_BYTES_OVERFLOW: &str = "overflow nel conteggio dei byte di input";
 const PIPELINE_IDS_EXHAUSTED: &str = "spazio delle identita' di pipeline esaurito";
 const SHRINK_ABOVE_RESERVATION: &str = "la riduzione supera la quota gia' prenotata";
 const SHRINK_TO_ZERO: &str = "un batch custodito non puo' occupare zero byte";
@@ -176,6 +168,10 @@ const SHRINK_TO_ZERO: &str = "un batch custodito non puo' occupare zero byte";
 /// messaggi e' mai stato costruito a runtime — quindi la migrazione qui e' un
 /// cambio di costruttore e nient'altro: stesso testo, stesso wire, ma ora il
 /// tipo dice che non puo' essere altrimenti.
+fn configuration_error(message: &'static str) -> PlenoraIoError {
+    crate::error_table::Situation::InvalidQuota.error_with(&PublicMessage::Curated(message))
+}
+
 fn limit_error(message: &'static str) -> PlenoraIoError {
     PlenoraIoError::limite_redatto(&PublicMessage::Curated(message))
 }
@@ -582,33 +578,35 @@ pub struct PipelineLimits {
 }
 
 impl Default for PipelineLimits {
-    /// I default nascono dai due modelli legacy.
+    /// I default delle risorse provengono dal catalogo delle quote.
     ///
     /// Dove divergevano — era il finding L0.2 — vince il valore **piu'
     /// stretto**, cosi' l'unificazione non allenta in silenzio una quota
-    /// gia' applicata: `max_rows` `10_000_000` e `max_columns` `4_096` da
+    /// gia' applicata, eccetto il rapporto di uscita (R4c): `max_rows` `10_000_000` e `max_columns` `4_096` da
     /// `Limits`, `max_output_bytes` 1 GiB da `Limits`.
     ///
     /// `max_input_entries` e' nuovo (INV-9) e vale `10_000`: una directory
     /// di migliaia di file legittimi passa, uno scan illimitato no.
     fn default() -> Self {
         Self {
-            max_input_bytes: 268_435_456,
-            max_input_entries: 10_000,
-            max_rows: 10_000_000,
-            max_columns: 4_096,
-            max_geometry_components: 16_777_216,
-            max_output_bytes: 1_073_741_824,
-            output_expansion_ratio: 1_000,
-            max_wkb_cell_bytes: 64 * 1024 * 1024,
-            max_wkb_components: 100_000,
+            max_input_bytes: Quota::InputBytes.rule().default,
+            max_input_entries: Quota::InputEntries.rule().default,
+            max_rows: Quota::Rows.rule().default,
+            max_columns: Quota::Columns.rule().default,
+            max_geometry_components: Quota::GeometryComponents.rule().default,
+            max_output_bytes: Quota::OutputBytes.rule().default,
+            output_expansion_ratio: Quota::OutputExpansionRatio.rule().default,
+            max_wkb_cell_bytes: usize::try_from(Quota::WkbCellBytes.rule().default)
+                .unwrap_or(usize::MAX),
+            max_wkb_components: usize::try_from(Quota::WkbComponents.rule().default)
+                .unwrap_or(usize::MAX),
             // GEO-011: la profondita' del contratto, non piu' i 64 storici.
-            max_wkb_depth: crate::limits::PROFONDITA_WKB_CONTRATTO,
-            max_vertices: 50_000_000,
-            memory_bytes: 512 * 1024 * 1024,
-            spill_bytes: 4 * 1024 * 1024 * 1024,
+            max_wkb_depth: usize::try_from(Quota::WkbDepth.rule().default).unwrap_or(usize::MAX),
+            max_vertices: usize::try_from(Quota::Vertices.rule().default).unwrap_or(usize::MAX),
+            memory_bytes: Quota::MemoryBytes.rule().default,
+            spill_bytes: Quota::SpillBytes.rule().default,
             duration_ms: 30_000,
-            decompression_ratio: 1_000,
+            decompression_ratio: Quota::DecompressionRatio.rule().default,
         }
     }
 }
@@ -650,7 +648,7 @@ impl PipelineLimits {
     }
 
     /// Tetto effettivo dei componenti di **una singola geometria**: il
-    /// minimo fra il limite per cella e il tetto globale dei vertici.
+    /// minimo fra il limite per cella e il suo alias storico `max_vertices`.
     ///
     /// E' la stessa composizione di `Limits::effective_wkb()`, preservata
     /// perche' `--max-vertices` e' un flag vivo della CLI: senza questo
@@ -679,46 +677,33 @@ impl PipelineLimits {
     ///
     /// # Errors
     ///
-    /// Restituisce [`PlenoraIoError::LimitExceeded`] se una quota e' nulla,
+    /// Restituisce `invalid_configuration/CLI_USAGE` se una quota e' nulla,
     /// se `max_wkb_cell_bytes` non e' rappresentabile in `u64` o se supera
     /// il budget di memoria, o se `max_wkb_depth` supera la profondita' del
     /// contratto ([`crate::limits::PROFONDITA_WKB_CONTRATTO`]).
     pub fn validate(&self) -> Result<()> {
-        let positive_u64 = [
-            self.max_input_bytes,
-            self.max_input_entries,
-            self.max_rows,
-            self.max_columns,
-            self.max_geometry_components,
-            self.max_output_bytes,
-            self.output_expansion_ratio,
-            self.memory_bytes,
-            self.spill_bytes,
-            self.duration_ms,
-            self.decompression_ratio,
-        ];
-        if positive_u64.contains(&0) {
-            return Err(limit_error(LIMIT_MUST_BE_POSITIVE));
+        // Dominio portabile delle durate: non dipende dall'epoch del clock Windows.
+        if i64::try_from(self.duration_ms).is_err() {
+            return Err(configuration_error(DEADLINE_BEYOND_INSTANT));
         }
-        let positive_usize = [
-            self.max_wkb_cell_bytes,
-            self.max_wkb_components,
-            self.max_wkb_depth,
-            self.max_vertices,
-        ];
-        if positive_usize.contains(&0) {
-            return Err(limit_error(LIMIT_MUST_BE_POSITIVE));
+        for rule in QUOTAS {
+            if rule.quota.value(self) == Some(0) {
+                return Err(rule.quota.invalid());
+            }
+        }
+        if self.duration_ms == 0 {
+            return Err(configuration_error(LIMIT_MUST_BE_POSITIVE));
         }
         let cell_bytes = u64::try_from(self.max_wkb_cell_bytes)
-            .map_err(|_| limit_error(CELL_BYTES_NOT_REPRESENTABLE))?;
+            .map_err(|_| configuration_error(CELL_BYTES_NOT_REPRESENTABLE))?;
         if cell_bytes > self.memory_bytes {
-            return Err(limit_error(CELL_BYTES_ABOVE_MEMORY));
+            return Err(configuration_error(CELL_BYTES_ABOVE_MEMORY));
         }
         // GEO-011: oltre 32 livelli un valore e' malformato, qualunque sia la
         // quota. Il parser non li supera comunque; una quota piu' larga si
         // rifiuta qui invece di restare un flag senza effetto.
         if self.max_wkb_depth > crate::limits::PROFONDITA_WKB_CONTRATTO {
-            return Err(limit_error(WKB_DEPTH_ABOVE_CONTRACT));
+            return Err(configuration_error(WKB_DEPTH_ABOVE_CONTRACT));
         }
         Ok(())
     }
@@ -778,9 +763,9 @@ pub struct ResourcePoolBuilder {
 impl Default for ResourcePoolBuilder {
     fn default() -> Self {
         Self {
-            memory_bytes: 512 * 1024 * 1024,
-            spill_bytes: 4 * 1024 * 1024 * 1024,
-            concurrent_operations: 64,
+            memory_bytes: Quota::MemoryBytes.rule().default,
+            spill_bytes: Quota::SpillBytes.rule().default,
+            concurrent_operations: Quota::ConcurrentOperations.rule().default,
         }
     }
 }
@@ -808,12 +793,12 @@ impl ResourcePoolBuilder {
     ///
     /// # Errors
     ///
-    /// Restituisce [`PlenoraIoError::LimitExceeded`] se una delle tre quote
+    /// Restituisce `invalid_configuration/CLI_USAGE` se una delle tre quote
     /// e' nulla: un pool a quota zero rifiuterebbe ogni lease invece di
     /// limitare.
     pub fn build(self) -> Result<ResourcePool> {
         if self.memory_bytes == 0 || self.spill_bytes == 0 || self.concurrent_operations == 0 {
-            return Err(limit_error(LIMIT_MUST_BE_POSITIVE));
+            return Err(configuration_error(LIMIT_MUST_BE_POSITIVE));
         }
         Ok(ResourcePool {
             inner: Arc::new(PoolInner {
@@ -903,15 +888,15 @@ impl SourceObservation {
 
         let next_entries = entries
             .checked_add(1)
-            .ok_or_else(|| limit_error(ENTRIES_OVERFLOW))?;
+            .ok_or_else(|| Quota::InputEntries.exceeded(ErrorPhase::Read))?;
         if next_entries > limits.max_input_entries {
-            return Err(limit_error(TOO_MANY_ENTRIES));
+            return Err(Quota::InputEntries.exceeded(ErrorPhase::Read));
         }
         let next_bytes = total_bytes
             .checked_add(entry.charged_input_bytes)
-            .ok_or_else(|| limit_error(INPUT_BYTES_OVERFLOW))?;
+            .ok_or_else(|| Quota::InputBytes.exceeded(ErrorPhase::Read))?;
         if next_bytes > limits.max_input_bytes {
-            return Err(limit_error(TOO_MANY_INPUT_BYTES));
+            return Err(Quota::InputBytes.exceeded(ErrorPhase::Read));
         }
 
         *entries = next_entries;
@@ -1050,6 +1035,15 @@ pub struct PipelineContext {
 }
 
 impl PipelineContext {
+    #[must_use]
+    pub fn output_quota(&self, ceiling: u64) -> Quota {
+        if ceiling < self.limits().max_output_bytes() {
+            Quota::OutputExpansionRatio
+        } else {
+            Quota::OutputBytes
+        }
+    }
+
     #[must_use]
     pub fn deadline(&self) -> Instant {
         self.inner.deadline
@@ -1358,7 +1352,7 @@ impl PipelineContext {
                 not_sync: PhantomData,
             })
         } else {
-            Err(limit_error(CONCURRENCY_EXHAUSTED))
+            Err(Quota::ConcurrentOperations.exceeded(ErrorPhase::Read))
         }
     }
 
@@ -1373,12 +1367,12 @@ impl PipelineContext {
         self.ensure_active()?;
         let local = kind.local(&self.inner);
         if !local.try_take(amount) {
-            return Err(limit_error(kind.exhausted()));
+            return Err(kind.quota().exceeded(ErrorPhase::Read));
         }
         if let Some(pool) = self.inner.pool.as_ref() {
             if !kind.pooled(pool).try_take(amount) {
                 local.give_back(amount);
-                return Err(limit_error(kind.exhausted()));
+                return Err(kind.quota().exceeded(ErrorPhase::Read));
             }
         }
         Ok(())
@@ -1413,10 +1407,10 @@ impl GaugeKind {
         }
     }
 
-    const fn exhausted(self) -> &'static str {
+    const fn quota(self) -> Quota {
         match self {
-            Self::Memory => MEMORY_EXHAUSTED,
-            Self::Spill => SPILL_EXHAUSTED,
+            Self::Memory => Quota::MemoryBytes,
+            Self::Spill => Quota::SpillBytes,
         }
     }
 }
@@ -1569,7 +1563,7 @@ impl PipelineBudgetBuilder {
             .clock
             .now()
             .checked_add(Duration::from_millis(limits.duration_ms))
-            .ok_or_else(|| limit_error(DEADLINE_BEYOND_INSTANT))?;
+            .ok_or_else(|| configuration_error(DEADLINE_BEYOND_INSTANT))?;
         let pipeline_id = allocate_pipeline_id(&NEXT_PIPELINE_ID)?;
         let context = PipelineContext {
             inner: Arc::new(ContextInner {
@@ -1677,6 +1671,15 @@ impl OperationBudget {
         }
     }
 
+    #[must_use]
+    pub fn output_quota(&self) -> Quota {
+        if self.output_limit() < self.context.limits().max_output_bytes() {
+            Quota::OutputExpansionRatio
+        } else {
+            Quota::OutputBytes
+        }
+    }
+
     /// Preleva quota da un contatore cumulativo dell'operazione.
     ///
     /// # Errors
@@ -1712,11 +1715,15 @@ impl OperationBudget {
                 not_sync: PhantomData,
             }),
             TakeOutcome::AboveCeiling if counter == OperationCounter::OutputBytes => {
-                Err(limit_error(OUTPUT_LIMIT_EXCEEDED))
+                Err(self.output_quota().exceeded(ErrorPhase::Read))
             }
-            TakeOutcome::AboveCeiling | TakeOutcome::Exhausted => {
-                Err(limit_error(COUNTER_EXHAUSTED))
+            TakeOutcome::AboveCeiling | TakeOutcome::Exhausted => Err(match counter {
+                OperationCounter::Rows => Quota::Rows,
+                OperationCounter::Columns => Quota::Columns,
+                OperationCounter::GeometryComponents => Quota::GeometryComponents,
+                OperationCounter::OutputBytes => Quota::OutputBytes,
             }
+            .exceeded(ErrorPhase::Read)),
         }
     }
 }

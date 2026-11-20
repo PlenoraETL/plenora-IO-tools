@@ -1,10 +1,11 @@
 //! Il confine plug-in: `FormatDriver` + handle/reader/writer (`ENGINEERING.md § Interfaccia dei driver`).
 
+use plenora_io_model::diagnostics::DiagnosticCause;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use arrow_array::{BinaryArray, LargeBinaryArray, RecordBatch};
-use arrow_schema::{DataType, SchemaRef};
+use arrow_schema::SchemaRef;
 use plenora_io_model::budget::{
     ConcurrencyLease, CountedLease, InputPermit, InternalMemoryLease, OperationBudget,
     OperationCounter, PipelineContext, PipelineLimits, ReadBudgetParts, SourceEntry,
@@ -29,8 +30,8 @@ use plenora_io_model::{
 use plenora_io_model::{ContractIdentifier, IoErrorCode, NumeroStrutturale, PublicMessage};
 
 use crate::descriptor::{
-    ArrowTypeClass, AttributeWriteSupport, CrsDerivation, CrsRepresentationState, FormatDescriptor,
-    GeometryWriteSupport, NullabilitySupport, TypeCoercionPolicy,
+    AttributeWriteSupport, CrsDerivation, CrsRepresentationState, FormatDescriptor,
+    GeometryWriteSupport, TypeCoercionPolicy,
 };
 use crate::loss::{FidelityAssessment, FidelityReasonCode, LossExample, LossReport, Posizione};
 #[cfg(test)]
@@ -88,6 +89,15 @@ impl Source {
     /// l'errore di cancellazione o deadline; l'errore di I/O se la sorgente
     /// non e' accessibile; `Unsupported` su un symlink.
     pub fn into_path_observed(self, opts: &mut ReadOptions) -> Result<PathBuf> {
+        self.into_paths_observed(opts, None, None)
+    }
+
+    fn into_paths_observed(
+        self,
+        opts: &mut ReadOptions,
+        files: Option<&crate::dataset_files::FileSet>,
+        validate: Option<&StructureValidator<'_>>,
+    ) -> Result<PathBuf> {
         let Self::Path(path) = self;
         let budget = opts.budget().clone();
         let context = budget.context();
@@ -96,20 +106,35 @@ impl Source {
         // La liveness la verifica `scopri` per **ogni** voce, radice
         // compresa: qui non serve un controllo in piu'.
         let mut pending = Vec::new();
-        if scopri(context, &path)? {
-            pending.push(path.clone());
+        check_cancelled(context.cancellation(), ErrorPhase::Probe)?;
+        let paths = match files {
+            Some(files) => files.input_validated(&path, |main| {
+                if let Some(validate) = validate {
+                    validate(main, opts)?;
+                }
+                Ok(())
+            })?,
+            None => vec![path.clone()],
+        };
+        for actual in &paths {
+            if scopri(context, actual)? {
+                pending.push(actual.clone());
+            }
         }
         while let Some(directory) = pending.pop() {
+            let mut names = std::collections::BTreeSet::new();
             for entry in std::fs::read_dir(&directory)? {
-                let figlio = entry?.path();
+                let entry = entry?;
+                let figlio = entry.path();
                 if scopri(context, &figlio)? {
                     pending.push(figlio);
                 }
+                crate::dataset_files::note_name(&mut names, &entry.file_name())?;
             }
         }
 
         context.observe_input(permit)?;
-        Ok(path)
+        Ok(paths.first().cloned().unwrap_or(path))
     }
 }
 
@@ -265,6 +290,8 @@ impl WriteLimitsView {
 /// fino a S4.d la seconda strada era quella presa: costruiva un ramo legacy
 /// con i valori storici, che nessun chiamante aveva chiesto.
 pub struct ReadOptions {
+    /// Optional prefix to inspect and decode, including schema inference.
+    pub row_limit: Option<u64>,
     /// CRS dichiarato per i formati che non lo portano (CSV/XLSX) — `PRODUCT.md § CRS`.
     pub assume_crs: Option<String>,
     /// Knob specifici del driver (es. csv: `x_column`/`y_column`/`wkt_column`/
@@ -288,6 +315,7 @@ impl ReadOptions {
     pub fn from_read_parts(parts: ReadBudgetParts) -> Self {
         let (budget, permit, expected) = parts.into_components();
         Self {
+            row_limit: None,
             assume_crs: None,
             format_options: BTreeMap::new(),
             budget,
@@ -531,7 +559,7 @@ pub fn limite_o_scadenza(
     }
     match contesto.ensure_active() {
         Err(scadenza) => scadenza.during(fase),
-        Ok(()) => errore,
+        Ok(()) => contesto.limits().quota_error(errore, fase),
     }
 }
 
@@ -671,6 +699,19 @@ pub trait FormatDriver: Send + Sync {
     /// Restituisce un errore se la sorgente non è accessibile, non è nel
     /// formato atteso o eccede i limiti dichiarati in `opts`.
     fn open(&self, source: Source, opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>>;
+    /// Open for an explicit object selection. Drivers may limit discovery to
+    /// that object, preserving its original catalog ID. No selection means
+    /// normal full discovery; the default implementation discovers everything.
+    /// # Errors
+    /// The same source, format and budget errors as `open`.
+    fn open_selected(
+        &self,
+        source: Source,
+        opts: ReadOptions,
+        _layer: Option<LayerId>,
+    ) -> Result<Box<dyn OpenDatasetHandle>> {
+        self.open(source, opts)
+    }
     /// Statico: verifica che il contratto sia rappresentabile (`ENGINEERING.md § Pipeline di scrittura (capability-check`)).
     ///
     /// # Errors
@@ -687,6 +728,23 @@ pub trait FormatDriver: Send + Sync {
 
 pub trait OpenDatasetHandle: Send + Sync {
     fn layers(&self) -> &[LayerContract];
+
+    /// Il formato espone gli errori locali come stati degli oggetti enumerati.
+    fn preserves_unreadable_objects(&self) -> bool {
+        false
+    }
+
+    /// Selection explicitly supplied through a format option.
+    /// It must agree with an explicit layer index at the public boundary.
+    fn explicit_layer(&self) -> Option<LayerId> {
+        None
+    }
+
+    /// Oggetto scelto quando la richiesta non specifica un indice.
+    fn default_layer(&self) -> Option<plenora_io_model::contract::LayerId> {
+        None
+    }
+
     /// Valutazione di fedeltà concreta per il dataset aperto (`PRODUCT.md § LossReport`).
     fn fidelity_assessment(&self) -> FidelityAssessment;
     /// Apre un reader indipendente per un layer; lo STATO mutabile vive nel
@@ -703,10 +761,8 @@ pub trait OpenDatasetHandle: Send + Sync {
     /// (`verifica_crs_emesso`, `--assume-crs`) o il driver non l'ha risolto.
     ///
     /// Un layer rifiutato non rende illeggibili gli altri: `open_layer_reader`
-    /// su di lui restituisce questo errore, e chi descrive tutti i layer
-    /// (`io.inspect`, `io.layers`) deve chiederlo e fallire, perche' il suo
-    /// contratto non e' una descrizione di cui il bordo risponda. Il default e'
-    /// nessun rifiuto: un dataset a un layer fallisce gia' all'apertura.
+    /// su di lui restituisce questo errore. L'enumerazione conserva l'oggetto
+    /// e pubblica il rifiuto come stato, senza interpretare il contratto vuoto.
     fn rifiuto_del_layer(&self, _layer: LayerId) -> Option<PlenoraIoError> {
         None
     }
@@ -858,7 +914,32 @@ pub fn preflight_source(
         &opts.format_options,
         plenora_io_model::format_options::FaseOpzione::Lettura,
     )?;
-    source.into_path_observed(opts)
+    spool::spill_directory()?;
+    source.into_paths_observed(opts, Some(descriptor.files()), None)
+}
+
+/// Validatore del contenitore, prima di accessori, opzioni e CRS.
+type StructureValidator<'a> = dyn Fn(&std::path::Path, &ReadOptions) -> Result<()> + 'a;
+
+/// Preflight con un unico passo strutturale dichiarato dal driver.
+///
+/// # Errors
+/// Struttura, insieme fisico, quote o configurazione non validi.
+pub fn preflight_source_validated(
+    descriptor: &FormatDescriptor,
+    source: Source,
+    opts: &mut ReadOptions,
+    validate: &StructureValidator<'_>,
+) -> Result<PathBuf> {
+    let path = source.into_paths_observed(opts, Some(descriptor.files()), Some(validate))?;
+    plenora_io_model::format_options::valida_opzioni(
+        descriptor.id(),
+        descriptor.format_options(),
+        &opts.format_options,
+        plenora_io_model::format_options::FaseOpzione::Lettura,
+    )?;
+    spool::spill_directory()?;
+    Ok(path)
 }
 
 /// Applica i limiti indipendenti dal formato a qualunque writer. I vincoli
@@ -934,20 +1015,19 @@ pub fn with_write_validation(
         total
             .checked_add(
                 u64::try_from(layer.contract.schema.fields().len()).map_err(|_| {
-                    PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                        "troppe colonne nel piano",
-                    ))
+                    plenora_io_model::quota::Quota::Columns
+                        .exceeded(plenora_io_model::ErrorPhase::Prepare)
                 })?,
             )
             .ok_or_else(|| {
-                PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                    "overflow nel conteggio delle colonne",
-                ))
+                plenora_io_model::quota::Quota::Columns
+                    .exceeded(plenora_io_model::ErrorPhase::Prepare)
             })
     })?;
     if columns > 0 {
         budget
-            .try_lease(OperationCounter::Columns, columns)?
+            .try_lease(OperationCounter::Columns, columns)
+            .map_err(|error| error.during(ErrorPhase::Prepare))?
             .commit(columns)?;
     }
     Ok(Box::new(LimitedWriter {
@@ -978,6 +1058,7 @@ pub fn with_write_validation(
 
 mod perdita_pianificata;
 use perdita_pianificata::assess_write_contract;
+pub(crate) use perdita_pianificata::observed_geometry_metadata_loss;
 pub use perdita_pianificata::planned_write_loss;
 
 mod scrittura_limitata;
@@ -997,7 +1078,7 @@ pub fn write_row_rejection(
     driver: &'static str,
     row_offset: u64,
     batch_rows: usize,
-    rejections: &[(usize, &'static str, &str)],
+    rejections: &[(usize, DiagnosticCause, &str)],
     input_total: Option<u64>,
 ) -> PlenoraIoError {
     let mut violations = BTreeMap::new();
@@ -1012,9 +1093,9 @@ pub fn write_row_rejection(
             .entry(source_index)
             .or_insert_with(|| WriteRowViolation {
                 source_index,
-                cause,
+                cause: *cause,
                 column: (*column).to_owned(),
-                capability_reason: row_rejection_capability_reason(cause),
+                capability_reason: row_rejection_capability_reason(cause.as_str()),
             });
     }
     if violations.is_empty() {
@@ -1044,7 +1125,7 @@ pub fn write_row_rejection(
 pub fn read_row_error(
     mut error: PlenoraIoError,
     source_index: Option<u64>,
-    cause: &'static str,
+    cause: DiagnosticCause,
     column: Option<&str>,
 ) -> PlenoraIoError {
     const EXAMPLES_LIMIT: u64 = 64;
@@ -1064,7 +1145,7 @@ pub fn read_row_error(
     let examples = source_index
         .map(|source_index| RowDiagnosticExample {
             source_index,
-            cause: cause.to_owned(),
+            cause,
             column: column.and_then(RowDiagnosticColumn::into_option),
             key: None,
             write_state: None,
@@ -1084,7 +1165,7 @@ pub fn read_row_error(
         observed_total: 1,
         total: None,
         input_total: None,
-        counts: BTreeMap::from([(cause.to_owned(), 1)]),
+        counts: BTreeMap::from([(cause.as_str().to_owned(), 1)]),
         examples_limit: EXAMPLES_LIMIT,
         examples_truncated: false,
         examples,

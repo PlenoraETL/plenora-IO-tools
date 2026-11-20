@@ -13,6 +13,7 @@
 //! della scrittura, e non si sono mossi.
 
 use arrow_array::Array;
+use plenora_io_model::diagnostics::DiagnosticCause;
 use plenora_io_model::Result;
 
 use super::{
@@ -27,11 +28,11 @@ use super::{
 };
 
 /// Uno SRID di valore che contraddice il CRS del campo (GEO-009, classe `crs`).
-const CAUSA_SRID: &str = "contract.srid";
+const CAUSA_SRID: DiagnosticCause = DiagnosticCause::ContractSrid;
 
 /// REJ-002: la categoria del rifiuto e' quella della prima violazione in
 /// ordine di riga.
-fn categoria_del_rifiuto(prima_causa: Option<&str>) -> ErrorCategory {
+fn categoria_del_rifiuto(prima_causa: Option<DiagnosticCause>) -> ErrorCategory {
     if prima_causa == Some(CAUSA_SRID) {
         ErrorCategory::Crs
     } else {
@@ -227,7 +228,7 @@ pub fn validate_geometry_batch_at(
 #[derive(Clone)]
 pub struct WriteRowViolation {
     pub source_index: u64,
-    pub cause: &'static str,
+    pub cause: DiagnosticCause,
     pub column: String,
     pub capability_reason: CapabilityReason,
 }
@@ -246,20 +247,18 @@ fn nullability_violations(
             if array.is_null(row) {
                 let source_index = row_offset
                     .checked_add(u64::try_from(row).map_err(|_| {
-                        PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                            "indice riga oltre u64",
-                        ))
+                        plenora_io_model::quota::Quota::Rows
+                            .exceeded(plenora_io_model::ErrorPhase::Write)
                     })?)
                     .ok_or_else(|| {
-                        PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                            "overflow nell'indice riga",
-                        ))
+                        plenora_io_model::quota::Quota::Rows
+                            .exceeded(plenora_io_model::ErrorPhase::Write)
                     })?;
                 violations
                     .entry(source_index)
                     .or_insert_with(|| WriteRowViolation {
                         source_index,
-                        cause: "contract.nullability",
+                        cause: DiagnosticCause::ContractNullability,
                         column: field.name().to_owned(),
                         capability_reason: CapabilityReason::Nullability,
                     });
@@ -283,10 +282,10 @@ fn inspect_geometry_row(
 ) -> Result<()> {
     let source_index = row_offset
         .checked_add(u64::try_from(row).map_err(|_| {
-            PlenoraIoError::limite_redatto(&PublicMessage::Curated("indice riga oltre u64"))
+            plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Write)
         })?)
         .ok_or_else(|| {
-            PlenoraIoError::limite_redatto(&PublicMessage::Curated("overflow nell'indice riga"))
+            plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Write)
         })?;
     if violations.contains_key(&source_index) {
         return Ok(());
@@ -297,7 +296,7 @@ fn inspect_geometry_row(
                 source_index,
                 WriteRowViolation {
                     source_index,
-                    cause: "contract.nullability",
+                    cause: DiagnosticCause::ContractNullability,
                     column: contract.name.clone(),
                     capability_reason: CapabilityReason::Nullability,
                 },
@@ -305,12 +304,18 @@ fn inspect_geometry_row(
         }
         return Ok(());
     };
-    let Ok(inspection) = inspect_wkb(bytes, limits) else {
+    let inspection = inspect_wkb(bytes, limits);
+    if let Err(ref error) = inspection {
+        if error.category == plenora_io_model::ErrorCategory::ResourceLimit {
+            return Err(error.clone().during(plenora_io_model::ErrorPhase::Write));
+        }
+    }
+    let Ok(inspection) = inspection else {
         violations.insert(
             source_index,
             WriteRowViolation {
                 source_index,
-                cause: "conversion.invalid_geometry",
+                cause: DiagnosticCause::ConversionInvalidGeometry,
                 column: contract.name.clone(),
                 capability_reason: CapabilityReason::GeometryEncoding,
             },
@@ -322,11 +327,11 @@ fn inspect_geometry_row(
             .capability_reason
             .unwrap_or(CapabilityReason::GeometryEncoding);
         let cause = match capability_reason {
-            CapabilityReason::Nullability => "contract.nullability",
-            CapabilityReason::CoordinateDimensions => "contract.coordinate_dimensions",
-            CapabilityReason::MixedGeometry => "contract.geometry_type",
+            CapabilityReason::Nullability => DiagnosticCause::ContractNullability,
+            CapabilityReason::CoordinateDimensions => DiagnosticCause::ContractCoordinateDimensions,
+            CapabilityReason::MixedGeometry => DiagnosticCause::ContractGeometryType,
             CapabilityReason::CrsRepresentationsInconsistent => CAUSA_SRID,
-            _ => "contract.geometry_encoding",
+            _ => DiagnosticCause::ContractGeometryEncoding,
         };
         violations.insert(
             source_index,
@@ -341,14 +346,12 @@ fn inspect_geometry_row(
     }
     *components = components
         .checked_add(u64::try_from(inspection.components).map_err(|_| {
-            PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                "geometria oltre il conteggio supportato",
-            ))
+            plenora_io_model::quota::Quota::GeometryComponents
+                .exceeded(plenora_io_model::ErrorPhase::Write)
         })?)
         .ok_or_else(|| {
-            PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                "overflow nel conteggio dei componenti geometrici",
-            ))
+            plenora_io_model::quota::Quota::GeometryComponents
+                .exceeded(plenora_io_model::ErrorPhase::Write)
         })?;
     Ok(())
 }
@@ -366,16 +369,18 @@ fn inspect_geometry_row(
 /// nessuno ha dichiarato e' peggio di un report che non c'e'.
 fn errore_di_rifiuto_senza_report(
     driver: &'static str,
-    causa: Option<&'static str>,
+    causa: Option<DiagnosticCause>,
     capability_reason: Option<CapabilityReason>,
 ) -> PlenoraIoError {
     // Il driver esce dal campo `driver`, non dal testo: ripeterlo nel
     // messaggio non aggiungeva niente e faceva sembrare interpolato un valore
     // che era gia' strutturato. La causa resta, ed e' un vocabolario chiuso di
-    // `&'static str`.
+    // varianti di `DiagnosticCause`.
     let messaggio = causa.map_or(
         PublicMessage::Curated("righe rifiutate prima della scrittura"),
-        |causa| PublicMessage::CuratedPair("righe rifiutate prima della scrittura:", causa),
+        |causa| {
+            PublicMessage::CuratedPair("righe rifiutate prima della scrittura:", causa.as_str())
+        },
     );
     let mut error = PlenoraIoError::redatto(
         IoErrorCode::Generic,
@@ -419,7 +424,9 @@ pub fn write_rejection_error(
     let observed_total = saturating_u64(violations.len());
     let mut counts = BTreeMap::new();
     for violation in violations.values() {
-        *counts.entry(violation.cause.to_owned()).or_insert(0_u64) += 1;
+        *counts
+            .entry(violation.cause.as_str().to_owned())
+            .or_insert(0_u64) += 1;
     }
     let mut column_name_unattestable = false;
     // `EXAMPLES_LIMIT` e' la costante letterale 64: la conversione e' esatta
@@ -433,7 +440,7 @@ pub fn write_rejection_error(
             column_name_unattestable |= !column.is_attested();
             RowDiagnosticExample {
                 source_index: violation.source_index,
-                cause: violation.cause.to_owned(),
+                cause: violation.cause,
                 column: column.into_option(),
                 key: None,
                 write_state: Some(RowDiagnosticWriteState::CertainlyRejected),
@@ -484,7 +491,15 @@ pub fn write_rejection_error(
         ErrorPhase::Write,
         RemoteEffect::None,
         RetryDisposition::Never,
-        &PublicMessage::Curated("righe rifiutate prima della scrittura"),
+        &prima.map_or(
+            PublicMessage::Curated("righe rifiutate prima della scrittura"),
+            |v| {
+                PublicMessage::CuratedPair(
+                    "righe rifiutate prima della scrittura:",
+                    v.cause.as_str(),
+                )
+            },
+        ),
     );
     error = error.with_row_diagnostics(diagnostics);
     error.driver = Some(driver.to_owned());

@@ -85,6 +85,10 @@ fn calls(source: &str, function: &str, callee: &str) -> bool {
         found: bool,
     }
     impl<'ast> Visit<'ast> for Calls<'_> {
+        fn visit_expr_method_call(&mut self, node: &'ast syn::ExprMethodCall) {
+            self.found |= node.method == self.callee;
+            syn::visit::visit_expr_method_call(self, node);
+        }
         fn visit_expr_call(&mut self, node: &'ast syn::ExprCall) {
             if let syn::Expr::Path(path) = node.func.as_ref() {
                 let name = path
@@ -124,6 +128,18 @@ fn calls(source: &str, function: &str, callee: &str) -> bool {
     };
     visitor.visit_file(&syn::parse_file(source).unwrap());
     visitor.calls.found
+}
+
+fn assert_reader_route(name: &str, source: &str) {
+    if name == "driver-filegdb" {
+        assert!(calls(source, "open", "open_selected"), "{name}: selection");
+        assert!(
+            calls(source, "open_selected", "with_read_budget"),
+            "{name}: selected reader"
+        );
+    } else {
+        assert!(calls(source, "open", "with_read_budget"), "{name}: reader");
+    }
 }
 
 #[test]
@@ -166,7 +182,11 @@ fn enumeration_guards_driver_and_surface_routes() {
         let source =
             std::fs::read_to_string(root.join("crates").join(name).join("src/lib.rs")).unwrap();
         assert!(calls(&source, "create", "validate_write"), "{name}: writer");
-        assert!(calls(&source, "open", "with_read_budget"), "{name}: reader");
+        assert_reader_route(name, &source);
+    }
+    let cli = std::fs::read_to_string(root.join("crates/plenora-io-tools/src/lib.rs")).unwrap();
+    for operation in ["cmd_read", "cmd_convert"] {
+        assert!(calls(&cli, operation, "open_selected"), "{operation}");
     }
     for (path, function, callee) in [
         (
@@ -198,7 +218,7 @@ fn enumeration_guards_driver_and_surface_routes() {
         ),
         (
             "plenora-io-tools/src/lib.rs",
-            "cmd_write",
+            "cmd_write_inner",
             "piano_di_scrittura",
         ),
         (
@@ -257,8 +277,13 @@ fn filegdb_profile_rejects_multi_before_backend_or_publication() {
         .err()
         .unwrap();
     assert_eq!(error.category, plenora_io_model::ErrorCategory::Unsupported);
-    assert_eq!(error.phase, plenora_io_model::ErrorPhase::Validate);
-    assert!(error.message.contains("colonne geometriche"));
+    if cfg!(feature = "gdal-backend") {
+        assert_eq!(error.phase, plenora_io_model::ErrorPhase::Validate);
+        assert!(error.message.contains("colonne geometriche"));
+    } else {
+        assert_eq!(error.phase, plenora_io_model::ErrorPhase::Write);
+        assert!(error.message.contains("gdal-backend"));
+    }
     assert!(!dest.exists());
 }
 
@@ -338,7 +363,7 @@ fn reconciliation_callers_are_enumerated_structurally() {
         ("plenora-io-core/src/ewkb.rs", "pianifica"),
         ("driver-gpkg/src/lib.rs", "open"),
         ("driver-geoparquet/src/lib.rs", "contract_from_footer"),
-        ("driver-filegdb/src/lib.rs", "open"),
+        ("driver-filegdb/src/lib.rs", "open_objects"),
         ("driver-filegdb/src/test_contract.rs", "declared"),
     ]
     .into_iter()

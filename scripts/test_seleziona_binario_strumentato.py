@@ -11,6 +11,7 @@ proprio nel caso in cui la misura sarebbe stata di un altro binario.
 from __future__ import annotations
 
 import io
+import os
 import pathlib
 import tempfile
 import unittest
@@ -18,7 +19,7 @@ from contextlib import redirect_stderr, redirect_stdout
 
 from scripts import seleziona_binario_strumentato as selezione
 
-NATIVE_PROOF = True  # Esegue un finto llvm-cov con shebang Unix.
+NATIVE_PROOF = True  # Esegue un finto llvm-cov nella shell della piattaforma.
 
 
 def impronte(mappa: dict[str, str]):
@@ -207,6 +208,13 @@ class LaCompatibilitaVera(unittest.TestCase):
         self.radice = pathlib.Path(temporanea.name)
 
     def finto(self, corpo: str) -> str:
+        if os.name == "nt":
+            percorso = self.radice / "llvm-cov-finto.cmd"
+            comandi = {'echo "{}"': 'echo {}', "exit 1": "exit /b 1",
+                       "exit 0": "exit /b 0",
+                       'echo "non combacia" >&2; exit 1': "echo non combacia 1>&2\nexit /b 1"}
+            percorso.write_text("@echo off\n" + comandi[corpo] + "\n", encoding="utf-8", newline="\n")
+            return str(percorso)
         percorso = self.radice / "llvm-cov-finto"
         percorso.write_text(f"#!/bin/sh\n{corpo}\n", encoding="utf-8", newline="\n")
         percorso.chmod(0o755)
