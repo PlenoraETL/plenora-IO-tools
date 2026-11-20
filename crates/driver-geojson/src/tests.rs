@@ -795,7 +795,7 @@ fn invalid_wkb_geometry_is_rejected_before_writing_any_geojson() {
             vec![],
         ))])),
         wrap(WkbValue::MultiLineString(vec![point.clone()])),
-        wrap(WkbValue::MultiPolygon(vec![point.clone()])),
+        wrap(WkbValue::MultiPolygon(vec![point])),
         wrap(WkbValue::GeometryCollection(vec![incompatible_child])),
         wrap(WkbValue::GeometryCollection(vec![wrong_dimensions.clone()])),
         wrap(WkbValue::Point(WkbCoordinate {
