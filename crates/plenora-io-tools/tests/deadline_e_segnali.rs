@@ -64,9 +64,6 @@ const OPZIONE_WKT: &str = "wkt_column=geom";
 /// `LIMIT_EXCEEDED`: una quota invece di una scadenza. `timeout` proietta `5`.
 const EXIT_TIMEOUT: i32 = 5;
 
-/// La proiezione di `resource_limit`, secondo CLI 2.0 §8: il rifiuto di una
-/// quota a zero, che non e' una scadenza.
-
 /// `128 + SIGINT`, l'exit code della categoria `Cancelled`.
 ///
 /// La convenzione e' POSIX, e con lei il modulo che la usa.
