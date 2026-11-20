@@ -351,7 +351,40 @@ def blocco(stato: dict, registro: dict) -> tuple[str, list[str]]:
 
 def main(argv: list[str] | None = None) -> int:
     argomenti = argparse.ArgumentParser(description=__doc__)
-    argomenti.parse_args(argv)
+    argomenti.add_argument(
+        "--aggiorna-misure", action="store_true",
+        help="riallinea nello stato le misure fuzz/ASan dalle fonti del contratto",
+    )
+    opzioni = argomenti.parse_args(argv)
+    if opzioni.aggiorna_misure:
+        try:
+            from . import check_release_contract as contratto
+        except ImportError:
+            import check_release_contract as contratto
+        stato = strict_json.loads(STATO.read_text(encoding="utf-8"))
+        for nome, fonte in (
+            ("fuzz_reader_shapefile", contratto.REGISTRO_DI_PROFONDITA),
+            ("fuzz_filegdb", contratto.REGISTRO_DI_PROFONDITA_FILEGDB),
+        ):
+            registro = strict_json.loads(fonte.read_text(encoding="utf-8"))
+            misura = strict_json.loads((ROOT / registro["artefatto"]).read_text(encoding="utf-8"))
+            stato["chiuso"][nome]["misura"] = registro["artefatto"]
+            stato["chiuso"][nome]["requisiti_di_profondita"] = len(misura["requisiti"])
+        fonte_asan = contratto.MISURA_ASAN_FILEGDB
+        asan = strict_json.loads(fonte_asan.read_text(encoding="utf-8"))
+        filegdb = stato["chiuso"]["fuzz_filegdb"]
+        filegdb["confine_asan"] = fonte_asan.relative_to(ROOT).as_posix()
+        for chiave in ("contatori_di_copertura", "file_sorgente_gdal_strumentati",
+                       "simboli_asan_nella_libreria"):
+            filegdb[chiave] = asan[chiave]
+        errori = contratto.validate_stato_corrente(stato)
+        if errori:
+            for messaggio in errori:
+                print(messaggio, file=sys.stderr)
+            return 1
+        STATO.write_bytes((json.dumps(stato, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
+        print("stato: misure fuzz/ASan riallineate e fonti del contratto verificate")
+        return 0
     testo, errori = blocco(
         strict_json.loads(STATO.read_text(encoding="utf-8")),
         strict_json.loads(REGISTRO.read_text(encoding="utf-8")),

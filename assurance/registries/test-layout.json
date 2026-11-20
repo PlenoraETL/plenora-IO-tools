@@ -2,7 +2,7 @@
   "schema_version": 1,
   "descrizione": "Gli `#[cfg(test)]` che restano dentro i file di prodotto, e perche' restano.",
   "attributi_su_singoli_elementi": {
-    "quanti": 61,
+    "quanti": 63,
     "perche_non_sono_vietati": "sono su **singoli elementi** -- un aiutante, una fixture, un costruttore che serve solo alle prove -- e non formano un modulo. Spostarli in un file di prove vorrebbe dire renderli visibili al crate per poterli importare: si allargherebbe una superficie interna per far contento un gate, che e' il contrario di quello che il gate vuole ottenere. Restano dove sono, contati: crescono solo per decisione.",
     "crescite": [
       {
@@ -16,6 +16,12 @@
         "a": 61,
         "pr": "#94",
         "ragione": "un `use driver_common::geometry_field` sotto `#[cfg(test)]` nel modulo `backend` di crates/driver-filegdb/src/lib.rs: le prove FileGDB costruiscono i contratti attraverso l'helper unico `test_contract` (quarto giro della 8.0.0), che deve vedere lo stesso costruttore di campo geometrico del prodotto; importarlo fuori dalle prove lo renderebbe un import inutilizzato nel prodotto."
+      },
+      {
+        "da": 61,
+        "a": 63,
+        "revisione": "2ffdb0fc",
+        "ragione": "Riallineamento alle correzioni FileGDB e ai controlli strutturali: driver-filegdb 9 -> 13 (helper di apertura, staging e import riservati alle prove), driver-gpkg schema 0 -> 1 (sonda SQL), driver-xls 1 -> 2 (wrapper di validazione per le prove). Estratti o rimossi quattro elementi da driver-csv, driver-geojson, driver-ipc e driver-kml (-1 ciascuno). Saldo +2 misurato da check_test_layout.scansiona; nessun modulo inline introdotto."
       }
     ]
   }

@@ -36,6 +36,43 @@ from scripts import check_docset as gate
 from scripts import stato_release
 
 
+class AggiornamentoMisure(unittest.TestCase):
+    def test_ripara_le_misure_dalle_fonti_ed_e_idempotente(self):
+        from scripts import check_release_contract as contratto
+        import json
+
+        stato = strict_json.loads(stato_release.STATO.read_text(encoding="utf-8"))
+        for nome in ("fuzz_reader_shapefile", "fuzz_filegdb"):
+            stato["chiuso"][nome]["requisiti_di_profondita"] = -1
+            stato["chiuso"][nome]["misura"] = "fonte-obsoleta"
+        for chiave in ("contatori_di_copertura", "file_sorgente_gdal_strumentati",
+                       "simboli_asan_nella_libreria"):
+            stato["chiuso"]["fuzz_filegdb"][chiave] = -1
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / "stato.json"
+            path.write_text(json.dumps(stato), encoding="utf-8")
+            with mock.patch.object(stato_release, "STATO", path):
+                self.assertEqual(stato_release.main(["--aggiorna-misure"]), 0)
+                self.assertEqual(contratto.validate_stato_corrente(
+                    strict_json.loads(path.read_text(encoding="utf-8"))), [])
+                prima = path.read_bytes()
+                self.assertEqual(stato_release.main(["--aggiorna-misure"]), 0)
+                self.assertEqual(path.read_bytes(), prima)
+
+    def test_non_scrive_se_le_fonti_non_superano_il_contratto(self):
+        from scripts import check_release_contract as contratto
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / "stato.json"
+            prima = stato_release.STATO.read_bytes()
+            path.write_bytes(prima)
+            with mock.patch.object(stato_release, "STATO", path), mock.patch.object(
+                contratto, "validate_stato_corrente", return_value=["fonte incoerente"]
+            ):
+                self.assertEqual(stato_release.main(["--aggiorna-misure"]), 1)
+                self.assertEqual(path.read_bytes(), prima)
+
+
 class RepositoryFinto:
     """Un repository Git vero, usa e getta."""
 

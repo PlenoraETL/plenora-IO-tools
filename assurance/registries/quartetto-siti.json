@@ -27,6 +27,12 @@
       "DataMapping/Read/Format/Never"
     ]
   },
+  "crates/driver-common/src/structure.rs": {
+    "filegdb_object": [
+      "Unsupported/Validate/Capability/Never",
+      "Unsupported/Validate/Capability/Never"
+    ]
+  },
   "crates/driver-common/src/wkt_lossless.rs": {
     "coordinate_to_wkt": [
       "DataMapping/Validate/Wkb/Never"
@@ -137,7 +143,7 @@
     "ogr_to_arrow": [
       "Unsupported/Validate/Capability/Never"
     ],
-    "open": [
+    "open_selected": [
       "Unsupported/Validate/Unsupported/Never"
     ],
     "resolve_layer_crs": [
