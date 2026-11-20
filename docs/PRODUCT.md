@@ -2491,7 +2491,13 @@ un'attestazione di appartenenza al dataset. Se due decoder ammettono gli stessi
 byte, un `.cpg` estraneo non e' riconoscibile per inferenza. La fedelta' di lettura
 riporta questo limite come `format_constraint`, senza inventare una perdita.
 
-La regola di apertura FileGDB e' unica: il dataset e' un catalogo
+La disponibilita' del tier precede la validazione strutturale: senza
+`gdal-backend`, ogni input indirizzato al driver FileGDB (per formato esplicito
+o riconoscimento `.gdb`) produce `UNSUPPORTED`, categoria `unsupported`, con
+un messaggio che nomina `gdal-backend`, anche se vuoto o corrotto. Il profilo
+base non interpreta il catalogo o i membri per diagnosticare la struttura.
+
+Con il tier disponibile, la regola di apertura FileGDB e' unica: il dataset e' un catalogo
 (`a00000001.gdbtable` e accessori, con la sola tabella condivisa `GDB_Items` per schemi e metadati
 nel formato v10, identificata dal catalogo e non da un ID fisso) piu' oggetti. Il parser unico dei basename stabilisce
 l'identita' e i membri di ciascun oggetto.

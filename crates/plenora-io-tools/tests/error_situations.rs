@@ -15,6 +15,15 @@ const DRIVERS: &[(&str, &str)] = &[
     ("filegdb", "gdb"),
 ];
 
+fn assert_missing_filegdb_tier(doc: &serde_json::Value) {
+    assert_eq!(doc["error"]["category"], "unsupported", "{doc}");
+    assert_eq!(doc["error"]["code"], "UNSUPPORTED", "{doc}");
+    assert_eq!(doc["error"]["phase"], "validate", "{doc}");
+    let message = doc["error"]["message"].as_str().unwrap();
+    assert!(message.contains("gdal-backend"), "{doc}");
+    assert!(!message.contains("SECRET"), "{doc}");
+}
+
 #[test]
 fn cli_rejects_ignored_repeated_and_excess_arguments() {
     for args in [
@@ -106,6 +115,11 @@ fn source_errors_follow_the_table_through_real_drivers() {
                 }
                 let (_, result) = esegui(&args, &CancellationToken::new());
                 let (_, doc) = result.expect_err(&format!("{driver} {command} {situation:?}"));
+                if driver == "filegdb" && !cfg!(feature = "gdal-backend") {
+                    // Il tier precede anche l'accesso alla sorgente FileGDB.
+                    assert_missing_filegdb_tier(&doc);
+                    continue;
+                }
                 let rule = situation.rule();
                 assert_eq!(
                     doc["error"]["category"],
@@ -206,6 +220,10 @@ fn invalid_options_are_redacted_in_both_driver_directions() {
             args.push("SECRET_KEY=SECRET_VALUE".to_owned());
             let (_, result) = esegui(&args, &CancellationToken::new());
             let (_, doc) = result.expect_err(driver);
+            if driver == "filegdb" && direction == "read" && !cfg!(feature = "gdal-backend") {
+                assert_missing_filegdb_tier(&doc);
+                continue;
+            }
             let rule = Situation::InvalidConfiguration.rule();
             assert_eq!(
                 doc["error"]["category"],

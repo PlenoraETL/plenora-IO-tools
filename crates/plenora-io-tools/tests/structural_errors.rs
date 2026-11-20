@@ -30,7 +30,9 @@ fn copy_tree(from: &Path, to: &Path) {
         std::fs::copy(entry.path(), to.join(entry.file_name())).unwrap();
     }
 }
-fn assert_error(path: &Path, id: &str, label: &str, situation: Situation) {
+// La situazione strutturale vale per un driver disponibile; nello stub
+// FileGDB l'oracolo e' sempre il tier mancante, anche con struttura sana.
+fn assert_error(path: &Path, id: &str, label: &str, available_situation: Situation) {
     for assume in [false, true] {
         for options in [false, true] {
             for command in ["read", "inspect", "layers", "convert"] {
@@ -61,7 +63,19 @@ fn assert_error(path: &Path, id: &str, label: &str, situation: Situation) {
                 }
                 let (_, result) = plenora_io_tools::esegui(&args, &CancellationToken::new());
                 let (_, doc) = result.expect_err(&format!("{id}: {args:?}"));
-                let rule = situation.rule();
+                if id == "filegdb" && !cfg!(feature = "gdal-backend") {
+                    assert_eq!(doc["error"]["category"], "unsupported", "{args:?}: {doc}");
+                    assert_eq!(doc["error"]["code"], "UNSUPPORTED", "{args:?}: {doc}");
+                    assert!(
+                        doc["error"]["message"]
+                            .as_str()
+                            .unwrap()
+                            .contains("gdal-backend"),
+                        "{args:?}: {doc}"
+                    );
+                    continue;
+                }
+                let rule = available_situation.rule();
                 for (key, expected) in [
                     ("category", serde_json::to_value(rule.category).unwrap()),
                     ("phase", serde_json::to_value(rule.phase).unwrap()),
@@ -218,20 +232,8 @@ fn filegdb_members_and_geopackage_companions_precede_options() {
             } else {
                 std::fs::write(&member, bytes).unwrap();
             }
-            if name == "a00000001.gdbtable" {
+            if !cfg!(feature = "gdal-backend") || name == "a00000001.gdbtable" {
                 assert_error(&path, "filegdb", "FileGDB", Situation::InvalidContent);
-            } else if !cfg!(feature = "gdal-backend") {
-                // Senza il tier GDB il catalogo sano supera la validazione
-                // strutturale e l'elenco dei layer richiede GDAL: errore di tier.
-                let (_, result) = plenora_io_tools::esegui(
-                    &["layers".to_owned(), path.to_str().unwrap().to_owned()],
-                    &CancellationToken::new(),
-                );
-                let (_, doc) = result.unwrap_err();
-                assert_eq!(
-                    doc["error"]["code"], "UNSUPPORTED",
-                    "{name}/{defect}: {doc}"
-                );
             } else {
                 let (_, result) = plenora_io_tools::esegui(
                     &["layers".to_owned(), path.to_str().unwrap().to_owned()],
@@ -285,6 +287,37 @@ fn filegdb_members_and_geopackage_companions_precede_options() {
             }
             assert_error(&path, "gpkg", "GeoPackage", Situation::InvalidContent);
         }
+    }
+}
+
+/// La capability precede la struttura in ogni ingresso CLI del profilo base.
+#[cfg(not(feature = "gdal-backend"))]
+#[test]
+fn base_filegdb_tier_precedes_all_five_container_cases() {
+    let root = tempfile::tempdir().unwrap();
+    for case in [
+        "healthy",
+        "corrupt_catalog",
+        "defective_member",
+        "empty",
+        "qualsiasi",
+    ] {
+        let path = root.path().join(format!("{case}.gdb"));
+        if matches!(case, "empty" | "qualsiasi") {
+            // `qualsiasi.gdb`: fixture esatta di scripts/smoke-profilo.py.
+            std::fs::create_dir(&path).unwrap();
+        } else {
+            copy_tree(&fixture("gdb"), &path);
+            let damaged = match case {
+                "corrupt_catalog" => Some("a00000001.gdbtable"),
+                "defective_member" => Some("a00000009.gdbtable"),
+                _ => None,
+            };
+            if let Some(member) = damaged {
+                std::fs::write(path.join(member), b"SECRET garbage").unwrap();
+            }
+        }
+        assert_error(&path, "filegdb", "FileGDB", Situation::InvalidContent);
     }
 }
 

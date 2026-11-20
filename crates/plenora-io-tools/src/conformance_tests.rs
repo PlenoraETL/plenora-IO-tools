@@ -1875,7 +1875,6 @@ fn structural_fixture(id: &str) -> std::path::PathBuf {
 /// Every declared option enters this matrix automatically, in both directions.
 #[test]
 fn catalog_options_reject_invalid_configuration_in_every_direction() {
-    use plenora_io_model::error_table::Situation;
     let directory = tempfile::tempdir().unwrap();
     let catalog = crate::cmd_catalog();
     assert_eq!(
@@ -1927,13 +1926,7 @@ fn catalog_options_reject_invalid_configuration_in_every_direction() {
                 };
                 let error =
                     result.expect_err(&format!("{} {phase:?} {key}={value}", descriptor.id()));
-                let rule = Situation::InvalidConfiguration.rule();
-                assert_eq!(
-                    (error.category, error.phase, error.code),
-                    (rule.category, rule.phase, rule.code),
-                    "{} {phase:?} {key}={value}: {error}",
-                    descriptor.id()
-                );
+                assert_option_error(descriptor.id(), phase, key, value, &error);
             };
             check("SECRET_UNKNOWN_OPTION", "SECRET_UNKNOWN_VALUE");
             for option in descriptor.format_options().opzioni {
@@ -1975,6 +1968,28 @@ fn catalog_options_reject_invalid_configuration_in_every_direction() {
         }
     }
     assert!(cases > 0);
+}
+
+fn assert_option_error(
+    driver: &str,
+    phase: FaseOpzione,
+    key: &str,
+    value: &str,
+    error: &plenora_io_model::PlenoraIoError,
+) {
+    if driver == "filegdb" && phase == FaseOpzione::Lettura && !cfg!(feature = "gdal-backend") {
+        // Lo stub rifiuta il tier prima di struttura e opzioni.
+        assert_eq!(error.category, plenora_io_model::ErrorCategory::Unsupported);
+        assert_eq!(error.code, plenora_io_model::IoErrorCode::Unsupported);
+        assert!(error.message.contains("gdal-backend"));
+        return;
+    }
+    let rule = plenora_io_model::error_table::Situation::InvalidConfiguration.rule();
+    assert_eq!(
+        (error.category, error.phase, error.code),
+        (rule.category, rule.phase, rule.code),
+        "{driver} {phase:?} {key}={value}: {error}",
+    );
 }
 
 #[test]

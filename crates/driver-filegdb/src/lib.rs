@@ -394,7 +394,8 @@ impl FormatDriver for FileGdbDriver {
         }
         #[cfg(not(feature = "gdal-backend"))]
         {
-            let _ = driver_common::structure::preflight(self.descriptor(), source, &mut opts)?;
+            // Il profilo base rifiuta la capability prima di interpretare il
+            // contenuto: anche un catalogo corrotto richiede il tier assente.
             Err(plenora_io_model::PlenoraIoError::non_supportato_redatto(
                 &plenora_io_model::PublicMessage::Curated(
                     "FileGDB richiede il tier GDB: compilare con --features gdal-backend",
