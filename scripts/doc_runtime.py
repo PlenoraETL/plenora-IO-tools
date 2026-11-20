@@ -14,15 +14,22 @@ FORMATS = {'csv': ('csv', 'CSV'), 'shp': ('shp', 'Shapefile'),
 
 
 def cases(tables):
-    """Una riga per situazione/driver; nessuna applicabilita' implicita."""
+    """Una riga per situazione/driver/profilo; attese indipendenti dal binario."""
     rules = {r['situation']: r for r in tables['errors']}
     result = []
 
     def add(situation, drivers, scenario, message=None):
         for driver in drivers:
-            row = dict(rules[situation], driver=driver, scenario=scenario)
+            row = dict(rules[situation], driver=driver, scenario=scenario, profile='tutti')
             if message is not None:
                 row['message'] = message.format(label=FORMATS[driver][1], driver=driver)
+            if driver == 'filegdb' and situation in ('MissingSource', 'InvalidContent'):
+                result.append(dict(row, profile='base', category='unsupported',
+                                   phase='validate', code='UNSUPPORTED', exit=3,
+                                   message='FileGDB richiede il tier GDB: compilare con --features gdal-backend'))
+                row['profile'] = 'gdal-backend'
+            if situation == 'MissingWriteBackend':
+                row['profile'] = 'base'
             result.append(row)
 
     add('MissingSource', FORMATS, 'sorgente assente')
@@ -47,6 +54,13 @@ def cases(tables):
     add('MissingWriteBackend', ['filegdb'], 'build senza gdal-backend')
     assert set(rules) == {r['situation'] for r in result}
     return result
+
+
+def active_cases(tables, catalog):
+    """Il catalogo seleziona il profilo, mai i valori attesi dell'errore."""
+    native = next(d for d in catalog if d['id'] == 'filegdb')['available']
+    profile = 'gdal-backend' if native else 'base'
+    return [row for row in cases(tables) if row['profile'] in ('tutti', profile)]
 
 
 def run(binary, args, env=None):
@@ -112,8 +126,7 @@ def verify(binary, tables):
             assert code == 0, (driver, response)
             paths[driver] = path
         catalog = run(binary, ['catalog'])[1]['result']['drivers']
-        native = next(d for d in catalog if d['id'] == 'filegdb')['available']
-        for i, row in enumerate(cases(tables)):
+        for i, row in enumerate(active_cases(tables, catalog)):
             driver, situation = row['driver'], row['situation']
             ext = FORMATS[driver][0]
             path = paths.get(driver, work / 'absent.gdb')
@@ -140,9 +153,6 @@ def verify(binary, tables):
                 if situation == 'UnrepresentableWriteType' and driver in ('kml', 'geojson'):
                     input_path = duration_ogc
                 args = ['write', input_path, work / (f'out-{i}.' + ext), '--to', driver]
-                if situation == 'MissingWriteBackend' and native:
-                    # La riga dichiara esplicitamente la build senza backend.
-                    continue
             elif situation == 'ReadMemoryExceeded':
                 args += ['--memory-bytes', '1', '--max-wkb-cell-bytes', '1']
             elif situation == 'IneffectiveCrsAssumption':

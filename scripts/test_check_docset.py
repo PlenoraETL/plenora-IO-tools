@@ -654,6 +654,21 @@ class SondeEccezione(unittest.TestCase):
 
 
 class TabelleProdotto(unittest.TestCase):
+    def test_binario_esplicito_preserva_il_profilo_senza_ricompilare(self):
+        from scripts import doc_runtime
+        binary = gate.ROOT / 'target/gdb/debug/plenora-io.exe'
+        tables = {'errors': []}
+        with mock.patch.object(gate.subprocess, 'run') as build, \
+                mock.patch.object(gate, 'product_docset', return_value=[]) as product, \
+                mock.patch.object(gate, 'document_examples', return_value=[]), \
+                mock.patch.object(gate, 'CONTROLLI', ()), \
+                mock.patch.object(doc_runtime, 'run', return_value=(0, tables)), \
+                mock.patch.object(doc_runtime, 'verify', return_value=[]) as verify:
+            self.assertEqual(gate.main(['--binary', str(binary)]), 0)
+        build.assert_not_called()
+        product.assert_called_once_with(binary)
+        verify.assert_called_once_with(binary, tables)
+
     def test_blocco_alterato_o_mancante_fallisce(self):
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
