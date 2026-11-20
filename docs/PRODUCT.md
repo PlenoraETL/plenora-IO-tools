@@ -1584,88 +1584,92 @@ classe, senza riportare valori della cella.
 
 <!-- generato da codice/errori: inizio -->
 
-| Situazione | Driver | Caso eseguito | Categoria | Fase | Codice | Exit | Messaggio |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| MissingSource | csv | sorgente assente | not_found | read | SOURCE_NOT_FOUND | 5 | sorgente o membro obbligatorio del dataset non trovato |
-| MissingSource | shp | sorgente assente | not_found | read | SOURCE_NOT_FOUND | 5 | sorgente o membro obbligatorio del dataset non trovato |
-| MissingSource | gpkg | sorgente assente | not_found | read | SOURCE_NOT_FOUND | 5 | sorgente o membro obbligatorio del dataset non trovato |
-| MissingSource | filegdb | sorgente assente | not_found | read | SOURCE_NOT_FOUND | 5 | sorgente o membro obbligatorio del dataset non trovato |
-| MissingSource | geojson | sorgente assente | not_found | read | SOURCE_NOT_FOUND | 5 | sorgente o membro obbligatorio del dataset non trovato |
-| MissingSource | kml | sorgente assente | not_found | read | SOURCE_NOT_FOUND | 5 | sorgente o membro obbligatorio del dataset non trovato |
-| MissingSource | dxf | sorgente assente | not_found | read | SOURCE_NOT_FOUND | 5 | sorgente o membro obbligatorio del dataset non trovato |
-| MissingSource | xls | sorgente assente | not_found | read | SOURCE_NOT_FOUND | 5 | sorgente o membro obbligatorio del dataset non trovato |
-| MissingSource | geoparquet | sorgente assente | not_found | read | SOURCE_NOT_FOUND | 5 | sorgente o membro obbligatorio del dataset non trovato |
-| MissingSource | ipc | sorgente assente | not_found | read | SOURCE_NOT_FOUND | 5 | sorgente o membro obbligatorio del dataset non trovato |
-| InvalidContent | csv | contenitore vuoto | data_mapping | read | FORMAT_ERROR | 3 | contenuto vuoto o struttura non valida; formato atteso: CSV |
-| InvalidContent | shp | contenitore vuoto | data_mapping | read | FORMAT_ERROR | 3 | contenuto vuoto o struttura non valida; formato atteso: Shapefile |
-| InvalidContent | gpkg | contenitore vuoto | data_mapping | read | FORMAT_ERROR | 3 | contenuto vuoto o struttura non valida; formato atteso: GeoPackage |
-| InvalidContent | filegdb | contenitore vuoto | data_mapping | read | FORMAT_ERROR | 3 | contenuto vuoto o struttura non valida; formato atteso: FileGDB |
-| InvalidContent | geojson | contenitore vuoto | data_mapping | read | FORMAT_ERROR | 3 | contenuto vuoto o struttura non valida; formato atteso: GeoJSON |
-| InvalidContent | kml | contenitore vuoto | data_mapping | read | FORMAT_ERROR | 3 | contenuto vuoto o struttura non valida; formato atteso: KML |
-| InvalidContent | dxf | contenitore vuoto | data_mapping | read | FORMAT_ERROR | 3 | contenuto vuoto o struttura non valida; formato atteso: DXF |
-| InvalidContent | xls | contenitore vuoto | data_mapping | read | FORMAT_ERROR | 3 | contenuto vuoto o struttura non valida; formato atteso: XLSX |
-| InvalidContent | geoparquet | contenitore vuoto | data_mapping | read | FORMAT_ERROR | 3 | contenuto vuoto o struttura non valida; formato atteso: Parquet |
-| InvalidContent | ipc | contenitore vuoto | data_mapping | read | FORMAT_ERROR | 3 | flusso Arrow IPC troppo corto per il formato |
-| DirectoryInsteadOfFile | csv | directory al posto del file | invalid_configuration | validate | CLI_USAGE | 2 | directory al posto del file; formato atteso: CSV |
-| DirectoryInsteadOfFile | shp | directory al posto del file | invalid_configuration | validate | CLI_USAGE | 2 | directory al posto del file; formato atteso: Shapefile |
-| DirectoryInsteadOfFile | gpkg | directory al posto del file | invalid_configuration | validate | CLI_USAGE | 2 | directory al posto del file; formato atteso: GeoPackage |
-| DirectoryInsteadOfFile | geojson | directory al posto del file | invalid_configuration | validate | CLI_USAGE | 2 | directory al posto del file; formato atteso: GeoJSON |
-| DirectoryInsteadOfFile | kml | directory al posto del file | invalid_configuration | validate | CLI_USAGE | 2 | directory al posto del file; formato atteso: KML |
-| DirectoryInsteadOfFile | dxf | directory al posto del file | invalid_configuration | validate | CLI_USAGE | 2 | directory al posto del file; formato atteso: DXF |
-| DirectoryInsteadOfFile | xls | directory al posto del file | invalid_configuration | validate | CLI_USAGE | 2 | directory al posto del file; formato atteso: XLSX |
-| DirectoryInsteadOfFile | geoparquet | directory al posto del file | invalid_configuration | validate | CLI_USAGE | 2 | directory al posto del file; formato atteso: Parquet |
-| DirectoryInsteadOfFile | ipc | directory al posto del file | invalid_configuration | validate | CLI_USAGE | 2 | directory al posto del file; formato atteso: Arrow IPC |
-| InvalidConfiguration | csv | WKT e XY insieme | invalid_configuration | validate | CLI_USAGE | 2 | csv: wkt_column esclude x_column e y_column; dichiarare una sola geometria |
-| MissingOptionColumn | csv | colonna WKT assente | invalid_configuration | validate | CLI_USAGE | 2 | colonna WKT assente dall'intestazione |
-| ContradictedCrs | geojson | assunzione EPSG:3857 su WGS84 | crs | validate | CRS_CONFLICT | 3 | il CRS assunto contraddice quello dichiarato |
-| ContradictedCrs | kml | assunzione EPSG:3857 su WGS84 | crs | validate | CRS_CONFLICT | 3 | il CRS assunto contraddice quello dichiarato |
-| ContradictedCrs | shp | assunzione EPSG:3857 su WGS84 | crs | validate | CRS_CONFLICT | 3 | il CRS assunto contraddice quello dichiarato |
-| ContradictedCrs | dxf | assunzione EPSG:3857 su WGS84 | crs | validate | CRS_CONFLICT | 3 | il CRS assunto contraddice quello dichiarato |
-| ContradictedCrs | gpkg | assunzione EPSG:3857 su WGS84 | crs | validate | CRS_CONFLICT | 3 | il CRS assunto contraddice quello dichiarato |
-| ContradictedCrs | geoparquet | assunzione EPSG:3857 su WGS84 | crs | validate | CRS_CONFLICT | 3 | il CRS assunto contraddice quello dichiarato |
-| ContradictedCrs | ipc | assunzione EPSG:3857 su WGS84 | crs | validate | CRS_CONFLICT | 3 | il CRS assunto contraddice quello dichiarato |
-| MissingGeometry | shp | schema senza geometria | unsupported | write | UNSUPPORTED | 3 | il formato di destinazione richiede una geometria |
-| MissingGeometry | kml | schema senza geometria | unsupported | write | UNSUPPORTED | 3 | il formato di destinazione richiede una geometria |
-| MissingGeometry | dxf | schema senza geometria | unsupported | write | UNSUPPORTED | 3 | il formato di destinazione richiede una geometria |
-| UnrepresentableWriteType | csv | attributo Duration | unsupported | write | UNSUPPORTED | 3 | tipo Arrow non rappresentabile in fase write, classe: temporal |
-| UnrepresentableWriteType | shp | attributo Duration | unsupported | write | UNSUPPORTED | 3 | tipo Arrow non rappresentabile in fase write, classe: temporal |
-| UnrepresentableWriteType | kml | attributo Duration | unsupported | write | UNSUPPORTED | 3 | tipo Arrow non rappresentabile in fase write, classe: temporal |
-| UnrepresentableWriteType | geojson | attributo Duration | unsupported | write | UNSUPPORTED | 3 | tipo Arrow non rappresentabile in fase write, classe: temporal |
-| UnrepresentableWriteType | gpkg | attributo Duration | unsupported | write | UNSUPPORTED | 3 | tipo Arrow non rappresentabile in fase write, classe: temporal |
-| UnrepresentableWriteType | xls | attributo Duration | unsupported | write | UNSUPPORTED | 3 | tipo Arrow non rappresentabile in fase write, classe: temporal |
-| UnrepresentableWriteValue | gpkg | UInt64 oltre INTEGER | data_mapping | write | FORMAT_ERROR | 3 | UInt64 oltre i64::MAX non rappresentabile come INTEGER GeoPackage |
-| NonFiniteWriteValue | geojson | attributo NaN | data_mapping | write | FORMAT_ERROR | 3 | Float64 non finito non rappresentabile in GeoJSON |
-| ReadMemoryExceeded | ipc | memoria 1 byte | resource_limit | read | LIMIT_EXCEEDED | 4 | memory_bytes quota superata |
-| IneffectiveCrsAssumption | ipc | assunzione senza geometria | invalid_configuration | validate | CLI_USAGE | 2 | --assume-crs senza effetto: il layer non contiene geometrie |
-| MissingLayer | csv | layer 999 | not_found | prepare | NO_LAYER | 5 | layer inesistente all'indice 999 |
-| MissingLayer | shp | layer 999 | not_found | prepare | NO_LAYER | 5 | layer inesistente all'indice 999 |
-| MissingLayer | kml | layer 999 | not_found | prepare | NO_LAYER | 5 | layer inesistente all'indice 999 |
-| MissingLayer | dxf | layer 999 | not_found | prepare | NO_LAYER | 5 | layer inesistente all'indice 999 |
-| MissingLayer | gpkg | layer 999 | not_found | prepare | NO_LAYER | 5 | layer inesistente all'indice 999 |
-| MissingLayer | geojson | layer 999 | not_found | prepare | NO_LAYER | 5 | layer inesistente all'indice 999 |
-| MissingLayer | geoparquet | layer 999 | not_found | prepare | NO_LAYER | 5 | layer inesistente all'indice 999 |
-| MissingLayer | ipc | layer 999 | not_found | prepare | NO_LAYER | 5 | layer inesistente all'indice 999 |
-| MissingLayer | xls | layer 999 | not_found | prepare | NO_LAYER | 5 | layer inesistente all'indice 999 |
-| InvalidQuota | csv | max_rows zero | invalid_configuration | validate | CLI_USAGE | 2 | max_rows deve essere un intero positivo e coerente con le altre quote |
-| InvalidQuota | shp | max_rows zero | invalid_configuration | validate | CLI_USAGE | 2 | max_rows deve essere un intero positivo e coerente con le altre quote |
-| InvalidQuota | gpkg | max_rows zero | invalid_configuration | validate | CLI_USAGE | 2 | max_rows deve essere un intero positivo e coerente con le altre quote |
-| InvalidQuota | filegdb | max_rows zero | invalid_configuration | validate | CLI_USAGE | 2 | max_rows deve essere un intero positivo e coerente con le altre quote |
-| InvalidQuota | geojson | max_rows zero | invalid_configuration | validate | CLI_USAGE | 2 | max_rows deve essere un intero positivo e coerente con le altre quote |
-| InvalidQuota | kml | max_rows zero | invalid_configuration | validate | CLI_USAGE | 2 | max_rows deve essere un intero positivo e coerente con le altre quote |
-| InvalidQuota | dxf | max_rows zero | invalid_configuration | validate | CLI_USAGE | 2 | max_rows deve essere un intero positivo e coerente con le altre quote |
-| InvalidQuota | xls | max_rows zero | invalid_configuration | validate | CLI_USAGE | 2 | max_rows deve essere un intero positivo e coerente con le altre quote |
-| InvalidQuota | geoparquet | max_rows zero | invalid_configuration | validate | CLI_USAGE | 2 | max_rows deve essere un intero positivo e coerente con le altre quote |
-| InvalidQuota | ipc | max_rows zero | invalid_configuration | validate | CLI_USAGE | 2 | max_rows deve essere un intero positivo e coerente con le altre quote |
-| InvalidSpillDirectory | csv | directory spill assente | invalid_configuration | validate | CLI_USAGE | 2 | PLENORA_SPILL_DIR non indica una directory utilizzabile |
-| InvalidSpillDirectory | shp | directory spill assente | invalid_configuration | validate | CLI_USAGE | 2 | PLENORA_SPILL_DIR non indica una directory utilizzabile |
-| InvalidSpillDirectory | gpkg | directory spill assente | invalid_configuration | validate | CLI_USAGE | 2 | PLENORA_SPILL_DIR non indica una directory utilizzabile |
-| InvalidSpillDirectory | geojson | directory spill assente | invalid_configuration | validate | CLI_USAGE | 2 | PLENORA_SPILL_DIR non indica una directory utilizzabile |
-| InvalidSpillDirectory | kml | directory spill assente | invalid_configuration | validate | CLI_USAGE | 2 | PLENORA_SPILL_DIR non indica una directory utilizzabile |
-| InvalidSpillDirectory | dxf | directory spill assente | invalid_configuration | validate | CLI_USAGE | 2 | PLENORA_SPILL_DIR non indica una directory utilizzabile |
-| InvalidSpillDirectory | xls | directory spill assente | invalid_configuration | validate | CLI_USAGE | 2 | PLENORA_SPILL_DIR non indica una directory utilizzabile |
-| InvalidSpillDirectory | geoparquet | directory spill assente | invalid_configuration | validate | CLI_USAGE | 2 | PLENORA_SPILL_DIR non indica una directory utilizzabile |
-| InvalidSpillDirectory | ipc | directory spill assente | invalid_configuration | validate | CLI_USAGE | 2 | PLENORA_SPILL_DIR non indica una directory utilizzabile |
-| MissingWriteBackend | filegdb | build senza gdal-backend | unsupported | write | UNSUPPORTED | 3 | scrittura FileGDB non disponibile: compilare con --features gdal-backend |
+Il profilo base non abilita `gdal-backend`; il profilo `gdal-backend` abilita il tier GDB. `tutti` indica un atteso comune. I campioni eseguiti sono selezionati dal catalogo del binario: senza tier, FileGDB rifiuta la lettura prima della validazione strutturale.
+
+| Situazione | Driver | Profilo | Caso eseguito | Categoria | Fase | Codice | Exit | Messaggio |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| MissingSource | csv | tutti | sorgente assente | not_found | read | SOURCE_NOT_FOUND | 5 | sorgente o membro obbligatorio del dataset non trovato |
+| MissingSource | shp | tutti | sorgente assente | not_found | read | SOURCE_NOT_FOUND | 5 | sorgente o membro obbligatorio del dataset non trovato |
+| MissingSource | gpkg | tutti | sorgente assente | not_found | read | SOURCE_NOT_FOUND | 5 | sorgente o membro obbligatorio del dataset non trovato |
+| MissingSource | filegdb | base | sorgente assente | unsupported | validate | UNSUPPORTED | 3 | FileGDB richiede il tier GDB: compilare con --features gdal-backend |
+| MissingSource | filegdb | gdal-backend | sorgente assente | not_found | read | SOURCE_NOT_FOUND | 5 | sorgente o membro obbligatorio del dataset non trovato |
+| MissingSource | geojson | tutti | sorgente assente | not_found | read | SOURCE_NOT_FOUND | 5 | sorgente o membro obbligatorio del dataset non trovato |
+| MissingSource | kml | tutti | sorgente assente | not_found | read | SOURCE_NOT_FOUND | 5 | sorgente o membro obbligatorio del dataset non trovato |
+| MissingSource | dxf | tutti | sorgente assente | not_found | read | SOURCE_NOT_FOUND | 5 | sorgente o membro obbligatorio del dataset non trovato |
+| MissingSource | xls | tutti | sorgente assente | not_found | read | SOURCE_NOT_FOUND | 5 | sorgente o membro obbligatorio del dataset non trovato |
+| MissingSource | geoparquet | tutti | sorgente assente | not_found | read | SOURCE_NOT_FOUND | 5 | sorgente o membro obbligatorio del dataset non trovato |
+| MissingSource | ipc | tutti | sorgente assente | not_found | read | SOURCE_NOT_FOUND | 5 | sorgente o membro obbligatorio del dataset non trovato |
+| InvalidContent | csv | tutti | contenitore vuoto | data_mapping | read | FORMAT_ERROR | 3 | contenuto vuoto o struttura non valida; formato atteso: CSV |
+| InvalidContent | shp | tutti | contenitore vuoto | data_mapping | read | FORMAT_ERROR | 3 | contenuto vuoto o struttura non valida; formato atteso: Shapefile |
+| InvalidContent | gpkg | tutti | contenitore vuoto | data_mapping | read | FORMAT_ERROR | 3 | contenuto vuoto o struttura non valida; formato atteso: GeoPackage |
+| InvalidContent | filegdb | base | contenitore vuoto | unsupported | validate | UNSUPPORTED | 3 | FileGDB richiede il tier GDB: compilare con --features gdal-backend |
+| InvalidContent | filegdb | gdal-backend | contenitore vuoto | data_mapping | read | FORMAT_ERROR | 3 | contenuto vuoto o struttura non valida; formato atteso: FileGDB |
+| InvalidContent | geojson | tutti | contenitore vuoto | data_mapping | read | FORMAT_ERROR | 3 | contenuto vuoto o struttura non valida; formato atteso: GeoJSON |
+| InvalidContent | kml | tutti | contenitore vuoto | data_mapping | read | FORMAT_ERROR | 3 | contenuto vuoto o struttura non valida; formato atteso: KML |
+| InvalidContent | dxf | tutti | contenitore vuoto | data_mapping | read | FORMAT_ERROR | 3 | contenuto vuoto o struttura non valida; formato atteso: DXF |
+| InvalidContent | xls | tutti | contenitore vuoto | data_mapping | read | FORMAT_ERROR | 3 | contenuto vuoto o struttura non valida; formato atteso: XLSX |
+| InvalidContent | geoparquet | tutti | contenitore vuoto | data_mapping | read | FORMAT_ERROR | 3 | contenuto vuoto o struttura non valida; formato atteso: Parquet |
+| InvalidContent | ipc | tutti | contenitore vuoto | data_mapping | read | FORMAT_ERROR | 3 | flusso Arrow IPC troppo corto per il formato |
+| DirectoryInsteadOfFile | csv | tutti | directory al posto del file | invalid_configuration | validate | CLI_USAGE | 2 | directory al posto del file; formato atteso: CSV |
+| DirectoryInsteadOfFile | shp | tutti | directory al posto del file | invalid_configuration | validate | CLI_USAGE | 2 | directory al posto del file; formato atteso: Shapefile |
+| DirectoryInsteadOfFile | gpkg | tutti | directory al posto del file | invalid_configuration | validate | CLI_USAGE | 2 | directory al posto del file; formato atteso: GeoPackage |
+| DirectoryInsteadOfFile | geojson | tutti | directory al posto del file | invalid_configuration | validate | CLI_USAGE | 2 | directory al posto del file; formato atteso: GeoJSON |
+| DirectoryInsteadOfFile | kml | tutti | directory al posto del file | invalid_configuration | validate | CLI_USAGE | 2 | directory al posto del file; formato atteso: KML |
+| DirectoryInsteadOfFile | dxf | tutti | directory al posto del file | invalid_configuration | validate | CLI_USAGE | 2 | directory al posto del file; formato atteso: DXF |
+| DirectoryInsteadOfFile | xls | tutti | directory al posto del file | invalid_configuration | validate | CLI_USAGE | 2 | directory al posto del file; formato atteso: XLSX |
+| DirectoryInsteadOfFile | geoparquet | tutti | directory al posto del file | invalid_configuration | validate | CLI_USAGE | 2 | directory al posto del file; formato atteso: Parquet |
+| DirectoryInsteadOfFile | ipc | tutti | directory al posto del file | invalid_configuration | validate | CLI_USAGE | 2 | directory al posto del file; formato atteso: Arrow IPC |
+| InvalidConfiguration | csv | tutti | WKT e XY insieme | invalid_configuration | validate | CLI_USAGE | 2 | csv: wkt_column esclude x_column e y_column; dichiarare una sola geometria |
+| MissingOptionColumn | csv | tutti | colonna WKT assente | invalid_configuration | validate | CLI_USAGE | 2 | colonna WKT assente dall'intestazione |
+| ContradictedCrs | geojson | tutti | assunzione EPSG:3857 su WGS84 | crs | validate | CRS_CONFLICT | 3 | il CRS assunto contraddice quello dichiarato |
+| ContradictedCrs | kml | tutti | assunzione EPSG:3857 su WGS84 | crs | validate | CRS_CONFLICT | 3 | il CRS assunto contraddice quello dichiarato |
+| ContradictedCrs | shp | tutti | assunzione EPSG:3857 su WGS84 | crs | validate | CRS_CONFLICT | 3 | il CRS assunto contraddice quello dichiarato |
+| ContradictedCrs | dxf | tutti | assunzione EPSG:3857 su WGS84 | crs | validate | CRS_CONFLICT | 3 | il CRS assunto contraddice quello dichiarato |
+| ContradictedCrs | gpkg | tutti | assunzione EPSG:3857 su WGS84 | crs | validate | CRS_CONFLICT | 3 | il CRS assunto contraddice quello dichiarato |
+| ContradictedCrs | geoparquet | tutti | assunzione EPSG:3857 su WGS84 | crs | validate | CRS_CONFLICT | 3 | il CRS assunto contraddice quello dichiarato |
+| ContradictedCrs | ipc | tutti | assunzione EPSG:3857 su WGS84 | crs | validate | CRS_CONFLICT | 3 | il CRS assunto contraddice quello dichiarato |
+| MissingGeometry | shp | tutti | schema senza geometria | unsupported | write | UNSUPPORTED | 3 | il formato di destinazione richiede una geometria |
+| MissingGeometry | kml | tutti | schema senza geometria | unsupported | write | UNSUPPORTED | 3 | il formato di destinazione richiede una geometria |
+| MissingGeometry | dxf | tutti | schema senza geometria | unsupported | write | UNSUPPORTED | 3 | il formato di destinazione richiede una geometria |
+| UnrepresentableWriteType | csv | tutti | attributo Duration | unsupported | write | UNSUPPORTED | 3 | tipo Arrow non rappresentabile in fase write, classe: temporal |
+| UnrepresentableWriteType | shp | tutti | attributo Duration | unsupported | write | UNSUPPORTED | 3 | tipo Arrow non rappresentabile in fase write, classe: temporal |
+| UnrepresentableWriteType | kml | tutti | attributo Duration | unsupported | write | UNSUPPORTED | 3 | tipo Arrow non rappresentabile in fase write, classe: temporal |
+| UnrepresentableWriteType | geojson | tutti | attributo Duration | unsupported | write | UNSUPPORTED | 3 | tipo Arrow non rappresentabile in fase write, classe: temporal |
+| UnrepresentableWriteType | gpkg | tutti | attributo Duration | unsupported | write | UNSUPPORTED | 3 | tipo Arrow non rappresentabile in fase write, classe: temporal |
+| UnrepresentableWriteType | xls | tutti | attributo Duration | unsupported | write | UNSUPPORTED | 3 | tipo Arrow non rappresentabile in fase write, classe: temporal |
+| UnrepresentableWriteValue | gpkg | tutti | UInt64 oltre INTEGER | data_mapping | write | FORMAT_ERROR | 3 | UInt64 oltre i64::MAX non rappresentabile come INTEGER GeoPackage |
+| NonFiniteWriteValue | geojson | tutti | attributo NaN | data_mapping | write | FORMAT_ERROR | 3 | Float64 non finito non rappresentabile in GeoJSON |
+| ReadMemoryExceeded | ipc | tutti | memoria 1 byte | resource_limit | read | LIMIT_EXCEEDED | 4 | memory_bytes quota superata |
+| IneffectiveCrsAssumption | ipc | tutti | assunzione senza geometria | invalid_configuration | validate | CLI_USAGE | 2 | --assume-crs senza effetto: il layer non contiene geometrie |
+| MissingLayer | csv | tutti | layer 999 | not_found | prepare | NO_LAYER | 5 | layer inesistente all'indice 999 |
+| MissingLayer | shp | tutti | layer 999 | not_found | prepare | NO_LAYER | 5 | layer inesistente all'indice 999 |
+| MissingLayer | kml | tutti | layer 999 | not_found | prepare | NO_LAYER | 5 | layer inesistente all'indice 999 |
+| MissingLayer | dxf | tutti | layer 999 | not_found | prepare | NO_LAYER | 5 | layer inesistente all'indice 999 |
+| MissingLayer | gpkg | tutti | layer 999 | not_found | prepare | NO_LAYER | 5 | layer inesistente all'indice 999 |
+| MissingLayer | geojson | tutti | layer 999 | not_found | prepare | NO_LAYER | 5 | layer inesistente all'indice 999 |
+| MissingLayer | geoparquet | tutti | layer 999 | not_found | prepare | NO_LAYER | 5 | layer inesistente all'indice 999 |
+| MissingLayer | ipc | tutti | layer 999 | not_found | prepare | NO_LAYER | 5 | layer inesistente all'indice 999 |
+| MissingLayer | xls | tutti | layer 999 | not_found | prepare | NO_LAYER | 5 | layer inesistente all'indice 999 |
+| InvalidQuota | csv | tutti | max_rows zero | invalid_configuration | validate | CLI_USAGE | 2 | max_rows deve essere un intero positivo e coerente con le altre quote |
+| InvalidQuota | shp | tutti | max_rows zero | invalid_configuration | validate | CLI_USAGE | 2 | max_rows deve essere un intero positivo e coerente con le altre quote |
+| InvalidQuota | gpkg | tutti | max_rows zero | invalid_configuration | validate | CLI_USAGE | 2 | max_rows deve essere un intero positivo e coerente con le altre quote |
+| InvalidQuota | filegdb | tutti | max_rows zero | invalid_configuration | validate | CLI_USAGE | 2 | max_rows deve essere un intero positivo e coerente con le altre quote |
+| InvalidQuota | geojson | tutti | max_rows zero | invalid_configuration | validate | CLI_USAGE | 2 | max_rows deve essere un intero positivo e coerente con le altre quote |
+| InvalidQuota | kml | tutti | max_rows zero | invalid_configuration | validate | CLI_USAGE | 2 | max_rows deve essere un intero positivo e coerente con le altre quote |
+| InvalidQuota | dxf | tutti | max_rows zero | invalid_configuration | validate | CLI_USAGE | 2 | max_rows deve essere un intero positivo e coerente con le altre quote |
+| InvalidQuota | xls | tutti | max_rows zero | invalid_configuration | validate | CLI_USAGE | 2 | max_rows deve essere un intero positivo e coerente con le altre quote |
+| InvalidQuota | geoparquet | tutti | max_rows zero | invalid_configuration | validate | CLI_USAGE | 2 | max_rows deve essere un intero positivo e coerente con le altre quote |
+| InvalidQuota | ipc | tutti | max_rows zero | invalid_configuration | validate | CLI_USAGE | 2 | max_rows deve essere un intero positivo e coerente con le altre quote |
+| InvalidSpillDirectory | csv | tutti | directory spill assente | invalid_configuration | validate | CLI_USAGE | 2 | PLENORA_SPILL_DIR non indica una directory utilizzabile |
+| InvalidSpillDirectory | shp | tutti | directory spill assente | invalid_configuration | validate | CLI_USAGE | 2 | PLENORA_SPILL_DIR non indica una directory utilizzabile |
+| InvalidSpillDirectory | gpkg | tutti | directory spill assente | invalid_configuration | validate | CLI_USAGE | 2 | PLENORA_SPILL_DIR non indica una directory utilizzabile |
+| InvalidSpillDirectory | geojson | tutti | directory spill assente | invalid_configuration | validate | CLI_USAGE | 2 | PLENORA_SPILL_DIR non indica una directory utilizzabile |
+| InvalidSpillDirectory | kml | tutti | directory spill assente | invalid_configuration | validate | CLI_USAGE | 2 | PLENORA_SPILL_DIR non indica una directory utilizzabile |
+| InvalidSpillDirectory | dxf | tutti | directory spill assente | invalid_configuration | validate | CLI_USAGE | 2 | PLENORA_SPILL_DIR non indica una directory utilizzabile |
+| InvalidSpillDirectory | xls | tutti | directory spill assente | invalid_configuration | validate | CLI_USAGE | 2 | PLENORA_SPILL_DIR non indica una directory utilizzabile |
+| InvalidSpillDirectory | geoparquet | tutti | directory spill assente | invalid_configuration | validate | CLI_USAGE | 2 | PLENORA_SPILL_DIR non indica una directory utilizzabile |
+| InvalidSpillDirectory | ipc | tutti | directory spill assente | invalid_configuration | validate | CLI_USAGE | 2 | PLENORA_SPILL_DIR non indica una directory utilizzabile |
+| MissingWriteBackend | filegdb | base | build senza gdal-backend | unsupported | write | UNSUPPORTED | 3 | scrittura FileGDB non disponibile: compilare con --features gdal-backend |
 
 <!-- generato da codice/errori: fine -->
 

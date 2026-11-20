@@ -588,8 +588,8 @@ def product_blocks(binary):
         from .doc_runtime import cases
     except ImportError:
         from doc_runtime import cases
-    blocks["errori"] = _table(["Situazione", "Driver", "Caso eseguito", "Categoria", "Fase", "Codice", "Exit", "Messaggio"], [
-        [e[k] for k in ("situation", "driver", "scenario", "category", "phase", "code", "exit", "message")] for e in cases(tables)])
+    blocks["errori"] = "Il profilo base non abilita `gdal-backend`; il profilo `gdal-backend` abilita il tier GDB. `tutti` indica un atteso comune. I campioni eseguiti sono selezionati dal catalogo del binario: senza tier, FileGDB rifiuta la lettura prima della validazione strutturale.\n\n" + _table(["Situazione", "Driver", "Profilo", "Caso eseguito", "Categoria", "Fase", "Codice", "Exit", "Messaggio"], [
+        [e[k] for k in ("situation", "driver", "profile", "scenario", "category", "phase", "code", "exit", "message")] for e in cases(tables)])
     blocks["perdite"] = "Regole per elemento: Preserved conserva, Rejected rifiuta, Transformed dichiara la trasformazione indicata. NotApplicable indica un elemento non esprimibile nella grammatica sorgente, con motivo e riferimento: non e' una prova passata. La scrittura riguarda la rappresentazione Arrow dell'elemento, inclusi i metadati nativi di formati diversi; non richiede un oggetto nativo del formato destinazione.\n\n" + _table(
         ["Driver", "Elemento", "Lettura", "Scrittura"], [[d["driver"], e["element"], e["read"], e["write"]] for d in tables["losses"] for e in d["elements"]])
     source = (ROOT / "crates/plenora-io-tools/src/lib.rs").read_text(encoding="utf-8")
@@ -710,18 +710,19 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="propaga assurance/current-state.json nel blocco generato di docs/RELEASE.md",
     )
-    argomenti.add_argument("--binary", type=Path, default=ROOT / "target/debug" / ("plenora-io.exe" if sys.platform == "win32" else "plenora-io"))
+    argomenti.add_argument("--binary", type=Path, help="binario gia' compilato nel profilo da verificare, con examples/doc_tables accanto; non ricompila")
     argomenti.add_argument("--riscrivi-prodotto", action="store_true")
     opzioni = argomenti.parse_args(argv)
-    if not opzioni.riscrivi_stato:
+    if not opzioni.riscrivi_stato and opzioni.binary is None:
         # Anche il confronto deve usare le tabelle appena compilate.
         import os
         environment = dict(os.environ)
         environment.setdefault("CARGO_BUILD_JOBS", "4")
         environment.setdefault("CARGO_INCREMENTAL", "0")
-        subprocess.run(["cargo", "build", "--quiet", "-p", "plenora-io-tools",
+        subprocess.run(["cargo", "build", "--locked", "--quiet", "-p", "plenora-io-tools",
                         "--bin", "plenora-io", "--example", "doc_tables"],
                        cwd=ROOT, env=environment, check=True)
+        opzioni.binary = Path(environment.get("CARGO_TARGET_DIR", ROOT / "target")) / "debug" / ("plenora-io.exe" if sys.platform == "win32" else "plenora-io")
     if opzioni.riscrivi_prodotto:
         errors = product_docset(opzioni.binary, rewrite=True)
         for error in errors:
