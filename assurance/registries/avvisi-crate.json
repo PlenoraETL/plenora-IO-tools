@@ -60,102 +60,6 @@
       "origine": "https://github.com/Stranger6667/jsonschema/blob/1e244c994dd81a1feb7801556a813c6bf2d45dad/LICENSE"
     },
     {
-      "crate": "rstar",
-      "versione": "0.10.0",
-      "file": "LICENSE-APACHE",
-      "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
-      "blob_git": "16fe87b06e802f094b3fbb0894b137bca2b16ef1",
-      "origine": "https://github.com/georust/rstar/blob/d454a5654b5e5064b854c3b880e0f5782e90a6cb/LICENSE-APACHE"
-    },
-    {
-      "crate": "rstar",
-      "versione": "0.10.0",
-      "file": "LICENSE-MIT",
-      "sha256": "9b3a76c27bac8f3e0ff2d1f64f65941c50310ae3ff69318cea230bd4a36822c5",
-      "blob_git": "c2ddafbb7dbb8d8d667ef6acb0c38cda8f03fbd4",
-      "origine": "https://github.com/georust/rstar/blob/d454a5654b5e5064b854c3b880e0f5782e90a6cb/LICENSE-MIT"
-    },
-    {
-      "crate": "rstar",
-      "versione": "0.11.0",
-      "file": "LICENSE-APACHE",
-      "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
-      "blob_git": "16fe87b06e802f094b3fbb0894b137bca2b16ef1",
-      "origine": "https://github.com/georust/rstar/blob/bfea7bf9edcced003ed7ca5e468b36ef8fcf1f72/LICENSE-APACHE"
-    },
-    {
-      "crate": "rstar",
-      "versione": "0.11.0",
-      "file": "LICENSE-MIT",
-      "sha256": "9b3a76c27bac8f3e0ff2d1f64f65941c50310ae3ff69318cea230bd4a36822c5",
-      "blob_git": "c2ddafbb7dbb8d8d667ef6acb0c38cda8f03fbd4",
-      "origine": "https://github.com/georust/rstar/blob/bfea7bf9edcced003ed7ca5e468b36ef8fcf1f72/LICENSE-MIT"
-    },
-    {
-      "crate": "rstar",
-      "versione": "0.12.2",
-      "file": "LICENSE-APACHE",
-      "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
-      "blob_git": "16fe87b06e802f094b3fbb0894b137bca2b16ef1",
-      "origine": "https://github.com/georust/rstar/blob/c8c5bf9e41468281d030869d409e3f67f1aaf5b7/LICENSE-APACHE"
-    },
-    {
-      "crate": "rstar",
-      "versione": "0.12.2",
-      "file": "LICENSE-MIT",
-      "sha256": "9b3a76c27bac8f3e0ff2d1f64f65941c50310ae3ff69318cea230bd4a36822c5",
-      "blob_git": "c2ddafbb7dbb8d8d667ef6acb0c38cda8f03fbd4",
-      "origine": "https://github.com/georust/rstar/blob/c8c5bf9e41468281d030869d409e3f67f1aaf5b7/LICENSE-MIT"
-    },
-    {
-      "crate": "rstar",
-      "versione": "0.13.0",
-      "file": "LICENSE-APACHE",
-      "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
-      "blob_git": "16fe87b06e802f094b3fbb0894b137bca2b16ef1",
-      "origine": "https://github.com/georust/rstar/blob/82c969d4677a6f624900056e044d7e7ec8439c18/LICENSE-APACHE"
-    },
-    {
-      "crate": "rstar",
-      "versione": "0.13.0",
-      "file": "LICENSE-MIT",
-      "sha256": "9b3a76c27bac8f3e0ff2d1f64f65941c50310ae3ff69318cea230bd4a36822c5",
-      "blob_git": "c2ddafbb7dbb8d8d667ef6acb0c38cda8f03fbd4",
-      "origine": "https://github.com/georust/rstar/blob/82c969d4677a6f624900056e044d7e7ec8439c18/LICENSE-MIT"
-    },
-    {
-      "crate": "rstar",
-      "versione": "0.8.4",
-      "file": "LICENSE-APACHE",
-      "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
-      "blob_git": "16fe87b06e802f094b3fbb0894b137bca2b16ef1",
-      "origine": "https://github.com/Stoeoef/rstar/blob/dcb9b849b735fee0a05486ac2c0b48b70703c6ad/LICENSE-APACHE"
-    },
-    {
-      "crate": "rstar",
-      "versione": "0.8.4",
-      "file": "LICENSE-MIT",
-      "sha256": "9b3a76c27bac8f3e0ff2d1f64f65941c50310ae3ff69318cea230bd4a36822c5",
-      "blob_git": "c2ddafbb7dbb8d8d667ef6acb0c38cda8f03fbd4",
-      "origine": "https://github.com/Stoeoef/rstar/blob/dcb9b849b735fee0a05486ac2c0b48b70703c6ad/LICENSE-MIT"
-    },
-    {
-      "crate": "rstar",
-      "versione": "0.9.3",
-      "file": "LICENSE-APACHE",
-      "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
-      "blob_git": "16fe87b06e802f094b3fbb0894b137bca2b16ef1",
-      "origine": "https://github.com/georust/rstar/blob/50d6d32beab29acd69e1c6701b3d7d24fc697a8b/LICENSE-APACHE"
-    },
-    {
-      "crate": "rstar",
-      "versione": "0.9.3",
-      "file": "LICENSE-MIT",
-      "sha256": "9b3a76c27bac8f3e0ff2d1f64f65941c50310ae3ff69318cea230bd4a36822c5",
-      "blob_git": "c2ddafbb7dbb8d8d667ef6acb0c38cda8f03fbd4",
-      "origine": "https://github.com/georust/rstar/blob/50d6d32beab29acd69e1c6701b3d7d24fc697a8b/LICENSE-MIT"
-    },
-    {
       "crate": "uuid-simd",
       "versione": "0.8.0",
       "file": "LICENSE",
@@ -172,14 +76,5 @@
       "origine": "https://github.com/Nugine/simd/blob/d74c030d9dc4f3cae02146d1f497ff62726ef09a/LICENSE"
     }
   ],
-  "senza_testo_upstream": [
-    {
-      "crate": "pdqselect",
-      "versione": "0.1.0",
-      "licenza": "Apache-2.0/MIT",
-      "autori": "Counter-Weight <danielwatson.311@gmail.com>",
-      "crate_sha256": "4ec91767ecc0a0bbe558ce8c9da33c068066c57ecc8bb8477ef8c1ad3ef77c27",
-      "perche": "il pacchetto non porta un file di licenza ne' un avviso di copyright nei sorgenti, non dichiara un repository e non ha `.cargo_vcs_info.json`: non esiste un testo upstream da copiare. L'artefatto porta un avviso generato con nome, versione, autori e licenza dichiarati nel manifesto del crate, accanto ai testi canonici di Apache-2.0 e MIT (`LICENSES/crate-rust/<id>.txt`). E' un limite dichiarato in `docs/RELEASE.md`; rientra quando il crate esce dal grafo o pubblica un testo."
-    }
-  ]
+  "senza_testo_upstream": []
 }

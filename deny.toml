@@ -34,7 +34,6 @@ yanked = "deny"
 ignore = [
     # Riesame: 2027-02-13; proprietario e piano nel registro delle eccezioni.
     { id = "RUSTSEC-2026-0543", reason = "unmaintained, non vulnerabile, nessuna versione sicura; migrazione di famiglia a jiff/time pianificata" },
-    { id = "RUSTSEC-2023-0089", reason = "atomic-polyfill: vedi assurance/registries/dependency-exceptions.json" },
 ]
 
 # ============================================================================

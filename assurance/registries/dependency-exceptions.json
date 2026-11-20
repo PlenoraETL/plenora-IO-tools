@@ -13,15 +13,6 @@
       "chiusura": "Rimuovere l'eccezione dopo eliminazione di chrono da tutti i grafi e lock della famiglia e verifica delle conversioni temporali",
       "review_by": "2027-02-13",
       "trigger_di_riesame": "Entro 2027-02-13, oppure prima in caso di nuovo advisory, modifica dei contratti temporali o disponibilita della migrazione di famiglia"
-    },
-    {
-      "id": "RUSTSEC-2023-0089",
-      "crate": "atomic-polyfill",
-      "accettata_dal": "2026-07-27",
-      "motivo": "presente nel lockfile attraverso versioni opzionali di rstar, ma assente dal grafo attivo di cargo tree --workspace --all-features --target all",
-      "esposizione": "nessun codice del componente distribuibile lo collega. Vale anche per `fuzz/Cargo.lock`, che la CI audita con la stessa eccezione: anche li' `cargo tree --locked -i atomic-polyfill --all-features --target all` non stampa niente (verificato il 2026-10-05)",
-      "chiusura": "rimuovere l'eccezione appena l'ecosistema geo-types/rstar non lo include piu' nella risoluzione del lockfile",
-      "trigger_di_riesame": "modifica a feature o dipendenze geospaziali"
     }
   ],
   "risolte_senza_eccezione": [
@@ -85,6 +76,27 @@
       "hazard": "CVE-2026-119375: database con WAL di terzi e page size diversa puo restituire memoria non inizializzata come righe: difetto silenzioso e possibile divulgazione di memoria.",
       "esposizione": "Tutte le release 1.0.0-7.0.1 e prerelease 0.1.0-rc.1-rc.4, 1.0.0-rc.1-rc.2: il reader apriva direttamente il file senza isolamento dai companion. Da 5.0.1 READ_ONLY|NO_MUTEX non impediva la lettura WAL. Analisi statica dei 18 tag e prova del WAL con cancellazione committata: docs/RELEASE.md, note 7.0.2.",
       "difesa": "Rifiuto WAL/SHM/journal e apertura immutable; test companion_wal_non_fidato_non_cambia_le_righe_in_silenzio e companion_sqlite_anche_vuoto_o_malformato_viene_rifiutato. Nessuna riproduzione della fuga di memoria rivendicata."
+    },
+    {
+      "id": [
+        "RUSTSEC-2023-0089",
+        "RUSTSEC-2026-0574",
+        "RUSTSEC-2026-0575",
+        "RUSTSEC-2026-0576",
+        "RUSTSEC-2026-0577",
+        "RUSTSEC-2026-0578",
+        "RUSTSEC-2026-0579",
+        "RUSTSEC-2026-0580",
+        "RUSTSEC-2026-0581",
+        "RUSTSEC-2026-0582"
+      ],
+      "crate": "atomic-polyfill, heapless",
+      "chiuse_il": "2026-11-20",
+      "come": "Disabilitata la feature opzionale geo-types di geojson 1.0.0: IO usa le proprie conversioni esplicite. Rimossi dai lock workspace e fuzz tutti i sei rstar, heapless 0.6.1/0.7.17/0.8.0 e atomic-polyfill. Nessuna eccezione unsound; nessuna modifica al codice di prodotto.",
+      "evidenze": [
+        "target/AVVISI-20-11.md",
+        "https://rustsec.org/advisories/RUSTSEC-2026-0574.html"
+      ]
     }
   ],
   "yanked_accettati": [],
