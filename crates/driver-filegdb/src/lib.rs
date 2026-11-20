@@ -1255,7 +1255,10 @@ mod backend {
                 let layer_index = usize::try_from(layer).map_err(|_| {
                     err(&PublicMessage::Curated("indice layer non rappresentabile"))
                 })?;
-                let info = &self.layers[layer_index];
+                let info = self
+                    .layers
+                    .get(layer_index)
+                    .ok_or_else(|| err(&PublicMessage::Curated("indice layer fuori intervallo")))?;
                 let native = dataset.layer(info.gdal_idx).map_err(|_| {
                     err(&PublicMessage::Curated(
                         "rilettura del layer scritto fallita",

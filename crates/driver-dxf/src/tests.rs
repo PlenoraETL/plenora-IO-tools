@@ -1986,7 +1986,7 @@ fn writer_adapter_rejects_empty_multipart_and_collection_without_publish() {
 
 #[test]
 fn empty_supported_collections_and_nested_empty_use_the_stable_cause() {
-    let empty = "dxf.empty_geometry_unsupported";
+    let empty = DiagnosticCause::DxfEmptyGeometryUnsupported;
     assert_eq!(
         dxf_geometry_rejection_cause(&WkbValue::MultiLineString(Vec::new())),
         Some(empty)
@@ -2005,7 +2005,7 @@ fn empty_supported_collections_and_nested_empty_use_the_stable_cause() {
     );
     assert_eq!(
         dxf_geometry_rejection_cause(&WkbValue::CompoundCurve(Vec::new())),
-        Some("dxf.geometry_type_unsupported")
+        Some(DiagnosticCause::DxfGeometryTypeUnsupported)
     );
 }
 

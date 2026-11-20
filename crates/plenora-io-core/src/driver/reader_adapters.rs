@@ -1,5 +1,6 @@
 //! Adattatori comuni applicati ai `LayerReader`.
 
+use plenora_io_model::diagnostics::DiagnosticCause;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -835,11 +836,11 @@ fn collect_read_violations(
     batch: &RecordBatch,
     row_offset: u64,
     wkb: &WkbLimits,
-) -> Result<BTreeMap<u64, (&'static str, String)>> {
+) -> Result<BTreeMap<u64, (DiagnosticCause, String)>> {
     if !read_schemas_are_compatible(batch.schema().as_ref(), contract.contract.schema.as_ref()) {
         return Err(read_schema_mismatch());
     }
-    let mut violations = BTreeMap::<u64, (&'static str, String)>::new();
+    let mut violations = BTreeMap::<u64, (DiagnosticCause, String)>::new();
     for (column_index, field) in batch.schema().fields().iter().enumerate() {
         if field.is_nullable() {
             continue;
@@ -848,9 +849,12 @@ fn collect_read_violations(
         for row in 0..batch.num_rows() {
             if array.is_null(row) {
                 let index = physical_index(row_offset, row)?;
-                violations
-                    .entry(index)
-                    .or_insert_with(|| ("contract.nullability", field.name().to_owned()));
+                violations.entry(index).or_insert_with(|| {
+                    (
+                        DiagnosticCause::ContractNullability,
+                        field.name().to_owned(),
+                    )
+                });
             }
         }
     }
@@ -884,7 +888,7 @@ fn collect_read_violations(
                 if !geometry.nullable {
                     violations.insert(
                         source_index,
-                        ("contract.nullability", geometry.name.clone()),
+                        (DiagnosticCause::ContractNullability, geometry.name.clone()),
                     );
                 }
                 return Ok(());
@@ -898,7 +902,10 @@ fn collect_read_violations(
             let Ok(inspected) = inspection else {
                 violations.insert(
                     source_index,
-                    ("conversion.invalid_geometry", geometry.name.clone()),
+                    (
+                        DiagnosticCause::ConversionInvalidGeometry,
+                        geometry.name.clone(),
+                    ),
                 );
                 return Ok(());
             };
@@ -908,11 +915,11 @@ fn collect_read_violations(
             // dichiara, contraddice il CRS ed e' della classe `crs`; un valore
             // senza SRID in un campo che lo dichiara ha lo SRID del campo.
             let cause = if !inspected.nested_dimensions_coherent {
-                Some("contract.coordinate_dimensions")
+                Some(DiagnosticCause::ContractCoordinateDimensions)
             } else if inspected.srid_on_member
                 || (geometry.encoding != GeometryEncoding::Ewkb && inspected.contains_srid)
             {
-                Some("contract.geometry_encoding")
+                Some(DiagnosticCause::ContractGeometryEncoding)
             } else if geometry.encoding == GeometryEncoding::Ewkb
                 && inspected.srid.is_some()
                 && inspected.srid != geometry.srid
@@ -922,11 +929,11 @@ fn collect_read_violations(
                 && !geometry.geometry_types.contains(&GeometryType::Unknown)
                 && !geometry.geometry_types.contains(&inspected.geometry_type)
             {
-                Some("contract.geometry_type")
+                Some(DiagnosticCause::ContractGeometryType)
             } else if geometry.dimensions != CoordinateDimensions::Unknown
                 && geometry.dimensions != inspected.dimensions
             {
-                Some("contract.coordinate_dimensions")
+                Some(DiagnosticCause::ContractCoordinateDimensions)
             } else {
                 None
             };
@@ -1036,7 +1043,7 @@ fn physical_index(row_offset: u64, row: usize) -> Result<u64> {
 
 #[cfg(test)]
 fn read_rejection_error(
-    violations: BTreeMap<u64, (&'static str, String)>,
+    violations: BTreeMap<u64, (DiagnosticCause, String)>,
     physical_row_indices_attestable: bool,
     reached_eof: bool,
     knowledge_limit: Option<&'static str>,
@@ -1052,7 +1059,7 @@ fn read_rejection_error(
 }
 
 /// Uno SRID di valore che contraddice il CRS del campo (GEO-009, classe `crs`).
-const CAUSA_SRID: &str = "contract.srid";
+const CAUSA_SRID: DiagnosticCause = DiagnosticCause::ContractSrid;
 
 struct ReadViolationAccumulator {
     physical_row_indices_attestable: bool,
@@ -1062,14 +1069,14 @@ struct ReadViolationAccumulator {
     examples: BTreeMap<
         u64,
         (
-            &'static str,
+            DiagnosticCause,
             Option<plenora_io_model::diagnostics::DiagnosticFieldName>,
         ),
     >,
     column_names_attestable: bool,
     /// La causa della prima violazione in ordine di riga: decide la categoria
     /// (REJ-002).
-    prima_causa: Option<&'static str>,
+    prima_causa: Option<DiagnosticCause>,
 }
 
 impl ReadViolationAccumulator {
@@ -1089,7 +1096,7 @@ impl ReadViolationAccumulator {
         self.observed_total == 0
     }
 
-    fn record_all(&mut self, violations: BTreeMap<u64, (&'static str, String)>) -> Result<()> {
+    fn record_all(&mut self, violations: BTreeMap<u64, (DiagnosticCause, String)>) -> Result<()> {
         for (source_index, (cause, column)) in violations {
             self.prima_causa.get_or_insert(cause);
             let column = RowDiagnosticColumn::attest(column);
@@ -1097,7 +1104,7 @@ impl ReadViolationAccumulator {
             self.observed_total = self.observed_total.checked_add(1).ok_or_else(|| {
                 plenora_io_model::quota::Quota::Rows.exceeded(plenora_io_model::ErrorPhase::Read)
             })?;
-            let cause_count = self.counts.entry(cause.to_owned()).or_default();
+            let cause_count = self.counts.entry(cause.as_str().to_owned()).or_default();
             *cause_count = cause_count.checked_add(1).ok_or_else(|| {
                 PlenoraIoError::limite_redatto(&PublicMessage::Curated(
                     "overflow nel conteggio delle cause diagnostiche",
@@ -1154,7 +1161,7 @@ impl ReadViolationAccumulator {
             .iter()
             .map(|(source_index, (cause, column))| RowDiagnosticExample {
                 source_index: *source_index,
-                cause: (*cause).into(),
+                cause: *cause,
                 column: column.clone(),
                 key: None,
                 write_state: None,

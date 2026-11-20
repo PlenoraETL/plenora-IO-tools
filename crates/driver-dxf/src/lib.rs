@@ -9,6 +9,7 @@
 //! esplicitamente quando il metadato è assente o non risolvibile.
 #![forbid(unsafe_code)]
 
+use plenora_io_model::diagnostics::DiagnosticCause;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
@@ -557,7 +558,7 @@ impl FormatDriver for DxfDriver {
                 read_row_error(
                     err(&PublicMessage::Curated("lettura di un'entità DXF fallita")),
                     None,
-                    "dxf.entity_decode_failed",
+                    DiagnosticCause::DxfEntityDecodeFailed,
                     Some(GEOMETRY),
                 )
             })?
@@ -583,7 +584,7 @@ impl FormatDriver for DxfDriver {
                     model_error = Some(read_row_error(
                         error,
                         Some(source_index),
-                        "dxf.entity_not_representable",
+                        DiagnosticCause::DxfEntityNotRepresentable,
                         Some(GEOMETRY),
                     ));
                 }
@@ -828,7 +829,7 @@ impl FormatWriter for DxfWriterState {
         let mut rejections = Vec::new();
         for row in 0..batch.num_rows() {
             if geom_col.is_null(row) {
-                rejections.push((row, "dxf.null_geometry_unsupported", GEOMETRY));
+                rejections.push((row, DiagnosticCause::DxfNullGeometryUnsupported, GEOMETRY));
                 decoded.push(None);
                 continue;
             }
@@ -838,14 +839,14 @@ impl FormatWriter for DxfWriterState {
             let geometry = decode_wkb(geom_col.value(row), &limits)
                 .map_err(|errore| errore.during(plenora_io_model::ErrorPhase::Write))?;
             let cause = if geometry.srid.is_some() {
-                Some("dxf.embedded_srid_unsupported")
+                Some(DiagnosticCause::DxfEmbeddedSridUnsupported)
             } else if matches!(
                 geometry.dimensions,
                 CoordinateDimensions::Xym
                     | CoordinateDimensions::Xyzm
                     | CoordinateDimensions::Unknown
             ) {
-                Some("dxf.coordinate_dimensions_unsupported")
+                Some(DiagnosticCause::DxfCoordinateDimensionsUnsupported)
             } else {
                 dxf_geometry_rejection_cause(&geometry.value)
             };
@@ -859,7 +860,7 @@ impl FormatWriter for DxfWriterState {
             if let Ok(layer) = layer_idx.map(|index| cells[index].text(row)).transpose() {
                 layers.push(layer.flatten());
             } else {
-                rejections.push((row, "dxf.layer_not_representable", "layer"));
+                rejections.push((row, DiagnosticCause::DxfLayerNotRepresentable, "layer"));
                 layers.push(None);
             }
         }
@@ -1056,15 +1057,15 @@ fn dxf_decimal_changes(value: &WkbValue) -> bool {
     }
 }
 
-fn dxf_geometry_rejection_cause(value: &WkbValue) -> Option<&'static str> {
-    fn coordinate_cause(coordinate: &WkbCoordinate) -> Option<&'static str> {
+fn dxf_geometry_rejection_cause(value: &WkbValue) -> Option<DiagnosticCause> {
+    fn coordinate_cause(coordinate: &WkbCoordinate) -> Option<DiagnosticCause> {
         if !coordinate.x.is_finite()
             || !coordinate.y.is_finite()
             || coordinate.z.is_some_and(|value| !value.is_finite())
         {
-            Some("dxf.non_finite_coordinate")
+            Some(DiagnosticCause::DxfNonFiniteCoordinate)
         } else if coordinate.m.is_some() {
-            Some("dxf.measure_ordinate_unsupported")
+            Some(DiagnosticCause::DxfMeasureOrdinateUnsupported)
         } else {
             None
         }
@@ -1097,14 +1098,16 @@ fn dxf_geometry_rejection_cause(value: &WkbValue) -> Option<&'static str> {
     }
     match value {
         WkbValue::Point(_) => None,
-        WkbValue::LineString(line) => (line.len() < 2).then_some("dxf.degenerate_geometry"),
+        WkbValue::LineString(line) => {
+            (line.len() < 2).then_some(DiagnosticCause::DxfDegenerateGeometry)
+        }
         WkbValue::Polygon(rings) => {
             if rings.is_empty() || rings.iter().any(|ring| ring.len() < 4) {
-                Some("dxf.degenerate_geometry")
+                Some(DiagnosticCause::DxfDegenerateGeometry)
             } else if rings.iter().any(|ring| ring.first() != ring.last()) {
-                Some("dxf.unclosed_polygon_ring")
+                Some(DiagnosticCause::DxfUnclosedPolygonRing)
             } else if rings.len() > 1 {
-                Some("dxf.interior_rings_unsupported")
+                Some(DiagnosticCause::DxfInteriorRingsUnsupported)
             } else {
                 None
             }
@@ -1114,7 +1117,7 @@ fn dxf_geometry_rejection_cause(value: &WkbValue) -> Option<&'static str> {
         | WkbValue::MultiPolygon(values)
         | WkbValue::GeometryCollection(values) => {
             if values.is_empty() {
-                Some("dxf.empty_geometry_unsupported")
+                Some(DiagnosticCause::DxfEmptyGeometryUnsupported)
             } else {
                 values
                     .iter()
@@ -1128,7 +1131,7 @@ fn dxf_geometry_rejection_cause(value: &WkbValue) -> Option<&'static str> {
         | WkbValue::MultiSurface(_)
         | WkbValue::PolyhedralSurface(_)
         | WkbValue::Tin(_)
-        | WkbValue::Triangle(_) => Some("dxf.geometry_type_unsupported"),
+        | WkbValue::Triangle(_) => Some(DiagnosticCause::DxfGeometryTypeUnsupported),
     }
 }
 
@@ -1854,7 +1857,7 @@ fn rifiuta_entita_non_supportate_nel_modello(drawing: &Drawing) -> Result<()> {
         return Err(read_row_error(
             err(&PublicMessage::Curated("entità DXF non gestita")),
             None,
-            "dxf.entity_not_representable",
+            DiagnosticCause::DxfEntityNotRepresentable,
             Some(GEOMETRY),
         ));
     }

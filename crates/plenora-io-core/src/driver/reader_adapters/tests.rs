@@ -893,7 +893,7 @@ fn terminal_driver_diagnostics_merge_with_common_read_rejections() {
         examples_truncated: false,
         examples: vec![RowDiagnosticExample {
             source_index: 50,
-            cause: "driver.invalid_attribute".into(),
+            cause: plenora_io_model::diagnostics::DiagnosticCause::DriverInvalidAttribute,
             column: Some("value".to_owned().into()),
             key: None,
             write_state: None,
@@ -939,7 +939,13 @@ fn terminal_driver_diagnostics_merge_with_common_read_rejections() {
 fn invalid_driver_diagnostics_fail_closed_without_claiming_complete() {
     let contract = validating_contract();
     let mut invalid = read_rejection_error(
-        BTreeMap::from([(50, ("driver.invalid_attribute", "value".to_owned()))]),
+        BTreeMap::from([(
+            50,
+            (
+                plenora_io_model::diagnostics::DiagnosticCause::DriverInvalidAttribute,
+                "value".to_owned(),
+            ),
+        )]),
         true,
         true,
         None,

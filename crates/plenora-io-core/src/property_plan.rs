@@ -456,6 +456,7 @@ impl NativeMetadataCheck {
         else {
             return Ok(());
         };
+        let contract = self.contracts.first().ok_or_else(invalid_plan)?;
         spool.seal()?;
         let mut reader = dataset.open_layer_reader(&crate::ReadRequest {
             layer: dataset.layers().first().ok_or_else(invalid_plan)?.id,
@@ -483,7 +484,7 @@ impl NativeMetadataCheck {
                                 == batch.column(i).slice(row, 1).to_data()
                         })
                     });
-                    let field_index = self.contracts[0]
+                    let field_index = contract
                         .schema
                         .index_of(field.name())
                         .ok()
@@ -507,7 +508,7 @@ impl NativeMetadataCheck {
         while let Some(batch) = output {
             self.context.ensure_active()?;
             let extra = batch.num_rows().saturating_sub(row) as u64;
-            for (index, field) in self.contracts[0].schema.fields().iter().enumerate() {
+            for (index, field) in contract.schema.fields().iter().enumerate() {
                 if !plenora_io_model::geometry::is_geometry_field(field) {
                     crate::loss_table::observe_native(
                         report,

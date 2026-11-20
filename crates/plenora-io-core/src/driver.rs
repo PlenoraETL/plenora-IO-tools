@@ -1,5 +1,6 @@
 //! Il confine plug-in: `FormatDriver` + handle/reader/writer (`ENGINEERING.md § Interfaccia dei driver`).
 
+use plenora_io_model::diagnostics::DiagnosticCause;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -1077,7 +1078,7 @@ pub fn write_row_rejection(
     driver: &'static str,
     row_offset: u64,
     batch_rows: usize,
-    rejections: &[(usize, &'static str, &str)],
+    rejections: &[(usize, DiagnosticCause, &str)],
     input_total: Option<u64>,
 ) -> PlenoraIoError {
     let mut violations = BTreeMap::new();
@@ -1092,9 +1093,9 @@ pub fn write_row_rejection(
             .entry(source_index)
             .or_insert_with(|| WriteRowViolation {
                 source_index,
-                cause,
+                cause: *cause,
                 column: (*column).to_owned(),
-                capability_reason: row_rejection_capability_reason(cause),
+                capability_reason: row_rejection_capability_reason(cause.as_str()),
             });
     }
     if violations.is_empty() {
@@ -1124,7 +1125,7 @@ pub fn write_row_rejection(
 pub fn read_row_error(
     mut error: PlenoraIoError,
     source_index: Option<u64>,
-    cause: &'static str,
+    cause: DiagnosticCause,
     column: Option<&str>,
 ) -> PlenoraIoError {
     const EXAMPLES_LIMIT: u64 = 64;
@@ -1144,7 +1145,7 @@ pub fn read_row_error(
     let examples = source_index
         .map(|source_index| RowDiagnosticExample {
             source_index,
-            cause: cause.into(),
+            cause,
             column: column.and_then(RowDiagnosticColumn::into_option),
             key: None,
             write_state: None,
@@ -1164,7 +1165,7 @@ pub fn read_row_error(
         observed_total: 1,
         total: None,
         input_total: None,
-        counts: BTreeMap::from([(cause.to_owned(), 1)]),
+        counts: BTreeMap::from([(cause.as_str().to_owned(), 1)]),
         examples_limit: EXAMPLES_LIMIT,
         examples_truncated: false,
         examples,

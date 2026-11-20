@@ -7,6 +7,12 @@ pub const ROW_DIAGNOSTICS_INDEX_BASIS: &str = "source_row_zero_based";
 pub const ROW_DIAGNOSTIC_COLUMN_UNATTESTABLE: &str = "diagnostic_column_name_unattestable";
 
 /// Closed vocabulary for diagnostic text. Schema identifiers cannot inhabit this type.
+/// Construct causes with enum variants; external text must pass through [`Self::parse`].
+///
+/// ```compile_fail
+/// use plenora_io_model::diagnostics::DiagnosticCause;
+/// let cause: DiagnosticCause = "conversion.invalid_date".into();
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DiagnosticCause {
     #[serde(rename = "contract.coordinate_dimensions")]
@@ -209,11 +215,6 @@ impl DiagnosticCause {
             "shapefile.unclosed_ring" => Some(Self::ShapefileUnclosedRing),
             _ => None,
         }
-    }
-}
-impl From<&'static str> for DiagnosticCause {
-    fn from(value: &'static str) -> Self {
-        Self::parse(value).expect("diagnostic cause must belong to the closed vocabulary")
     }
 }
 impl PartialEq<&str> for DiagnosticCause {

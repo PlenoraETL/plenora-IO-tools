@@ -11,6 +11,7 @@
 //! `serde_json::Value` per colonna). La scrittura resta bufferizzante nella v1.
 #![forbid(unsafe_code)]
 
+use plenora_io_model::diagnostics::DiagnosticCause;
 pub(crate) mod geometry;
 
 pub use geometry::{wkb_from_gj_value, write_geo_geojson};
@@ -407,7 +408,7 @@ fn infer_schema(path: &Path, quote: QuoteInferenza) -> Result<SchemaInferito> {
             read_row_error(
                 error,
                 Some(accs.source_rows_seen),
-                "geojson.invalid_feature",
+                DiagnosticCause::GeojsonInvalidFeature,
                 None,
             )
         } else {
@@ -1092,7 +1093,7 @@ fn spawn_parser(
                 read_row_error(
                     error,
                     Some(sink.source_rows_seen),
-                    "geojson.invalid_feature",
+                    DiagnosticCause::GeojsonInvalidFeature,
                     None,
                 )
             } else {

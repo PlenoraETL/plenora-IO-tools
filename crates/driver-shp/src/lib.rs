@@ -11,6 +11,7 @@
 //! per WGS84; nessuna riproiezione (`PRODUCT.md § CRS`).
 #![forbid(unsafe_code)]
 
+use plenora_io_model::diagnostics::DiagnosticCause;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::File;
@@ -124,11 +125,13 @@ const SHP_BYTE_PER_PUNTO: i64 = 16;
 const DBF_VISUAL_FOXPRO_BACKLINK_SIZE: usize = 263;
 const DEFAULT_ROW_DIAGNOSTICS_EXAMPLES_LIMIT: u64 = 64;
 const MAX_ROW_DIAGNOSTICS_EXAMPLES_LIMIT: u64 = 64;
-const INNER_RING_WITHOUT_OUTER_CAUSE: &str = "shapefile.inner_ring_without_outer";
-const POLYGON_WITHOUT_OUTER_CAUSE: &str = "shapefile.polygon_without_outer";
-const UNCLOSED_RING_CAUSE: &str = "shapefile.unclosed_ring";
-const DEGENERATE_RING_CAUSE: &str = "shapefile.degenerate_ring";
-const ATTRIBUTE_NUMERIC_INVALID_CAUSE: &str = "shapefile.attribute_numeric_invalid";
+const INNER_RING_WITHOUT_OUTER_CAUSE: DiagnosticCause =
+    DiagnosticCause::ShapefileInnerRingWithoutOuter;
+const POLYGON_WITHOUT_OUTER_CAUSE: DiagnosticCause = DiagnosticCause::ShapefilePolygonWithoutOuter;
+const UNCLOSED_RING_CAUSE: DiagnosticCause = DiagnosticCause::ShapefileUnclosedRing;
+const DEGENERATE_RING_CAUSE: DiagnosticCause = DiagnosticCause::ShapefileDegenerateRing;
+const ATTRIBUTE_NUMERIC_INVALID_CAUSE: DiagnosticCause =
+    DiagnosticCause::ShapefileAttributeNumericInvalid;
 
 /// Gli identificatori per cui il writer **sintetizza** una definizione, e
 /// quindi scrive il `.prj` anche senza WKT in ingresso.
@@ -299,12 +302,12 @@ impl ShpRowDiagnostics {
     fn record(
         &mut self,
         source_index: u64,
-        cause: &'static str,
+        cause: DiagnosticCause,
         _record: Option<&Record>,
         _raw_numeric_key: Option<&str>,
     ) {
         self.observed_total += 1;
-        *self.counts.entry(cause.to_owned()).or_default() += 1;
+        *self.counts.entry(cause.as_str().to_owned()).or_default() += 1;
         if self.examples.len() as u64 >= self.config.examples_limit {
             return;
         }
@@ -319,7 +322,7 @@ impl ShpRowDiagnostics {
         });
         self.examples.push(RowDiagnosticExample {
             source_index,
-            cause: cause.into(),
+            cause,
             column: None,
             key,
             write_state: None,
@@ -932,6 +935,10 @@ impl FormatWriter for ShpWriter {
     }
 
     fn write(&mut self, batch: &RecordBatch) -> Result<()> {
+        use DiagnosticCause::{
+            ShapefileCellNotRepresentable, ShapefileGeometryNotRepresentable,
+            ShapefileGeometryTypeUnsupported, ShapefileInvalidGeometry, ShapefileMixedGeometryType,
+        };
         let cells = ValidatedArray::columns(batch.columns())?;
         let geom_col = batch
             .column(self.geom_idx)
@@ -955,7 +962,7 @@ impl FormatWriter for ShpWriter {
                 let mut valid_record = true;
                 for (col, name, kind) in &self.attrs {
                     let Ok(value) = cell_to_field(&cells[*col], row, *kind) else {
-                        rejections.push((row, "shapefile.cell_not_representable", name.as_str()));
+                        rejections.push((row, ShapefileCellNotRepresentable, name.as_str()));
                         valid_record = false;
                         break;
                     };
@@ -970,7 +977,7 @@ impl FormatWriter for ShpWriter {
                 continue;
             }
             let Ok(geometry) = decode_wkb(geom_col.value(row), &limits) else {
-                rejections.push((row, "shapefile.invalid_geometry", GEOMETRY));
+                rejections.push((row, ShapefileInvalidGeometry, GEOMETRY));
                 continue;
             };
             plenora_io_core::loss_table::observe_geometry_write(
@@ -981,24 +988,24 @@ impl FormatWriter for ShpWriter {
                 self.geom_idx as u64,
             );
             let Ok(shape) = shape_from_wkb(geometry) else {
-                rejections.push((row, "shapefile.geometry_not_representable", GEOMETRY));
+                rejections.push((row, ShapefileGeometryNotRepresentable, GEOMETRY));
                 continue;
             };
             // Capability-check (`ENGINEERING.md § Pipeline di scrittura (capability-check`)): un unico tipo di geometria per file.
             let tag = shape_tag(&shape);
             if tag == "unsupported" {
-                rejections.push((row, "shapefile.geometry_type_unsupported", GEOMETRY));
+                rejections.push((row, ShapefileGeometryTypeUnsupported, GEOMETRY));
                 continue;
             }
             if !tag.is_empty() && st.is_some_and(|existing| existing != tag) {
-                rejections.push((row, "shapefile.mixed_geometry_type", GEOMETRY));
+                rejections.push((row, ShapefileMixedGeometryType, GEOMETRY));
                 continue;
             }
             let mut rec = Record::default();
             let mut valid_record = true;
             for (col, name, kind) in &self.attrs {
                 let Ok(value) = cell_to_field(&cells[*col], row, *kind) else {
-                    rejections.push((row, "shapefile.cell_not_representable", name.as_str()));
+                    rejections.push((row, ShapefileCellNotRepresentable, name.as_str()));
                     valid_record = false;
                     break;
                 };
@@ -2830,7 +2837,7 @@ enum DbfPhysicalRow {
     Active {
         exact_values: Vec<Option<i64>>,
         raw_numeric_key: Option<String>,
-        rejection_cause: Option<&'static str>,
+        rejection_cause: Option<DiagnosticCause>,
     },
 }
 
@@ -3153,7 +3160,7 @@ fn polygon_wkb<P: NativePoint>(
 // bit a bit: il confronto esatto e' la definizione del formato, una tolleranza
 // accetterebbe come chiusi anelli che GDAL e il corpus reale considerano aperti.
 #[allow(clippy::float_cmp)]
-fn polygon_rejection_cause<P: NativePoint>(rings: &[PolygonRing<P>]) -> Option<&'static str> {
+fn polygon_rejection_cause<P: NativePoint>(rings: &[PolygonRing<P>]) -> Option<DiagnosticCause> {
     if rings.is_empty() {
         return Some(POLYGON_WITHOUT_OUTER_CAUSE);
     }
@@ -3195,7 +3202,7 @@ fn polygon_rejection_cause<P: NativePoint>(rings: &[PolygonRing<P>]) -> Option<&
     None
 }
 
-fn shape_rejection_cause(shape: &Shape) -> Option<&'static str> {
+fn shape_rejection_cause(shape: &Shape) -> Option<DiagnosticCause> {
     match shape {
         Shape::Polygon(polygon) => polygon_rejection_cause(polygon.rings()),
         Shape::PolygonM(polygon) => polygon_rejection_cause(polygon.rings()),
@@ -3682,7 +3689,7 @@ fn spawn_parser(input: ShpParserInput) -> Result<Box<dyn LayerReader>> {
                 Some(Ok(record)) => record,
                 Some(Err(_)) => {
                     let cause = physical_rejection
-                        .map_or("shapefile.attribute_decode_failed", |cause| cause);
+                        .unwrap_or(DiagnosticCause::ShapefileAttributeDecodeFailed);
                     diagnostics.record(source_index, cause, None, raw_numeric_key.as_deref());
                     continue;
                 }
@@ -3709,7 +3716,7 @@ fn spawn_parser(input: ShpParserInput) -> Result<Box<dyn LayerReader>> {
             if !tag.is_empty() && Some(tag) != expected_shape_type {
                 diagnostics.record(
                     source_index,
-                    "shapefile.shape_type_mismatch",
+                    DiagnosticCause::ShapefileShapeTypeMismatch,
                     Some(&record),
                     raw_numeric_key.as_deref(),
                 );
@@ -3727,7 +3734,7 @@ fn spawn_parser(input: ShpParserInput) -> Result<Box<dyn LayerReader>> {
             let Ok(converted_geometry) = shape_to_wkb(&shape, dimensions) else {
                 diagnostics.record(
                     source_index,
-                    "shapefile.geometry_conversion_failed",
+                    DiagnosticCause::ShapefileGeometryConversionFailed,
                     Some(&record),
                     raw_numeric_key.as_deref(),
                 );
@@ -3738,7 +3745,7 @@ fn spawn_parser(input: ShpParserInput) -> Result<Box<dyn LayerReader>> {
                     let Ok(bytes) = encode_wkb(&geometry, WkbFlavor::Iso) else {
                         diagnostics.record(
                             source_index,
-                            "shapefile.geometry_encoding_failed",
+                            DiagnosticCause::ShapefileGeometryEncodingFailed,
                             Some(&record),
                             raw_numeric_key.as_deref(),
                         );
@@ -3767,7 +3774,7 @@ fn spawn_parser(input: ShpParserInput) -> Result<Box<dyn LayerReader>> {
                             if let Err(error) = builders[k].append_i64(value) {
                                 diagnostics.record(
                                     source_index,
-                                    "shapefile.attribute_conversion_failed",
+                                    DiagnosticCause::ShapefileAttributeConversionFailed,
                                     Some(&record),
                                     raw_numeric_key.as_deref(),
                                 );
@@ -3791,7 +3798,7 @@ fn spawn_parser(input: ShpParserInput) -> Result<Box<dyn LayerReader>> {
                 {
                     diagnostics.record(
                         source_index,
-                        "shapefile.attribute_conversion_failed",
+                        DiagnosticCause::ShapefileAttributeConversionFailed,
                         Some(&record),
                         raw_numeric_key.as_deref(),
                     );

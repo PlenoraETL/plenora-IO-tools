@@ -1767,7 +1767,9 @@ fn invalid_polygon_rows_return_complete_bounded_diagnostics() {
     assert_eq!(malformed.completeness, RowDiagnosticsCompleteness::Complete);
     assert_eq!(malformed.observed_total, 4);
     assert_eq!(
-        malformed.counts.get(ATTRIBUTE_NUMERIC_INVALID_CAUSE),
+        malformed
+            .counts
+            .get(ATTRIBUTE_NUMERIC_INVALID_CAUSE.as_str()),
         Some(&1)
     );
     assert!(malformed.examples.iter().any(|example| {
@@ -1832,7 +1834,10 @@ fn accepted_rows_stops_invalid_shapefile_scan_at_active_row_limit() {
     );
     assert_eq!(diagnostics.total, None);
     assert_eq!(diagnostics.observed_total, 1);
-    assert_eq!(diagnostics.counts[INNER_RING_WITHOUT_OUTER_CAUSE], 1);
+    assert_eq!(
+        diagnostics.counts[INNER_RING_WITHOUT_OUTER_CAUSE.as_str()],
+        1
+    );
     assert_eq!(diagnostics.examples[0].source_index, 17);
     assert_eq!(
         diagnostics.knowledge_limits.as_deref(),

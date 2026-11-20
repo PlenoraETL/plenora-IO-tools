@@ -3,6 +3,7 @@
 //! `name`/`description` come proprietà. KMZ resta un incremento successivo.
 #![forbid(unsafe_code)]
 
+use plenora_io_model::diagnostics::DiagnosticCause;
 use std::collections::{BTreeSet, HashMap};
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write as _};
@@ -392,7 +393,7 @@ impl FormatDriver for KmlDriver {
                     read_row_error(
                         error,
                         Some(source_index),
-                        "kml.geometry_not_representable",
+                        DiagnosticCause::KmlGeometryNotRepresentable,
                         Some(GEOMETRY),
                     )
                 })?;
@@ -1436,7 +1437,7 @@ impl PlacemarkStream {
                             read_row_error(
                                 error,
                                 Some(source_index),
-                                "kml.invalid_placemark",
+                                DiagnosticCause::KmlInvalidPlacemark,
                                 Some(GEOMETRY),
                             )
                         });
@@ -1570,22 +1571,22 @@ impl FormatWriter for KmlWriterState {
                 None
             } else {
                 let Ok(geometry) = decode_wkb(geom_col.value(row), &limits) else {
-                    rejections.push((row, "kml.invalid_geometry", GEOMETRY));
+                    rejections.push((row, DiagnosticCause::KmlInvalidGeometry, GEOMETRY));
                     continue;
                 };
                 let Ok(geometry) = kml_geometry_from_wkb(&geometry) else {
-                    rejections.push((row, "kml.geometry_not_representable", GEOMETRY));
+                    rejections.push((row, DiagnosticCause::KmlGeometryNotRepresentable, GEOMETRY));
                     continue;
                 };
                 Some(geometry)
             };
             let Ok(name) = name_idx.map(|index| cells[index].text(row)).transpose() else {
-                rejections.push((row, "kml.cell_not_representable", "name"));
+                rejections.push((row, DiagnosticCause::KmlCellNotRepresentable, "name"));
                 continue;
             };
             let name = name.flatten();
             let Ok(description) = desc_idx.map(|index| cells[index].text(row)).transpose() else {
-                rejections.push((row, "kml.cell_not_representable", "description"));
+                rejections.push((row, DiagnosticCause::KmlCellNotRepresentable, "description"));
                 continue;
             };
             let description = description.flatten();
@@ -1600,7 +1601,11 @@ impl FormatWriter for KmlWriterState {
                     Ok(Some(value)) => data.push((f.name().clone(), value)),
                     Ok(None) => {}
                     Err(_) => {
-                        rejections.push((row, "kml.cell_not_representable", f.name().as_str()));
+                        rejections.push((
+                            row,
+                            DiagnosticCause::KmlCellNotRepresentable,
+                            f.name().as_str(),
+                        ));
                         data.clear();
                         break;
                     }

@@ -401,7 +401,7 @@ fn error_serializes_complete_bounded_read_diagnostics() {
         examples: vec![
             RowDiagnosticExample {
                 source_index: 17,
-                cause: "shapefile.inner_ring_without_outer".into(),
+                cause: crate::diagnostics::DiagnosticCause::ShapefileInnerRingWithoutOuter,
                 column: None,
                 key: Some(RowDiagnosticKey {
                     field: "ID_PART".to_owned().into(),
@@ -412,7 +412,7 @@ fn error_serializes_complete_bounded_read_diagnostics() {
             },
             RowDiagnosticExample {
                 source_index: 89,
-                cause: "shapefile.unclosed_ring".into(),
+                cause: crate::diagnostics::DiagnosticCause::ShapefileUnclosedRing,
                 column: None,
                 key: None,
                 write_state: None,

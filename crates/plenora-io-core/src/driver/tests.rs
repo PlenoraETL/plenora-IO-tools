@@ -1282,7 +1282,11 @@ fn row_scoped_write_rejection_without_input_total_keeps_the_primary_cause() {
         "test",
         0,
         1,
-        &[(0, "driver.invalid_attribute", "value")],
+        &[(
+            0,
+            plenora_io_model::diagnostics::DiagnosticCause::DriverInvalidAttribute,
+            "value",
+        )],
         None,
     );
 
@@ -1305,7 +1309,11 @@ fn row_scoped_write_rejection_without_input_total_keeps_the_primary_cause() {
         "test",
         0,
         1,
-        &[(0, "driver.invalid_attribute", "value")],
+        &[(
+            0,
+            plenora_io_model::diagnostics::DiagnosticCause::DriverInvalidAttribute,
+            "value",
+        )],
         Some(1),
     );
     let report = con_totale.row_diagnostics.as_deref().unwrap();
@@ -1321,7 +1329,11 @@ fn row_diagnostics_hide_unattestable_columns_without_losing_causes() {
             "test",
             0,
             1,
-            &[(0, "driver.invalid_attribute", invalid.as_str())],
+            &[(
+                0,
+                plenora_io_model::diagnostics::DiagnosticCause::DriverInvalidAttribute,
+                invalid.as_str(),
+            )],
             Some(1),
         );
         let diagnostics = error.row_diagnostics.as_deref().unwrap();
@@ -1340,7 +1352,11 @@ fn row_diagnostics_hide_unattestable_columns_without_losing_causes() {
         "test",
         0,
         1,
-        &[(0, "driver.invalid_attribute", unicode)],
+        &[(
+            0,
+            plenora_io_model::diagnostics::DiagnosticCause::DriverInvalidAttribute,
+            unicode,
+        )],
         Some(1),
     );
     let diagnostics = error.row_diagnostics.as_deref().unwrap();
@@ -1353,7 +1369,7 @@ fn read_row_error_emits_examples_only_for_attestable_indices() {
     let attested = read_row_error(
         PlenoraIoError::formato_redatto("test", &PublicMessage::Curated("bad row")),
         Some(7),
-        "driver.invalid_attribute",
+        plenora_io_model::diagnostics::DiagnosticCause::DriverInvalidAttribute,
         Some("value"),
     );
     let diagnostics = attested.row_diagnostics.as_deref().unwrap();
@@ -1367,7 +1383,7 @@ fn read_row_error_emits_examples_only_for_attestable_indices() {
     let unknown = read_row_error(
         PlenoraIoError::formato_redatto("test", &PublicMessage::Curated("bad row")),
         None,
-        "driver.invalid_attribute",
+        plenora_io_model::diagnostics::DiagnosticCause::DriverInvalidAttribute,
         Some("value"),
     );
     let diagnostics = unknown.row_diagnostics.as_deref().unwrap();
@@ -1390,7 +1406,11 @@ fn non_geometry_row_rejection_uses_a_non_geometry_capability_reason() {
         "test",
         0,
         1,
-        &[(0, "kml.cell_not_representable", "value")],
+        &[(
+            0,
+            plenora_io_model::diagnostics::DiagnosticCause::KmlCellNotRepresentable,
+            "value",
+        )],
         Some(1),
     );
     assert_eq!(

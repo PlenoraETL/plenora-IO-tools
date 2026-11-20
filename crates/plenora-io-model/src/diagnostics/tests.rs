@@ -21,7 +21,7 @@ fn valid_read() -> RowDiagnostics {
         examples_truncated: false,
         examples: vec![RowDiagnosticExample {
             source_index: 4,
-            cause: "conversion.invalid_date".into(),
+            cause: crate::diagnostics::DiagnosticCause::ConversionInvalidDate,
             column: Some("effective_date".to_owned().into()),
             key: None,
             write_state: None,
@@ -128,4 +128,14 @@ fn write_examples_cannot_exceed_their_diagnostic_state() {
         effect_unknown: KnownOrUnknownCount::Known { value: 0 },
     });
     assert!(report.validate().is_err());
+}
+
+#[test]
+fn external_cause_text_is_fallible() {
+    assert_eq!(
+        DiagnosticCause::parse("conversion.invalid_date"),
+        Some(DiagnosticCause::ConversionInvalidDate)
+    );
+    assert_eq!(DiagnosticCause::parse("caller.value"), None);
+    assert_eq!(DiagnosticCause::parse(""), None);
 }
