@@ -720,10 +720,18 @@ jobs:
       # docs/ENGINEERING.md, «La GDAL della distribuzione nelle prove».
       - name: Install GDAL
         run: sudo apt-get update && sudo apt-get install --yes libgdal-dev gdal-bin
+      # A restored target can contain coverage mappings from older sources.
+      # Discard workspace artifacts before collecting profiles for this SHA.
+      - name: Clean previous workspace coverage artifacts
+        run: cargo llvm-cov clean --workspace
       - name: Measure coverage
         env:
           PLENORA_CROSS_FS_TEST_ROOT: /dev/shm
         run: cargo llvm-cov --workspace --all-targets --all-features --locked --no-report
+      # The cdylib has test=false: Rust tests alone never execute its binding.
+      # Reuse the SDK's behavioral suite with instrumented native/CLI backends.
+      - name: Measure Python SDK and native binding coverage
+        run: '"$PLENORA_ENUM_PYTHON" scripts/coverage_sdk.py'
       # Il report esportato porta le stesse esclusioni della soglia. Prima non
       # le portava, e l'artefatto pubblicato come "coverage" descriveva un
       # perimetro diverso da quello su cui la soglia veniva applicata: due

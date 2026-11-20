@@ -302,8 +302,12 @@ class ContrIlBinarioVero(unittest.TestCase):
         """Le due strade guardano lo stesso file e devono descriverlo uguale."""
         cliente = self.nuovo_client()
         fixture = RADICE / "crates/plenora-io-tools/tests/fixtures/canoniche/canonico.gpkg"
-        letto = cliente.validate(fixture)
+        # The canonical GeoPackage has two layers: selection is mandatory.
         guardato = cliente.inspect(fixture)
+        with self.assertRaises(CommandFailed) as preso:
+            cliente.validate(fixture)
+        self.assertEqual(preso.exception.envelope.category, "invalid_plan")
+        letto = cliente.validate(fixture, layer=0)
 
         self.assertEqual(letto.format, guardato.format.id)
         self.assertEqual(letto.layer.name, guardato.layers[0].name)

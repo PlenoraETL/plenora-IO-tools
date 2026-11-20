@@ -5,6 +5,7 @@ from pathlib import Path
 import struct
 import tempfile
 import unittest
+from unittest import mock
 
 from plenora_io import AsyncClient, Client, ResourceLimitError
 from _repository import RADICE
@@ -26,6 +27,11 @@ class PropertyFixture:
         return client
 
     def setUp(self):
+        if self.native:
+            # The full suite also supplies an explicit instrumented CLI.
+            # Isolate native probes from that override, restoring it afterward.
+            self.enterContext(mock.patch.dict(os.environ))
+            os.environ.pop("PLENORA_IO_BIN", None)
         if pa is None:
             self.skipTest("serve pyarrow, l'extra `plenora-io[pyarrow]`, che l'installazione dalla sdist non porta")
         default = RADICE / 'target/debug' / ('plenora-io.exe' if os.name == 'nt' else 'plenora-io') if RADICE else None

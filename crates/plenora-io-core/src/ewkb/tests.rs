@@ -144,6 +144,52 @@ fn schema() -> SchemaRef {
     schema_per(&contratto(Some("EPSG:4326"), Some(4326)))
 }
 
+#[test]
+fn large_binary_conversion_preserves_nulls_coordinates_and_storage_type() {
+    let contract = contratto(Some("EPSG:4326"), Some(4326));
+    let schema = crate::test_contract::declared(
+        Arc::new(Schema::new(vec![Field::new(
+            "geom",
+            DataType::LargeBinary,
+            true,
+        )])),
+        Some(contract.clone()),
+    )
+    .schema;
+    let mut point = WkbGeometry {
+        value: WkbValue::Point(coordinata(9.0, -0.0)),
+        dimensions: CoordinateDimensions::Xy,
+        srid: Some(4326),
+    };
+    let input = plenora_io_model::wkb::encode_wkb(&point, WkbFlavor::Ewkb).unwrap();
+    point.srid = None;
+    let expected = plenora_io_model::wkb::encode_wkb(&point, WkbFlavor::Iso).unwrap();
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![Arc::new(LargeBinaryArray::from(vec![
+            Some(input.as_slice()),
+            None,
+        ]))],
+    )
+    .unwrap();
+    let (_, _, conversion) = pianifica(&gpkg(), &schema, Some(&contract), limiti())
+        .unwrap()
+        .unwrap();
+    let converted = conversion.converti(&batch).unwrap();
+    let values = converted
+        .column(0)
+        .as_any()
+        .downcast_ref::<LargeBinaryArray>()
+        .unwrap();
+    assert_eq!(values.len(), 2);
+    assert_eq!(values.value(0), expected);
+    assert!(values.is_null(1));
+    assert_eq!(
+        converted.schema().field(0).data_type(),
+        &DataType::LargeBinary
+    );
+}
+
 /// Un sink di prova: scrive la geometria come gli dice `geometry`.
 fn descrittore(geometry: crate::descriptor::GeometryWriteSupport) -> FormatDescriptor {
     FormatDescriptor::const_new(

@@ -1232,6 +1232,59 @@ fn runtime_geometry_validation_enforces_nullability() {
 }
 
 #[test]
+fn write_validation_reports_srid_then_type_then_dimensions() {
+    // REJ-002: a CRS contradiction must not be hidden by a type/dimension
+    // disagreement in the same otherwise well-formed geometry.
+    let point = WkbGeometry {
+        value: WkbValue::Point(WkbCoordinate {
+            x: 1.0,
+            y: 2.0,
+            z: None,
+            m: None,
+        }),
+        dimensions: CoordinateDimensions::Xy,
+        srid: Some(4326),
+    };
+    let bytes = encode_wkb(&point, WkbFlavor::Ewkb).unwrap();
+    let batch = geometry_batch(Some(&bytes));
+    let mut contract = xy_contract(true);
+    contract.encoding = GeometryEncoding::Ewkb;
+    contract.srid = Some(3857);
+    contract.geometry_types = vec![GeometryType::LineString];
+    contract.dimensions = CoordinateDimensions::Xyz;
+    let validate = |contract: &GeometryColumnContract| {
+        validate_geometry_batch_at(
+            "test",
+            WKB_XY_GEOMETRY,
+            Some(contract),
+            &batch,
+            PipelineLimits::default().wkb_limits(),
+            0,
+            Some(1),
+        )
+    };
+    let error = validate(&contract).unwrap_err();
+    assert_eq!(error.category, ErrorCategory::Crs);
+    assert_eq!(
+        error.capability_reason,
+        Some(CapabilityReason::CrsRepresentationsInconsistent)
+    );
+    assert!(!error.message.contains("4326"));
+    contract.srid = Some(4326);
+    assert_eq!(
+        validate(&contract).unwrap_err().capability_reason,
+        Some(CapabilityReason::MixedGeometry)
+    );
+    contract.geometry_types = vec![GeometryType::Point];
+    assert_eq!(
+        validate(&contract).unwrap_err().capability_reason,
+        Some(CapabilityReason::CoordinateDimensions)
+    );
+    contract.dimensions = CoordinateDimensions::Xy;
+    assert!(validate(&contract).is_ok());
+}
+
+#[test]
 fn runtime_write_rejections_have_bounded_global_row_diagnostics() {
     let schema = Arc::new(Schema::new(vec![Field::new(
         "geometry",

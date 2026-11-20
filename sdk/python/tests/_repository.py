@@ -39,6 +39,13 @@ def radice() -> Path | None:
     """La radice del repository, o `None` se le sonde girano altrove."""
     for candidata in Path(__file__).resolve().parents:
         if (candidata / "pyproject.toml").is_file() and (candidata / "tests").is_dir():
+            # The source SDK also has pyproject.toml and tests. Recognize its
+            # exact workspace layout before applying the extracted-sdist fence.
+            repository = candidata.parent.parent
+            if (candidata == repository / "sdk" / "python"
+                    and (repository / MARCATORE).is_file()
+                    and (repository / "Cargo.toml").is_file()):
+                return repository
             return None  # La sdist estratta non eredita il repository contenitore.
         if (candidata / MARCATORE).is_file():
             return candidata

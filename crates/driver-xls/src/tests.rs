@@ -10,6 +10,33 @@ fn wkt(testo: &str) -> plenora_io_model::Result<plenora_io_model::wkb::WkbGeomet
 }
 use super::*;
 
+#[test]
+fn empty_string_rewrite_rejects_missing_cells_and_invalid_worksheet_content() {
+    use std::collections::BTreeSet;
+    use std::io::{Cursor, Write};
+
+    let required = BTreeSet::from(["B2".to_owned()]);
+    assert!(empty_strings::encode(b"not a ZIP archive".to_vec(), &required).is_err());
+    for sheet in [
+        b"<worksheet><sheetData><row><c r=\"A1\"><v>1</v></c></row></sheetData></worksheet>"
+            .as_slice(),
+        &[0xff, 0xfe],
+    ] {
+        let mut archive = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        archive
+            .start_file(
+                "xl/worksheets/sheet1.xml",
+                zip::write::SimpleFileOptions::default(),
+            )
+            .unwrap();
+        archive.write_all(sheet).unwrap();
+        let bytes = archive.finish().unwrap().into_inner();
+        // Returning a workbook would silently lose the promised explicit empty
+        // B2 cell, so failure is required even for an otherwise valid ZIP.
+        assert!(empty_strings::encode(bytes, &required).is_err());
+    }
+}
+
 // --- ASSURANCE-N1: i rami negativi del pre-filtro sui riferimenti ---
 
 /// `valida_valore_riferimento`: gli input che farebbero traboccare

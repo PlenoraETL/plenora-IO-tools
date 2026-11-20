@@ -727,6 +727,23 @@ fn il_membro_crs_storico_deve_nominare_wgs84() {
         r#"{"type":"link","properties":{"href":"http://example.com/crs","type":"proj4"}}"#
             .to_owned(),
         "null".to_owned(),
+        "true".to_owned(),
+        "-1".to_owned(),
+        "4326".to_owned(),
+        "1.5".to_owned(),
+        "[]".to_owned(),
+        r#"{"type":false,"properties":{"name":"EPSG:4326"}}"#.to_owned(),
+        r#"{"type":-1,"properties":{"name":"EPSG:4326"}}"#.to_owned(),
+        r#"{"type":1.5,"properties":{"name":"EPSG:4326"}}"#.to_owned(),
+        r#"{"type":[],"properties":{"name":"EPSG:4326"}}"#.to_owned(),
+        r#"{"type":{},"properties":{"name":"EPSG:4326"}}"#.to_owned(),
+        r#"{"type":"name","properties":false}"#.to_owned(),
+        r#"{"type":"name","properties":-1}"#.to_owned(),
+        r#"{"type":"name","properties":4326}"#.to_owned(),
+        r#"{"type":"name","properties":1.5}"#.to_owned(),
+        r#"{"type":"name","properties":null}"#.to_owned(),
+        r#"{"type":"name","properties":[]}"#.to_owned(),
+        r#"{"type":"name","properties":"EPSG:4326"}"#.to_owned(),
         r#""EPSG:4326""#.to_owned(),
         r#"{"type":"name"}"#.to_owned(),
         r#"{"type":"name","properties":{"name":4326}}"#.to_owned(),
@@ -746,6 +763,57 @@ fn il_membro_crs_storico_deve_nominare_wgs84() {
             );
             assert!(!errore.message.contains("3003"), "{}", errore.message);
         }
+    }
+}
+
+#[test]
+fn invalid_wkb_geometry_is_rejected_before_writing_any_geojson() {
+    use plenora_io_model::contract::CoordinateDimensions;
+    use plenora_io_model::wkb::{WkbCoordinate, WkbGeometry, WkbValue};
+
+    let wrap = |value| WkbGeometry {
+        dimensions: CoordinateDimensions::Xy,
+        srid: None,
+        value,
+    };
+    let point = wrap(WkbValue::Point(WkbCoordinate {
+        x: 9.0,
+        y: 45.0,
+        z: None,
+        m: None,
+    }));
+    let mut incompatible_child = point.clone();
+    incompatible_child.srid = Some(4326);
+    let mut wrong_dimensions = point.clone();
+    wrong_dimensions.dimensions = CoordinateDimensions::Xym;
+    let cases = [
+        wrap(WkbValue::LineString(vec![])),
+        wrap(WkbValue::Polygon(vec![])),
+        wrap(WkbValue::Polygon(vec![vec![]])),
+        wrap(WkbValue::MultiPoint(vec![])),
+        wrap(WkbValue::MultiPoint(vec![wrap(WkbValue::LineString(
+            vec![],
+        ))])),
+        wrap(WkbValue::MultiLineString(vec![point.clone()])),
+        wrap(WkbValue::MultiPolygon(vec![point.clone()])),
+        wrap(WkbValue::GeometryCollection(vec![incompatible_child])),
+        wrap(WkbValue::GeometryCollection(vec![wrong_dimensions.clone()])),
+        wrap(WkbValue::Point(WkbCoordinate {
+            x: f64::NAN,
+            y: 45.0,
+            z: None,
+            m: None,
+        })),
+        wrap(WkbValue::CircularString(vec![])),
+        wrong_dimensions,
+    ];
+    for geometry in cases {
+        let mut output = b"prefix".to_vec();
+        assert!(geometry::write_wkb_geojson(&mut output, &geometry).is_err());
+        assert_eq!(
+            output, b"prefix",
+            "invalid input must not publish partial JSON"
+        );
     }
 }
 
