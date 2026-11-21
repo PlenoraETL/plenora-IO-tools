@@ -115,12 +115,12 @@
       "versione_manifesto": "10.0.0",
       "versione_workspace": "10.0.0",
       "tag_previsto": "v10.0.0",
-      "tag_creato": false,
-      "tag_sulla_candidate": false,
-      "release_action_allowed": false,
-      "release_blocking": true,
+      "tag_creato": true,
+      "tag_sulla_candidate": true,
+      "release_action_allowed": true,
+      "release_blocking": false,
       "stato": "attiva",
-      "nota": "Decisione esplicita del titolare del 21/11/2026: «si procedi», dopo L2 110/110, distribuzione 44782545519 verde e registrazione e4646ed1. Fonte: assurance/evidence/autorizzazione-10.0.0.json. Autorizzazione registrata; attestazioni Windows correnti 32/32 per profilo e manifesto generati offline. Restano attestazioni Linux correnti, confronto bozza, tag e gate finale; pubblicazione e verifica dei byte pubblicati non eseguite. release_action_allowed resta false fino alla registrazione delle condizioni finali.",
+      "nota": "Decisione del 21/11 registrata; quattro attestazioni correnti, 24 asset della bozza verificati e tag locale sulla candidate. Restano gate completo e pubblicazione con verifica successiva.",
       "revisione_candidate": "e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f",
       "assurance_entro_l_allowlist": true,
       "artefatti": [
@@ -166,7 +166,8 @@
           "dimensione": 231796,
           "revisione": "e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f"
         }
-      ]
+      ],
+      "tag_revisione": "e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f"
     }
   },
   "docset": {

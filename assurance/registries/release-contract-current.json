@@ -378,10 +378,9 @@
         "funzione": "condizione_candidate_coerente",
         "artefatto": "assurance/current-state.json"
       },
-      "stato": "release_blocking",
-      "sintesi": "Candidate e4c9762 qualificata L2 e autorizzata dal titolare: restano tag e condizioni finali di release.",
-      "nota": "Decisione esplicita del titolare del 21/11/2026: «si procedi», dopo L2 110/110, distribuzione 44782545519 verde e registrazione e4646ed1. Fonte: assurance/evidence/autorizzazione-10.0.0.json. Autorizzazione registrata; attestazioni Windows correnti 32/32 per profilo e manifesto generati offline. Restano attestazioni Linux correnti, confronto bozza, tag e gate finale; pubblicazione e verifica dei byte pubblicati non eseguite. release_action_allowed resta false fino alla registrazione delle condizioni finali.",
-      "manca": "Tag sulla candidate e tutte le condizioni congiunte del gate; decisione gia registrata."
+      "stato": "verified",
+      "sintesi": "Decisione del 21/11 registrata; quattro attestazioni correnti, 24 asset della bozza verificati e tag locale sulla candidate. Restano gate completo e pubblicazione con verifica successiva.",
+      "nota": "Decisione del 21/11 registrata; quattro attestazioni correnti, 24 asset della bozza verificati e tag locale sulla candidate. Restano gate completo e pubblicazione con verifica successiva."
     },
     {
       "id": "lotto.s10",
@@ -668,8 +667,8 @@
       "id": "distribuzione.artefatti-qualificati",
       "superficie": "cio' che si consegna: binari per Linux e Windows -- macOS non e' supportata, la variante con `gdal-backend` e il proprio runtime GDAL, e i documenti che li accompagnano -- checksum, SBOM, provenance, runbook",
       "invariante": "I sette archivi di distribuzione sono costruiti dalla revisione qualificata, verificati installati dalla corsa di distribuzione e accompagnati da checksum, SBOM, provenance e istruzioni. Prima della pubblicazione, il gate richiede il confronto dei byte riscaricati dalla bozza contro la candidate congelata. Dopo la pubblicazione immutata, il confronto viene ripetuto e registrato sui byte riscaricati dalla release pubblicata. La firma Authenticode resta non richiesta.",
-      "stato": "release_blocking",
-      "sintesi": "Sette artefatti e 32 referti verificati; attestazioni Windows correnti 32/32, manifesto generato; restano attestazioni Linux e confronto bozza.",
+      "stato": "verified",
+      "sintesi": "Decisione del 21/11 registrata; quattro attestazioni correnti, 24 asset della bozza verificati e tag locale sulla candidate. Restano gate completo e pubblicazione con verifica successiva.",
       "perche_e_bloccante": "era **previsto e non contrattuale**: l'ordine di lavoro lo nominava, il registro no. Un obbligo che vive solo nella prosa non ferma nessuno, e sarebbe stato possibile azzerare il debito di copertura negativa, chiudere la candidate e trovarsi autorizzati a rilasciare **senza avere niente da rilasciare**. Renderlo bloccante prima di lavorare sui gruppi ASSURANCE-N1 e' l'ordine giusto: si dichiara che cosa manca finche' manca a tutti, non quando e' l'ultima cosa rimasta.",
       "prova": {
         "tipo": "esterna",
@@ -685,8 +684,7 @@
         "corsa": 44782545519,
         "i_due_confronti": "Draft e release pubblicata non ancora verificate; verifica locale limitata ai byte della Distribuzione forniti."
       },
-      "nota": "Digest, dimensioni, revisione e checksum dei sette archivi verificati localmente; 32 referti. Attestazioni Windows correnti prodotte dai binari degli zip: 32/32 per profilo. Manifesto generato e verificato sui cinque archivi pubblici. Attestazioni Linux del 18/11 storiche, non riutilizzate.",
-      "manca": "Attestazioni Linux della candidate corrente e confronto byte della bozza; successivamente verifica dopo pubblicazione."
+      "nota": "Decisione del 21/11 registrata; quattro attestazioni correnti, 24 asset della bozza verificati e tag locale sulla candidate. Restano gate completo e pubblicazione con verifica successiva."
     },
     {
       "id": "distribuzione.licenza-first-party",

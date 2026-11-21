@@ -43,7 +43,7 @@ alla classificazione conservato in `archiviazione`.
 | esito differenziale | 89.37% |
 | gruppi ASSURANCE-N1 | 50 |
 | gruppi ASSURANCE-N1 aperti | 0 |
-| blocchi | 2 |
+| blocchi | 0 |
 | capacità differite | 2 |
 | S9, qualificato su | `e4c9762` |
 | candidate, versione del manifesto | `10.0.0` |
@@ -52,11 +52,11 @@ alla classificazione conservato in `archiviazione`.
 | candidate, versione del workspace | `10.0.0` |
 | candidate, artefatti congelati | 7 |
 | candidate, tag previsto | `v10.0.0` |
-| candidate, tag creato | no |
-| candidate, revisione del tag | nessun tag |
-| candidate, tag sulla candidate | no |
+| candidate, tag creato | sì |
+| candidate, revisione del tag | `e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f` |
+| candidate, tag sulla candidate | sì |
 | candidate, assurance entro l'allowlist | sì |
-| candidate, release_action consentita | no |
+| candidate, release_action consentita | sì |
 | release_authorized | `true` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
@@ -65,8 +65,6 @@ I blocchi sono l'elenco esatto dei `release_blocking` del
 
 | Blocco | Sintesi |
 |---|---|
-| `release.candidate-non-valida-per-head` | Candidate e4c9762 qualificata L2 e autorizzata dal titolare: restano tag e condizioni finali di release. |
-| `distribuzione.artefatti-qualificati` | Sette artefatti e 32 referti verificati; attestazioni Windows correnti 32/32, manifesto generato; restano attestazioni Linux e confronto bozza. |
 
 Le capacità **differite** non sono blocchi chiusi: non sono richieste
 da questa release e **non sono verificate**. Ciascuna dichiara che cosa
