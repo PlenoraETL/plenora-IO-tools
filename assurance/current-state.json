@@ -115,12 +115,12 @@
       "versione_manifesto": "10.0.0",
       "versione_workspace": "10.0.0",
       "tag_previsto": "v10.0.0",
-      "tag_creato": false,
-      "tag_sulla_candidate": false,
+      "tag_creato": true,
+      "tag_sulla_candidate": true,
       "release_action_allowed": false,
-      "release_blocking": true,
+      "release_blocking": false,
       "stato": "attiva",
-      "nota": "Decisione esplicita del titolare del 21/11/2026: «si procedi», dopo L2 110/110, distribuzione 44782545519 verde e registrazione e4646ed1. Fonte: assurance/evidence/autorizzazione-10.0.0.json. Autorizzazione registrata; attestazioni Windows correnti 32/32 per profilo e manifesto generati offline. Restano attestazioni Linux correnti, confronto bozza, tag e gate finale; pubblicazione e verifica dei byte pubblicati non eseguite. release_action_allowed resta false fino alla registrazione delle condizioni finali.",
+      "nota": "Pubblicata il 2026-11-21T16:06:05Z dalla bozza 453533887 immutata (solo PATCH draft=false): https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/v10.0.0, tag annotato v10.0.0 sulla candidate e4c9762f. Verifica dopo la pubblicazione: 24/24 asset identici alla bozza verificata. Gate --release verde (36 invarianti, nessun blocco), concluso dopo la pubblicazione: deviazione dichiarata in checkpoint-e4c9762.json. release_authorized resta decisione storica; release_action_allowed consumato.",
       "revisione_candidate": "e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f",
       "assurance_entro_l_allowlist": true,
       "artefatti": [
@@ -166,7 +166,8 @@
           "dimensione": 231796,
           "revisione": "e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f"
         }
-      ]
+      ],
+      "tag_revisione": "e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f"
     }
   },
   "docset": {

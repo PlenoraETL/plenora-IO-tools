@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "prodotto_da": "scripts/check_public_contracts.py",
-  "prodotto_il": "2026-11-21T06:36:54Z",
+  "prodotto_il": "2026-11-21T08:00:49Z",
   "artefatto": {
     "nome": "plenora-io-10.0.0-linux-x86_64-filegdb.tar.gz",
     "digest": "sha256:7da7b35e24556e38fa0f883f4ce7c275a0c9e2c8287051b9f34db8431749eeef",
