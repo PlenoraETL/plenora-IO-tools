@@ -17,6 +17,8 @@ arrow-schema.workspace = true
 serde = { workspace = true }
 serde_json.workspace = true
 tempfile.workspace = true
+flate2 = "=1.1.10"
+crc32fast = "=1.5.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 rustix.workspace = true

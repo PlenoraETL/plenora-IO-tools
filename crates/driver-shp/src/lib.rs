@@ -636,6 +636,7 @@ impl FormatDriver for ShpDriver {
 
     fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
         let source_name = match &source {
+            Source::Bytes { .. } | Source::Archivio { .. } => None,
             Source::Path(p) => p
                 .file_name()
                 .and_then(|n| n.to_str())

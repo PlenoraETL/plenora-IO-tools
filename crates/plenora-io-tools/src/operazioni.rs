@@ -71,7 +71,8 @@ use crate::Cli;
 #[non_exhaustive]
 pub struct Richiesta {
     /// La sorgente da leggere, ispezionare o convertire.
-    pub source: Option<PathBuf>,
+    pub source: Option<plenora_io_core::Source>,
+    pub archive_limits: plenora_io_core::LimitiArchivio,
     /// La destinazione da produrre: consegna di `read`, sink di `write` e
     /// `convert`.
     pub destination: Option<PathBuf>,
@@ -102,7 +103,7 @@ pub struct Richiesta {
 impl Richiesta {
     /// Una richiesta sulla sola sorgente: la forma di `inspect` e `layers`.
     #[must_use]
-    pub fn sulla_sorgente(source: impl Into<PathBuf>) -> Self {
+    pub fn sulla_sorgente(source: impl Into<plenora_io_core::Source>) -> Self {
         Self {
             source: Some(source.into()),
             ..Self::default()
@@ -209,12 +210,16 @@ impl From<Richiesta> for Cli {
         // cambiare sei firme. Un consumatore non li vede.
         let mut positionals = Vec::new();
         if let Some(source) = &richiesta.source {
-            positionals.push(source.display().to_string());
+            positionals.push(source.nome().display().to_string());
         }
         if let Some(destination) = &richiesta.destination {
             positionals.push(destination.display().to_string());
         }
         Self {
+            source: richiesta.source,
+            source_base64: None,
+            archive_entry: None,
+            archive_limits: richiesta.archive_limits,
             flags: std::collections::BTreeSet::new(),
             positionals,
             // `read` distingue le due forme sul flag, non sul posizionale: la
@@ -257,10 +262,13 @@ fn senza_uscita(esito: crate::CliResult) -> Esito {
 /// diventerebbe un altro percorso, e `write` o `convert` pubblicherebbero sotto
 /// un nome che nessuno ha chiesto. Si rifiuta prima, come errore d'uso.
 fn rappresentabile(richiesta: &Richiesta) -> Result<(), Value> {
-    let illeggibile = [&richiesta.source, &richiesta.destination]
-        .into_iter()
-        .flatten()
-        .any(|percorso| percorso.to_str().is_none());
+    let illeggibile = [
+        richiesta.source.as_ref().map(plenora_io_core::Source::nome),
+        richiesta.destination.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .any(|percorso| percorso.to_str().is_none());
     if illeggibile {
         return Err(crate::usage_err(&plenora_io_model::PublicMessage::Curated(
             "un percorso della richiesta non e' testo Unicode valido, e convertirlo ne nominerebbe un altro",
@@ -352,4 +360,12 @@ pub fn convert(richiesta: Richiesta) -> Esito {
 #[must_use]
 pub fn capabilities() -> Value {
     crate::capabilities_document()
+}
+
+/// Elenca i metadati ZIP con i limiti della richiesta.
+/// # Errors
+/// Busta tipizzata in caso di archivio, quota o configurazione non validi.
+pub fn elenca_archivio(richiesta: Richiesta) -> Esito {
+    rappresentabile(&richiesta)?;
+    senza_uscita(crate::cmd_archive_list(&richiesta.into()))
 }

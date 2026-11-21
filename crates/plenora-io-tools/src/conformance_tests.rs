@@ -1081,10 +1081,10 @@ fn materialize_point_dataset(driver: &dyn FormatDriver, directory: &tempfile::Te
     output
 }
 
-fn read_all_batches(driver: &dyn FormatDriver, source: PathBuf) -> Vec<RecordBatch> {
+fn read_all_batches(driver: &dyn FormatDriver, source: impl Into<Source>) -> Vec<RecordBatch> {
     let descriptor = driver.descriptor();
     let dataset = require_ok(
-        driver.open(Source::Path(source), read_options(descriptor.id())),
+        driver.open(source.into(), read_options(descriptor.id())),
         descriptor.id(),
         "open determinismo",
     );
@@ -2484,4 +2484,100 @@ fn limit_bounds_shapefile_prevalidation_including_deleted_records() {
         assert_eq!(doc["rows_read"], 1);
         assert_eq!(doc["truncated"], true);
     }
+}
+
+#[test]
+fn l_io1_bytes_use_same_drivers_and_batches() {
+    for driver in drivers() {
+        let id = driver.descriptor().id();
+        if matches!(id, "shp" | "filegdb") {
+            continue;
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let path = materialize_point_dataset(driver.as_ref(), &temp);
+        let bytes = Source::Bytes {
+            nome: path.file_name().unwrap().to_str().unwrap().to_owned(),
+            dati: std::fs::read(&path).unwrap().into(),
+        };
+        assert_eq!(
+            read_all_batches(driver.as_ref(), path),
+            read_all_batches(driver.as_ref(), bytes),
+            "{id}"
+        );
+    }
+}
+
+fn l_io1_zip(files: &[(String, Vec<u8>)]) -> Source {
+    use std::io::Write as _;
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (name, bytes) in files {
+        zip.start_file(
+            name,
+            zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Deflated),
+        )
+        .unwrap();
+        zip.write_all(bytes).unwrap();
+    }
+    Source::Bytes {
+        nome: "data.zip".into(),
+        dati: zip.finish().unwrap().into_inner().into(),
+    }
+}
+
+#[test]
+fn l_io1_archives_use_same_drivers_including_shapefile() {
+    for driver in drivers() {
+        let id = driver.descriptor().id();
+        if id == "filegdb" {
+            continue;
+        }
+        let path = structural_fixture(id);
+        let name = path.file_name().unwrap().to_str().unwrap().to_owned();
+        let paths = driver.descriptor().files().input(&path).unwrap();
+        let files: Vec<_> = paths
+            .iter()
+            .map(|p| {
+                (
+                    p.file_name().unwrap().to_str().unwrap().to_owned(),
+                    std::fs::read(p).unwrap(),
+                )
+            })
+            .collect();
+        let source = Source::Archivio {
+            archivio: Box::new(l_io1_zip(&files)),
+            voce: name,
+        };
+        assert_eq!(
+            read_all_batches(driver.as_ref(), path),
+            read_all_batches(driver.as_ref(), source),
+            "{id}"
+        );
+    }
+}
+
+#[test]
+fn l_io1_shapefile_missing_dbf_and_kmz() {
+    let path = structural_fixture("shp");
+    let source = Source::Archivio {
+        archivio: Box::new(l_io1_zip(&[("a.shp".into(), std::fs::read(path).unwrap())])),
+        voce: "a.shp".into(),
+    };
+    assert!(driver_shp::ShpDriver
+        .open(source, read_options("shp"))
+        .is_err());
+    let kml = std::fs::read(structural_fixture("kml")).unwrap();
+    let Source::Bytes { dati, .. } = l_io1_zip(&[("doc.kml".into(), kml)]) else {
+        unreachable!()
+    };
+    let dataset = driver_kml::KmlDriver
+        .open(
+            Source::Bytes {
+                nome: "data.kmz".into(),
+                dati,
+            },
+            read_options("kml"),
+        )
+        .unwrap();
+    assert!(!dataset.layers().is_empty());
 }

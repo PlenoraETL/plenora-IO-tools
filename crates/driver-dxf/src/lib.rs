@@ -534,8 +534,8 @@ impl FormatDriver for DxfDriver {
 
     #[allow(clippy::too_many_lines)] // Scansione e spool condividono il budget e la vita del contenitore.
     fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = driver_common::structure::preflight(self.descriptor(), source, &mut opts)?;
-        let mut stream = DrawingEntityReader::load_file(&path).map_err(|_| {
+        let path = driver_common::structure::preflight_data(self.descriptor(), source, &mut opts)?;
+        let mut stream = DrawingEntityReader::load(path.open()?).map_err(|_| {
             err(&PublicMessage::Curated(
                 "apertura progressiva del DXF fallita",
             ))

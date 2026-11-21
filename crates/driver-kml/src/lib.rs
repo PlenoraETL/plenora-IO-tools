@@ -2,12 +2,13 @@
 //! I Placemark diventano feature con geometria WKB `geoarrow.wkb` XY/XYZ e
 //! `name`/`description` come proprietà. KMZ resta un incremento successivo.
 #![forbid(unsafe_code)]
+use plenora_io_core::{SourceData, SourceReader};
 
 use plenora_io_model::diagnostics::DiagnosticCause;
 use std::collections::{BTreeSet, HashMap};
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write as _};
-use std::path::Path;
+
 use std::sync::Arc;
 
 use arrow_array::{Array, ArrayRef, BinaryArray, RecordBatch, StringArray};
@@ -341,7 +342,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     // Il driver non interpreta alcuna format_option (L0.7): l'elenco vuoto
     // e' l'affermazione che qualunque chiave e' sconosciuta, non un'omissione.
     plenora_io_model::format_options::SchemaOpzioniFormato::VUOTO,
-    &["kml"],
+    &["kml", "kmz"],
     1,
     5,
     10,
@@ -356,7 +357,30 @@ impl FormatDriver for KmlDriver {
 
     #[allow(clippy::too_many_lines)] // Catalog and spool are discovered in one bounded pass.
     fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = driver_common::structure::preflight(self.descriptor(), source, &mut opts)?;
+        let source = match source {
+            Source::Path(ref path)
+                if path
+                    .extension()
+                    .is_some_and(|e| e.eq_ignore_ascii_case("kmz")) =>
+            {
+                Source::Archivio {
+                    archivio: Box::new(source),
+                    voce: "doc.kml".to_owned(),
+                }
+            }
+            Source::Bytes { ref nome, .. }
+                if std::path::Path::new(nome)
+                    .extension()
+                    .is_some_and(|e| e.eq_ignore_ascii_case("kmz")) =>
+            {
+                Source::Archivio {
+                    archivio: Box::new(source),
+                    voce: "doc.kml".to_owned(),
+                }
+            }
+            other => other,
+        };
+        let path = driver_common::structure::preflight_data(self.descriptor(), source, &mut opts)?;
         let mut stream = PlacemarkStream::open(&path)?;
         let mut stats = KmlContractStats::default();
         let mut unsupported_prefix = vec![0_u64];
@@ -794,7 +818,7 @@ const PUNTO_CON_PIU_TUPLE: PublicMessage =
 struct PlacemarkStream {
     native_losses: std::collections::BTreeMap<usize, LossReport>,
     active_placemark: Option<usize>,
-    reader: XmlReader<DecodingReader<BufReader<File>>>,
+    reader: XmlReader<DecodingReader<BufReader<SourceReader>>>,
     event_buffer: Vec<u8>,
     ancestors: Vec<Vec<u8>>,
     visited_events: usize,
@@ -911,13 +935,13 @@ impl PlacemarkStream {
         }
     }
 
-    fn open(path: &Path) -> Result<Self> {
-        let input_bytes = usize::try_from(std::fs::metadata(path)?.len()).map_err(|_| {
+    fn open(path: &SourceData) -> Result<Self> {
+        let input_bytes = usize::try_from(path.length()?).map_err(|_| {
             err(&PublicMessage::Curated(
                 "dimensione KML non rappresentabile",
             ))
         })?;
-        let input = BufReader::with_capacity(KML_IO_BUFFER_BYTES, File::open(path)?);
+        let input = BufReader::with_capacity(KML_IO_BUFFER_BYTES, path.open()?);
         Ok(Self {
             reader: XmlReader::from_reader(DecodingReader::new(input)),
             event_buffer: Vec::new(),

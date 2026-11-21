@@ -132,6 +132,7 @@ pub fn with_read_budget(
         }
     }
     Ok(Box::new(BudgetedDataset {
+        vista: opts.vista.clone(),
         dataset,
         budget: opts.budget().clone(),
         physical_row_indices_attestable,
@@ -141,6 +142,7 @@ pub fn with_read_budget(
 
 struct BudgetedDataset {
     dataset: Box<dyn OpenDatasetHandle>,
+    vista: Option<Arc<crate::archivio::Vista>>,
     budget: OperationBudget,
     physical_row_indices_attestable: bool,
     /// I layer il cui CRS non passa le verifiche comuni, per id di layer.
@@ -206,7 +208,10 @@ impl OpenDatasetHandle for BudgetedDataset {
             request.scope,
             operation_lease,
         )
-        .map(|reader| Box::new(reader) as Box<dyn LayerReader>)
+        .map(|mut reader| {
+            reader.vista.clone_from(&self.vista);
+            Box::new(reader) as Box<dyn LayerReader>
+        })
     }
 }
 
@@ -240,6 +245,7 @@ impl OpenDatasetHandle for BudgetedDataset {
 /// cross-component.
 struct BudgetedReader {
     inner: Box<dyn LayerReader>,
+    vista: Option<Arc<crate::archivio::Vista>>,
     budget: OperationBudget,
     rows_scanned: u64,
     physical_row_indices_attestable: bool,
@@ -274,6 +280,7 @@ impl BudgetedReader {
                 .commit(columns)?;
         }
         Ok(Self {
+            vista: None,
             inner,
             budget,
             rows_scanned: 0,

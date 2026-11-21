@@ -28,6 +28,10 @@ use crate::{usage_err, FORMATO_JSON, OPZIONI_AMMESSE};
 
 #[derive(Default)]
 pub struct Cli {
+    pub(crate) source: Option<plenora_io_core::Source>,
+    pub(crate) source_base64: Option<String>,
+    pub(crate) archive_entry: Option<String>,
+    pub(crate) archive_limits: plenora_io_core::LimitiArchivio,
     pub(crate) flags: std::collections::BTreeSet<String>,
     pub(crate) positionals: Vec<String>,
     /// Dove `read` consegna il dataset Arrow.
@@ -189,6 +193,35 @@ pub fn parse(args: &[String]) -> Result<Cli, (i32, Value)> {
             continue;
         }
         match a.as_str() {
+            "--source-base64" | "--archive-entry" => {
+                let value = it
+                    .next()
+                    .ok_or_else(|| {
+                        usage_err(&PublicMessage::Curated("opzione sorgente senza valore"))
+                    })?
+                    .clone();
+                if a == "--source-base64" {
+                    cli.source_base64 = Some(value);
+                } else {
+                    cli.archive_entry = Some(value);
+                }
+            }
+            "--archive-max-entries" | "--archive-max-bytes" | "--archive-max-ratio" => {
+                let value = parse_u64(it.next(), "limite archivio")?;
+                match a.as_str() {
+                    "--archive-max-bytes" => cli.archive_limits.max_byte_decompressi = value,
+                    "--archive-max-entries" => {
+                        cli.archive_limits.max_voci = u32::try_from(value).map_err(|_| {
+                            usage_err(&PublicMessage::Curated("limite archivio fuori intervallo"))
+                        })?
+                    }
+                    _ => {
+                        cli.archive_limits.max_rapporto = u32::try_from(value).map_err(|_| {
+                            usage_err(&PublicMessage::Curated("limite archivio fuori intervallo"))
+                        })?
+                    }
+                }
+            }
             "--assume-crs" => {
                 cli.assume_crs = Some(
                     it.next()
@@ -302,6 +335,11 @@ pub fn validate_command(command: &str, cli: &Cli) -> Result<(), (i32, Value)> {
     }
     for flag in &cli.flags {
         let allowed = match flag.as_str() {
+            "--source-base64"
+            | "--archive-entry"
+            | "--archive-max-entries"
+            | "--archive-max-bytes"
+            | "--archive-max-ratio" => true,
             "--format"
             | "--opt"
             | "--in-opt"

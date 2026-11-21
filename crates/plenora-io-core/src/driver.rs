@@ -46,12 +46,54 @@ pub use reader_adapters::{
     with_batch_target, with_cancellation, with_read_budget, SingleReaderGate,
 };
 
-/// Sorgente di lettura (scheletro Fase 0).
+/// Sorgente di lettura, indipendente dal filesystem.
+#[derive(Clone, Debug)]
 pub enum Source {
     Path(PathBuf),
+    Bytes {
+        nome: String,
+        dati: std::sync::Arc<[u8]>,
+    },
+    Archivio {
+        archivio: Box<Self>,
+        voce: String,
+    },
 }
 
+impl From<PathBuf> for Source {
+    fn from(path: PathBuf) -> Self {
+        Self::Path(path)
+    }
+}
+impl From<&std::path::Path> for Source {
+    fn from(path: &std::path::Path) -> Self {
+        Self::Path(path.to_owned())
+    }
+}
+impl From<&PathBuf> for Source {
+    fn from(path: &PathBuf) -> Self {
+        Self::Path(path.clone())
+    }
+}
+impl From<&str> for Source {
+    fn from(path: &str) -> Self {
+        Self::Path(path.into())
+    }
+}
+impl From<String> for Source {
+    fn from(path: String) -> Self {
+        Self::Path(path.into())
+    }
+}
 impl Source {
+    #[must_use]
+    pub fn nome(&self) -> &std::path::Path {
+        match self {
+            Self::Path(path) => path,
+            Self::Bytes { nome, .. } => std::path::Path::new(nome),
+            Self::Archivio { voce, .. } => std::path::Path::new(voce),
+        }
+    }
     /// Preflight della sorgente: enumera, addebita e pubblica il footprint.
     ///
     /// # La forma
@@ -98,7 +140,12 @@ impl Source {
         files: Option<&crate::dataset_files::FileSet>,
         validate: Option<&StructureValidator<'_>>,
     ) -> Result<PathBuf> {
-        let Self::Path(path) = self;
+        let (path, vista) = crate::archivio::prepara_percorso(
+            self,
+            files.unwrap_or(&crate::dataset_files::SINGLE),
+            opts,
+        )?;
+        opts.vista = vista;
         let budget = opts.budget().clone();
         let context = budget.context();
         let permit = opts.take_input_permit().ok_or_else(permit_gia_speso)?;
@@ -290,6 +337,8 @@ impl WriteLimitsView {
 /// fino a S4.d la seconda strada era quella presa: costruiva un ramo legacy
 /// con i valori storici, che nessun chiamante aveva chiesto.
 pub struct ReadOptions {
+    pub limiti_archivio: crate::LimitiArchivio,
+    pub(crate) vista: Option<std::sync::Arc<crate::archivio::Vista>>,
     /// Optional prefix to inspect and decode, including schema inference.
     pub row_limit: Option<u64>,
     /// CRS dichiarato per i formati che non lo portano (CSV/XLSX) — `PRODUCT.md § CRS`.
@@ -315,6 +364,8 @@ impl ReadOptions {
     pub fn from_read_parts(parts: ReadBudgetParts) -> Self {
         let (budget, permit, expected) = parts.into_components();
         Self {
+            limiti_archivio: crate::LimitiArchivio::default(),
+            vista: None,
             row_limit: None,
             assume_crs: None,
             format_options: BTreeMap::new(),

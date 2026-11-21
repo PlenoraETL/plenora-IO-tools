@@ -3,6 +3,7 @@
 //! `wkt_column` XY/XYZ/XYM/XYZM), il CRS via `assume_crs` (`PRODUCT.md § CRS`). Foglio scelto con
 //! `format_options["sheet"]` o il primo worksheet visibile; tutti i fogli sono enumerati.
 #![forbid(unsafe_code)]
+use plenora_io_core::SourceData;
 
 mod empty_strings;
 
@@ -14,7 +15,7 @@ use std::sync::Arc;
 use arrow_array::builder::BinaryBuilder;
 use arrow_array::{Array, ArrayRef, BinaryArray, RecordBatch, RecordBatchOptions};
 use arrow_schema::{Field, Schema, SchemaRef};
-use calamine::{open_workbook, Data, Reader, Xlsx, XlsxCellReader};
+use calamine::{open_workbook_from_rs, Data, Reader, Xlsx, XlsxCellReader};
 use rust_xlsxwriter::Workbook;
 mod date_native;
 use date_native::{NativeKind, NativeStyles};
@@ -315,7 +316,7 @@ impl FormatDriver for XlsDriver {
 
     #[allow(clippy::too_many_lines)] // Il workbook resta posseduto fino alla chiusura di tutti gli spool.
     fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = driver_common::structure::preflight(self.descriptor(), source, &mut opts)?;
+        let path = driver_common::structure::preflight_data(self.descriptor(), source, &mut opts)?;
         if !path
             .extension()
             .and_then(|extension| extension.to_str())
@@ -334,15 +335,14 @@ impl FormatDriver for XlsDriver {
             .row_limit
             .map(|limit| prefix_workbook(&path, limit, &opts))
             .transpose()?;
-        let path = prefix
-            .as_ref()
-            .map_or(path, |file| file.path().to_path_buf());
+        let path = prefix.as_ref().map_or(path, |file| file.path().into());
         // FZ-0: il panico di calamine sui riferimenti di cella e' impedito
         // qui, prima che la libreria veda il foglio. La barriera resta sotto,
         // ma un panico catturato e' pur sempre un panico avvenuto.
         valida_riferimenti_selezionati(&path, opts.budget(), Some("xl/workbook.xml"))?;
         let mut wb: Xlsx<_> = leggendo_calamine(|| {
-            open_workbook(&path).map_err(|_| err(&PublicMessage::Curated("apertura XLSX fallita")))
+            open_workbook_from_rs(std::io::BufReader::new(path.open()?))
+                .map_err(|_| err(&PublicMessage::Curated("apertura XLSX fallita")))
         })?;
         check_cancelled(opts.cancellation(), ErrorPhase::Read)?;
         let sheets = wb.sheets_metadata().to_vec();
@@ -529,9 +529,9 @@ impl FormatDriver for XlsDriver {
     }
 }
 
-fn validate_archive_ratio(path: &PathBuf, budget: &OperationBudget) -> Result<()> {
+fn validate_archive_ratio(path: &SourceData, budget: &OperationBudget) -> Result<()> {
     let maximum_ratio = budget.context().limits().decompression_ratio();
-    let file = std::fs::File::open(path)?;
+    let file = path.open()?;
     let mut archive = zip::ZipArchive::new(file)
         .map_err(|_| err(&PublicMessage::Curated("contenitore XLSX non valido")))?;
     let mut compressed = 0_u64;
@@ -621,16 +621,16 @@ const MAX_MEMBRI_ARCHIVIO: usize = 4096;
 /// lettura con un errore tipizzato. Non c'e' un ramo che, non riuscendo a
 /// controllare, prosegua lo stesso.
 #[cfg(test)]
-fn valida_riferimenti_cella(path: &PathBuf, budget: &OperationBudget) -> Result<()> {
+fn valida_riferimenti_cella(path: &SourceData, budget: &OperationBudget) -> Result<()> {
     valida_riferimenti_selezionati(path, budget, None)
 }
 
 fn valida_riferimenti_selezionati(
-    path: &PathBuf,
+    path: &SourceData,
     budget: &OperationBudget,
     selected: Option<&str>,
 ) -> Result<()> {
-    let file = std::fs::File::open(path)?;
+    let file = path.open()?;
     let mut archive = zip::ZipArchive::new(file)
         .map_err(|_| err(&PublicMessage::Curated("contenitore XLSX non valido")))?;
 
@@ -2180,12 +2180,12 @@ mod tests;
 /// Materialize a bounded XML prefix before handing a worksheet to Calamine.
 #[allow(clippy::case_sensitive_file_extension_comparisons)] // OPC part names are case sensitive.
 fn prefix_workbook(
-    path: &std::path::Path,
+    path: &SourceData,
     limit: u64,
     opts: &ReadOptions,
 ) -> Result<tempfile::NamedTempFile> {
     use quick_xml::events::Event;
-    let mut source = zip::ZipArchive::new(std::fs::File::open(path)?)
+    let mut source = zip::ZipArchive::new(path.open()?)
         .map_err(|_| err(&PublicMessage::Curated("contenitore XLSX non valido")))?;
     let temporary = tempfile::Builder::new()
         .suffix(".xlsx")

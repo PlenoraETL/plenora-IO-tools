@@ -257,6 +257,7 @@ pub const PROTOCOLLO: u64 = 2;
 #[must_use]
 pub fn contratto(nome: &str) -> String {
     match nome {
+        "archive-list" => "plenora-io-archive-list-v1".to_owned(),
         "catalog" => "plenora-io-catalog-v2".to_owned(),
         "inspect" => "plenora-io-inspect-v1".to_owned(),
         "layers" => "plenora-io-layers-v1".to_owned(),

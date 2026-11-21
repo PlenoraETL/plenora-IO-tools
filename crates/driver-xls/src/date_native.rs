@@ -202,8 +202,12 @@ impl NativeStyles {
         }
     }
     #[allow(clippy::too_many_lines)] // Relazioni, stili e celle appartengono alla stessa apertura ZIP.
-    pub fn read(path: &std::path::Path, sheet: &str, budget: &OperationBudget) -> Result<Self> {
-        let mut zip = zip::ZipArchive::new(std::fs::File::open(path)?).map_err(|_| xml_error())?;
+    pub fn read(
+        path: &plenora_io_core::SourceData,
+        sheet: &str,
+        budget: &OperationBudget,
+    ) -> Result<Self> {
+        let mut zip = zip::ZipArchive::new(path.open()?).map_err(|_| xml_error())?;
         let mut result = Self::default();
         let mut relation = String::new();
         scan(&mut zip, "xl/workbook.xml", budget, |tag, attrs| {
@@ -245,7 +249,7 @@ impl NativeStyles {
             ));
         }
         drop(member);
-        super::valida_riferimenti_selezionati(&path.to_path_buf(), budget, Some(&part))?;
+        super::valida_riferimenti_selezionati(path, budget, Some(&part))?;
         let mut numeric_cell = false;
         scan(&mut zip, &part, budget, |tag, attrs| {
             if tag == "worksheet/sheetData/row/c" {
@@ -390,7 +394,7 @@ fn xml_error() -> PlenoraIoError {
     ))
 }
 fn scan<F>(
-    zip: &mut zip::ZipArchive<std::fs::File>,
+    zip: &mut zip::ZipArchive<plenora_io_core::SourceReader>,
     part: &str,
     budget: &OperationBudget,
     mut visit: F,

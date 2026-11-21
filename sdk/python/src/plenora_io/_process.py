@@ -1026,6 +1026,7 @@ class Runner:
         contratti = {
             "--version": "plenora-io-version-v2", "-V": "plenora-io-version-v2",
             "catalog": "plenora-io-catalog-v2",
+            "archive-list": "plenora-io-archive-list-v1",
             "capabilities": "plenora-capabilities-v2",
             "inspect": "plenora-io-inspect-v1", "layers": "plenora-io-layers-v1",
             "read": "plenora-io-read-result-v2", "write": "plenora-io-write-result-v2",

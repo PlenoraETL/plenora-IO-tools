@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ._sources import source_args, LimitiArchivio
 from . import _argomenti as arg
 from . import _arrow as arrow
 from ._confine import nome_sdk
@@ -64,6 +65,7 @@ from ._process import NativeRunner, Runner, _annota_interruzione, _dopo_l_avvio,
 #: il binario non annuncia, e' rosso.
 OPERAZIONI: dict[str, str] = {
     "catalog": "io.catalog",
+    "elenca_archivio": "io.archive-list",
     "inspect": "io.inspect",
     "layers": "io.layers",
     "validate": "io.read",
@@ -258,6 +260,10 @@ class Client:
         argv = ["capabilities"]
         self._decodifica(documento, Capabilities, argv)
         return self._decodifica(con_superficie_python(documento), Capabilities, argv)
+
+    def elenca_archivio(self, source: object, *, limiti: LimitiArchivio = LimitiArchivio()):
+        """Elenca le voci ZIP con lo stesso preflight dei driver."""
+        return self._runner.run(["archive-list", *source_args(source), *limiti.argv()])["entries"]
 
     def inspect(
         self,
@@ -548,7 +554,7 @@ class Client:
                 return self._chiama(
                     ["write", arg.percorso(ingresso, "source"), *crs, *coda], WriteResult
                 )
-        return self._chiama(["write", arg.percorso(source, "source"), *crs, *coda], WriteResult)
+        return self._chiama(["write", *source_args(source), *crs, *coda], WriteResult)
 
     def convert(
         self,
@@ -618,7 +624,7 @@ class Client:
         """
         argomenti = [
             "convert",
-            arg.percorso(source, "source"),
+            *source_args(source),
             arg.percorso(target, "target"),
             "--from",
             arg.testo(source_format, "source_format"),
@@ -720,6 +726,6 @@ class Client:
         sbagliata passava in silenzio. Ora il driver la vede, e
         `test_una_opzione_ignota_e_rifiutata` lo esercita dalla wheel.
         """
-        argomenti = [comando, arg.percorso(source, "source"), *Client._crs(assume_crs)]
+        argomenti = [comando, *source_args(source), *Client._crs(assume_crs)]
         argomenti += arg.righe_di_opzioni("--in-opt", arg.opzioni(options, "options"))
         return argomenti

@@ -163,3 +163,10 @@ path = "fuzz_targets/filegdb_reader.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "archive_reader"
+path = "fuzz_targets/archive_reader.rs"
+test = false
+doc = false
+bench = false

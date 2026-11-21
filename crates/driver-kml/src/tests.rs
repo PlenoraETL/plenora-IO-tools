@@ -164,7 +164,7 @@ fn event_parser_error(xml: &str) -> PlenoraIoError {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("unsupported.kml");
     std::fs::write(&path, xml).unwrap();
-    let mut stream = PlacemarkStream::open(&path).unwrap();
+    let mut stream = PlacemarkStream::open(&(&path).into()).unwrap();
     stream
         .next_placemark(&CancellationToken::new(), 0)
         .unwrap_err()
@@ -183,7 +183,7 @@ fn event_parser_rejects_model_track_and_multitrack() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("unsupported.kml");
         std::fs::write(&path, xml).unwrap();
-        let mut stream = PlacemarkStream::open(&path).unwrap();
+        let mut stream = PlacemarkStream::open(&(&path).into()).unwrap();
         let placemark = stream
             .next_placemark(&CancellationToken::default(), 0)
             .unwrap()
@@ -286,7 +286,7 @@ fn event_parser_rejects_geometries_it_used_to_truncate() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("troncata.kml");
         std::fs::write(&path, &xml).unwrap();
-        let mut stream = PlacemarkStream::open(&path).unwrap();
+        let mut stream = PlacemarkStream::open(&(&path).into()).unwrap();
         assert!(
             stream.next_placemark(&CancellationToken::new(), 0).is_err(),
             "{geometria}: letta tenendone solo una parte"
@@ -1086,7 +1086,7 @@ fn native_altitude_modes_and_empty_text_are_declared() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("native.kml");
         std::fs::write(&path, format!("<kml><Placemark><name/><MultiGeometry><Polygon><outerBoundaryIs><LinearRing><coordinates>0,0,3 1,0,3 1,1,3 0,0,3</coordinates></LinearRing></outerBoundaryIs><altitudeMode>{mode}</altitudeMode></Polygon></MultiGeometry></Placemark></kml>")).unwrap();
-        let mut stream = PlacemarkStream::open(&path).unwrap();
+        let mut stream = PlacemarkStream::open(&(&path).into()).unwrap();
         let placemark = stream
             .next_isolated_placemark(
                 &CancellationToken::default(),

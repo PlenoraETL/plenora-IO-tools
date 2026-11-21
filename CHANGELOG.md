@@ -1,5 +1,21 @@
 # Changelog
 
+## 10.1.0 - in sviluppo (L-IO1, 2026-11-21)
+
+- Sorgenti Rust `Path`, `Bytes` e `Archivio`; ingressi equivalenti nei driver,
+  CLI (`--source-base64`, `--archive-entry`, `archive-list`) e SDK Python
+  (`Bytes`, `Archivio`, `LimitiArchivio`, `Client.elenca_archivio`).
+- Lettore ZIP comune con preflight centrale, ZIP64, nomi portabili e univoci,
+  limiti cumulativi, rapporto, verifica CRC e dimensioni effettive a blocchi.
+  Archivi annidati non ammessi. KMZ legge `doc.kml`.
+- Sorgenti in memoria per CSV, GeoJSON, KML, DXF, XLSX, IPC e Parquet;
+  viste temporanee con quota e pulizia RAII per i driver basati su file.
+  Shapefile seleziona i companion con la regola condivisa; FileGDB riusa il
+  parser dei membri e le viste native per oggetto.
+- Nuovo target `archive_reader`, semi e perimetro registrati. Campagna e
+  misure di copertura/profondita da eseguire al congelamento 10.1.0;
+  le evidenze 10.0.0 non qualificano queste modifiche.
+
 ## 10.0.0 - 2026-11-18
 
 ### Cambiamenti incompatibili

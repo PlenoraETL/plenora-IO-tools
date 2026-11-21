@@ -403,7 +403,7 @@ fn n1_le_dimensioni_dichiarate_in_zip64_non_sommano_in_silenzio() {
     // invece del comportamento del driver.
     let innocuo = dir.path().join("innocuo.xlsx");
     std::fs::write(&innocuo, zip64_con_dimensioni_dichiarate([(2, 2), (3, 3)])).unwrap();
-    validate_archive_ratio(&innocuo, opzioni.budget()).expect(
+    validate_archive_ratio(&(&innocuo).into(), opzioni.budget()).expect(
             "il central directory della sonda deve essere accettato da `ZipArchive::new`              con dimensioni piccole: se fallisce qui, a essere sbagliato e' l'archivio              costruito dalla sonda e non il driver",
         );
 
@@ -421,7 +421,7 @@ fn n1_le_dimensioni_dichiarate_in_zip64_non_sommano_in_silenzio() {
     for (nome, voci, atteso) in casi {
         let percorso = dir.path().join(format!("{nome}.xlsx"));
         std::fs::write(&percorso, zip64_con_dimensioni_dichiarate(voci)).unwrap();
-        let Err(errore) = validate_archive_ratio(&percorso, opzioni.budget()) else {
+        let Err(errore) = validate_archive_ratio(&(&percorso).into(), opzioni.budget()) else {
             panic!(
                     "Â«{nome}Â»: la somma di u64::MAX e 1 deve traboccare; se passa, il crate                      `zip` sta normalizzando le dimensioni dichiarate e il ramo va                      riclassificato"
                 );
@@ -498,7 +498,7 @@ fn n1_una_parte_enumerabile_ma_non_apribile_ferma_la_lettura() {
     // **non** corrotto passa.
     let integro = dir.path().join("integro.xlsx");
     std::fs::write(&integro, xlsx_con_una_parte_non_apribile(false)).unwrap();
-    valida_riferimenti_cella(&integro, opzioni.budget())
+    valida_riferimenti_cella(&(&integro).into(), opzioni.budget())
         .expect("con l'offset corretto entrambe le parti si aprono e si ispezionano");
 
     // La voce ritoccata e' `xl/worksheets/sheet1.xml`, cioe' dentro il
@@ -506,7 +506,7 @@ fn n1_una_parte_enumerabile_ma_non_apribile_ferma_la_lettura() {
     let rotto = dir.path().join("rotto.xlsx");
     std::fs::write(&rotto, xlsx_con_una_parte_non_apribile(true)).unwrap();
 
-    let Err(errore) = valida_riferimenti_cella(&rotto, opzioni.budget()) else {
+    let Err(errore) = valida_riferimenti_cella(&(&rotto).into(), opzioni.budget()) else {
         panic!(
             "una parte del perimetro che non si apre deve fermare la lettura; \
                  restituire Ok e' il fail-open che il contratto esclude"
@@ -559,12 +559,12 @@ fn n1_il_tetto_sulle_parti_conta_i_membri_e_ha_i_due_confini() {
     // contasse le sole parti XML, questo archivio passerebbe.
     let al_limite = dir.path().join("al-limite.xlsx");
     std::fs::write(&al_limite, xlsx_con_parti(MAX_MEMBRI_ARCHIVIO)).unwrap();
-    valida_riferimenti_cella(&al_limite, opzioni.budget())
+    valida_riferimenti_cella(&(&al_limite).into(), opzioni.budget())
         .expect("il confine e' inclusivo: esattamente MAX_MEMBRI_ARCHIVIO membri passano");
 
     let oltre = dir.path().join("oltre.xlsx");
     std::fs::write(&oltre, xlsx_con_parti(MAX_MEMBRI_ARCHIVIO + 1)).unwrap();
-    let Err(errore) = valida_riferimenti_cella(&oltre, opzioni.budget()) else {
+    let Err(errore) = valida_riferimenti_cella(&(&oltre).into(), opzioni.budget()) else {
         panic!("un membro oltre il tetto deve fermare la lettura");
     };
     assert_eq!(
@@ -2641,7 +2641,7 @@ fn un_xlsx_conforme_supera_la_prevalidazione() {
         .join("../../fuzz/seeds/xlsx_reader/minimal.xlsx");
     assert!(seme.is_file(), "seme assente: {}", seme.display());
     let opzioni = opzioni_lettura();
-    valida_riferimenti_cella(&seme, opzioni.budget())
+    valida_riferimenti_cella(&(&seme).into(), opzioni.budget())
         .expect("un workbook conforme non deve essere rifiutato");
 }
 

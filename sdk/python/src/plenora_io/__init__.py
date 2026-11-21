@@ -155,7 +155,10 @@ def version() -> str:
         raise _dallo_sdk(PackageMetadataError, "pacchetto.senza_versione")
     return letta
 
+from ._sources import Bytes, Archivio, LimitiArchivio
+
 __all__ = [
+    "Bytes", "Archivio", "LimitiArchivio",
     "DISTRIBUTION",
     "AuthenticationError",
     "AuthorizationError",

@@ -39,7 +39,7 @@ pub type CliResult = Result<Value, (i32, Value)>;
 pub(crate) const FORMATI_AMMESSI: &str =
     "geoparquet, geojson, csv, gpkg, shp, kml, xls, dxf, filegdb, ipc";
 
-pub(crate) const OPZIONI_AMMESSE: &str = "--assume-crs, --deadline-ms, --durable, --in-opt, --layer, --limit, --max-columns, --max-geometry-components, --max-input-bytes, --max-input-entries, --max-output-bytes, --max-rows, --max-vertices, --max-wkb-cell-bytes, --format, --max-wkb-components, --max-wkb-depth, --memory-bytes, --spill-bytes, --output-expansion-ratio, --decompression-ratio, --opt, --out-opt, --output, --from, --to";
+pub(crate) const OPZIONI_AMMESSE: &str = "--source-base64, --archive-entry, --archive-max-entries, --archive-max-bytes, --archive-max-ratio, --assume-crs, --deadline-ms, --durable, --in-opt, --layer, --limit, --max-columns, --max-geometry-components, --max-input-bytes, --max-input-entries, --max-output-bytes, --max-rows, --max-vertices, --max-wkb-cell-bytes, --format, --max-wkb-components, --max-wkb-depth, --memory-bytes, --spill-bytes, --output-expansion-ratio, --decompression-ratio, --opt, --out-opt, --output, --from, --to";
 
 /// I tetti della diagnostica nella busta e il troncamento che li dichiara.
 pub mod busta;
@@ -519,7 +519,9 @@ fn read_pipeline(cli: &Cli) -> Result<ReadOptions, PlenoraIoError> {
         .limits(cli.limits)
         .cancellation(cli.cancellazione.clone())
         .build()?;
-    Ok(ReadOptions::from_read_parts(bundle.into_read_parts()))
+    let mut opts = ReadOptions::from_read_parts(bundle.into_read_parts());
+    opts.limiti_archivio = cli.archive_limits;
+    Ok(opts)
 }
 
 /// Costruisce i due rami di una conversione dallo **stesso** context.
@@ -545,7 +547,11 @@ fn convert_pipeline(cli: &Cli) -> Result<(ReadOptions, WriteOptions), PlenoraIoE
         .build()?;
     let (read, write) = bundle.into_convert_parts().into_parts();
     Ok((
-        ReadOptions::from_read_parts(read),
+        {
+            let mut opts = ReadOptions::from_read_parts(read);
+            opts.limiti_archivio = cli.archive_limits;
+            opts
+        },
         WriteOptions::from_write_parts(write),
     ))
 }
@@ -604,7 +610,10 @@ fn open_source(cli: &Cli) -> Result<(Box<dyn FormatDriver>, PathBuf), (i32, Valu
             .first()
             .ok_or_else(|| usage_err(&PublicMessage::Curated("manca il percorso del file")))?,
     );
-    let driver = driver_for_path(&path)?;
+    let driver = driver_for_path(cli.archive_entry.as_deref().map_or_else(
+        || cli.source.as_ref().map_or(path.as_path(), Source::nome),
+        std::path::Path::new,
+    ))?;
     Ok((driver, path))
 }
 
@@ -673,7 +682,9 @@ fn layer_status(
 pub fn cmd_inspect(cli: &Cli) -> CliResult {
     let (driver, path) = open_source(cli)?;
     let ropts = read_options(cli).map_err(map_err)?;
-    let ds = driver.open(Source::Path(path), ropts).map_err(map_err)?;
+    let ds = driver
+        .open(cli_source(cli, path)?, ropts)
+        .map_err(map_err)?;
     let fidelity = ds.fidelity_assessment();
     let layers: Vec<Value> = ds
         .layers()
@@ -700,7 +711,9 @@ pub fn cmd_inspect(cli: &Cli) -> CliResult {
 pub fn cmd_layers(cli: &Cli) -> CliResult {
     let (driver, path) = open_source(cli)?;
     let ropts = read_options(cli).map_err(map_err)?;
-    let ds = driver.open(Source::Path(path), ropts).map_err(map_err)?;
+    let ds = driver
+        .open(cli_source(cli, path)?, ropts)
+        .map_err(map_err)?;
     let fidelity = ds.fidelity_assessment();
     let layers: Vec<Value> = ds
         .layers()
@@ -1029,7 +1042,7 @@ fn cmd_write_inner(cli: &Cli) -> CliResult {
     ropts.assume_crs.clone_from(&cli.assume_crs);
     ropts.format_options = opts_uniti(&cli.opts, &cli.in_opts);
     let ds = sorgente
-        .open(Source::Path(in_path), ropts)
+        .open(cli_source(cli, in_path)?, ropts)
         .map_err(map_err)?;
 
     let selezionati =
@@ -1145,7 +1158,7 @@ pub fn cmd_read(cli: &Cli) -> CliResult {
     let ropts = read_options(cli).map_err(map_err)?;
     let ds = driver
         .open_selected(
-            Source::Path(path),
+            cli_source(cli, path)?,
             ropts,
             cli.layer.map(plenora_io_model::contract::LayerId),
         )
@@ -1437,7 +1450,7 @@ pub fn cmd_convert(cli: &Cli) -> CliResult {
     ropts.format_options = opts_uniti(&cli.opts, &cli.in_opts);
     let ds = src
         .open_selected(
-            Source::Path(in_path),
+            cli_source(cli, in_path)?,
             ropts,
             cli.layer.map(plenora_io_model::contract::LayerId),
         )
@@ -1672,7 +1685,7 @@ pub fn esegui(args: &[String], cancellazione: &CancellationToken) -> EsitoDelCom
     {
         return ("help", Ok(Value::Null));
     }
-    if let Some(nome @ ("inspect" | "layers" | "read" | "write" | "convert")) =
+    if let Some(nome @ ("inspect" | "layers" | "read" | "write" | "convert" | "archive-list")) =
         args.first().map(String::as_str)
     {
         let cli = match parse_legato(&args[1..], cancellazione) {
@@ -1683,6 +1696,7 @@ pub fn esegui(args: &[String], cancellazione: &CancellationToken) -> EsitoDelCom
             return (nome_canonico(nome), Err(error));
         }
         let esito = match nome {
+            "archive-list" => cmd_archive_list(&cli),
             "inspect" => cmd_inspect(&cli),
             "layers" => cmd_layers(&cli),
             "read" => cmd_read(&cli),
@@ -1787,6 +1801,7 @@ pub fn uscita_del_panico(payload: &(dyn std::any::Any + Send)) -> (i32, String) 
 /// non finire nella busta come e' stato scritto.
 const fn nome_canonico(invocato: &str) -> &'static str {
     match invocato.as_bytes() {
+        b"archive-list" => "archive-list",
         b"inspect" => "inspect",
         b"layers" => "layers",
         b"read" => "read",
@@ -1905,3 +1920,51 @@ mod tests;
 
 #[cfg(test)]
 mod conformance_tests;
+
+fn cli_source(cli: &Cli, path: PathBuf) -> Result<Source, (i32, Value)> {
+    use base64::Engine as _;
+    let source = if let Some(source) = &cli.source {
+        source.clone()
+    } else if let Some(encoded) = &cli.source_base64 {
+        let ceiling = cli.limits.max_input_bytes().min(cli.limits.memory_bytes());
+        if encoded.len() as u64
+            > ceiling
+                .saturating_add(2)
+                .saturating_div(3)
+                .saturating_mul(4)
+        {
+            return Err(map_err(
+                plenora_io_model::quota::Quota::InputBytes
+                    .exceeded(plenora_io_model::ErrorPhase::Read),
+            ));
+        }
+        let dati = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .map_err(|_| usage_err(&PublicMessage::Curated("sorgente base64 non valida")))?;
+        Source::Bytes {
+            nome: path.to_string_lossy().into_owned(),
+            dati: dati.into(),
+        }
+    } else {
+        Source::Path(path)
+    };
+    Ok(cli.archive_entry.as_ref().map_or_else(
+        || source.clone(),
+        |voce| Source::Archivio {
+            archivio: Box::new(source.clone()),
+            voce: voce.clone(),
+        },
+    ))
+}
+fn cmd_archive_list(cli: &Cli) -> Result<Value, (i32, Value)> {
+    let path = cli
+        .positionals
+        .first()
+        .ok_or_else(|| usage_err(&PublicMessage::Curated("manca sorgente archivio")))?;
+    let source = cli_source(cli, path.into())?;
+    let opts = read_options(cli).map_err(map_err)?;
+    let entries =
+        plenora_io_core::archivio::elenca_archivio_con_opzioni(&source, &cli.archive_limits, &opts)
+            .map_err(map_err)?;
+    Ok(json!({ "entries": entries }))
+}

@@ -190,6 +190,7 @@ pub fn capabilities_document() -> Value {
             }
         ],
         "operations": [
+            operazione_esposta("io.archive-list", "plenora-io-archive-list-input-v1", "plenora-io-archive-list-v1", "none", true),
             operazione_esposta(
                 "io.catalog",
                 "plenora-io-catalog-query-v1",
