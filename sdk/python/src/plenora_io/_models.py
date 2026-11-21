@@ -45,6 +45,41 @@ from ._errors import _dallo_sdk
 from ._contenitori import FrozenList
 
 
+def _arrow_metadata(raw: dict[str, Any]) -> dict[str, str]:
+    value = raw.get("metadata", {})
+    if not isinstance(value, dict) or any(
+        not isinstance(k, str) or not isinstance(v, str) for k, v in value.items()
+    ):
+        raise _dallo_sdk(ProtocolError, "layer.stato")
+    return dict(value)
+
+
+def _attribute_document(value: str, *, subtypes: bool = False) -> dict[str, Any]:
+    import json
+
+    def unique(pairs):
+        result = {}
+        for key, item in pairs:
+            if key in result:
+                raise ValueError
+            result[key] = item
+        return result
+
+    try:
+        result = json.loads(value, object_pairs_hook=unique)
+        if not isinstance(result, dict):
+            raise ValueError
+        if subtypes:
+            if not isinstance(result.get("field"), str) or not isinstance(result.get("values"), list):
+                raise ValueError
+        elif any(not isinstance(domain, dict) or domain.get("kind") not in ("coded", "range")
+                 for domain in result.values()):
+            raise ValueError
+        return result
+    except (ValueError, TypeError):
+        raise _dallo_sdk(ProtocolError, "layer.stato") from None
+
+
 def tipi_json(annotazione: Any) -> frozenset[str] | None:
     """I tipi JSON che un'annotazione del modello ammette sul wire.
 
@@ -578,6 +613,19 @@ class Field:
             raw=dict(documento),
         )
 
+    @property
+    def metadata(self) -> dict[str, str]:
+        """Arrow field metadata, including the native alias and domain reference."""
+        return _arrow_metadata(self.raw)
+
+    @property
+    def alias(self) -> str | None:
+        return self.metadata.get("plenora.field.alias")
+
+    @property
+    def domain(self) -> str | None:
+        return self.metadata.get("plenora.field.domain")
+
 
 @dataclass(frozen=True, kw_only=True)
 class CrsResolution:
@@ -715,6 +763,20 @@ class Layer:
         """Le colonne che non sono la geometria."""
         return FrozenList([colonna for colonna in self.fields if not colonna.geometry])
 
+    @property
+    def metadata(self) -> dict[str, str]:
+        """Arrow schema metadata, identical to the read stream."""
+        return _arrow_metadata(self.raw)
+
+    def domini(self) -> dict[str, Any]:
+        """Domains keyed by name; each code carries its native scalar type."""
+        return _attribute_document(self.metadata.get("plenora.dataset.domains", "{}"))
+
+    def sottotipi(self) -> dict[str, Any] | None:
+        """Subtype field, default, codes, names and per-subtype domain references."""
+        value = self.metadata.get("plenora.layer.subtypes")
+        return None if value is None else _attribute_document(value, subtypes=True)
+
 
 @dataclass(frozen=True, kw_only=True)
 class LayerSummary:
@@ -785,6 +847,16 @@ class Inspect:
             if strato.name == name:
                 return strato
         raise _dallo_sdk(ResultLookupError, "ricerca.layer")
+
+    def domini(self) -> dict[str, Any]:
+        """All domains in the inspected dataset, rejecting conflicting definitions."""
+        result: dict[str, Any] = {}
+        for layer in self.layers:
+            for name, domain in layer.domini().items():
+                if name in result and result[name] != domain:
+                    raise _dallo_sdk(ProtocolError, "layer.stato")
+                result[name] = domain
+        return result
 
 
 @dataclass(frozen=True, kw_only=True)

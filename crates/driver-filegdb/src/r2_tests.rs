@@ -30,7 +30,17 @@ fn native_field_order_reads_both_definition_vocabularies() {
 
 fn assert_native_alias(reader: &dyn LayerReader, index: usize) {
     let loss = reader.loss_report();
-    assert!(loss.counts["native_layer_metadata_not_preserved"] > 0);
+    assert!(!loss.counts.contains_key("native_alias_not_transported"));
+    assert_eq!(
+        reader
+            .contract()
+            .contract
+            .schema
+            .metadata()
+            .get("plenora.layer.alias")
+            .map(String::as_str),
+        Some("opaque_native_alias")
+    );
     assert!(loss
         .esempi_canonici()
         .all(|example| example.posizione.layer_index == Some(index as u64)));
@@ -40,7 +50,13 @@ fn assert_native_alias(reader: &dyn LayerReader, index: usize) {
 fn native_domains_aliases_and_subtypes_are_declared() {
     let mut report = LossReport::default();
     observe_definition_xml(&mut report, "<DEFeatureClassInfo><AliasName>opaque_alias</AliasName><Fields><Field><DomainName>opaque_domain</DomainName></Field></Fields><Subtypes><Subtype><SubtypeName>opaque_subtype</SubtypeName></Subtype></Subtypes></DEFeatureClassInfo>", 3).unwrap();
-    assert_eq!(report.counts["native_layer_metadata_not_preserved"], 3);
+    for category in [
+        "native_domain_not_transported",
+        "native_subtype_not_transported",
+        "native_alias_not_transported",
+    ] {
+        assert_eq!(report.counts[category], 1);
+    }
     for example in report.esempi_canonici() {
         assert_eq!(example.posizione.layer_index, Some(3));
         assert!(!example.context.contains("opaque"));
@@ -55,7 +71,8 @@ fn native_domains_aliases_and_subtypes_are_declared() {
     assert!(empty.is_empty());
     let mut escaped = LossReport::default();
     observe_definition_xml(&mut escaped, "<Definition><AliasName>A&amp;B<![CDATA[C]]></AliasName><DomainName><![CDATA[D]]></DomainName></Definition>", 0).unwrap();
-    assert_eq!(escaped.counts["native_layer_metadata_not_preserved"], 2);
+    assert_eq!(escaped.counts["native_domain_not_transported"], 1);
+    assert_eq!(escaped.counts["native_alias_not_transported"], 1);
 }
 
 #[test]

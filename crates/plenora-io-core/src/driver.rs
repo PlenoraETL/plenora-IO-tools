@@ -729,6 +729,30 @@ pub trait FormatDriver: Send + Sync {
 pub trait OpenDatasetHandle: Send + Sync {
     fn layers(&self) -> &[LayerContract];
 
+    /// Attribute domains transported by the dataset's Arrow schemas.
+    /// # Errors
+    /// Malformed metadata or conflicting definitions with the same name.
+    fn domini(&self) -> Result<plenora_io_model::domains::Domains> {
+        use plenora_io_model::domains::{decode_domains, DOMAINS_KEY};
+        let mut result = plenora_io_model::domains::Domains::new();
+        for layer in self.layers() {
+            if let Some(value) = layer.contract.schema.metadata().get(DOMAINS_KEY) {
+                for (name, domain) in decode_domains(value)? {
+                    if result
+                        .get(&name)
+                        .is_some_and(|previous| previous != &domain)
+                    {
+                        return Err(PlenoraIoError::schema_redatto(&PublicMessage::Curated(
+                            "definizioni di dominio incoerenti nel dataset",
+                        )));
+                    }
+                    result.insert(name, domain);
+                }
+            }
+        }
+        Ok(result)
+    }
+
     /// Il formato espone gli errori locali come stati degli oggetti enumerati.
     fn preserves_unreadable_objects(&self) -> bool {
         false

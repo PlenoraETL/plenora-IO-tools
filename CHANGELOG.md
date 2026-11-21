@@ -1,5 +1,12 @@
 # Changelog
 
+## 10.1.0 - non rilasciata
+
+- L-IO7: FileGDB consegna alias e riferimenti ai domini nei campi Arrow, domini codificati e a intervallo tipizzati nel dataset, sottotipi e domini per sottotipo dalla definizione GDAL. SDK Python e inspect espongono gli stessi metadati.
+- Codec validati e chiavi qualificate nella tabella delle propriet?. Le perdite residue usano i codici enumerati `native_domain_not_transported`, `native_subtype_not_transported` e `native_alias_not_transported`; i metadati consegnati non sono perdite.
+- Scrittura FileGDB dei domini e degli alias tramite GDAL; sottotipi non scrivibili tramite API GDAL e metadati non supportati dal writer GeoPackage dichiarati con i nuovi codici.
+- Fixture GDAL indipendente con nomi non ASCII e prove Rust/SDK. Le misure fuzz FileGDB devono essere rifatte al congelamento della 10.1.0.
+
 ## 10.0.0 - 2026-11-18
 
 ### Cambiamenti incompatibili

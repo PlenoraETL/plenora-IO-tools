@@ -575,6 +575,8 @@ mod backend {
     use plenora_io_core::publish::publish_dir_atomic;
     use plenora_io_core::{SingleReaderGate, WriteLayer, WritePlan};
 
+    mod attribute_metadata;
+
     const OGR_FIELD_TYPE_KEY: &str = "plenora.filegdb.ogr_field_type";
     const OGR_FIELD_WIDTH_KEY: &str = "plenora.filegdb.width";
     const OGR_FIELD_PRECISION_KEY: &str = "plenora.filegdb.precision";
@@ -644,6 +646,8 @@ mod backend {
         kind: FieldKind,
         width: Option<i32>,
         precision: Option<i32>,
+        alias: Option<String>,
+        domain: Option<String>,
     }
 
     struct PlanLayer {
@@ -1081,6 +1085,14 @@ mod backend {
                         kind,
                         width: native_i32(field, OGR_FIELD_WIDTH_KEY)?,
                         precision: native_i32(field, OGR_FIELD_PRECISION_KEY)?,
+                        alias: field
+                            .metadata()
+                            .get(plenora_io_model::domains::ALIAS_KEY)
+                            .cloned(),
+                        domain: field
+                            .metadata()
+                            .get(plenora_io_model::domains::DOMAIN_KEY)
+                            .cloned(),
                     })
                 })
                 .collect::<Result<Vec<_>>>()?;
@@ -1104,17 +1116,26 @@ mod backend {
             .create_vector_only(staging.path())
             .map_err(|_| err(&PublicMessage::Curated("creazione del FileGDB fallita")))?;
 
+        attribute_metadata::write_domains(&mut ds, &plan.layers)?;
+
         // Il contratto basta a creare anche layer vuoti o con sole geometrie
         // nulle, senza dipendere dal primo record osservato. Verifichiamo
         // subito anche che GDAL non abbia rinominato o riclassificato campi.
         let layer_result = (|| -> Result<()> {
-            for info in &infos {
+            for (layer_index, info) in infos.iter().enumerate() {
+                let alias = plan.layers[layer_index]
+                    .contract
+                    .schema
+                    .metadata()
+                    .get("plenora.layer.alias")
+                    .map(|alias| format!("LAYER_ALIAS={alias}"));
+                let layer_options: Vec<&str> = alias.iter().map(String::as_str).collect();
                 let layer = ds
                     .create_layer(LayerOptions {
                         name: &info.name,
                         srs: Some(&info.srs),
                         ty: info.ogr_type,
-                        options: None,
+                        options: Some(&layer_options),
                     })
                     // Il nome del layer non esce: viene dal piano.
                     .map_err(|_| err(&PublicMessage::Curated("create_layer fallita")))?;
@@ -1128,6 +1149,16 @@ mod backend {
                     }
                     if let Some(precision) = field.precision {
                         definition.set_precision(precision);
+                    }
+                    if let Some(alias) = &field.alias {
+                        definition
+                            .set_alternative_name(alias)
+                            .map_err(|_| temporal_error())?;
+                    }
+                    if let Some(domain) = &field.domain {
+                        definition
+                            .set_domain_name(domain)
+                            .map_err(|_| temporal_error())?;
                     }
                     definition.add_to_layer(&layer).map_err(|_| {
                         err(&PublicMessage::Curated("creazione di un campo fallita"))
@@ -1898,7 +1929,7 @@ mod backend {
                     }
                     None => None,
                 };
-                let (mut loss, time_in_utc, native_order) =
+                let (mut loss, time_in_utc, native_order, schema_metadata, native_aliases) =
                     native_definition_report(&ds, &name, i as u64)?;
                 let empty_feature = Feature::new(layer.defn()).map_err(|_| {
                     err(&PublicMessage::Curated(
@@ -1949,6 +1980,20 @@ mod backend {
                                     field.precision().to_string(),
                                 ),
                             ]);
+                            for (key, value) in [
+                                (
+                                    plenora_io_model::domains::ALIAS_KEY,
+                                    native_aliases
+                                        .get(&name)
+                                        .cloned()
+                                        .unwrap_or_else(|| field.alternative_name()),
+                                ),
+                                (plenora_io_model::domains::DOMAIN_KEY, field.domain_name()),
+                            ] {
+                                if !value.is_empty() {
+                                    metadata.insert(key.to_owned(), value);
+                                }
+                            }
                             if let Some(flag) = timezone_metadata {
                                 metadata.insert("filegdb.ogr_timezone_flag".to_owned(), flag);
                             }
@@ -1969,7 +2014,19 @@ mod backend {
                     native_fields.into_iter().unzip();
                 let (arrow_fields, geometry) = match crs_e_geometria {
                     Some(geometry) => {
-                        let geometry_arrow_field = super::native_geometry_field(&geometry);
+                        let mut geometry_arrow_field = super::native_geometry_field(&geometry);
+                        if let Some(native_name) =
+                            layer.defn().geom_fields().next().map(|field| field.name())
+                        {
+                            if let Some(alias) = native_aliases.get(&native_name) {
+                                let mut metadata = geometry_arrow_field.metadata().clone();
+                                metadata.insert(
+                                    plenora_io_model::domains::ALIAS_KEY.to_owned(),
+                                    alias.clone(),
+                                );
+                                geometry_arrow_field = geometry_arrow_field.with_metadata(metadata);
+                            }
+                        }
                         let mut campi = vec![geometry_arrow_field];
                         campi.extend(attribute_arrow_fields);
                         (campi, Some(geometry))
@@ -1999,7 +2056,8 @@ mod backend {
                     })
                     .filter(|name| delivered_names.contains(name))
                     .ne(delivered_names.iter().copied());
-                let schema: SchemaRef = Arc::new(Schema::new(arrow_fields));
+                let schema: SchemaRef =
+                    Arc::new(Schema::new_with_metadata(arrow_fields, schema_metadata));
                 let ha_geometria = geometry.is_some();
                 let contract = DataContract::new(
                     plenora_io_model::geometry::with_contract_version(schema),
@@ -2071,14 +2129,27 @@ mod backend {
         }))
     }
 
-    fn native_definition_report(
-        ds: &Dataset,
-        name: &str,
-        layer: u64,
-    ) -> Result<(LossReport, Option<bool>, Vec<String>)> {
+    type NativeDefinition = (
+        LossReport,
+        Option<bool>,
+        Vec<String>,
+        HashMap<String, String>,
+        std::collections::BTreeMap<String, String>,
+    );
+
+    fn native_definition_report(ds: &Dataset, name: &str, layer: u64) -> Result<NativeDefinition> {
         let mut report = LossReport::default();
         let mut time_in_utc = None;
         let mut field_order = Vec::new();
+        let mut aliases = std::collections::BTreeMap::new();
+        let domains = attribute_metadata::domains(ds)?;
+        let mut schema_metadata = HashMap::new();
+        if !domains.is_empty() {
+            schema_metadata.insert(
+                plenora_io_model::domains::DOMAINS_KEY.to_owned(),
+                plenora_io_model::domains::encode_domains(&domains)?,
+            );
+        }
         let query = format!("GetLayerDefinition {name}");
         let mut result = ds
             .execute_sql(&query, None, gdal::vector::sql::Dialect::DEFAULT)
@@ -2099,7 +2170,16 @@ mod backend {
                 ))
             })?;
             if let Some(definition) = definition {
-                observe_definition_xml(&mut report, &definition, layer)?;
+                schema_metadata.extend(attribute_metadata::definition(&definition)?);
+                aliases = attribute_metadata::aliases(&definition)?;
+                observe_definition_xml_transported(
+                    &mut report,
+                    &definition,
+                    layer,
+                    &domains,
+                    &schema_metadata,
+                    true,
+                )?;
                 time_in_utc = definition_time_in_utc(&definition)?;
                 field_order = definition_field_order(&definition)?;
             }
@@ -2130,7 +2210,7 @@ mod backend {
                 }
             }
         }
-        Ok((report, time_in_utc, field_order))
+        Ok((report, time_in_utc, field_order, schema_metadata, aliases))
     }
 
     fn definition_field_order(xml: &str) -> Result<Vec<String>> {
@@ -2195,7 +2275,26 @@ mod backend {
         }
     }
 
+    #[cfg(test)]
     fn observe_definition_xml(report: &mut LossReport, xml: &str, layer: u64) -> Result<()> {
+        observe_definition_xml_transported(
+            report,
+            xml,
+            layer,
+            &plenora_io_model::domains::Domains::new(),
+            &HashMap::new(),
+            false,
+        )
+    }
+
+    fn observe_definition_xml_transported(
+        report: &mut LossReport,
+        xml: &str,
+        layer: u64,
+        domains: &plenora_io_model::domains::Domains,
+        metadata: &HashMap<String, String>,
+        aliases_transported: bool,
+    ) -> Result<()> {
         use quick_xml::events::Event;
         let mut reader = quick_xml::Reader::from_str(xml);
         let mut stack = Vec::new();
@@ -2226,19 +2325,34 @@ mod backend {
                 }
                 Ok(Event::Start(tag)) => {
                     let element = match tag.local_name().as_ref() {
-                        "DomainName" => Some(NativeElement::Domains),
-                        "AliasName" => Some(NativeElement::Aliases),
-                        "Subtype" => Some(NativeElement::Subtypes),
+                        "DomainName" => {
+                            let value =
+                                reader.read_text(tag.name()).map_err(|_| temporal_error())?;
+                            let value = attribute_metadata::xml_text(&value)?;
+                            if !value.is_empty() && !domains.contains_key(value.as_str()) {
+                                plenora_io_core::loss_table::observe_attribute_loss(
+                                    report,
+                                    NativeElement::Domains,
+                                    1,
+                                    layer,
+                                );
+                            }
+                            continue;
+                        }
+                        "AliasName" if !aliases_transported => Some(NativeElement::Aliases),
+                        "Subtype"
+                            if !metadata.contains_key(plenora_io_model::domains::SUBTYPES_KEY) =>
+                        {
+                            Some(NativeElement::Subtypes)
+                        }
                         _ => None,
                     };
                     if element == Some(NativeElement::Subtypes) {
-                        observe_native(
+                        plenora_io_core::loss_table::observe_attribute_loss(
                             report,
-                            (NativeDriver::FileGdb, TransportDirection::Read),
                             NativeElement::Subtypes,
                             1,
                             layer,
-                            None,
                         );
                     }
                     stack.push(element);
@@ -2253,13 +2367,8 @@ mod backend {
                     if let Some(element @ (NativeElement::Domains | NativeElement::Aliases)) =
                         stack.last_mut().filter(|_| present).and_then(Option::take)
                     {
-                        observe_native(
-                            report,
-                            (NativeDriver::FileGdb, TransportDirection::Read),
-                            element,
-                            1,
-                            layer,
-                            None,
+                        plenora_io_core::loss_table::observe_attribute_loss(
+                            report, element, 1, layer,
                         );
                     }
                 }

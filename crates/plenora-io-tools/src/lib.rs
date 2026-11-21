@@ -485,6 +485,7 @@ fn layer_json(l: &LayerContract) -> Value {
                 "name": f.name(),
                 "type": format!("{:?}", f.data_type()),
                 "nullable": f.is_nullable(),
+                "metadata": f.metadata().iter().collect::<std::collections::BTreeMap<_, _>>(),
                 "geometry": is_geometry_field(f),
             })
         })
@@ -504,6 +505,7 @@ fn layer_json(l: &LayerContract) -> Value {
         "name": l.name,
         "geometry": geom,
         "fields": fields,
+        "metadata": l.contract.schema.metadata().iter().collect::<std::collections::BTreeMap<_, _>>(),
     })
 }
 

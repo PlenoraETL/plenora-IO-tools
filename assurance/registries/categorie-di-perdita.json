@@ -313,6 +313,21 @@
       "id": "source_object_not_readable",
       "superficie": "plenora-io-tools",
       "forma": "letterale"
+    },
+    {
+      "id": "native_domain_not_transported",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "native_subtype_not_transported",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "native_alias_not_transported",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
     }
   ],
   "vie_dinamiche_ammesse": [],

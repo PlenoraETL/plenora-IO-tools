@@ -108,6 +108,227 @@ pub use version::version_info;
 pub mod config;
 pub mod cpl;
 mod dataset;
+pub mod domains {
+    //! Owned snapshots of GDAL field domains. Borrowed C handles never escape.
+    use crate::{
+        errors::{GdalError, Result},
+        utils::{_string, _string_array},
+        Dataset,
+    };
+    use std::ffi::CString;
+
+    #[derive(Clone, Debug)]
+    pub enum FieldDomainValues {
+        Coded(Vec<(String, Option<String>)>),
+        Range {
+            min: String,
+            max: String,
+            min_inclusive: bool,
+            max_inclusive: bool,
+        },
+        Unsupported,
+    }
+
+    #[derive(Clone, Debug)]
+    pub struct FieldDomain {
+        pub name: String,
+        pub field_type: u32,
+        pub values: FieldDomainValues,
+    }
+
+    fn invalid() -> GdalError {
+        GdalError::BadArgument("invalid field domain".into())
+    }
+
+    impl Dataset {
+        /// Adds a copied domain. The caller retains ownership of the Rust snapshot.
+        pub fn add_field_domain(&mut self, domain: &FieldDomain) -> Result<bool> {
+            let name = CString::new(domain.name.as_str())?;
+            let description = CString::new("")?;
+            let handle = match &domain.values {
+                FieldDomainValues::Coded(values) => {
+                    let strings: Vec<_> = values
+                        .iter()
+                        .map(|(code, value)| {
+                            Ok((
+                                CString::new(code.as_str())?,
+                                value
+                                    .as_ref()
+                                    .map(|s| CString::new(s.as_str()))
+                                    .transpose()?,
+                            ))
+                        })
+                        .collect::<Result<_>>()?;
+                    let mut entries: Vec<_> = strings
+                        .iter()
+                        .map(|(code, value)| gdal_sys::OGRCodedValue {
+                            pszCode: code.as_ptr() as *mut _,
+                            pszValue: value
+                                .as_ref()
+                                .map_or(std::ptr::null_mut(), |s| s.as_ptr() as *mut _),
+                        })
+                        .collect();
+                    entries.push(gdal_sys::OGRCodedValue {
+                        pszCode: std::ptr::null_mut(),
+                        pszValue: std::ptr::null_mut(),
+                    });
+                    unsafe {
+                        gdal_sys::OGR_CodedFldDomain_Create(
+                            name.as_ptr(),
+                            description.as_ptr(),
+                            domain.field_type,
+                            0,
+                            entries.as_ptr(),
+                        )
+                    }
+                }
+                FieldDomainValues::Range {
+                    min,
+                    max,
+                    min_inclusive,
+                    max_inclusive,
+                } => {
+                    let scalar = |value: &str| -> Result<gdal_sys::OGRField> {
+                        match domain.field_type {
+                            gdal_sys::OGRFieldType::OFTInteger => Ok(gdal_sys::OGRField {
+                                Integer: value.parse().map_err(|_| invalid())?,
+                            }),
+                            gdal_sys::OGRFieldType::OFTInteger64 => Ok(gdal_sys::OGRField {
+                                Integer64: value.parse().map_err(|_| invalid())?,
+                            }),
+                            gdal_sys::OGRFieldType::OFTReal => Ok(gdal_sys::OGRField {
+                                Real: value.parse().map_err(|_| invalid())?,
+                            }),
+                            _ => Err(invalid()),
+                        }
+                    };
+                    let min = scalar(min)?;
+                    let max = scalar(max)?;
+                    unsafe {
+                        gdal_sys::OGR_RangeFldDomain_Create(
+                            name.as_ptr(),
+                            description.as_ptr(),
+                            domain.field_type,
+                            0,
+                            &min,
+                            *min_inclusive,
+                            &max,
+                            *max_inclusive,
+                        )
+                    }
+                }
+                FieldDomainValues::Unsupported => return Ok(false),
+            };
+            if handle.is_null() {
+                return Err(invalid());
+            }
+            let mut reason = std::ptr::null_mut();
+            let result = unsafe {
+                gdal_sys::GDALDatasetAddFieldDomain(self.c_dataset(), handle, &mut reason)
+            };
+            unsafe {
+                gdal_sys::OGR_FldDomain_Destroy(handle);
+                gdal_sys::VSIFree(reason.cast());
+            }
+            Ok(result)
+        }
+        /// GDAL 3.3 API; the fork's minimum GDAL version is 3.4.
+        pub fn field_domains(&self) -> Result<Vec<FieldDomain>> {
+            let names = unsafe {
+                gdal_sys::GDALDatasetGetFieldDomainNames(self.c_dataset(), std::ptr::null_mut())
+            };
+            if names.is_null() {
+                return Ok(Vec::new());
+            }
+            let owned = _string_array(names);
+            unsafe { gdal_sys::CSLDestroy(names) };
+            owned
+                .into_iter()
+                .map(|name| {
+                    let c_name = CString::new(name.as_str())?;
+                    let handle = unsafe {
+                        gdal_sys::GDALDatasetGetFieldDomain(self.c_dataset(), c_name.as_ptr())
+                    };
+                    if handle.is_null() {
+                        return Err(invalid());
+                    }
+                    let field_type = unsafe { gdal_sys::OGR_FldDomain_GetFieldType(handle) };
+                    let kind = unsafe { gdal_sys::OGR_FldDomain_GetDomainType(handle) };
+                    let values = match kind {
+                        gdal_sys::OGRFieldDomainType::OFDT_CODED => {
+                            let entries =
+                                unsafe { gdal_sys::OGR_CodedFldDomain_GetEnumeration(handle) };
+                            if entries.is_null() {
+                                return Err(invalid());
+                            }
+                            let mut values = Vec::new();
+                            let mut index = 0;
+                            loop {
+                                let entry = unsafe { &*entries.add(index) };
+                                let Some(code) = _string(entry.pszCode) else {
+                                    break;
+                                };
+                                values.push((code, _string(entry.pszValue)));
+                                index += 1;
+                            }
+                            FieldDomainValues::Coded(values)
+                        }
+                        gdal_sys::OGRFieldDomainType::OFDT_RANGE => {
+                            let mut min_inclusive = false;
+                            let mut max_inclusive = false;
+                            let min = unsafe {
+                                gdal_sys::OGR_RangeFldDomain_GetMin(handle, &mut min_inclusive)
+                            };
+                            let max = unsafe {
+                                gdal_sys::OGR_RangeFldDomain_GetMax(handle, &mut max_inclusive)
+                            };
+                            if min.is_null() || max.is_null() {
+                                return Err(invalid());
+                            }
+                            let scalar = |value: *const gdal_sys::OGRField| -> Result<String> {
+                                if unsafe {
+                                    gdal_sys::OGR_RawField_IsUnset(value) != 0
+                                        || gdal_sys::OGR_RawField_IsNull(value) != 0
+                                } {
+                                    return Err(invalid());
+                                }
+                                unsafe {
+                                    match field_type {
+                                        gdal_sys::OGRFieldType::OFTInteger => {
+                                            Ok((*value).Integer.to_string())
+                                        }
+                                        gdal_sys::OGRFieldType::OFTInteger64 => {
+                                            Ok((*value).Integer64.to_string())
+                                        }
+                                        gdal_sys::OGRFieldType::OFTReal => {
+                                            Ok((*value).Real.to_string())
+                                        }
+                                        _ => Err(invalid()),
+                                    }
+                                }
+                            };
+                            match (scalar(min), scalar(max)) {
+                                (Ok(min), Ok(max)) => FieldDomainValues::Range {
+                                    min,
+                                    max,
+                                    min_inclusive,
+                                    max_inclusive,
+                                },
+                                _ => FieldDomainValues::Unsupported,
+                            }
+                        }
+                        _ => FieldDomainValues::Unsupported,
+                    };
+                    Ok(FieldDomain {
+                        name,
+                        field_type,
+                        values,
+                    })
+                })
+                .collect()
+        }
+    }
+}
 mod driver;
 pub mod errors;
 mod gcp;
