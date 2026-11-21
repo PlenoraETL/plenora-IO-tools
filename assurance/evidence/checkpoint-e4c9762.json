@@ -1,0 +1,3262 @@
+{
+  "schema_version": 1,
+  "status": "satisfied",
+  "release_authorized": false,
+  "descrizione": "Qualifica L2 e replay finito della candidate 10.0.0 e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f, attempt-2.",
+  "components": [
+    {
+      "name": "plenora-IO-tools",
+      "revision": "e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f"
+    }
+  ],
+  "evidence": {
+    "status": "passed",
+    "scope": "L2 attempt-2; misure derivate dai log."
+  },
+  "non_significa": "Nessuna autorizzazione, pubblicazione o qualifica del futuro commit di registrazione.",
+  "cosa_chiude": {
+    "invarianti": [],
+    "invarianti_nota": "Nessun blocco di pubblicazione chiuso automaticamente.",
+    "candidate": "e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f",
+    "che_cosa_e_provato": "L2 attempt-2 e replay finito."
+  },
+  "resta_aperto": "Attestazioni del profilo pubblico correnti e manifesto di adozione, confronto bozza, decisione del titolare, tag e gate finale.",
+  "contesto_operatore": "WSL Ubuntu 26.04, utente non root; .plenora-contracts al pin 38d68b402389855edbcecb7ce57c31e91282cb4e; S9_CHECKPOINT_BASE=7314ca25b62788a3a9d2af0ec638d0d7f3bdffea. Ambiente dichiarato dall operatore. Registrazione locale con Python 3.14.6.",
+  "registro_dei_tentativi": [
+    {
+      "tentativo": "l2-e4c9762f-attempt-1-scartato-ambiente",
+      "stato": "scartato_ambiente",
+      "nota": "109/110: solo sonde_sdk_python rosso; pyarrow 26.x presente nell ambiente, SDK qualificato con pyarrow 25.x. Causa ambientale dichiarata dall operatore; nessun valore di qualifica.",
+      "percorso": "target/rel1000/l2-e4c9762f-attempt-1-scartato-ambiente",
+      "esito_registrato": "non_superato",
+      "passi_registrati": 110,
+      "verdi_registrati": 109,
+      "fonti": {
+        "assurance_fallbacks.log": {
+          "sha256": "ea6ee09d309ea1f212953a91d995e5450b2cebd2af2e71065a05fa545a3404bb",
+          "dimensione": 35
+        },
+        "assurance_n1_integrita.log": {
+          "sha256": "38a2c5bc508cb3ab3189eaaf9145f317b8edbba191ef96110e2986ddffff8fce",
+          "dimensione": 218
+        },
+        "assurance_n1_prove.log": {
+          "sha256": "cc40a4307d568dceb9a897e456058870a9c78c142ec15f86ca99d1a31a0cbe14",
+          "dimensione": 106
+        },
+        "canale_privato.log": {
+          "sha256": "c9b04065a76f44d1fd8285af75f3135b3b6d17594a96bf7b752bedd86c1da1f5",
+          "dimensione": 172
+        },
+        "catalog.json": {
+          "sha256": "c48256ecac5de3ab10568b7c715ccf29fd08d4c0af4fa89bb8794488b188a149",
+          "dimensione": 18665
+        },
+        "check_action_pins.log": {
+          "sha256": "47d5aa2ef9ef911e05cad35ebbb11cac8d927110b11af40225926251503f9eab",
+          "dimensione": 73
+        },
+        "check_buste_v2.log": {
+          "sha256": "bca7558d24508e4d57d9e71619c60d19c4add5107e35f1e14198d237200f694d",
+          "dimensione": 79
+        },
+        "check_capability_ostile.log": {
+          "sha256": "7fc1807b9dd03f681f5129090a626d0fad33fc13264a9988a55dfae5403b9d34",
+          "dimensione": 432
+        },
+        "check_categorie_di_perdita.log": {
+          "sha256": "1785baeef32146803a1949bf4059eaaf6c4507cda7bd83059c09584d03768a72",
+          "dimensione": 226
+        },
+        "check_commenti.log": {
+          "sha256": "c3dad27601b2af87597396388e0231c9129c7b0dac71f4f66d6924cd9d706ce1",
+          "dimensione": 122
+        },
+        "check_conversioni.log": {
+          "sha256": "724de969e2f07aa222ed26b6af99b21314717d34a3abd83ae0c3ef3c4f4d42da",
+          "dimensione": 356
+        },
+        "check_coverage_exclusions.log": {
+          "sha256": "311d8d1e1af5d5357c18b81cdad32f90b91ff78b9d828688063d467fd66fc7c2",
+          "dimensione": 476
+        },
+        "check_dependency_pins.log": {
+          "sha256": "a49fe9259cf69de163d6df380a20c92667ab5e393a7cbae4ad328cf7a4725180",
+          "dimensione": 132
+        },
+        "check_dimensione.log": {
+          "sha256": "99e5e439466d40d629a76efeefe21edf9f71efc920b00165e5a36f40666c1847",
+          "dimensione": 160
+        },
+        "check_disposizione_prove.log": {
+          "sha256": "665847f68bb0a25814b581f0200748fa3fc14ca2f18523b652a61346b94d01a3",
+          "dimensione": 197
+        },
+        "check_docset.log": {
+          "sha256": "40553d480794053fe09168e3bb508ceead80296aa7c58f20394943249d796454",
+          "dimensione": 188
+        },
+        "check_dxf_fork.log": {
+          "sha256": "ef3621908e09146a767c0c6fdcd3a5ac806748a028590a3bfa8c78518c1e1e2a",
+          "dimensione": 113
+        },
+        "check_errori_redatti.log": {
+          "sha256": "89406aac6d31bdd30a87358fd057c14961bd8003ad5fb0bc41f6bf97a74dc7a4",
+          "dimensione": 272
+        },
+        "check_filegdb_catalog.log": {
+          "sha256": "48734bc0b3f577658b80445e60d070149f4f1655cb4105fa2dda4d6552a35b10",
+          "dimensione": 197
+        },
+        "check_fixture_canoniche.log": {
+          "sha256": "f7a0e50394e1ab92b1adf856b161aae88ab196c77c658bbfea2c3c8b4e91a483",
+          "dimensione": 71
+        },
+        "check_gdal_fork.log": {
+          "sha256": "bb57432bcca496813fbbb490e1f03b014dca16627ced3dc597ff33c23ca7a393",
+          "dimensione": 116
+        },
+        "check_identita.log": {
+          "sha256": "e53f83ba1b8181121e3533caf041672945991bcc2045ece5f078316cb66ff02b",
+          "dimensione": 62
+        },
+        "check_manifesto_adozione.log": {
+          "sha256": "50139a4a1457b3af458f1145df02a26c5a529d6b5bfecbb7f38c312b93e78e6b",
+          "dimensione": 187
+        },
+        "check_metadati_geoparquet.log": {
+          "sha256": "dad01d50c3fbd320de2ffc146db92fa370f0076cfaf58a67f9cbaa8bafc9e553",
+          "dimensione": 323
+        },
+        "check_niente_leak.log": {
+          "sha256": "0be5cf08693152c3b7c8644c3c89d10f0ff74c54d5cab13313dacdff44e11dae",
+          "dimensione": 88
+        },
+        "check_no_legacy_budget.log": {
+          "sha256": "c1ae5980ff49d62559f6e9fd6ed93cb6d7790ce160209ef328ecb6712ff2b447",
+          "dimensione": 41
+        },
+        "check_permit_boundary.log": {
+          "sha256": "727ffdcc7cc91e422d38d5e91811ffa1dc2b56b914e3e99c91c1ca4ed97c846f",
+          "dimensione": 119
+        },
+        "check_prevalidazione.log": {
+          "sha256": "516c09da122da804468559e6a3614ec7c7f2362314c93822439785f57d6ae141",
+          "dimensione": 515
+        },
+        "check_protocollo_v2.log": {
+          "sha256": "e272abdc95be285e318a16d1939c7d53da747233949069a34737666783eacf70",
+          "dimensione": 389
+        },
+        "check_quarantena.log": {
+          "sha256": "625468389385490627ba011d3c87d7bcb048626e5a7ed8b0c47d0afb7a10a4d9",
+          "dimensione": 70
+        },
+        "check_quartetto.log": {
+          "sha256": "27976cb68a7f6d55c4e7c02f040d04cfa0f09933cae643c7187245ab4090d0fa",
+          "dimensione": 44
+        },
+        "check_release.log": {
+          "sha256": "b415695b45fd8b6656daf97a1d156f48f057241a61c45a29ca8ad21ccd937616",
+          "dimensione": 1588
+        },
+        "check_requires_python.log": {
+          "sha256": "2bcac650e0f92163e921fd3266db4a640e253c8e71208cac7dda9bf029bd8abb",
+          "dimensione": 50
+        },
+        "check_riuso_evidenze.log": {
+          "sha256": "f900115626775206de65635dc53478069bf026bab300ddbf4400c239ea1a3f08",
+          "dimensione": 155
+        },
+        "check_schemi_geoparquet.log": {
+          "sha256": "3039bea965eb1c095932e3a47e9dbbf227e83e936feb32aafbb1a76d38e9f7c8",
+          "dimensione": 657
+        },
+        "check_sdk_python.log": {
+          "sha256": "347da4b37589b8c731fd8ffdc836d9a3bbfc55edbbeca46cad3558296d5d54f8",
+          "dimensione": 176
+        },
+        "check_shapefile_fork.log": {
+          "sha256": "9383ceb425f47515941aa29a239249bafd127ac5ea896bdea5561ee220b7200d",
+          "dimensione": 125
+        },
+        "check_toolchain.log": {
+          "sha256": "69a688d270e58a8472becd834c429b7a4f81b94b7495256ae2ec4bcad3048e28",
+          "dimensione": 164
+        },
+        "check_wkb_limits.log": {
+          "sha256": "0b0d406a0a2f927c55cd2f51f7266e1a48339df4de52c6efaf631d7515decbf9",
+          "dimensione": 134
+        },
+        "clippy.log": {
+          "sha256": "ded79e833b1dd35624b5f12982185b8b969b75b9ba01b4dabbf5ea2297c8c085",
+          "dimensione": 7237
+        },
+        "clippy_default.log": {
+          "sha256": "b6c1dd39c1e5f3ef813a48d982c07f4b0bb248365f6b600b8810c002f955afb5",
+          "dimensione": 1350
+        },
+        "clippy_sicurezza.log": {
+          "sha256": "199d893decc547c6ceef57f9112450ee0858a84e4ff5e1fe76a7350cb170ea77",
+          "dimensione": 1343
+        },
+        "clippy_vendor.log": {
+          "sha256": "b7c449407dcbb3724bd61758f3d59a523dfd792aed9ecd9d56b03ad41a1df9a1",
+          "dimensione": 7237
+        },
+        "corpus_condiviso.log": {
+          "sha256": "4b5a030a25e38be08662283c99d3fafe40bc48e4401f24f9861a8be47b153c13",
+          "dimensione": 42
+        },
+        "costruisci_pacchetto_python.log": {
+          "sha256": "abbe4d576c5a64fd8faef7d22faeda9a04f2c4e04239f26dad8dc926116e6195",
+          "dimensione": 332
+        },
+        "coverage_diff.log": {
+          "sha256": "f11e8d48abe7bbff4b4862a161f149624c81aa901e12d1dd93a146e1186f532b",
+          "dimensione": 31194
+        },
+        "coverage_diff_cli.log": {
+          "sha256": "8a6f7bd212a2c89381ca8b531321a0bc41a5340e9e1b622eb54d702b3b45cc69",
+          "dimensione": 834
+        },
+        "coverage_export.log": {
+          "sha256": "47533af0f948a7c0591480ce8e521d22631060fd8796ec3dc92d272707e801af",
+          "dimensione": 96
+        },
+        "coverage_export_cli.log": {
+          "sha256": "0f1fed31f8e989e2de872b3e05d8fd95315f32d3d91ee4f1a10291a5cad6bd2b",
+          "dimensione": 105
+        },
+        "coverage_misura.log": {
+          "sha256": "150cae864c9389bbf37edf5615434a42e03b04f26d2382e119a48abbd8df27d2",
+          "dimensione": 159676
+        },
+        "coverage_pulizia.log": {
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "dimensione": 0
+        },
+        "coverage_report_cli_non_vuoto.log": {
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "dimensione": 0
+        },
+        "coverage_report_non_vuoto.log": {
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "dimensione": 0
+        },
+        "coverage_soglia_controprova.log": {
+          "sha256": "595217638464c9b66187873e35329d39a4d4d459e74cf273bdbd19f4c5b3b203",
+          "dimensione": 21384
+        },
+        "coverage_soglia_dal_report.log": {
+          "sha256": "44bd7d16bb349177dec5aaee917865f8ee62e1bdd22787001bf2d02d8af6b9c9",
+          "dimensione": 69
+        },
+        "fmt.log": {
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "dimensione": 0
+        },
+        "fuzz-smoke-ultima.json": {
+          "sha256": "5b6f9e847d98cc2eb9f58aa32dbe5be6153442fc8b2c4138c336706b398c9220",
+          "dimensione": 98636
+        },
+        "fuzz_campagna_completa.log": {
+          "sha256": "0e4f0b57a7ac96114a18c4f270deb2fd70044f3953a5a2c49ccb449473b5e2ee",
+          "dimensione": 167
+        },
+        "fuzz_replay.log": {
+          "sha256": "23fa685d82355e36fa8a9a52cbfa9c5b783aae86b8de7ed6da054dab793da22b",
+          "dimensione": 55898
+        },
+        "fuzz_smoke.log": {
+          "sha256": "0e4f0b57a7ac96114a18c4f270deb2fd70044f3953a5a2c49ccb449473b5e2ee",
+          "dimensione": 167
+        },
+        "lcov-completo.info": {
+          "sha256": "467eb7a1a30f793494043019b9518015ddbb48f92cc5dd2ba25431606a1c41e1",
+          "dimensione": 2367904
+        },
+        "lcov.info": {
+          "sha256": "37f6c49de4755c60fce698e0155874cd3e28555dbdd867681b4955afcdb7a008",
+          "dimensione": 2324454
+        },
+        "pacchetto_python_riproducibile.log": {
+          "sha256": "c0de8b89f1f6db60629664c1aaa7819ce892e52cfd7d16c78e5b96df553eda0e",
+          "dimensione": 283
+        },
+        "prove_di_confine.log": {
+          "sha256": "c5940c13705c898c82789e260d4f53ebf0d2a303c64a620307e4b2dbbe2160c8",
+          "dimensione": 188
+        },
+        "risultato.json": {
+          "sha256": "1045ca407b28fbbafcbdc072a58310cd66070f8290bf4d345f47c1bf09bdd200",
+          "dimensione": 10096
+        },
+        "semi_s12.log": {
+          "sha256": "8d9c6ecbbcd5cb0251408811adda76ad9a8c52720c08a9ed4c2c89c25680ebfb",
+          "dimensione": 86
+        },
+        "smoke_pacchetto_python.log": {
+          "sha256": "569270f7577c624a32f63fac83beb37e4de9e9c9d7979ce3dfb64136871c7d63",
+          "dimensione": 1589
+        },
+        "sonde_action_pins.log": {
+          "sha256": "f70474bb9d3d4b78369d133e47904bb1ef43bd0a69dec6649003a49c7b092484",
+          "dimensione": 115
+        },
+        "sonde_assurance_n1.log": {
+          "sha256": "0d222ce7cbb2c6b8a91558ef151009777f4fa9fa6075d9241bfdbf82d1631047",
+          "dimensione": 124
+        },
+        "sonde_assurance_n1_prove.log": {
+          "sha256": "b6102bd16e5928fe3d6d717be042b7db700fa15fa3eddabd5d6a7b6641c73368",
+          "dimensione": 122
+        },
+        "sonde_audit_ignores.log": {
+          "sha256": "b6b7c0e573230813f60ba9e8b13cfa0055d93f4c9c1a8593b23aaaaae6de50dd",
+          "dimensione": 765
+        },
+        "sonde_buste_v2.log": {
+          "sha256": "c2982255e0eacd6fcba7dbc604e483acc0eba266ad14d9144d775539cc2ddaa8",
+          "dimensione": 131
+        },
+        "sonde_capability_ostile.log": {
+          "sha256": "07a08cbd04b928ef48a8f0f3265f2e3cb5356bdf9d273a75491de31d25d488f7",
+          "dimensione": 121
+        },
+        "sonde_categorie_di_perdita.log": {
+          "sha256": "c7be96df951befd27b871f09a70aa665703c2beddddf0852ccc8af1381589dbc",
+          "dimensione": 118
+        },
+        "sonde_checkpoint.log": {
+          "sha256": "79cae44f3a62cfb3abbcaca06e3af75977937e3948c1430ed7c18eab12bfe690",
+          "dimensione": 4132
+        },
+        "sonde_commenti.log": {
+          "sha256": "512f31c880ad513ab02649c12616559ecbf4853675888cf3ef814b14c26146a1",
+          "dimensione": 106
+        },
+        "sonde_conversioni.log": {
+          "sha256": "eb55bdeb232a5345b812b14974fa3803a4265c20b50cb28f1fb75acf884da36e",
+          "dimensione": 112
+        },
+        "sonde_coverage_excl.log": {
+          "sha256": "50f6cf3a8c2f651fcf0f167d5135f73c91dc030af20b41e52defc87b1438e776",
+          "dimensione": 132
+        },
+        "sonde_dependency_pins.log": {
+          "sha256": "0fa6e9196f096183c02cc2acc9c66c1dc944647981973bb5cc84a89647a36d1e",
+          "dimensione": 113
+        },
+        "sonde_dimensione.log": {
+          "sha256": "3ae1505d129f2db5a1af3a5e99a3c4b2ce00987aa525b0e70c386cc1ed39ad37",
+          "dimensione": 110
+        },
+        "sonde_disposizione_prove.log": {
+          "sha256": "85491bd280e0f3bb44feb5e0ad0812d4c06cb2d67021f6fbc0e6dcbcca365148",
+          "dimensione": 112
+        },
+        "sonde_dist_completa.log": {
+          "sha256": "848a9863686db5a266c4b3c3ae966851b7cc0860f26014a0860720b8c1af8ba2",
+          "dimensione": 5307
+        },
+        "sonde_distribuzione.log": {
+          "sha256": "3c60e35a2186cff5498afcb5a73d29932d074c15c688aa320f9d6f2918e70d59",
+          "dimensione": 143
+        },
+        "sonde_docset.log": {
+          "sha256": "1c2239a33ecfcf685fe02f15c528b7330adcdb9921ca59d56d46e9de3dee3255",
+          "dimensione": 489
+        },
+        "sonde_errori_redatti.log": {
+          "sha256": "707d17a2ecf45983575cc9d2d20fe00349a2d6d7cf4702da14f6835a9115eaa6",
+          "dimensione": 116
+        },
+        "sonde_fallback.log": {
+          "sha256": "55df81c03b1fc09a739803668e8b10b1a1cd87ac7e716666dddb1c968f87bb76",
+          "dimensione": 107
+        },
+        "sonde_filegdb.log": {
+          "sha256": "85bdb3d23316195a7aad16b696a688d839cd6f3a8ddf856daed46f675b993098",
+          "dimensione": 109
+        },
+        "sonde_finding_noti.log": {
+          "sha256": "4c27674b966f844f00854efd8ed767e7076cd3dc4b6c67f8c17a57e54c9c0800",
+          "dimensione": 195
+        },
+        "sonde_fixture_canoniche.log": {
+          "sha256": "57256a13cfbd13539b3f6c3a9bd6c4cd9c1a8f25a390d6295b563a1d8a31853d",
+          "dimensione": 110
+        },
+        "sonde_fork.log": {
+          "sha256": "279ad527bf965804badc8f769158fd3367cb365dd3ab41de87c90194758a300a",
+          "dimensione": 118
+        },
+        "sonde_fuzz_release.log": {
+          "sha256": "108fa837c55173bb64c0b0aa4d4bf43133f2a07fe025d46f1dbf69d64daa2b3c",
+          "dimensione": 348
+        },
+        "sonde_identita.log": {
+          "sha256": "d094b1bd2c8318c96097f80c50da282add5b2972970a77046de8db6c8935f6ca",
+          "dimensione": 102
+        },
+        "sonde_licenze.log": {
+          "sha256": "d15ccdd5699bb7b6ea0446317739f339a4af74ffe66919e240b0004a5d226b99",
+          "dimensione": 129
+        },
+        "sonde_manifesto_adozione.log": {
+          "sha256": "3bddb9c52d78310205e2389a8486b8e856b423ac7249d84ad9dcea4b042ba3eb",
+          "dimensione": 134
+        },
+        "sonde_metadati_geoparquet.log": {
+          "sha256": "5f0635b83af38a6c5d516fcb60dc3fa63c9c6ca4854e51a6a29ca33c92ccef16",
+          "dimensione": 107
+        },
+        "sonde_niente_leak.log": {
+          "sha256": "c9811dcd7d51683ba5e61910b5aa26e91e8766a287b6a6f52a04bac8ac9f3a3d",
+          "dimensione": 113
+        },
+        "sonde_prevalidazione.log": {
+          "sha256": "efbb8956ab708762706b73115389ded4c72525d106e5fe1f433e3224e440abfc",
+          "dimensione": 112
+        },
+        "sonde_protocollo_v2.log": {
+          "sha256": "8c9eb715a03c49b8b398ef8a14506ed528a41c88fa190850e8b57d2ae7686608",
+          "dimensione": 207
+        },
+        "sonde_quarantena.log": {
+          "sha256": "83166b089fbcb82fac63f22522fa6ae99bb5e46368cd35d756277fd463dd6346",
+          "dimensione": 105
+        },
+        "sonde_quartetto.log": {
+          "sha256": "19ce4c3fe936ba5a289b545d890b7ffce48ced29d4b7b20a8c6b10a871321dd4",
+          "dimensione": 112
+        },
+        "sonde_registra_evidenza.log": {
+          "sha256": "3431f30e3b401ef777064c9cdfe705f3698341c6d9cda4464a588a9cdb7cc933",
+          "dimensione": 110
+        },
+        "sonde_release.log": {
+          "sha256": "e6eed9b8f58ce13064223060c839d2029ebbb3fccebdfc212e0d334815ce9f9b",
+          "dimensione": 429
+        },
+        "sonde_riuso_evidenze.log": {
+          "sha256": "603db52fd0016ca5cdcf83b2588160ae92bde08c66ba4c61dfc8a2a74cdb95c9",
+          "dimensione": 107
+        },
+        "sonde_sbom.log": {
+          "sha256": "49c2060b9df901d31ad047c55b2347c706cfc3fcd321e9a94b98605edbe85ae0",
+          "dimensione": 127
+        },
+        "sonde_schemi_geoparquet.log": {
+          "sha256": "d0877a1e448e85c37f0f2e17edac01e3a8b5cd20d474713f2746d0616b1ff5b6",
+          "dimensione": 131
+        },
+        "sonde_sdk_python.log": {
+          "sha256": "4838f493400f0d21b0125da81206d0fd9b610a29aaef16177904d150bffb3272",
+          "dimensione": 168334
+        },
+        "sonde_semi_s12.log": {
+          "sha256": "c9811dcd7d51683ba5e61910b5aa26e91e8766a287b6a6f52a04bac8ac9f3a3d",
+          "dimensione": 113
+        },
+        "sonde_soak.log": {
+          "sha256": "3af354abd6afd2f4f662a367159a8b8107385935ded6c8a2b929734becedb43c",
+          "dimensione": 111
+        },
+        "sonde_toolchain.log": {
+          "sha256": "00486fe52cb2d4dc3c08054b47b0b5ff66513e048586a519c6349f55936e4e7f",
+          "dimensione": 119
+        },
+        "sonde_verificatori_nativi.log": {
+          "sha256": "50d18a2da79a2d8193bed9a37add971218ed98ad2c736c63039202a5e63f9688",
+          "dimensione": 122
+        },
+        "sonde_wkb_condiviso.log": {
+          "sha256": "a6707d4eff38012da33ddc34bc6dc076a3b17151cfc9aef223c8790cbe64c3da",
+          "dimensione": 100
+        },
+        "sonde_wkb_limits.log": {
+          "sha256": "5f0635b83af38a6c5d516fcb60dc3fa63c9c6ca4854e51a6a29ca33c92ccef16",
+          "dimensione": 107
+        },
+        "sonde_wrapper_campagna.log": {
+          "sha256": "d28756e53e8b4a69dcc16b403461f3dfcc5e7afc8e2cfa4c0ce30ac4cdfa39ad",
+          "dimensione": 126
+        },
+        "test.log": {
+          "sha256": "5378cf762011f96cf3159aa08a390f06db1b971cba888bd4b6aa9b9dcb5def3d",
+          "dimensione": 162366
+        },
+        "test_default.log": {
+          "sha256": "5399308918d44f26d4cad46c5b8836b04ccac8d0e035d1c02550daf48dcaaef3",
+          "dimensione": 146153
+        }
+      }
+    },
+    {
+      "tentativo": "l2-e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f-interrotto-0106",
+      "stato": "interrotto",
+      "nota": "Riavvio della sessione a meta corsa, secondo l operatore; risultato in_corso, nessun valore di qualifica.",
+      "percorso": "target/rel1000/l2-e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f-interrotto-0106",
+      "esito_registrato": "in_corso",
+      "passi_registrati": 0,
+      "verdi_registrati": 0,
+      "fonti": {
+        "assurance_fallbacks.log": {
+          "sha256": "ea6ee09d309ea1f212953a91d995e5450b2cebd2af2e71065a05fa545a3404bb",
+          "dimensione": 35
+        },
+        "assurance_n1_integrita.log": {
+          "sha256": "38a2c5bc508cb3ab3189eaaf9145f317b8edbba191ef96110e2986ddffff8fce",
+          "dimensione": 218
+        },
+        "canale_privato.log": {
+          "sha256": "c9b04065a76f44d1fd8285af75f3135b3b6d17594a96bf7b752bedd86c1da1f5",
+          "dimensione": 172
+        },
+        "check_action_pins.log": {
+          "sha256": "47d5aa2ef9ef911e05cad35ebbb11cac8d927110b11af40225926251503f9eab",
+          "dimensione": 73
+        },
+        "check_buste_v2.log": {
+          "sha256": "bca7558d24508e4d57d9e71619c60d19c4add5107e35f1e14198d237200f694d",
+          "dimensione": 79
+        },
+        "check_capability_ostile.log": {
+          "sha256": "7fc1807b9dd03f681f5129090a626d0fad33fc13264a9988a55dfae5403b9d34",
+          "dimensione": 432
+        },
+        "check_categorie_di_perdita.log": {
+          "sha256": "1785baeef32146803a1949bf4059eaaf6c4507cda7bd83059c09584d03768a72",
+          "dimensione": 226
+        },
+        "check_commenti.log": {
+          "sha256": "c3dad27601b2af87597396388e0231c9129c7b0dac71f4f66d6924cd9d706ce1",
+          "dimensione": 122
+        },
+        "check_conversioni.log": {
+          "sha256": "724de969e2f07aa222ed26b6af99b21314717d34a3abd83ae0c3ef3c4f4d42da",
+          "dimensione": 356
+        },
+        "check_dependency_pins.log": {
+          "sha256": "a49fe9259cf69de163d6df380a20c92667ab5e393a7cbae4ad328cf7a4725180",
+          "dimensione": 132
+        },
+        "check_dimensione.log": {
+          "sha256": "99e5e439466d40d629a76efeefe21edf9f71efc920b00165e5a36f40666c1847",
+          "dimensione": 160
+        },
+        "check_disposizione_prove.log": {
+          "sha256": "665847f68bb0a25814b581f0200748fa3fc14ca2f18523b652a61346b94d01a3",
+          "dimensione": 197
+        },
+        "check_docset.log": {
+          "sha256": "40553d480794053fe09168e3bb508ceead80296aa7c58f20394943249d796454",
+          "dimensione": 188
+        },
+        "check_dxf_fork.log": {
+          "sha256": "ef3621908e09146a767c0c6fdcd3a5ac806748a028590a3bfa8c78518c1e1e2a",
+          "dimensione": 113
+        },
+        "check_errori_redatti.log": {
+          "sha256": "89406aac6d31bdd30a87358fd057c14961bd8003ad5fb0bc41f6bf97a74dc7a4",
+          "dimensione": 272
+        },
+        "check_fixture_canoniche.log": {
+          "sha256": "f7a0e50394e1ab92b1adf856b161aae88ab196c77c658bbfea2c3c8b4e91a483",
+          "dimensione": 71
+        },
+        "check_gdal_fork.log": {
+          "sha256": "bb57432bcca496813fbbb490e1f03b014dca16627ced3dc597ff33c23ca7a393",
+          "dimensione": 116
+        },
+        "check_identita.log": {
+          "sha256": "e53f83ba1b8181121e3533caf041672945991bcc2045ece5f078316cb66ff02b",
+          "dimensione": 62
+        },
+        "check_manifesto_adozione.log": {
+          "sha256": "50139a4a1457b3af458f1145df02a26c5a529d6b5bfecbb7f38c312b93e78e6b",
+          "dimensione": 187
+        },
+        "check_metadati_geoparquet.log": {
+          "sha256": "dad01d50c3fbd320de2ffc146db92fa370f0076cfaf58a67f9cbaa8bafc9e553",
+          "dimensione": 323
+        },
+        "check_niente_leak.log": {
+          "sha256": "0be5cf08693152c3b7c8644c3c89d10f0ff74c54d5cab13313dacdff44e11dae",
+          "dimensione": 88
+        },
+        "check_no_legacy_budget.log": {
+          "sha256": "c1ae5980ff49d62559f6e9fd6ed93cb6d7790ce160209ef328ecb6712ff2b447",
+          "dimensione": 41
+        },
+        "check_permit_boundary.log": {
+          "sha256": "727ffdcc7cc91e422d38d5e91811ffa1dc2b56b914e3e99c91c1ca4ed97c846f",
+          "dimensione": 119
+        },
+        "check_prevalidazione.log": {
+          "sha256": "516c09da122da804468559e6a3614ec7c7f2362314c93822439785f57d6ae141",
+          "dimensione": 515
+        },
+        "check_protocollo_v2.log": {
+          "sha256": "e272abdc95be285e318a16d1939c7d53da747233949069a34737666783eacf70",
+          "dimensione": 389
+        },
+        "check_quarantena.log": {
+          "sha256": "625468389385490627ba011d3c87d7bcb048626e5a7ed8b0c47d0afb7a10a4d9",
+          "dimensione": 70
+        },
+        "check_quartetto.log": {
+          "sha256": "27976cb68a7f6d55c4e7c02f040d04cfa0f09933cae643c7187245ab4090d0fa",
+          "dimensione": 44
+        },
+        "check_release.log": {
+          "sha256": "c84c5d76984fa08da9ef44ec5f501363e03e785dffa93fa13e4151191a250ab8",
+          "dimensione": 1253
+        },
+        "check_requires_python.log": {
+          "sha256": "2bcac650e0f92163e921fd3266db4a640e253c8e71208cac7dda9bf029bd8abb",
+          "dimensione": 50
+        },
+        "check_riuso_evidenze.log": {
+          "sha256": "f900115626775206de65635dc53478069bf026bab300ddbf4400c239ea1a3f08",
+          "dimensione": 155
+        },
+        "check_schemi_geoparquet.log": {
+          "sha256": "3039bea965eb1c095932e3a47e9dbbf227e83e936feb32aafbb1a76d38e9f7c8",
+          "dimensione": 657
+        },
+        "check_sdk_python.log": {
+          "sha256": "347da4b37589b8c731fd8ffdc836d9a3bbfc55edbbeca46cad3558296d5d54f8",
+          "dimensione": 176
+        },
+        "check_shapefile_fork.log": {
+          "sha256": "9383ceb425f47515941aa29a239249bafd127ac5ea896bdea5561ee220b7200d",
+          "dimensione": 125
+        },
+        "check_toolchain.log": {
+          "sha256": "69a688d270e58a8472becd834c429b7a4f81b94b7495256ae2ec4bcad3048e28",
+          "dimensione": 164
+        },
+        "check_wkb_limits.log": {
+          "sha256": "0b0d406a0a2f927c55cd2f51f7266e1a48339df4de52c6efaf631d7515decbf9",
+          "dimensione": 134
+        },
+        "clippy.log": {
+          "sha256": "c5b9d82d538cfd9fd3cc95f4c6d704e6979f59cca45f25fac1f463163634d11d",
+          "dimensione": 7237
+        },
+        "clippy_default.log": {
+          "sha256": "9f1f0b4af6362c96fadf40fb14f909cf44faeaea0f4378d1e6625f03fc9d4002",
+          "dimensione": 1350
+        },
+        "clippy_sicurezza.log": {
+          "sha256": "b23960070890cfc03ff4bbf4f8f65d47cf1c4530fd2422e8f10276e2a165fa8e",
+          "dimensione": 1343
+        },
+        "clippy_vendor.log": {
+          "sha256": "c57cc5bb82e77abd023120e4a07948a413ca2df71e1d0b73d7cb3be9176be033",
+          "dimensione": 7237
+        },
+        "corpus_condiviso.log": {
+          "sha256": "4b5a030a25e38be08662283c99d3fafe40bc48e4401f24f9861a8be47b153c13",
+          "dimensione": 42
+        },
+        "costruisci_pacchetto_python.log": {
+          "sha256": "abbe4d576c5a64fd8faef7d22faeda9a04f2c4e04239f26dad8dc926116e6195",
+          "dimensione": 332
+        },
+        "fmt.log": {
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "dimensione": 0
+        },
+        "pacchetto_python_riproducibile.log": {
+          "sha256": "c0de8b89f1f6db60629664c1aaa7819ce892e52cfd7d16c78e5b96df553eda0e",
+          "dimensione": 283
+        },
+        "prove_di_confine.log": {
+          "sha256": "c5940c13705c898c82789e260d4f53ebf0d2a303c64a620307e4b2dbbe2160c8",
+          "dimensione": 188
+        },
+        "risultato.json": {
+          "sha256": "5f9f6b8a60ab66714fe7cd4081be71a52d8825631c9e949674875067f163602c",
+          "dimensione": 669
+        },
+        "semi_s12.log": {
+          "sha256": "8d9c6ecbbcd5cb0251408811adda76ad9a8c52720c08a9ed4c2c89c25680ebfb",
+          "dimensione": 86
+        },
+        "smoke_pacchetto_python.log": {
+          "sha256": "dfe5b15fed2bc8825405866f7ba70a78d2774b7af98438df07b491232c93adee",
+          "dimensione": 1589
+        },
+        "sonde_action_pins.log": {
+          "sha256": "bf1d8186df2d63ab6beb6c5dbd7841764bfe6ec831b9b94b3acbe5cbc71d83a5",
+          "dimensione": 115
+        },
+        "sonde_assurance_n1.log": {
+          "sha256": "806c8d9ed3afc478e11dfb5d66f0d6b71b2a43b736f05c20a6ed6fbfcfee2e3b",
+          "dimensione": 124
+        },
+        "sonde_assurance_n1_prove.log": {
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "dimensione": 0
+        },
+        "sonde_audit_ignores.log": {
+          "sha256": "b6b7c0e573230813f60ba9e8b13cfa0055d93f4c9c1a8593b23aaaaae6de50dd",
+          "dimensione": 765
+        },
+        "sonde_buste_v2.log": {
+          "sha256": "c963ce945cc711268c5d52a4339605057e489e776065736a6a524d54abcfc5b6",
+          "dimensione": 131
+        },
+        "sonde_capability_ostile.log": {
+          "sha256": "a2f600c0273694e474bdea273d3036452b381d1879e9ae05028f0044a3ab39c7",
+          "dimensione": 121
+        },
+        "sonde_categorie_di_perdita.log": {
+          "sha256": "b1990c922287b73124a25eb89b4bf7d421e49c510663fbac7b39e8937dae61c0",
+          "dimensione": 118
+        },
+        "sonde_checkpoint.log": {
+          "sha256": "79cae44f3a62cfb3abbcaca06e3af75977937e3948c1430ed7c18eab12bfe690",
+          "dimensione": 4132
+        },
+        "sonde_commenti.log": {
+          "sha256": "3e5cb5e052a1c3fc065179b0508a819b9ba43247c6233c72e15ad8f3efa4b871",
+          "dimensione": 106
+        },
+        "sonde_conversioni.log": {
+          "sha256": "1b54e7bd3e4f0557cdf06d1076b6ef63ce21d6c17ecec62d2881ac93eafe1fed",
+          "dimensione": 112
+        },
+        "sonde_coverage_excl.log": {
+          "sha256": "435857b0702c990ceacd6438fe10a4e08fa6450046f64bf1e056a465d3f8987f",
+          "dimensione": 132
+        },
+        "sonde_dependency_pins.log": {
+          "sha256": "ff3b1438544d9aa2c552401f0123d54eac06b91b0295f3773671c14161e22544",
+          "dimensione": 113
+        },
+        "sonde_dimensione.log": {
+          "sha256": "86122612c0b4569c2456b243d3b33c1f90803a29fd51ef3609eba76204bbb078",
+          "dimensione": 110
+        },
+        "sonde_disposizione_prove.log": {
+          "sha256": "f7099095ce220672d978bc5cbfd1d904ca72bec00806a6b4a9f6e440fb16104d",
+          "dimensione": 112
+        },
+        "sonde_dist_completa.log": {
+          "sha256": "8b3ac0f2893a5ac8d45f56870a367c9bacdd420d69e2ca327a46c3242c882547",
+          "dimensione": 5307
+        },
+        "sonde_distribuzione.log": {
+          "sha256": "85ae78b6a6addfccf00db129ef465cc5271711d351424755b17b9b1fe1a0510a",
+          "dimensione": 143
+        },
+        "sonde_docset.log": {
+          "sha256": "442e803ce18f8f3bb856a1b5015a09b21db90620947ec65ef567791c85b8cf75",
+          "dimensione": 1816
+        },
+        "sonde_errori_redatti.log": {
+          "sha256": "ecb2481fe4fc37e099494fd2eac56322269cfb68a6d7b32b8bde0a57efe94e8a",
+          "dimensione": 116
+        },
+        "sonde_fallback.log": {
+          "sha256": "603db52fd0016ca5cdcf83b2588160ae92bde08c66ba4c61dfc8a2a74cdb95c9",
+          "dimensione": 107
+        },
+        "sonde_filegdb.log": {
+          "sha256": "40e6a3053d86436d6aa245501343227a2e81436f4f14da71a21257468605aff6",
+          "dimensione": 109
+        },
+        "sonde_finding_noti.log": {
+          "sha256": "3d3d69678d81d0e57769cfc336bf0130adf5148e9c658e144315fdc432e69a98",
+          "dimensione": 195
+        },
+        "sonde_fixture_canoniche.log": {
+          "sha256": "a403b031ca53505b1068c5c1262f30475f8ef294ae83636c47835f0a12e632af",
+          "dimensione": 110
+        },
+        "sonde_fork.log": {
+          "sha256": "a15cb4ffb74bf22d63103133af65aac1a9b59060d29da5b8fc02d3c16e6b4641",
+          "dimensione": 118
+        },
+        "sonde_fuzz_release.log": {
+          "sha256": "3c63f06dfb33726be5ed52a099ed9b3721864cf6b173121921588c101a1b3c11",
+          "dimensione": 348
+        },
+        "sonde_identita.log": {
+          "sha256": "d094b1bd2c8318c96097f80c50da282add5b2972970a77046de8db6c8935f6ca",
+          "dimensione": 102
+        },
+        "sonde_licenze.log": {
+          "sha256": "a928f19ab579e07fba1ef816b81a09736be5c78a20a86c96de79703b2d6edf94",
+          "dimensione": 129
+        },
+        "sonde_manifesto_adozione.log": {
+          "sha256": "7756e314e0b8e5b87615105c5838f86e412cb72efcb6236b1ad53b4924a7e5c5",
+          "dimensione": 134
+        },
+        "sonde_metadati_geoparquet.log": {
+          "sha256": "603db52fd0016ca5cdcf83b2588160ae92bde08c66ba4c61dfc8a2a74cdb95c9",
+          "dimensione": 107
+        },
+        "sonde_niente_leak.log": {
+          "sha256": "0fa6e9196f096183c02cc2acc9c66c1dc944647981973bb5cc84a89647a36d1e",
+          "dimensione": 113
+        },
+        "sonde_prevalidazione.log": {
+          "sha256": "be23c52c198958daaec4e79b26f3a0fc87c2184160a52a034e6040b00a3d2d97",
+          "dimensione": 112
+        },
+        "sonde_protocollo_v2.log": {
+          "sha256": "7c78b5c085904ad91795db8e578150e0bdd1dbdcf98f4be4bb48ff3b24f11a71",
+          "dimensione": 207
+        },
+        "sonde_quarantena.log": {
+          "sha256": "83166b089fbcb82fac63f22522fa6ae99bb5e46368cd35d756277fd463dd6346",
+          "dimensione": 105
+        },
+        "sonde_quartetto.log": {
+          "sha256": "19ce4c3fe936ba5a289b545d890b7ffce48ced29d4b7b20a8c6b10a871321dd4",
+          "dimensione": 112
+        },
+        "sonde_registra_evidenza.log": {
+          "sha256": "73a7b18f05bda0ceb0b9d9552ee29762d5c0ab78b6fafd90437e95062fcc01d3",
+          "dimensione": 110
+        },
+        "sonde_release.log": {
+          "sha256": "4b3c378509db49bef4ee365eeeab7c3fe382c190d3a164ffe8cde90dbbb55f6c",
+          "dimensione": 429
+        },
+        "sonde_riuso_evidenze.log": {
+          "sha256": "55df81c03b1fc09a739803668e8b10b1a1cd87ac7e716666dddb1c968f87bb76",
+          "dimensione": 107
+        },
+        "sonde_sbom.log": {
+          "sha256": "89e3061f2e88ac374eafb90ddbcd2e2a9c9025514923aead858ca51dd658b3ae",
+          "dimensione": 127
+        },
+        "sonde_schemi_geoparquet.log": {
+          "sha256": "f9c9b96508d5d8d032a1241f56576269e0d89d09f9e37a0ccf7dbfb667312b21",
+          "dimensione": 131
+        },
+        "sonde_sdk_python.log": {
+          "sha256": "f42af97d793caed897d506b247f33c6f054e425d4f497c137e2218f45f1c3366",
+          "dimensione": 580
+        },
+        "sonde_semi_s12.log": {
+          "sha256": "f196bef0973ff999dcbcf679ca035393cbb4be84e582dd7f9d09005e1f656ac4",
+          "dimensione": 113
+        },
+        "sonde_soak.log": {
+          "sha256": "3af354abd6afd2f4f662a367159a8b8107385935ded6c8a2b929734becedb43c",
+          "dimensione": 111
+        },
+        "sonde_toolchain.log": {
+          "sha256": "4fff41be4a6dbfa29d7405da1be947a8a2427aee780073ed09f32acfc2288375",
+          "dimensione": 119
+        },
+        "sonde_verificatori_nativi.log": {
+          "sha256": "0257e863504c77457ade37289ea39d507a79c6de93acc0bf87fa530d2cf859bb",
+          "dimensione": 122
+        },
+        "sonde_wkb_condiviso.log": {
+          "sha256": "a6707d4eff38012da33ddc34bc6dc076a3b17151cfc9aef223c8790cbe64c3da",
+          "dimensione": 100
+        },
+        "sonde_wkb_limits.log": {
+          "sha256": "55df81c03b1fc09a739803668e8b10b1a1cd87ac7e716666dddb1c968f87bb76",
+          "dimensione": 107
+        },
+        "sonde_wrapper_campagna.log": {
+          "sha256": "cf209a12db0820a0ef44319bcb95fa87722bde198f8298bd00e625cfca99ddf0",
+          "dimensione": 126
+        },
+        "test.log": {
+          "sha256": "d0432b02eda639acc4aafeac4a154ada177f6d9b9176de38c68a35f04e919277",
+          "dimensione": 162366
+        },
+        "test_default.log": {
+          "sha256": "e44a7609b86b277a8e894e36faeb78afd042eb316f5956c854ffe18e815ae72c",
+          "dimensione": 146152
+        }
+      }
+    },
+    {
+      "tentativo": "l2-e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f-attempt-2",
+      "stato": "qualifica",
+      "nota": "110/110; unica corsa usata per le misure della presente evidenza.",
+      "percorso": "target/rel1000/l2-e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f-attempt-2",
+      "esito_registrato": "superato",
+      "passi_registrati": 110,
+      "verdi_registrati": 110,
+      "fonti": {
+        "assurance_fallbacks.log": {
+          "sha256": "ea6ee09d309ea1f212953a91d995e5450b2cebd2af2e71065a05fa545a3404bb",
+          "dimensione": 35
+        },
+        "assurance_n1_integrita.log": {
+          "sha256": "38a2c5bc508cb3ab3189eaaf9145f317b8edbba191ef96110e2986ddffff8fce",
+          "dimensione": 218
+        },
+        "assurance_n1_prove.log": {
+          "sha256": "cc40a4307d568dceb9a897e456058870a9c78c142ec15f86ca99d1a31a0cbe14",
+          "dimensione": 106
+        },
+        "canale_privato.log": {
+          "sha256": "c9b04065a76f44d1fd8285af75f3135b3b6d17594a96bf7b752bedd86c1da1f5",
+          "dimensione": 172
+        },
+        "catalog.json": {
+          "sha256": "c48256ecac5de3ab10568b7c715ccf29fd08d4c0af4fa89bb8794488b188a149",
+          "dimensione": 18665
+        },
+        "check_action_pins.log": {
+          "sha256": "47d5aa2ef9ef911e05cad35ebbb11cac8d927110b11af40225926251503f9eab",
+          "dimensione": 73
+        },
+        "check_buste_v2.log": {
+          "sha256": "bca7558d24508e4d57d9e71619c60d19c4add5107e35f1e14198d237200f694d",
+          "dimensione": 79
+        },
+        "check_capability_ostile.log": {
+          "sha256": "7fc1807b9dd03f681f5129090a626d0fad33fc13264a9988a55dfae5403b9d34",
+          "dimensione": 432
+        },
+        "check_categorie_di_perdita.log": {
+          "sha256": "1785baeef32146803a1949bf4059eaaf6c4507cda7bd83059c09584d03768a72",
+          "dimensione": 226
+        },
+        "check_commenti.log": {
+          "sha256": "c3dad27601b2af87597396388e0231c9129c7b0dac71f4f66d6924cd9d706ce1",
+          "dimensione": 122
+        },
+        "check_conversioni.log": {
+          "sha256": "724de969e2f07aa222ed26b6af99b21314717d34a3abd83ae0c3ef3c4f4d42da",
+          "dimensione": 356
+        },
+        "check_coverage_exclusions.log": {
+          "sha256": "311d8d1e1af5d5357c18b81cdad32f90b91ff78b9d828688063d467fd66fc7c2",
+          "dimensione": 476
+        },
+        "check_dependency_pins.log": {
+          "sha256": "a49fe9259cf69de163d6df380a20c92667ab5e393a7cbae4ad328cf7a4725180",
+          "dimensione": 132
+        },
+        "check_dimensione.log": {
+          "sha256": "99e5e439466d40d629a76efeefe21edf9f71efc920b00165e5a36f40666c1847",
+          "dimensione": 160
+        },
+        "check_disposizione_prove.log": {
+          "sha256": "665847f68bb0a25814b581f0200748fa3fc14ca2f18523b652a61346b94d01a3",
+          "dimensione": 197
+        },
+        "check_docset.log": {
+          "sha256": "40553d480794053fe09168e3bb508ceead80296aa7c58f20394943249d796454",
+          "dimensione": 188
+        },
+        "check_dxf_fork.log": {
+          "sha256": "ef3621908e09146a767c0c6fdcd3a5ac806748a028590a3bfa8c78518c1e1e2a",
+          "dimensione": 113
+        },
+        "check_errori_redatti.log": {
+          "sha256": "89406aac6d31bdd30a87358fd057c14961bd8003ad5fb0bc41f6bf97a74dc7a4",
+          "dimensione": 272
+        },
+        "check_filegdb_catalog.log": {
+          "sha256": "48734bc0b3f577658b80445e60d070149f4f1655cb4105fa2dda4d6552a35b10",
+          "dimensione": 197
+        },
+        "check_fixture_canoniche.log": {
+          "sha256": "f7a0e50394e1ab92b1adf856b161aae88ab196c77c658bbfea2c3c8b4e91a483",
+          "dimensione": 71
+        },
+        "check_gdal_fork.log": {
+          "sha256": "bb57432bcca496813fbbb490e1f03b014dca16627ced3dc597ff33c23ca7a393",
+          "dimensione": 116
+        },
+        "check_identita.log": {
+          "sha256": "e53f83ba1b8181121e3533caf041672945991bcc2045ece5f078316cb66ff02b",
+          "dimensione": 62
+        },
+        "check_manifesto_adozione.log": {
+          "sha256": "50139a4a1457b3af458f1145df02a26c5a529d6b5bfecbb7f38c312b93e78e6b",
+          "dimensione": 187
+        },
+        "check_metadati_geoparquet.log": {
+          "sha256": "dad01d50c3fbd320de2ffc146db92fa370f0076cfaf58a67f9cbaa8bafc9e553",
+          "dimensione": 323
+        },
+        "check_niente_leak.log": {
+          "sha256": "0be5cf08693152c3b7c8644c3c89d10f0ff74c54d5cab13313dacdff44e11dae",
+          "dimensione": 88
+        },
+        "check_no_legacy_budget.log": {
+          "sha256": "c1ae5980ff49d62559f6e9fd6ed93cb6d7790ce160209ef328ecb6712ff2b447",
+          "dimensione": 41
+        },
+        "check_permit_boundary.log": {
+          "sha256": "727ffdcc7cc91e422d38d5e91811ffa1dc2b56b914e3e99c91c1ca4ed97c846f",
+          "dimensione": 119
+        },
+        "check_prevalidazione.log": {
+          "sha256": "516c09da122da804468559e6a3614ec7c7f2362314c93822439785f57d6ae141",
+          "dimensione": 515
+        },
+        "check_protocollo_v2.log": {
+          "sha256": "e272abdc95be285e318a16d1939c7d53da747233949069a34737666783eacf70",
+          "dimensione": 389
+        },
+        "check_quarantena.log": {
+          "sha256": "625468389385490627ba011d3c87d7bcb048626e5a7ed8b0c47d0afb7a10a4d9",
+          "dimensione": 70
+        },
+        "check_quartetto.log": {
+          "sha256": "27976cb68a7f6d55c4e7c02f040d04cfa0f09933cae643c7187245ab4090d0fa",
+          "dimensione": 44
+        },
+        "check_release.log": {
+          "sha256": "b415695b45fd8b6656daf97a1d156f48f057241a61c45a29ca8ad21ccd937616",
+          "dimensione": 1588
+        },
+        "check_requires_python.log": {
+          "sha256": "2bcac650e0f92163e921fd3266db4a640e253c8e71208cac7dda9bf029bd8abb",
+          "dimensione": 50
+        },
+        "check_riuso_evidenze.log": {
+          "sha256": "f900115626775206de65635dc53478069bf026bab300ddbf4400c239ea1a3f08",
+          "dimensione": 155
+        },
+        "check_schemi_geoparquet.log": {
+          "sha256": "3039bea965eb1c095932e3a47e9dbbf227e83e936feb32aafbb1a76d38e9f7c8",
+          "dimensione": 657
+        },
+        "check_sdk_python.log": {
+          "sha256": "347da4b37589b8c731fd8ffdc836d9a3bbfc55edbbeca46cad3558296d5d54f8",
+          "dimensione": 176
+        },
+        "check_shapefile_fork.log": {
+          "sha256": "9383ceb425f47515941aa29a239249bafd127ac5ea896bdea5561ee220b7200d",
+          "dimensione": 125
+        },
+        "check_toolchain.log": {
+          "sha256": "69a688d270e58a8472becd834c429b7a4f81b94b7495256ae2ec4bcad3048e28",
+          "dimensione": 164
+        },
+        "check_wkb_limits.log": {
+          "sha256": "0b0d406a0a2f927c55cd2f51f7266e1a48339df4de52c6efaf631d7515decbf9",
+          "dimensione": 134
+        },
+        "clippy.log": {
+          "sha256": "dfbca0df7dc68ffbdb1edd45ed01259575ea675477b7b69977207df701c46973",
+          "dimensione": 7237
+        },
+        "clippy_default.log": {
+          "sha256": "1f59c01189429b858b285f4dcbe09a33620c1933e56a857a0c5a75e212701df1",
+          "dimensione": 1350
+        },
+        "clippy_sicurezza.log": {
+          "sha256": "c81ed77389c1d281c4f52afb5aa37d7761cbfd833da6e0013d331367ca281c5b",
+          "dimensione": 1343
+        },
+        "clippy_vendor.log": {
+          "sha256": "c35271e78322913f75765e553366e9413c02bc95cacd110eaf6971c9905dafcc",
+          "dimensione": 7237
+        },
+        "console.log": {
+          "sha256": "58b4b50ab66dd0d675684d1fb9e0b788bf9593283bf059c92e2ca4de41667b3e",
+          "dimensione": 37820
+        },
+        "corpus_condiviso.log": {
+          "sha256": "4b5a030a25e38be08662283c99d3fafe40bc48e4401f24f9861a8be47b153c13",
+          "dimensione": 42
+        },
+        "costruisci_pacchetto_python.log": {
+          "sha256": "abbe4d576c5a64fd8faef7d22faeda9a04f2c4e04239f26dad8dc926116e6195",
+          "dimensione": 332
+        },
+        "coverage_diff.log": {
+          "sha256": "f11e8d48abe7bbff4b4862a161f149624c81aa901e12d1dd93a146e1186f532b",
+          "dimensione": 31194
+        },
+        "coverage_diff_cli.log": {
+          "sha256": "8a6f7bd212a2c89381ca8b531321a0bc41a5340e9e1b622eb54d702b3b45cc69",
+          "dimensione": 834
+        },
+        "coverage_export.log": {
+          "sha256": "47533af0f948a7c0591480ce8e521d22631060fd8796ec3dc92d272707e801af",
+          "dimensione": 96
+        },
+        "coverage_export_cli.log": {
+          "sha256": "0f1fed31f8e989e2de872b3e05d8fd95315f32d3d91ee4f1a10291a5cad6bd2b",
+          "dimensione": 105
+        },
+        "coverage_misura.log": {
+          "sha256": "a016ae931b9dddef838efc7d013fcb35a6ff753b91a0ec4a45ef13ab46dc0d7f",
+          "dimensione": 159761
+        },
+        "coverage_pulizia.log": {
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "dimensione": 0
+        },
+        "coverage_report_cli_non_vuoto.log": {
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "dimensione": 0
+        },
+        "coverage_report_non_vuoto.log": {
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "dimensione": 0
+        },
+        "coverage_soglia_controprova.log": {
+          "sha256": "fd923548a333d9f22f6f8f2519961c620168e85e4eddfea1a3d9d60dc2bee2fe",
+          "dimensione": 21384
+        },
+        "coverage_soglia_dal_report.log": {
+          "sha256": "14991ca4029c3c1bcfea174ab5729a37b8492739d97507585bc1062102b929b1",
+          "dimensione": 69
+        },
+        "fmt.log": {
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "dimensione": 0
+        },
+        "fuzz-smoke-ultima.json": {
+          "sha256": "2ce604bc75cf679ef0fbd4a4fd6c45cc08891c0e55c08b68b4aacd9c1b47c6fa",
+          "dimensione": 98635
+        },
+        "fuzz_campagna_completa.log": {
+          "sha256": "0e4f0b57a7ac96114a18c4f270deb2fd70044f3953a5a2c49ccb449473b5e2ee",
+          "dimensione": 167
+        },
+        "fuzz_replay.log": {
+          "sha256": "47bd081f3532f61d9bb493c60a1039036cc58690249e30feb9a842cb3cbf80d9",
+          "dimensione": 55900
+        },
+        "fuzz_smoke.log": {
+          "sha256": "0e4f0b57a7ac96114a18c4f270deb2fd70044f3953a5a2c49ccb449473b5e2ee",
+          "dimensione": 167
+        },
+        "lcov-completo.info": {
+          "sha256": "a4f912182bb74035f152b25c0a66ad1f4fd8d2cfa953931d86b638325043e119",
+          "dimensione": 2368033
+        },
+        "lcov.info": {
+          "sha256": "93a21016c5e93a2f742bf7860558f1f33e80a35fbb98b3d16df81ea2405ec4e4",
+          "dimensione": 2324583
+        },
+        "pacchetto_python_riproducibile.log": {
+          "sha256": "c0de8b89f1f6db60629664c1aaa7819ce892e52cfd7d16c78e5b96df553eda0e",
+          "dimensione": 283
+        },
+        "prove_di_confine.log": {
+          "sha256": "c5940c13705c898c82789e260d4f53ebf0d2a303c64a620307e4b2dbbe2160c8",
+          "dimensione": 188
+        },
+        "risultato.json": {
+          "sha256": "b922d5e8d2165652de929752a911c200a2840ab7cb5ab5f06f9b26d5e1a57d16",
+          "dimensione": 10074
+        },
+        "semi_s12.log": {
+          "sha256": "8d9c6ecbbcd5cb0251408811adda76ad9a8c52720c08a9ed4c2c89c25680ebfb",
+          "dimensione": 86
+        },
+        "smoke_pacchetto_python.log": {
+          "sha256": "5fcaa7e29816fdc595b12b323f0b41e143bb01257f5bc7cc5689d9e5bf50dc02",
+          "dimensione": 1589
+        },
+        "sonde_action_pins.log": {
+          "sha256": "bf1d8186df2d63ab6beb6c5dbd7841764bfe6ec831b9b94b3acbe5cbc71d83a5",
+          "dimensione": 115
+        },
+        "sonde_assurance_n1.log": {
+          "sha256": "17ad9afb1b4ac5bcc26f8f2ac8d194c8bf9163a7d015e8295231312b5183d204",
+          "dimensione": 124
+        },
+        "sonde_assurance_n1_prove.log": {
+          "sha256": "7b7dc7b80a1526f8fbd83449d2a67622138309015a7ab0ae6c04e5a3b61eb1a8",
+          "dimensione": 122
+        },
+        "sonde_audit_ignores.log": {
+          "sha256": "b6b7c0e573230813f60ba9e8b13cfa0055d93f4c9c1a8593b23aaaaae6de50dd",
+          "dimensione": 765
+        },
+        "sonde_buste_v2.log": {
+          "sha256": "c2982255e0eacd6fcba7dbc604e483acc0eba266ad14d9144d775539cc2ddaa8",
+          "dimensione": 131
+        },
+        "sonde_capability_ostile.log": {
+          "sha256": "aa1fb95ee82243a9e465c03e4d0e54cef655eef66f955842e7db15590f9e63e9",
+          "dimensione": 121
+        },
+        "sonde_categorie_di_perdita.log": {
+          "sha256": "b9b4824f2735033f386102493dffbb5242f0f1828b9ad9d929a93a37050dbd90",
+          "dimensione": 118
+        },
+        "sonde_checkpoint.log": {
+          "sha256": "79cae44f3a62cfb3abbcaca06e3af75977937e3948c1430ed7c18eab12bfe690",
+          "dimensione": 4132
+        },
+        "sonde_commenti.log": {
+          "sha256": "9bce9c2c1a7d214160ea2c5d6ca98079cdb8189146dbca1754fb839ae0d52545",
+          "dimensione": 106
+        },
+        "sonde_conversioni.log": {
+          "sha256": "acfb09536560388410092c5cee079b9ee896afa337322fef4582c0abab99ae18",
+          "dimensione": 112
+        },
+        "sonde_coverage_excl.log": {
+          "sha256": "b8cc0821a57e5052be6cd9de5791de1c187816b343140cd2bc21ae943fa2cae8",
+          "dimensione": 132
+        },
+        "sonde_dependency_pins.log": {
+          "sha256": "0fa6e9196f096183c02cc2acc9c66c1dc944647981973bb5cc84a89647a36d1e",
+          "dimensione": 113
+        },
+        "sonde_dimensione.log": {
+          "sha256": "547187608dd56bf5c4200ea1ab22db7b6c8b3df384fe4b32d2c46a5e1642951b",
+          "dimensione": 110
+        },
+        "sonde_disposizione_prove.log": {
+          "sha256": "f85520c98939999ee69d5476007fbf5626190608f25b515f2260bbc1d23ef312",
+          "dimensione": 112
+        },
+        "sonde_dist_completa.log": {
+          "sha256": "3a66c64bfa98c90aa397d0f3651e01a6fcead6c170cb9c5387950a0b2bc107d3",
+          "dimensione": 5307
+        },
+        "sonde_distribuzione.log": {
+          "sha256": "cdd773a52875d0936c42f1e7246d7e4c3c2eea62e51138e05210b9e833879e04",
+          "dimensione": 143
+        },
+        "sonde_docset.log": {
+          "sha256": "8fd66c5d0de4746c6f22ef94832475d098f13a55991bbce20ca675729ede1325",
+          "dimensione": 489
+        },
+        "sonde_errori_redatti.log": {
+          "sha256": "b45cdc1a639291fb5ed5a9855bbc7652459ddd7595d2df36572d5495ffc63735",
+          "dimensione": 116
+        },
+        "sonde_fallback.log": {
+          "sha256": "55df81c03b1fc09a739803668e8b10b1a1cd87ac7e716666dddb1c968f87bb76",
+          "dimensione": 107
+        },
+        "sonde_filegdb.log": {
+          "sha256": "40e6a3053d86436d6aa245501343227a2e81436f4f14da71a21257468605aff6",
+          "dimensione": 109
+        },
+        "sonde_finding_noti.log": {
+          "sha256": "07547f1aafacfd1ca31e8aab16a36dd705864ba62132e018b885b2b918f19100",
+          "dimensione": 195
+        },
+        "sonde_fixture_canoniche.log": {
+          "sha256": "57256a13cfbd13539b3f6c3a9bd6c4cd9c1a8f25a390d6295b563a1d8a31853d",
+          "dimensione": 110
+        },
+        "sonde_fork.log": {
+          "sha256": "6758e3fdb851a55487b533b7ec7d193ebbaa29d2dcb1ad5d48f5377df7e7aafc",
+          "dimensione": 118
+        },
+        "sonde_fuzz_release.log": {
+          "sha256": "a8818789002fad1b3a974b04baaa84197d617524cd01d1607b1242371fae2b4a",
+          "dimensione": 348
+        },
+        "sonde_identita.log": {
+          "sha256": "d094b1bd2c8318c96097f80c50da282add5b2972970a77046de8db6c8935f6ca",
+          "dimensione": 102
+        },
+        "sonde_licenze.log": {
+          "sha256": "c0583f1f3e219630285c3872a0a336fb6b439e0f48a2f2843e922e65a7f89cb7",
+          "dimensione": 129
+        },
+        "sonde_manifesto_adozione.log": {
+          "sha256": "1ee2e1fe5178fcf580c486ddf69279744e595d54c6e2126af028d003491a0c53",
+          "dimensione": 134
+        },
+        "sonde_metadati_geoparquet.log": {
+          "sha256": "55df81c03b1fc09a739803668e8b10b1a1cd87ac7e716666dddb1c968f87bb76",
+          "dimensione": 107
+        },
+        "sonde_niente_leak.log": {
+          "sha256": "62e6bd3a77554540929dd26eab6204ab86056dc07bacce00a71e4482e9f4bcb8",
+          "dimensione": 113
+        },
+        "sonde_prevalidazione.log": {
+          "sha256": "cfb3954a5cd76fdf1976bc45a636e7b872b25b55888370e312f0dbc5c3066975",
+          "dimensione": 112
+        },
+        "sonde_protocollo_v2.log": {
+          "sha256": "ca2fb267574c69f774a9b5aaf487c510dfd4fdfeae7531bf52035947e7c48534",
+          "dimensione": 207
+        },
+        "sonde_quarantena.log": {
+          "sha256": "83166b089fbcb82fac63f22522fa6ae99bb5e46368cd35d756277fd463dd6346",
+          "dimensione": 105
+        },
+        "sonde_quartetto.log": {
+          "sha256": "46c74e95e49409273cff5b0d474bb3f780e57977a4af5da2071b99cd4731838f",
+          "dimensione": 112
+        },
+        "sonde_registra_evidenza.log": {
+          "sha256": "8a3e7cf00bf5ccc05e62643ed69dd3d821ab38df0f9d9de0e6a7fc7fb2cd8f82",
+          "dimensione": 110
+        },
+        "sonde_release.log": {
+          "sha256": "98a249f54cda63cf64be3c9fada88ead91a04200d244bf46db314cb570881b81",
+          "dimensione": 429
+        },
+        "sonde_riuso_evidenze.log": {
+          "sha256": "5f0635b83af38a6c5d516fcb60dc3fa63c9c6ca4854e51a6a29ca33c92ccef16",
+          "dimensione": 107
+        },
+        "sonde_sbom.log": {
+          "sha256": "2721b9c51286aaacfc5fa05b17afe3e508247e984d7ed50eb6cc6501b80ab01e",
+          "dimensione": 127
+        },
+        "sonde_schemi_geoparquet.log": {
+          "sha256": "66ad556cc307a7794071d6410ecd60e29111b73e53e9c53d11c50013a9d79b01",
+          "dimensione": 131
+        },
+        "sonde_sdk_python.log": {
+          "sha256": "9cd44ea8b483e7989b2987649c48b8c45ad8cae1704c475abec87f32e9dc18cb",
+          "dimensione": 580
+        },
+        "sonde_semi_s12.log": {
+          "sha256": "c9811dcd7d51683ba5e61910b5aa26e91e8766a287b6a6f52a04bac8ac9f3a3d",
+          "dimensione": 113
+        },
+        "sonde_soak.log": {
+          "sha256": "ddbc5bf15c26bf2c15a86c04aa1c4eb9dbb31a4d245c800b95a5282be426a476",
+          "dimensione": 111
+        },
+        "sonde_toolchain.log": {
+          "sha256": "2dfc52c2ecd3d9207cf921c9c2597d0ceb4802d7ba9a98a319755dfd4342fcf7",
+          "dimensione": 119
+        },
+        "sonde_verificatori_nativi.log": {
+          "sha256": "768bc541c282fbb67f99826331ad10000da1df0eaf608bd554c1db9f2b2d0cf7",
+          "dimensione": 122
+        },
+        "sonde_wkb_condiviso.log": {
+          "sha256": "a6707d4eff38012da33ddc34bc6dc076a3b17151cfc9aef223c8790cbe64c3da",
+          "dimensione": 100
+        },
+        "sonde_wkb_limits.log": {
+          "sha256": "5f0635b83af38a6c5d516fcb60dc3fa63c9c6ca4854e51a6a29ca33c92ccef16",
+          "dimensione": 107
+        },
+        "sonde_wrapper_campagna.log": {
+          "sha256": "cf6b5e125ade55b17157ea4f17748f5c5efe4731aa5c92e758b2c1fa347770b2",
+          "dimensione": 126
+        },
+        "test.log": {
+          "sha256": "19e45b39daf03c5deebf64d7837a13d1c108830879f6e2e2ec416ddc27535ad8",
+          "dimensione": 162366
+        },
+        "test_default.log": {
+          "sha256": "6c7d779a791f99bdfeb33b6bf104fcbad7bc2dca5d9b58f5337697c0f74a371e",
+          "dimensione": 146153
+        }
+      }
+    }
+  ],
+  "provenienza_della_corsa": {
+    "copia_locale": "target/rel1000/l2-e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f-attempt-2",
+    "copia_per_il_registratore": "target/rel1000/registrazione/corsa-contratto",
+    "nota": "Tutti e tre i tentativi dichiarati nel registro_dei_tentativi con digest di ogni file. Formato gia supportato dal giudizio libero del registratore; nessuna modifica allo script. Copia byte per byte dei file di passo; console.log separato come nel precedente edb482d per il gate congelato.",
+    "fonti_esterne_al_manifest": {
+      "console.log": {
+        "percorso": "target/rel1000/l2-e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f-attempt-2/console.log",
+        "sha256": "58b4b50ab66dd0d675684d1fb9e0b788bf9593283bf059c92e2ca4de41667b3e"
+      }
+    }
+  },
+  "corsa": {
+    "revisione_iniziale": "e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f",
+    "revisione_finale": "e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f",
+    "impronta_iniziale": "3ef0f10e2187fe1b3c7c91224f4abb3fefe51dbf442ad7f67918f74118e91bbd",
+    "impronta_finale": "3ef0f10e2187fe1b3c7c91224f4abb3fefe51dbf442ad7f67918f74118e91bbd",
+    "albero_all_avvio": "pulito: 0 file sporchi.",
+    "registro_dei_passi": "assurance/registries/passi-del-checkpoint.json",
+    "percorso_dei_log": "target\\rel1000\\registrazione\\corsa-contratto"
+  },
+  "riconciliazione": {
+    "identificatori_distinti": 110,
+    "eseguiti": 110,
+    "eseguiti_dichiarati_dalla_corsa": 110,
+    "verdi": 110,
+    "omessi": 0,
+    "falliti": 0,
+    "duplicati": 0,
+    "metodo": "i conteggi sono **derivati** dall'elenco dei passi che la corsa ha registrato in `risultato.json`, non contati a mano dal sommario a schermo",
+    "insieme_dichiarato": "assurance/registries/passi-del-checkpoint.json",
+    "passi": [
+      {
+        "id": "sonde_checkpoint",
+        "esito": "verde",
+        "log": "sonde_checkpoint.log"
+      },
+      {
+        "id": "fmt",
+        "esito": "verde",
+        "log": "fmt.log"
+      },
+      {
+        "id": "clippy",
+        "esito": "verde",
+        "log": "clippy.log"
+      },
+      {
+        "id": "clippy_vendor",
+        "esito": "verde",
+        "log": "clippy_vendor.log"
+      },
+      {
+        "id": "clippy_sicurezza",
+        "esito": "verde",
+        "log": "clippy_sicurezza.log"
+      },
+      {
+        "id": "clippy_default",
+        "esito": "verde",
+        "log": "clippy_default.log"
+      },
+      {
+        "id": "test",
+        "esito": "verde",
+        "log": "test.log"
+      },
+      {
+        "id": "test_default",
+        "esito": "verde",
+        "log": "test_default.log"
+      },
+      {
+        "id": "sonde_quartetto",
+        "esito": "verde",
+        "log": "sonde_quartetto.log"
+      },
+      {
+        "id": "check_quartetto",
+        "esito": "verde",
+        "log": "check_quartetto.log"
+      },
+      {
+        "id": "sonde_errori_redatti",
+        "esito": "verde",
+        "log": "sonde_errori_redatti.log"
+      },
+      {
+        "id": "check_errori_redatti",
+        "esito": "verde",
+        "log": "check_errori_redatti.log"
+      },
+      {
+        "id": "sonde_niente_leak",
+        "esito": "verde",
+        "log": "sonde_niente_leak.log"
+      },
+      {
+        "id": "check_niente_leak",
+        "esito": "verde",
+        "log": "check_niente_leak.log"
+      },
+      {
+        "id": "sonde_wkb_limits",
+        "esito": "verde",
+        "log": "sonde_wkb_limits.log"
+      },
+      {
+        "id": "check_wkb_limits",
+        "esito": "verde",
+        "log": "check_wkb_limits.log"
+      },
+      {
+        "id": "sonde_capability_ostile",
+        "esito": "verde",
+        "log": "sonde_capability_ostile.log"
+      },
+      {
+        "id": "check_capability_ostile",
+        "esito": "verde",
+        "log": "check_capability_ostile.log"
+      },
+      {
+        "id": "prove_di_confine",
+        "esito": "verde",
+        "log": "prove_di_confine.log"
+      },
+      {
+        "id": "sonde_semi_s12",
+        "esito": "verde",
+        "log": "sonde_semi_s12.log"
+      },
+      {
+        "id": "semi_s12",
+        "esito": "verde",
+        "log": "semi_s12.log"
+      },
+      {
+        "id": "sonde_metadati_geoparquet",
+        "esito": "verde",
+        "log": "sonde_metadati_geoparquet.log"
+      },
+      {
+        "id": "check_metadati_geoparquet",
+        "esito": "verde",
+        "log": "check_metadati_geoparquet.log"
+      },
+      {
+        "id": "sonde_schemi_geoparquet",
+        "esito": "verde",
+        "log": "sonde_schemi_geoparquet.log"
+      },
+      {
+        "id": "check_schemi_geoparquet",
+        "esito": "verde",
+        "log": "check_schemi_geoparquet.log"
+      },
+      {
+        "id": "sonde_conversioni",
+        "esito": "verde",
+        "log": "sonde_conversioni.log"
+      },
+      {
+        "id": "check_conversioni",
+        "esito": "verde",
+        "log": "check_conversioni.log"
+      },
+      {
+        "id": "sonde_fixture_canoniche",
+        "esito": "verde",
+        "log": "sonde_fixture_canoniche.log"
+      },
+      {
+        "id": "check_fixture_canoniche",
+        "esito": "verde",
+        "log": "check_fixture_canoniche.log"
+      },
+      {
+        "id": "sonde_categorie_di_perdita",
+        "esito": "verde",
+        "log": "sonde_categorie_di_perdita.log"
+      },
+      {
+        "id": "check_categorie_di_perdita",
+        "esito": "verde",
+        "log": "check_categorie_di_perdita.log"
+      },
+      {
+        "id": "sonde_protocollo_v2",
+        "esito": "verde",
+        "log": "sonde_protocollo_v2.log"
+      },
+      {
+        "id": "check_protocollo_v2",
+        "esito": "verde",
+        "log": "check_protocollo_v2.log"
+      },
+      {
+        "id": "sonde_buste_v2",
+        "esito": "verde",
+        "log": "sonde_buste_v2.log"
+      },
+      {
+        "id": "check_buste_v2",
+        "esito": "verde",
+        "log": "check_buste_v2.log"
+      },
+      {
+        "id": "sonde_sdk_python",
+        "esito": "verde",
+        "log": "sonde_sdk_python.log"
+      },
+      {
+        "id": "check_sdk_python",
+        "esito": "verde",
+        "log": "check_sdk_python.log"
+      },
+      {
+        "id": "costruisci_pacchetto_python",
+        "esito": "verde",
+        "log": "costruisci_pacchetto_python.log"
+      },
+      {
+        "id": "pacchetto_python_riproducibile",
+        "esito": "verde",
+        "log": "pacchetto_python_riproducibile.log"
+      },
+      {
+        "id": "smoke_pacchetto_python",
+        "esito": "verde",
+        "log": "smoke_pacchetto_python.log"
+      },
+      {
+        "id": "canale_privato",
+        "esito": "verde",
+        "log": "canale_privato.log"
+      },
+      {
+        "id": "check_requires_python",
+        "esito": "verde",
+        "log": "check_requires_python.log"
+      },
+      {
+        "id": "sonde_quarantena",
+        "esito": "verde",
+        "log": "sonde_quarantena.log"
+      },
+      {
+        "id": "check_quarantena",
+        "esito": "verde",
+        "log": "check_quarantena.log"
+      },
+      {
+        "id": "sonde_finding_noti",
+        "esito": "verde",
+        "log": "sonde_finding_noti.log"
+      },
+      {
+        "id": "sonde_wrapper_campagna",
+        "esito": "verde",
+        "log": "sonde_wrapper_campagna.log"
+      },
+      {
+        "id": "sonde_riuso_evidenze",
+        "esito": "verde",
+        "log": "sonde_riuso_evidenze.log"
+      },
+      {
+        "id": "check_riuso_evidenze",
+        "esito": "verde",
+        "log": "check_riuso_evidenze.log"
+      },
+      {
+        "id": "sonde_registra_evidenza",
+        "esito": "verde",
+        "log": "sonde_registra_evidenza.log"
+      },
+      {
+        "id": "sonde_soak",
+        "esito": "verde",
+        "log": "sonde_soak.log"
+      },
+      {
+        "id": "sonde_fuzz_release",
+        "esito": "verde",
+        "log": "sonde_fuzz_release.log"
+      },
+      {
+        "id": "sonde_prevalidazione",
+        "esito": "verde",
+        "log": "sonde_prevalidazione.log"
+      },
+      {
+        "id": "check_prevalidazione",
+        "esito": "verde",
+        "log": "check_prevalidazione.log"
+      },
+      {
+        "id": "sonde_identita",
+        "esito": "verde",
+        "log": "sonde_identita.log"
+      },
+      {
+        "id": "check_identita",
+        "esito": "verde",
+        "log": "check_identita.log"
+      },
+      {
+        "id": "sonde_release",
+        "esito": "verde",
+        "log": "sonde_release.log"
+      },
+      {
+        "id": "check_release",
+        "esito": "verde",
+        "log": "check_release.log"
+      },
+      {
+        "id": "sonde_distribuzione",
+        "esito": "verde",
+        "log": "sonde_distribuzione.log"
+      },
+      {
+        "id": "sonde_licenze",
+        "esito": "verde",
+        "log": "sonde_licenze.log"
+      },
+      {
+        "id": "sonde_dist_completa",
+        "esito": "verde",
+        "log": "sonde_dist_completa.log"
+      },
+      {
+        "id": "sonde_verificatori_nativi",
+        "esito": "verde",
+        "log": "sonde_verificatori_nativi.log"
+      },
+      {
+        "id": "sonde_sbom",
+        "esito": "verde",
+        "log": "sonde_sbom.log"
+      },
+      {
+        "id": "sonde_action_pins",
+        "esito": "verde",
+        "log": "sonde_action_pins.log"
+      },
+      {
+        "id": "check_action_pins",
+        "esito": "verde",
+        "log": "check_action_pins.log"
+      },
+      {
+        "id": "sonde_toolchain",
+        "esito": "verde",
+        "log": "sonde_toolchain.log"
+      },
+      {
+        "id": "check_toolchain",
+        "esito": "verde",
+        "log": "check_toolchain.log"
+      },
+      {
+        "id": "sonde_coverage_excl",
+        "esito": "verde",
+        "log": "sonde_coverage_excl.log"
+      },
+      {
+        "id": "sonde_filegdb",
+        "esito": "verde",
+        "log": "sonde_filegdb.log"
+      },
+      {
+        "id": "sonde_wkb_condiviso",
+        "esito": "verde",
+        "log": "sonde_wkb_condiviso.log"
+      },
+      {
+        "id": "corpus_condiviso",
+        "esito": "verde",
+        "log": "corpus_condiviso.log"
+      },
+      {
+        "id": "sonde_audit_ignores",
+        "esito": "verde",
+        "log": "sonde_audit_ignores.log"
+      },
+      {
+        "id": "sonde_dependency_pins",
+        "esito": "verde",
+        "log": "sonde_dependency_pins.log"
+      },
+      {
+        "id": "check_dependency_pins",
+        "esito": "verde",
+        "log": "check_dependency_pins.log"
+      },
+      {
+        "id": "check_gdal_fork",
+        "esito": "verde",
+        "log": "check_gdal_fork.log"
+      },
+      {
+        "id": "sonde_fork",
+        "esito": "verde",
+        "log": "sonde_fork.log"
+      },
+      {
+        "id": "check_dxf_fork",
+        "esito": "verde",
+        "log": "check_dxf_fork.log"
+      },
+      {
+        "id": "check_shapefile_fork",
+        "esito": "verde",
+        "log": "check_shapefile_fork.log"
+      },
+      {
+        "id": "check_no_legacy_budget",
+        "esito": "verde",
+        "log": "check_no_legacy_budget.log"
+      },
+      {
+        "id": "check_permit_boundary",
+        "esito": "verde",
+        "log": "check_permit_boundary.log"
+      },
+      {
+        "id": "sonde_fallback",
+        "esito": "verde",
+        "log": "sonde_fallback.log"
+      },
+      {
+        "id": "assurance_fallbacks",
+        "esito": "verde",
+        "log": "assurance_fallbacks.log"
+      },
+      {
+        "id": "sonde_docset",
+        "esito": "verde",
+        "log": "sonde_docset.log"
+      },
+      {
+        "id": "check_docset",
+        "esito": "verde",
+        "log": "check_docset.log"
+      },
+      {
+        "id": "sonde_manifesto_adozione",
+        "esito": "verde",
+        "log": "sonde_manifesto_adozione.log"
+      },
+      {
+        "id": "check_manifesto_adozione",
+        "esito": "verde",
+        "log": "check_manifesto_adozione.log"
+      },
+      {
+        "id": "sonde_commenti",
+        "esito": "verde",
+        "log": "sonde_commenti.log"
+      },
+      {
+        "id": "check_commenti",
+        "esito": "verde",
+        "log": "check_commenti.log"
+      },
+      {
+        "id": "sonde_disposizione_prove",
+        "esito": "verde",
+        "log": "sonde_disposizione_prove.log"
+      },
+      {
+        "id": "check_disposizione_prove",
+        "esito": "verde",
+        "log": "check_disposizione_prove.log"
+      },
+      {
+        "id": "sonde_dimensione",
+        "esito": "verde",
+        "log": "sonde_dimensione.log"
+      },
+      {
+        "id": "check_dimensione",
+        "esito": "verde",
+        "log": "check_dimensione.log"
+      },
+      {
+        "id": "sonde_assurance_n1",
+        "esito": "verde",
+        "log": "sonde_assurance_n1.log"
+      },
+      {
+        "id": "assurance_n1_integrita",
+        "esito": "verde",
+        "log": "assurance_n1_integrita.log"
+      },
+      {
+        "id": "sonde_assurance_n1_prove",
+        "esito": "verde",
+        "log": "sonde_assurance_n1_prove.log"
+      },
+      {
+        "id": "assurance_n1_prove",
+        "esito": "verde",
+        "log": "assurance_n1_prove.log"
+      },
+      {
+        "id": "check_filegdb_catalog",
+        "esito": "verde",
+        "log": "check_filegdb_catalog.log"
+      },
+      {
+        "id": "fuzz_replay",
+        "esito": "verde",
+        "log": "fuzz_replay.log"
+      },
+      {
+        "id": "fuzz_smoke",
+        "esito": "verde",
+        "log": "fuzz_smoke.log"
+      },
+      {
+        "id": "fuzz_campagna_completa",
+        "esito": "verde",
+        "log": "fuzz_campagna_completa.log"
+      },
+      {
+        "id": "coverage_pulizia",
+        "esito": "verde",
+        "log": "coverage_pulizia.log"
+      },
+      {
+        "id": "coverage_misura",
+        "esito": "verde",
+        "log": "coverage_misura.log"
+      },
+      {
+        "id": "coverage_export",
+        "esito": "verde",
+        "log": "coverage_export.log"
+      },
+      {
+        "id": "coverage_report_non_vuoto",
+        "esito": "verde",
+        "log": "coverage_report_non_vuoto.log"
+      },
+      {
+        "id": "check_coverage_exclusions",
+        "esito": "verde",
+        "log": "check_coverage_exclusions.log"
+      },
+      {
+        "id": "coverage_export_cli",
+        "esito": "verde",
+        "log": "coverage_export_cli.log"
+      },
+      {
+        "id": "coverage_report_cli_non_vuoto",
+        "esito": "verde",
+        "log": "coverage_report_cli_non_vuoto.log"
+      },
+      {
+        "id": "coverage_soglia_dal_report",
+        "esito": "verde",
+        "log": "coverage_soglia_dal_report.log"
+      },
+      {
+        "id": "coverage_soglia_controprova",
+        "esito": "verde",
+        "log": "coverage_soglia_controprova.log"
+      },
+      {
+        "id": "revisione_invariata",
+        "esito": "verde",
+        "log": null
+      },
+      {
+        "id": "albero_invariato",
+        "esito": "verde",
+        "log": null
+      }
+    ]
+  },
+  "misure": {
+    "fuzz_replay": {
+      "input": 208,
+      "target": 15,
+      "crash": 0,
+      "quando": "dentro il checkpoint, passo `fuzz_replay`",
+      "target_totali": 15
+    },
+    "fuzz_smoke": {
+      "target_eseguiti": 15,
+      "finding": 0,
+      "quarantena": 0,
+      "quando": "verifica della ricevuta fuzz_replay; nessuna seconda campagna",
+      "target_totali": 15,
+      "policy": "io-9-replay-v1"
+    },
+    "copertura": {
+      "lcov_percentuale": 90.02,
+      "lcov_righe_coperte": 37191,
+      "lcov_righe_strumentate": 41313,
+      "cargo_lines_percentuale": 87.9,
+      "soglia": 80.0,
+      "misurata_con": "cargo llvm-cov --workspace --all-targets --all-features --locked --no-report; proiezione di libreria con esclusioni dello script congelato.",
+      "nota": "LCOV e sommario cargo contano insiemi diversi dello stesso profdata."
+    },
+    "diagnostica_differenziale": {
+      "base": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea",
+      "esito": "89.37%",
+      "righe_cambiate_eseguibili": 6707,
+      "coperte": 5994,
+      "scoperte": 713,
+      "cambiate_non_eseguibili": 15396,
+      "righe_scoperte": [
+        "crates/driver-common/src/csv_wire.rs:19",
+        "crates/driver-common/src/csv_wire.rs:20",
+        "crates/driver-common/src/csv_wire.rs:21",
+        "crates/driver-common/src/csv_wire.rs:39",
+        "crates/driver-common/src/filegdb_names.rs:44",
+        "crates/driver-common/src/filegdb_names.rs:105",
+        "crates/driver-common/src/lib.rs:985",
+        "crates/driver-common/src/prevalida_arrow.rs:302",
+        "crates/driver-common/src/structure.rs:22",
+        "crates/driver-common/src/structure.rs:107",
+        "crates/driver-common/src/structure.rs:108",
+        "crates/driver-common/src/structure.rs:109",
+        "crates/driver-common/src/structure.rs:121",
+        "crates/driver-common/src/structure.rs:166",
+        "crates/driver-common/src/structure.rs:188",
+        "crates/driver-common/src/structure.rs:189",
+        "crates/driver-common/src/structure.rs:190",
+        "crates/driver-common/src/structure.rs:191",
+        "crates/driver-common/src/structure.rs:192",
+        "crates/driver-common/src/structure.rs:219",
+        "crates/driver-common/src/structure.rs:258",
+        "crates/driver-common/src/structure.rs:329",
+        "crates/driver-common/src/structure.rs:395",
+        "crates/driver-common/src/structure.rs:421",
+        "crates/driver-common/src/structure.rs:422",
+        "crates/driver-common/src/structure.rs:423",
+        "crates/driver-common/src/structure.rs:459",
+        "crates/driver-csv/src/lib.rs:82",
+        "crates/driver-csv/src/lib.rs:83",
+        "crates/driver-csv/src/lib.rs:84",
+        "crates/driver-csv/src/lib.rs:85",
+        "crates/driver-csv/src/lib.rs:322",
+        "crates/driver-csv/src/lib.rs:323",
+        "crates/driver-csv/src/lib.rs:324",
+        "crates/driver-csv/src/lib.rs:325",
+        "crates/driver-csv/src/lib.rs:326",
+        "crates/driver-csv/src/lib.rs:401",
+        "crates/driver-csv/src/lib.rs:402",
+        "crates/driver-csv/src/lib.rs:403",
+        "crates/driver-csv/src/lib.rs:404",
+        "crates/driver-csv/src/lib.rs:430",
+        "crates/driver-csv/src/lib.rs:431",
+        "crates/driver-csv/src/lib.rs:432",
+        "crates/driver-csv/src/lib.rs:433",
+        "crates/driver-csv/src/lib.rs:447",
+        "crates/driver-csv/src/lib.rs:448",
+        "crates/driver-csv/src/lib.rs:449",
+        "crates/driver-csv/src/lib.rs:450",
+        "crates/driver-csv/src/lib.rs:619",
+        "crates/driver-csv/src/lib.rs:671",
+        "crates/driver-csv/src/lib.rs:799",
+        "crates/driver-csv/src/lib.rs:800",
+        "crates/driver-csv/src/lib.rs:801",
+        "crates/driver-csv/src/lib.rs:802",
+        "crates/driver-csv/src/lib.rs:845",
+        "crates/driver-csv/src/lib.rs:846",
+        "crates/driver-csv/src/lib.rs:847",
+        "crates/driver-csv/src/lib.rs:848",
+        "crates/driver-csv/src/lib.rs:935",
+        "crates/driver-csv/src/lib.rs:936",
+        "crates/driver-csv/src/lib.rs:937",
+        "crates/driver-csv/src/lib.rs:938",
+        "crates/driver-csv/src/lib.rs:1255",
+        "crates/driver-dxf/src/lib.rs:591",
+        "crates/driver-dxf/src/lib.rs:593",
+        "crates/driver-dxf/src/lib.rs:594",
+        "crates/driver-dxf/src/lib.rs:605",
+        "crates/driver-dxf/src/lib.rs:606",
+        "crates/driver-dxf/src/lib.rs:607",
+        "crates/driver-dxf/src/lib.rs:608",
+        "crates/driver-dxf/src/lib.rs:634",
+        "crates/driver-dxf/src/lib.rs:635",
+        "crates/driver-dxf/src/lib.rs:636",
+        "crates/driver-dxf/src/lib.rs:640",
+        "crates/driver-dxf/src/lib.rs:648",
+        "crates/driver-dxf/src/lib.rs:842",
+        "crates/driver-dxf/src/lib.rs:849",
+        "crates/driver-dxf/src/lib.rs:894",
+        "crates/driver-dxf/src/lib.rs:897",
+        "crates/driver-dxf/src/lib.rs:908",
+        "crates/driver-dxf/src/lib.rs:909",
+        "crates/driver-dxf/src/lib.rs:1051",
+        "crates/driver-dxf/src/lib.rs:1056",
+        "crates/driver-dxf/src/lib.rs:1068",
+        "crates/driver-dxf/src/lib.rs:1106",
+        "crates/driver-dxf/src/lib.rs:1108",
+        "crates/driver-dxf/src/lib.rs:1110",
+        "crates/driver-dxf/src/lib.rs:1400",
+        "crates/driver-dxf/src/lib.rs:1401",
+        "crates/driver-dxf/src/lib.rs:1456",
+        "crates/driver-dxf/src/lib.rs:1457",
+        "crates/driver-dxf/src/lib.rs:1683",
+        "crates/driver-dxf/src/lib.rs:1722",
+        "crates/driver-dxf/src/lib.rs:1727",
+        "crates/driver-dxf/src/lib.rs:1936",
+        "crates/driver-dxf/src/lib.rs:2034",
+        "crates/driver-dxf/src/lib.rs:2035",
+        "crates/driver-dxf/src/lib.rs:2064",
+        "crates/driver-filegdb/src/lib.rs:194",
+        "crates/driver-filegdb/src/lib.rs:195",
+        "crates/driver-filegdb/src/lib.rs:196",
+        "crates/driver-filegdb/src/lib.rs:197",
+        "crates/driver-filegdb/src/lib.rs:415",
+        "crates/driver-filegdb/src/lib.rs:416",
+        "crates/driver-filegdb/src/lib.rs:417",
+        "crates/driver-filegdb/src/lib.rs:418",
+        "crates/driver-filegdb/src/lib.rs:419",
+        "crates/driver-filegdb/src/lib.rs:420",
+        "crates/driver-filegdb/src/lib.rs:421",
+        "crates/driver-filegdb/src/lib.rs:519",
+        "crates/driver-filegdb/src/lib.rs:531",
+        "crates/driver-filegdb/src/lib.rs:532",
+        "crates/driver-filegdb/src/lib.rs:533",
+        "crates/driver-filegdb/src/lib.rs:534",
+        "crates/driver-filegdb/src/lib.rs:550",
+        "crates/driver-filegdb/src/lib.rs:553",
+        "crates/driver-filegdb/src/lib.rs:1218",
+        "crates/driver-filegdb/src/lib.rs:1233",
+        "crates/driver-filegdb/src/lib.rs:1234",
+        "crates/driver-filegdb/src/lib.rs:1235",
+        "crates/driver-filegdb/src/lib.rs:1236",
+        "crates/driver-filegdb/src/lib.rs:1250",
+        "crates/driver-filegdb/src/lib.rs:1251",
+        "crates/driver-filegdb/src/lib.rs:1252",
+        "crates/driver-filegdb/src/lib.rs:1253",
+        "crates/driver-filegdb/src/lib.rs:1257",
+        "crates/driver-filegdb/src/lib.rs:1258",
+        "crates/driver-filegdb/src/lib.rs:1264",
+        "crates/driver-filegdb/src/lib.rs:1265",
+        "crates/driver-filegdb/src/lib.rs:1266",
+        "crates/driver-filegdb/src/lib.rs:1267",
+        "crates/driver-filegdb/src/lib.rs:1269",
+        "crates/driver-filegdb/src/lib.rs:1270",
+        "crates/driver-filegdb/src/lib.rs:1271",
+        "crates/driver-filegdb/src/lib.rs:1272",
+        "crates/driver-filegdb/src/lib.rs:1281",
+        "crates/driver-filegdb/src/lib.rs:1282",
+        "crates/driver-filegdb/src/lib.rs:1283",
+        "crates/driver-filegdb/src/lib.rs:1298",
+        "crates/driver-filegdb/src/lib.rs:1299",
+        "crates/driver-filegdb/src/lib.rs:1300",
+        "crates/driver-filegdb/src/lib.rs:1301",
+        "crates/driver-filegdb/src/lib.rs:1359",
+        "crates/driver-filegdb/src/lib.rs:1363",
+        "crates/driver-filegdb/src/lib.rs:1366",
+        "crates/driver-filegdb/src/lib.rs:1367",
+        "crates/driver-filegdb/src/lib.rs:1368",
+        "crates/driver-filegdb/src/lib.rs:1369",
+        "crates/driver-filegdb/src/lib.rs:1370",
+        "crates/driver-filegdb/src/lib.rs:1371",
+        "crates/driver-filegdb/src/lib.rs:1372",
+        "crates/driver-filegdb/src/lib.rs:1395",
+        "crates/driver-filegdb/src/lib.rs:1477",
+        "crates/driver-filegdb/src/lib.rs:1478",
+        "crates/driver-filegdb/src/lib.rs:1479",
+        "crates/driver-filegdb/src/lib.rs:1480",
+        "crates/driver-filegdb/src/lib.rs:1505",
+        "crates/driver-filegdb/src/lib.rs:1684",
+        "crates/driver-filegdb/src/lib.rs:1699",
+        "crates/driver-filegdb/src/lib.rs:1700",
+        "crates/driver-filegdb/src/lib.rs:1701",
+        "crates/driver-filegdb/src/lib.rs:1702",
+        "crates/driver-filegdb/src/lib.rs:1729",
+        "crates/driver-filegdb/src/lib.rs:1730",
+        "crates/driver-filegdb/src/lib.rs:1732",
+        "crates/driver-filegdb/src/lib.rs:1733",
+        "crates/driver-filegdb/src/lib.rs:1734",
+        "crates/driver-filegdb/src/lib.rs:1735",
+        "crates/driver-filegdb/src/lib.rs:1736",
+        "crates/driver-filegdb/src/lib.rs:1789",
+        "crates/driver-filegdb/src/lib.rs:1858",
+        "crates/driver-filegdb/src/lib.rs:1866",
+        "crates/driver-filegdb/src/lib.rs:1867",
+        "crates/driver-filegdb/src/lib.rs:1869",
+        "crates/driver-filegdb/src/lib.rs:1870",
+        "crates/driver-filegdb/src/lib.rs:1890",
+        "crates/driver-filegdb/src/lib.rs:1891",
+        "crates/driver-filegdb/src/lib.rs:1892",
+        "crates/driver-filegdb/src/lib.rs:1893",
+        "crates/driver-filegdb/src/lib.rs:1894",
+        "crates/driver-filegdb/src/lib.rs:1895",
+        "crates/driver-filegdb/src/lib.rs:1904",
+        "crates/driver-filegdb/src/lib.rs:1905",
+        "crates/driver-filegdb/src/lib.rs:1906",
+        "crates/driver-filegdb/src/lib.rs:1907",
+        "crates/driver-filegdb/src/lib.rs:1929",
+        "crates/driver-filegdb/src/lib.rs:1930",
+        "crates/driver-filegdb/src/lib.rs:2040",
+        "crates/driver-filegdb/src/lib.rs:2041",
+        "crates/driver-filegdb/src/lib.rs:2042",
+        "crates/driver-filegdb/src/lib.rs:2086",
+        "crates/driver-filegdb/src/lib.rs:2087",
+        "crates/driver-filegdb/src/lib.rs:2088",
+        "crates/driver-filegdb/src/lib.rs:2089",
+        "crates/driver-filegdb/src/lib.rs:2091",
+        "crates/driver-filegdb/src/lib.rs:2092",
+        "crates/driver-filegdb/src/lib.rs:2093",
+        "crates/driver-filegdb/src/lib.rs:2094",
+        "crates/driver-filegdb/src/lib.rs:2097",
+        "crates/driver-filegdb/src/lib.rs:2098",
+        "crates/driver-filegdb/src/lib.rs:2099",
+        "crates/driver-filegdb/src/lib.rs:2100",
+        "crates/driver-filegdb/src/lib.rs:2105",
+        "crates/driver-filegdb/src/lib.rs:2132",
+        "crates/driver-filegdb/src/lib.rs:2162",
+        "crates/driver-filegdb/src/lib.rs:2163",
+        "crates/driver-filegdb/src/lib.rs:2164",
+        "crates/driver-filegdb/src/lib.rs:2187",
+        "crates/driver-filegdb/src/lib.rs:2192",
+        "crates/driver-filegdb/src/lib.rs:2251",
+        "crates/driver-filegdb/src/lib.rs:2271",
+        "crates/driver-filegdb/src/lib.rs:2272",
+        "crates/driver-filegdb/src/lib.rs:2273",
+        "crates/driver-filegdb/src/lib.rs:2337",
+        "crates/driver-filegdb/src/lib.rs:2338",
+        "crates/driver-filegdb/src/lib.rs:2339",
+        "crates/driver-filegdb/src/lib.rs:2431",
+        "crates/driver-filegdb/src/lib.rs:2564",
+        "crates/driver-filegdb/src/lib.rs:2565",
+        "crates/driver-filegdb/src/lib.rs:2566",
+        "crates/driver-filegdb/src/lib.rs:2567",
+        "crates/driver-filegdb/src/lib.rs:2605",
+        "crates/driver-filegdb/src/lib.rs:2606",
+        "crates/driver-filegdb/src/lib.rs:2608",
+        "crates/driver-filegdb/src/lib.rs:2609",
+        "crates/driver-filegdb/src/lib.rs:2610",
+        "crates/driver-filegdb/src/lib.rs:2611",
+        "crates/driver-filegdb/src/lib.rs:2626",
+        "crates/driver-filegdb/src/lib.rs:2627",
+        "crates/driver-filegdb/src/lib.rs:2628",
+        "crates/driver-filegdb/src/lib.rs:2629",
+        "crates/driver-filegdb/src/lib.rs:2639",
+        "crates/driver-filegdb/src/lib.rs:2640",
+        "crates/driver-filegdb/src/lib.rs:2641",
+        "crates/driver-filegdb/src/lib.rs:2649",
+        "crates/driver-filegdb/src/lib.rs:2650",
+        "crates/driver-filegdb/src/lib.rs:2651",
+        "crates/driver-filegdb/src/lib.rs:2652",
+        "crates/driver-filegdb/src/lib.rs:2653",
+        "crates/driver-filegdb/src/lib.rs:2654",
+        "crates/driver-filegdb/src/lib.rs:2655",
+        "crates/driver-filegdb/src/lib.rs:2656",
+        "crates/driver-filegdb/src/lib.rs:2657",
+        "crates/driver-filegdb/src/lib.rs:2658",
+        "crates/driver-filegdb/src/lib.rs:2663",
+        "crates/driver-filegdb/src/lib.rs:2664",
+        "crates/driver-filegdb/src/lib.rs:2665",
+        "crates/driver-filegdb/src/lib.rs:2666",
+        "crates/driver-filegdb/src/lib.rs:2667",
+        "crates/driver-filegdb/src/lib.rs:2668",
+        "crates/driver-filegdb/src/lib.rs:2669",
+        "crates/driver-filegdb/src/lib.rs:2670",
+        "crates/driver-filegdb/src/lib.rs:2672",
+        "crates/driver-filegdb/src/lib.rs:2674",
+        "crates/driver-filegdb/src/lib.rs:2686",
+        "crates/driver-filegdb/src/lib.rs:3662",
+        "crates/driver-filegdb/src/lib.rs:3788",
+        "crates/driver-filegdb/src/lib.rs:3878",
+        "crates/driver-geojson/src/lib.rs:264",
+        "crates/driver-geojson/src/lib.rs:310",
+        "crates/driver-geojson/src/lib.rs:473",
+        "crates/driver-geojson/src/lib.rs:474",
+        "crates/driver-geojson/src/lib.rs:475",
+        "crates/driver-geojson/src/lib.rs:476",
+        "crates/driver-geojson/src/lib.rs:477",
+        "crates/driver-geojson/src/lib.rs:478",
+        "crates/driver-geojson/src/lib.rs:479",
+        "crates/driver-geojson/src/lib.rs:480",
+        "crates/driver-geojson/src/lib.rs:481",
+        "crates/driver-geojson/src/lib.rs:628",
+        "crates/driver-geojson/src/lib.rs:629",
+        "crates/driver-geojson/src/lib.rs:635",
+        "crates/driver-geojson/src/lib.rs:636",
+        "crates/driver-geojson/src/lib.rs:649",
+        "crates/driver-geojson/src/lib.rs:948",
+        "crates/driver-geojson/src/lib.rs:949",
+        "crates/driver-geojson/src/lib.rs:1594",
+        "crates/driver-geojson/src/lib.rs:1595",
+        "crates/driver-geojson/src/lib.rs:1596",
+        "crates/driver-geojson/src/lib.rs:1807",
+        "crates/driver-geojson/src/lib.rs:1816",
+        "crates/driver-geojson/src/lib.rs:1837",
+        "crates/driver-geojson/src/lib.rs:1932",
+        "crates/driver-geojson/src/lib.rs:2040",
+        "crates/driver-geoparquet/src/lib.rs:798",
+        "crates/driver-geoparquet/src/lib.rs:1171",
+        "crates/driver-geoparquet/src/lib.rs:1172",
+        "crates/driver-geoparquet/src/lib.rs:1173",
+        "crates/driver-geoparquet/src/lib.rs:1174",
+        "crates/driver-geoparquet/src/lib.rs:1175",
+        "crates/driver-geoparquet/src/lib.rs:1392",
+        "crates/driver-geoparquet/src/lib.rs:1992",
+        "crates/driver-geoparquet/src/lib.rs:2171",
+        "crates/driver-geoparquet/src/lib.rs:2172",
+        "crates/driver-geoparquet/src/lib.rs:2173",
+        "crates/driver-geoparquet/src/lib.rs:2174",
+        "crates/driver-geoparquet/src/lib.rs:2177",
+        "crates/driver-geoparquet/src/lib.rs:2178",
+        "crates/driver-geoparquet/src/lib.rs:2197",
+        "crates/driver-geoparquet/src/lib.rs:2198",
+        "crates/driver-geoparquet/src/lib.rs:2206",
+        "crates/driver-geoparquet/src/lib.rs:2207",
+        "crates/driver-geoparquet/src/lib.rs:2235",
+        "crates/driver-geoparquet/src/lib.rs:2238",
+        "crates/driver-geoparquet/src/lib.rs:2353",
+        "crates/driver-geoparquet/src/lib.rs:3629",
+        "crates/driver-geoparquet/src/lib.rs:3632",
+        "crates/driver-geoparquet/src/lib.rs:3643",
+        "crates/driver-geoparquet/src/lib.rs:3644",
+        "crates/driver-geoparquet/src/lib.rs:3645",
+        "crates/driver-geoparquet/src/lib.rs:3646",
+        "crates/driver-geoparquet/src/lib.rs:3802",
+        "crates/driver-gpkg/src/lib.rs:437",
+        "crates/driver-gpkg/src/lib.rs:438",
+        "crates/driver-gpkg/src/lib.rs:439",
+        "crates/driver-gpkg/src/lib.rs:491",
+        "crates/driver-gpkg/src/lib.rs:530",
+        "crates/driver-gpkg/src/lib.rs:531",
+        "crates/driver-gpkg/src/lib.rs:532",
+        "crates/driver-gpkg/src/lib.rs:533",
+        "crates/driver-gpkg/src/lib.rs:547",
+        "crates/driver-gpkg/src/lib.rs:555",
+        "crates/driver-gpkg/src/lib.rs:652",
+        "crates/driver-gpkg/src/lib.rs:771",
+        "crates/driver-gpkg/src/lib.rs:843",
+        "crates/driver-gpkg/src/lib.rs:1136",
+        "crates/driver-gpkg/src/lib.rs:1327",
+        "crates/driver-gpkg/src/lib.rs:1500",
+        "crates/driver-gpkg/src/lib.rs:1501",
+        "crates/driver-gpkg/src/lib.rs:1625",
+        "crates/driver-gpkg/src/lib.rs:1677",
+        "crates/driver-gpkg/src/schema.rs:35",
+        "crates/driver-gpkg/src/schema.rs:36",
+        "crates/driver-gpkg/src/schema.rs:37",
+        "crates/driver-gpkg/src/schema.rs:332",
+        "crates/driver-gpkg/src/schema.rs:333",
+        "crates/driver-gpkg/src/schema.rs:339",
+        "crates/driver-gpkg/src/schema.rs:340",
+        "crates/driver-gpkg/src/schema.rs:341",
+        "crates/driver-gpkg/src/schema.rs:342",
+        "crates/driver-ipc/src/lib.rs:360",
+        "crates/driver-ipc/src/lib.rs:410",
+        "crates/driver-ipc/src/lib.rs:415",
+        "crates/driver-ipc/src/lib.rs:436",
+        "crates/driver-ipc/src/lib.rs:444",
+        "crates/driver-ipc/src/lib.rs:446",
+        "crates/driver-ipc/src/lib.rs:571",
+        "crates/driver-kml/src/lib.rs:374",
+        "crates/driver-kml/src/lib.rs:375",
+        "crates/driver-kml/src/lib.rs:376",
+        "crates/driver-kml/src/lib.rs:384",
+        "crates/driver-kml/src/lib.rs:385",
+        "crates/driver-kml/src/lib.rs:388",
+        "crates/driver-kml/src/lib.rs:427",
+        "crates/driver-kml/src/lib.rs:428",
+        "crates/driver-kml/src/lib.rs:429",
+        "crates/driver-kml/src/lib.rs:506",
+        "crates/driver-kml/src/lib.rs:560",
+        "crates/driver-kml/src/lib.rs:561",
+        "crates/driver-kml/src/lib.rs:562",
+        "crates/driver-kml/src/lib.rs:581",
+        "crates/driver-kml/src/lib.rs:585",
+        "crates/driver-kml/src/lib.rs:718",
+        "crates/driver-kml/src/lib.rs:719",
+        "crates/driver-kml/src/lib.rs:732",
+        "crates/driver-kml/src/lib.rs:733",
+        "crates/driver-kml/src/lib.rs:901",
+        "crates/driver-kml/src/lib.rs:902",
+        "crates/driver-kml/src/lib.rs:903",
+        "crates/driver-kml/src/lib.rs:904",
+        "crates/driver-kml/src/lib.rs:905",
+        "crates/driver-kml/src/lib.rs:906",
+        "crates/driver-kml/src/lib.rs:907",
+        "crates/driver-kml/src/lib.rs:908",
+        "crates/driver-kml/src/lib.rs:1196",
+        "crates/driver-kml/src/lib.rs:1197",
+        "crates/driver-kml/src/lib.rs:1199",
+        "crates/driver-kml/src/lib.rs:1200",
+        "crates/driver-kml/src/lib.rs:1201",
+        "crates/driver-kml/src/lib.rs:1245",
+        "crates/driver-kml/src/lib.rs:1360",
+        "crates/driver-kml/src/lib.rs:1361",
+        "crates/driver-kml/src/lib.rs:1362",
+        "crates/driver-kml/src/lib.rs:1363",
+        "crates/driver-kml/src/lib.rs:1364",
+        "crates/driver-kml/src/lib.rs:1365",
+        "crates/driver-kml/src/lib.rs:1366",
+        "crates/driver-kml/src/lib.rs:1367",
+        "crates/driver-kml/src/lib.rs:1407",
+        "crates/driver-kml/src/lib.rs:1408",
+        "crates/driver-kml/src/lib.rs:1409",
+        "crates/driver-kml/src/lib.rs:1449",
+        "crates/driver-kml/src/lib.rs:1450",
+        "crates/driver-kml/src/lib.rs:1453",
+        "crates/driver-kml/src/lib.rs:1455",
+        "crates/driver-kml/src/lib.rs:1456",
+        "crates/driver-kml/src/lib.rs:1457",
+        "crates/driver-kml/src/lib.rs:1458",
+        "crates/driver-kml/src/lib.rs:1459",
+        "crates/driver-kml/src/lib.rs:1460",
+        "crates/driver-kml/src/lib.rs:1461",
+        "crates/driver-kml/src/lib.rs:1574",
+        "crates/driver-kml/src/lib.rs:1584",
+        "crates/driver-kml/src/lib.rs:1589",
+        "crates/driver-kml/src/lib.rs:1653",
+        "crates/driver-kml/src/lib.rs:1656",
+        "crates/driver-kml/src/lib.rs:1669",
+        "crates/driver-kml/src/lib.rs:2043",
+        "crates/driver-shp/src/lib.rs:842",
+        "crates/driver-shp/src/lib.rs:980",
+        "crates/driver-shp/src/lib.rs:997",
+        "crates/driver-shp/src/lib.rs:1110",
+        "crates/driver-shp/src/lib.rs:2062",
+        "crates/driver-shp/src/lib.rs:2063",
+        "crates/driver-shp/src/lib.rs:2064",
+        "crates/driver-shp/src/lib.rs:2185",
+        "crates/driver-shp/src/lib.rs:2279",
+        "crates/driver-shp/src/lib.rs:2668",
+        "crates/driver-shp/src/lib.rs:3342",
+        "crates/driver-shp/src/lib.rs:3349",
+        "crates/driver-shp/src/lib.rs:3351",
+        "crates/driver-shp/src/lib.rs:3412",
+        "crates/driver-shp/src/lib.rs:3424",
+        "crates/driver-shp/src/lib.rs:3585",
+        "crates/driver-shp/src/lib.rs:3593",
+        "crates/driver-shp/src/lib.rs:3719",
+        "crates/driver-shp/src/lib.rs:3737",
+        "crates/driver-shp/src/lib.rs:3748",
+        "crates/driver-shp/src/lib.rs:3777",
+        "crates/driver-shp/src/lib.rs:3801",
+        "crates/driver-shp/src/lib.rs:4128",
+        "crates/driver-xls/src/date_native.rs:235",
+        "crates/driver-xls/src/date_native.rs:259",
+        "crates/driver-xls/src/date_native.rs:260",
+        "crates/driver-xls/src/empty_strings.rs:44",
+        "crates/driver-xls/src/lib.rs:375",
+        "crates/driver-xls/src/lib.rs:376",
+        "crates/driver-xls/src/lib.rs:377",
+        "crates/driver-xls/src/lib.rs:423",
+        "crates/driver-xls/src/lib.rs:850",
+        "crates/driver-xls/src/lib.rs:855",
+        "crates/driver-xls/src/lib.rs:1120",
+        "crates/driver-xls/src/lib.rs:1127",
+        "crates/driver-xls/src/lib.rs:1228",
+        "crates/driver-xls/src/lib.rs:1229",
+        "crates/driver-xls/src/lib.rs:1230",
+        "crates/driver-xls/src/lib.rs:1843",
+        "crates/driver-xls/src/lib.rs:2228",
+        "crates/driver-xls/src/lib.rs:2251",
+        "crates/driver-xls/src/lib.rs:2286",
+        "crates/driver-xls/src/lib.rs:2300",
+        "crates/driver-xls/src/lib.rs:2302",
+        "crates/driver-xls/src/lib.rs:2339",
+        "crates/driver-xls/src/lib.rs:2341",
+        "crates/plenora-io-core/src/dataset_files.rs:75",
+        "crates/plenora-io-core/src/dataset_files.rs:76",
+        "crates/plenora-io-core/src/dataset_files.rs:77",
+        "crates/plenora-io-core/src/dataset_files.rs:78",
+        "crates/plenora-io-core/src/dataset_files.rs:79",
+        "crates/plenora-io-core/src/dataset_files.rs:80",
+        "crates/plenora-io-core/src/dataset_files.rs:81",
+        "crates/plenora-io-core/src/dataset_files.rs:188",
+        "crates/plenora-io-core/src/dataset_files.rs:222",
+        "crates/plenora-io-core/src/dataset_files.rs:246",
+        "crates/plenora-io-core/src/dataset_files.rs:268",
+        "crates/plenora-io-core/src/dataset_files.rs:320",
+        "crates/plenora-io-core/src/dataset_files.rs:321",
+        "crates/plenora-io-core/src/dataset_files.rs:322",
+        "crates/plenora-io-core/src/dataset_files.rs:326",
+        "crates/plenora-io-core/src/driver.rs:92",
+        "crates/plenora-io-core/src/driver.rs:93",
+        "crates/plenora-io-core/src/driver.rs:117",
+        "crates/plenora-io-core/src/driver.rs:1018",
+        "crates/plenora-io-core/src/driver.rs:1019",
+        "crates/plenora-io-core/src/driver.rs:1023",
+        "crates/plenora-io-core/src/driver.rs:1024",
+        "crates/plenora-io-core/src/driver/perdita_pianificata.rs:88",
+        "crates/plenora-io-core/src/driver/perdita_pianificata.rs:89",
+        "crates/plenora-io-core/src/driver/perdita_pianificata.rs:90",
+        "crates/plenora-io-core/src/driver/perdita_pianificata.rs:92",
+        "crates/plenora-io-core/src/driver/perdita_pianificata.rs:157",
+        "crates/plenora-io-core/src/driver/perdita_pianificata.rs:579",
+        "crates/plenora-io-core/src/driver/perdita_pianificata.rs:620",
+        "crates/plenora-io-core/src/driver/perdita_pianificata.rs:632",
+        "crates/plenora-io-core/src/driver/perdita_pianificata.rs:633",
+        "crates/plenora-io-core/src/driver/perdita_pianificata.rs:634",
+        "crates/plenora-io-core/src/driver/perdita_pianificata.rs:635",
+        "crates/plenora-io-core/src/driver/perdita_pianificata.rs:636",
+        "crates/plenora-io-core/src/driver/perdita_pianificata.rs:637",
+        "crates/plenora-io-core/src/driver/perdita_pianificata.rs:638",
+        "crates/plenora-io-core/src/driver/perdita_pianificata.rs:639",
+        "crates/plenora-io-core/src/driver/perdita_pianificata.rs:640",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:79",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:151",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:152",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:153",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:269",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:383",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:449",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:450",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:461",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:462",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:479",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:588",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:589",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:623",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:624",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:852",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:853",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:854",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:855",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:856",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:857",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:891",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:918",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:936",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:1037",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:1040",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:1105",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:1369",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:1370",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:1433",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:1434",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:1437",
+        "crates/plenora-io-core/src/driver/reader_adapters.rs:1438",
+        "crates/plenora-io-core/src/driver/scrittura_limitata.rs:80",
+        "crates/plenora-io-core/src/driver/scrittura_limitata.rs:81",
+        "crates/plenora-io-core/src/driver/scrittura_limitata.rs:93",
+        "crates/plenora-io-core/src/driver/scrittura_limitata.rs:94",
+        "crates/plenora-io-core/src/driver/scrittura_limitata.rs:95",
+        "crates/plenora-io-core/src/driver/scrittura_limitata.rs:97",
+        "crates/plenora-io-core/src/driver/scrittura_limitata.rs:142",
+        "crates/plenora-io-core/src/driver/scrittura_limitata.rs:143",
+        "crates/plenora-io-core/src/driver/scrittura_limitata.rs:146",
+        "crates/plenora-io-core/src/driver/scrittura_limitata.rs:167",
+        "crates/plenora-io-core/src/driver/scrittura_limitata.rs:217",
+        "crates/plenora-io-core/src/driver/scrittura_limitata.rs:218",
+        "crates/plenora-io-core/src/driver/scrittura_limitata.rs:238",
+        "crates/plenora-io-core/src/driver/scrittura_limitata.rs:239",
+        "crates/plenora-io-core/src/driver/scrittura_limitata.rs:307",
+        "crates/plenora-io-core/src/driver/scrittura_limitata.rs:344",
+        "crates/plenora-io-core/src/driver/validazione_geometrie.rs:250",
+        "crates/plenora-io-core/src/driver/validazione_geometrie.rs:251",
+        "crates/plenora-io-core/src/driver/validazione_geometrie.rs:254",
+        "crates/plenora-io-core/src/driver/validazione_geometrie.rs:255",
+        "crates/plenora-io-core/src/driver/validazione_geometrie.rs:261",
+        "crates/plenora-io-core/src/driver/validazione_geometrie.rs:285",
+        "crates/plenora-io-core/src/driver/validazione_geometrie.rs:288",
+        "crates/plenora-io-core/src/driver/validazione_geometrie.rs:310",
+        "crates/plenora-io-core/src/driver/validazione_geometrie.rs:330",
+        "crates/plenora-io-core/src/driver/validazione_geometrie.rs:349",
+        "crates/plenora-io-core/src/driver/validazione_geometrie.rs:350",
+        "crates/plenora-io-core/src/driver/validazione_geometrie.rs:353",
+        "crates/plenora-io-core/src/driver/validazione_geometrie.rs:354",
+        "crates/plenora-io-core/src/loss_table.rs:644",
+        "crates/plenora-io-core/src/loss_table.rs:648",
+        "crates/plenora-io-core/src/loss_table.rs:649",
+        "crates/plenora-io-core/src/loss_table.rs:650",
+        "crates/plenora-io-core/src/loss_table.rs:651",
+        "crates/plenora-io-core/src/loss_table.rs:652",
+        "crates/plenora-io-core/src/loss_table.rs:653",
+        "crates/plenora-io-core/src/loss_table.rs:654",
+        "crates/plenora-io-core/src/loss_table.rs:655",
+        "crates/plenora-io-core/src/loss_table.rs:656",
+        "crates/plenora-io-core/src/loss_table.rs:657",
+        "crates/plenora-io-core/src/loss_table.rs:658",
+        "crates/plenora-io-core/src/loss_table.rs:660",
+        "crates/plenora-io-core/src/loss_table.rs:662",
+        "crates/plenora-io-core/src/loss_table.rs:663",
+        "crates/plenora-io-core/src/loss_table.rs:664",
+        "crates/plenora-io-core/src/loss_table.rs:665",
+        "crates/plenora-io-core/src/loss_table.rs:666",
+        "crates/plenora-io-core/src/loss_table.rs:667",
+        "crates/plenora-io-core/src/loss_table.rs:668",
+        "crates/plenora-io-core/src/loss_table.rs:669",
+        "crates/plenora-io-core/src/loss_table.rs:670",
+        "crates/plenora-io-core/src/loss_table.rs:671",
+        "crates/plenora-io-core/src/loss_table.rs:673",
+        "crates/plenora-io-core/src/loss_table.rs:674",
+        "crates/plenora-io-core/src/loss_table.rs:675",
+        "crates/plenora-io-core/src/loss_table.rs:676",
+        "crates/plenora-io-core/src/loss_table.rs:678",
+        "crates/plenora-io-core/src/loss_table.rs:679",
+        "crates/plenora-io-core/src/loss_table.rs:680",
+        "crates/plenora-io-core/src/loss_table.rs:681",
+        "crates/plenora-io-core/src/loss_table.rs:682",
+        "crates/plenora-io-core/src/loss_table.rs:683",
+        "crates/plenora-io-core/src/loss_table.rs:684",
+        "crates/plenora-io-core/src/loss_table.rs:685",
+        "crates/plenora-io-core/src/loss_table.rs:686",
+        "crates/plenora-io-core/src/loss_table.rs:687",
+        "crates/plenora-io-core/src/loss_table.rs:688",
+        "crates/plenora-io-core/src/loss_table.rs:689",
+        "crates/plenora-io-core/src/loss_table.rs:690",
+        "crates/plenora-io-core/src/loss_table.rs:692",
+        "crates/plenora-io-core/src/loss_table.rs:693",
+        "crates/plenora-io-core/src/loss_table.rs:694",
+        "crates/plenora-io-core/src/loss_table.rs:695",
+        "crates/plenora-io-core/src/loss_table.rs:696",
+        "crates/plenora-io-core/src/loss_table.rs:698",
+        "crates/plenora-io-core/src/loss_table.rs:699",
+        "crates/plenora-io-core/src/loss_table.rs:707",
+        "crates/plenora-io-core/src/loss_table.rs:708",
+        "crates/plenora-io-core/src/loss_table.rs:709",
+        "crates/plenora-io-core/src/loss_table.rs:711",
+        "crates/plenora-io-core/src/loss_table.rs:714",
+        "crates/plenora-io-core/src/loss_table.rs:773",
+        "crates/plenora-io-core/src/loss_table.rs:783",
+        "crates/plenora-io-core/src/loss_table.rs:784",
+        "crates/plenora-io-core/src/loss_table.rs:785",
+        "crates/plenora-io-core/src/loss_table.rs:786",
+        "crates/plenora-io-core/src/loss_table.rs:787",
+        "crates/plenora-io-core/src/loss_table.rs:788",
+        "crates/plenora-io-core/src/loss_table.rs:790",
+        "crates/plenora-io-core/src/loss_table.rs:792",
+        "crates/plenora-io-core/src/loss_table.rs:793",
+        "crates/plenora-io-core/src/loss_table.rs:794",
+        "crates/plenora-io-core/src/loss_table.rs:795",
+        "crates/plenora-io-core/src/loss_table.rs:796",
+        "crates/plenora-io-core/src/loss_table.rs:797",
+        "crates/plenora-io-core/src/loss_table.rs:798",
+        "crates/plenora-io-core/src/loss_table.rs:799",
+        "crates/plenora-io-core/src/loss_table.rs:800",
+        "crates/plenora-io-core/src/loss_table.rs:801",
+        "crates/plenora-io-core/src/loss_table.rs:802",
+        "crates/plenora-io-core/src/loss_table.rs:803",
+        "crates/plenora-io-core/src/loss_table.rs:805",
+        "crates/plenora-io-core/src/loss_table.rs:865",
+        "crates/plenora-io-core/src/loss_table.rs:866",
+        "crates/plenora-io-core/src/loss_table.rs:867",
+        "crates/plenora-io-core/src/loss_table.rs:998",
+        "crates/plenora-io-core/src/loss_table.rs:999",
+        "crates/plenora-io-core/src/loss_table.rs:1000",
+        "crates/plenora-io-core/src/loss_table.rs:1003",
+        "crates/plenora-io-core/src/loss_table.rs:1004",
+        "crates/plenora-io-core/src/loss_table.rs:1005",
+        "crates/plenora-io-core/src/loss_table.rs:1006",
+        "crates/plenora-io-core/src/loss_table.rs:1007",
+        "crates/plenora-io-core/src/loss_table.rs:1008",
+        "crates/plenora-io-core/src/loss_table.rs:1009",
+        "crates/plenora-io-core/src/loss_table.rs:1012",
+        "crates/plenora-io-core/src/loss_table.rs:1014",
+        "crates/plenora-io-core/src/loss_table.rs:1016",
+        "crates/plenora-io-core/src/loss_table/applicability.rs:132",
+        "crates/plenora-io-core/src/loss_table/applicability.rs:133",
+        "crates/plenora-io-core/src/property_plan.rs:29",
+        "crates/plenora-io-core/src/property_plan.rs:291",
+        "crates/plenora-io-core/src/property_plan.rs:470",
+        "crates/plenora-io-core/src/property_plan.rs:477",
+        "crates/plenora-io-core/src/property_plan.rs:478",
+        "crates/plenora-io-core/src/property_plan.rs:548",
+        "crates/plenora-io-core/src/property_plan.rs:603",
+        "crates/plenora-io-core/src/property_plan.rs:604",
+        "crates/plenora-io-core/src/property_plan.rs:605",
+        "crates/plenora-io-core/src/property_plan.rs:606",
+        "crates/plenora-io-core/src/property_plan.rs:608",
+        "crates/plenora-io-core/src/property_plan.rs:613",
+        "crates/plenora-io-core/src/property_plan.rs:614",
+        "crates/plenora-io-core/src/property_plan.rs:615",
+        "crates/plenora-io-core/src/property_plan.rs:616",
+        "crates/plenora-io-core/src/property_plan.rs:617",
+        "crates/plenora-io-core/src/property_plan.rs:618",
+        "crates/plenora-io-core/src/property_plan.rs:619",
+        "crates/plenora-io-core/src/property_plan.rs:620",
+        "crates/plenora-io-core/src/property_plan.rs:621",
+        "crates/plenora-io-core/src/property_plan.rs:622",
+        "crates/plenora-io-core/src/property_plan.rs:623",
+        "crates/plenora-io-core/src/property_plan.rs:653",
+        "crates/plenora-io-core/src/property_plan.rs:660",
+        "crates/plenora-io-core/src/publish.rs:374",
+        "crates/plenora-io-core/src/publish.rs:375",
+        "crates/plenora-io-model/src/budget.rs:1724",
+        "crates/plenora-io-model/src/diagnostics.rs:123",
+        "crates/plenora-io-model/src/diagnostics.rs:124",
+        "crates/plenora-io-model/src/diagnostics.rs:125",
+        "crates/plenora-io-model/src/diagnostics.rs:129",
+        "crates/plenora-io-model/src/diagnostics.rs:130",
+        "crates/plenora-io-model/src/diagnostics.rs:132",
+        "crates/plenora-io-model/src/diagnostics.rs:135",
+        "crates/plenora-io-model/src/diagnostics.rs:139",
+        "crates/plenora-io-model/src/diagnostics.rs:141",
+        "crates/plenora-io-model/src/diagnostics.rs:142",
+        "crates/plenora-io-model/src/diagnostics.rs:145",
+        "crates/plenora-io-model/src/diagnostics.rs:147",
+        "crates/plenora-io-model/src/diagnostics.rs:148",
+        "crates/plenora-io-model/src/diagnostics.rs:149",
+        "crates/plenora-io-model/src/diagnostics.rs:150",
+        "crates/plenora-io-model/src/diagnostics.rs:152",
+        "crates/plenora-io-model/src/diagnostics.rs:154",
+        "crates/plenora-io-model/src/diagnostics.rs:157",
+        "crates/plenora-io-model/src/diagnostics.rs:158",
+        "crates/plenora-io-model/src/diagnostics.rs:159",
+        "crates/plenora-io-model/src/diagnostics.rs:175",
+        "crates/plenora-io-model/src/diagnostics.rs:196",
+        "crates/plenora-io-model/src/diagnostics.rs:605",
+        "crates/plenora-io-model/src/diagnostics.rs:606",
+        "crates/plenora-io-model/src/diagnostics.rs:607",
+        "crates/plenora-io-model/src/diagnostics.rs:608",
+        "crates/plenora-io-model/src/diagnostics.rs:635",
+        "crates/plenora-io-model/src/quota.rs:48",
+        "crates/plenora-io-model/src/quota.rs:92",
+        "crates/plenora-io-model/src/wkb_lossless.rs:870",
+        "crates/plenora-io-tools/src/cli.rs:329",
+        "crates/plenora-io-tools/src/lib.rs:349",
+        "crates/plenora-io-tools/src/lib.rs:618",
+        "crates/plenora-io-tools/src/lib.rs:619",
+        "crates/plenora-io-tools/src/lib.rs:620",
+        "crates/plenora-io-tools/src/lib.rs:625",
+        "crates/plenora-io-tools/src/lib.rs:1071",
+        "crates/plenora-io-tools/src/lib.rs:1072",
+        "crates/plenora-io-tools/src/lib.rs:1352",
+        "crates/plenora-io-tools/src/lib.rs:1458",
+        "crates/plenora-io-tools/src/lib.rs:1739"
+      ],
+      "ragione": "Confronto di libreria fra 7314ca2 (9.0.0) e candidate e4c9762.",
+      "che_cosa_sono_le_scoperte": "Righe cambiate ed eseguibili non esercitate dai test; non una misura del fuzzing."
+    }
+  },
+  "artefatti": {
+    "percorso_di_corsa": "target\\rel1000\\registrazione\\corsa-contratto",
+    "file": 115,
+    "digest_manifest": "c00b066c626fb4452921eeb4fb9364c30c53a87ee4c27a90d277a7c47acee5e2",
+    "forma_del_manifest": "percorso relativo alla directory di corsa -> sha256 del contenuto; il digest e' `percorso NUL sha256 LF` concatenati in ordine di percorso, la stessa forma che il gate del contratto ricalcola",
+    "manifest": {
+      "assurance_fallbacks.log": "ea6ee09d309ea1f212953a91d995e5450b2cebd2af2e71065a05fa545a3404bb",
+      "assurance_n1_integrita.log": "38a2c5bc508cb3ab3189eaaf9145f317b8edbba191ef96110e2986ddffff8fce",
+      "assurance_n1_prove.log": "cc40a4307d568dceb9a897e456058870a9c78c142ec15f86ca99d1a31a0cbe14",
+      "canale_privato.log": "c9b04065a76f44d1fd8285af75f3135b3b6d17594a96bf7b752bedd86c1da1f5",
+      "catalog.json": "c48256ecac5de3ab10568b7c715ccf29fd08d4c0af4fa89bb8794488b188a149",
+      "check_action_pins.log": "47d5aa2ef9ef911e05cad35ebbb11cac8d927110b11af40225926251503f9eab",
+      "check_buste_v2.log": "bca7558d24508e4d57d9e71619c60d19c4add5107e35f1e14198d237200f694d",
+      "check_capability_ostile.log": "7fc1807b9dd03f681f5129090a626d0fad33fc13264a9988a55dfae5403b9d34",
+      "check_categorie_di_perdita.log": "1785baeef32146803a1949bf4059eaaf6c4507cda7bd83059c09584d03768a72",
+      "check_commenti.log": "c3dad27601b2af87597396388e0231c9129c7b0dac71f4f66d6924cd9d706ce1",
+      "check_conversioni.log": "724de969e2f07aa222ed26b6af99b21314717d34a3abd83ae0c3ef3c4f4d42da",
+      "check_coverage_exclusions.log": "311d8d1e1af5d5357c18b81cdad32f90b91ff78b9d828688063d467fd66fc7c2",
+      "check_dependency_pins.log": "a49fe9259cf69de163d6df380a20c92667ab5e393a7cbae4ad328cf7a4725180",
+      "check_dimensione.log": "99e5e439466d40d629a76efeefe21edf9f71efc920b00165e5a36f40666c1847",
+      "check_disposizione_prove.log": "665847f68bb0a25814b581f0200748fa3fc14ca2f18523b652a61346b94d01a3",
+      "check_docset.log": "40553d480794053fe09168e3bb508ceead80296aa7c58f20394943249d796454",
+      "check_dxf_fork.log": "ef3621908e09146a767c0c6fdcd3a5ac806748a028590a3bfa8c78518c1e1e2a",
+      "check_errori_redatti.log": "89406aac6d31bdd30a87358fd057c14961bd8003ad5fb0bc41f6bf97a74dc7a4",
+      "check_filegdb_catalog.log": "48734bc0b3f577658b80445e60d070149f4f1655cb4105fa2dda4d6552a35b10",
+      "check_fixture_canoniche.log": "f7a0e50394e1ab92b1adf856b161aae88ab196c77c658bbfea2c3c8b4e91a483",
+      "check_gdal_fork.log": "bb57432bcca496813fbbb490e1f03b014dca16627ced3dc597ff33c23ca7a393",
+      "check_identita.log": "e53f83ba1b8181121e3533caf041672945991bcc2045ece5f078316cb66ff02b",
+      "check_manifesto_adozione.log": "50139a4a1457b3af458f1145df02a26c5a529d6b5bfecbb7f38c312b93e78e6b",
+      "check_metadati_geoparquet.log": "dad01d50c3fbd320de2ffc146db92fa370f0076cfaf58a67f9cbaa8bafc9e553",
+      "check_niente_leak.log": "0be5cf08693152c3b7c8644c3c89d10f0ff74c54d5cab13313dacdff44e11dae",
+      "check_no_legacy_budget.log": "c1ae5980ff49d62559f6e9fd6ed93cb6d7790ce160209ef328ecb6712ff2b447",
+      "check_permit_boundary.log": "727ffdcc7cc91e422d38d5e91811ffa1dc2b56b914e3e99c91c1ca4ed97c846f",
+      "check_prevalidazione.log": "516c09da122da804468559e6a3614ec7c7f2362314c93822439785f57d6ae141",
+      "check_protocollo_v2.log": "e272abdc95be285e318a16d1939c7d53da747233949069a34737666783eacf70",
+      "check_quarantena.log": "625468389385490627ba011d3c87d7bcb048626e5a7ed8b0c47d0afb7a10a4d9",
+      "check_quartetto.log": "27976cb68a7f6d55c4e7c02f040d04cfa0f09933cae643c7187245ab4090d0fa",
+      "check_release.log": "b415695b45fd8b6656daf97a1d156f48f057241a61c45a29ca8ad21ccd937616",
+      "check_requires_python.log": "2bcac650e0f92163e921fd3266db4a640e253c8e71208cac7dda9bf029bd8abb",
+      "check_riuso_evidenze.log": "f900115626775206de65635dc53478069bf026bab300ddbf4400c239ea1a3f08",
+      "check_schemi_geoparquet.log": "3039bea965eb1c095932e3a47e9dbbf227e83e936feb32aafbb1a76d38e9f7c8",
+      "check_sdk_python.log": "347da4b37589b8c731fd8ffdc836d9a3bbfc55edbbeca46cad3558296d5d54f8",
+      "check_shapefile_fork.log": "9383ceb425f47515941aa29a239249bafd127ac5ea896bdea5561ee220b7200d",
+      "check_toolchain.log": "69a688d270e58a8472becd834c429b7a4f81b94b7495256ae2ec4bcad3048e28",
+      "check_wkb_limits.log": "0b0d406a0a2f927c55cd2f51f7266e1a48339df4de52c6efaf631d7515decbf9",
+      "clippy.log": "dfbca0df7dc68ffbdb1edd45ed01259575ea675477b7b69977207df701c46973",
+      "clippy_default.log": "1f59c01189429b858b285f4dcbe09a33620c1933e56a857a0c5a75e212701df1",
+      "clippy_sicurezza.log": "c81ed77389c1d281c4f52afb5aa37d7761cbfd833da6e0013d331367ca281c5b",
+      "clippy_vendor.log": "c35271e78322913f75765e553366e9413c02bc95cacd110eaf6971c9905dafcc",
+      "corpus_condiviso.log": "4b5a030a25e38be08662283c99d3fafe40bc48e4401f24f9861a8be47b153c13",
+      "costruisci_pacchetto_python.log": "abbe4d576c5a64fd8faef7d22faeda9a04f2c4e04239f26dad8dc926116e6195",
+      "coverage_diff.log": "f11e8d48abe7bbff4b4862a161f149624c81aa901e12d1dd93a146e1186f532b",
+      "coverage_diff_cli.log": "8a6f7bd212a2c89381ca8b531321a0bc41a5340e9e1b622eb54d702b3b45cc69",
+      "coverage_export.log": "47533af0f948a7c0591480ce8e521d22631060fd8796ec3dc92d272707e801af",
+      "coverage_export_cli.log": "0f1fed31f8e989e2de872b3e05d8fd95315f32d3d91ee4f1a10291a5cad6bd2b",
+      "coverage_misura.log": "a016ae931b9dddef838efc7d013fcb35a6ff753b91a0ec4a45ef13ab46dc0d7f",
+      "coverage_pulizia.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "coverage_report_cli_non_vuoto.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "coverage_report_non_vuoto.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "coverage_soglia_controprova.log": "fd923548a333d9f22f6f8f2519961c620168e85e4eddfea1a3d9d60dc2bee2fe",
+      "coverage_soglia_dal_report.log": "14991ca4029c3c1bcfea174ab5729a37b8492739d97507585bc1062102b929b1",
+      "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "fuzz-smoke-ultima.json": "2ce604bc75cf679ef0fbd4a4fd6c45cc08891c0e55c08b68b4aacd9c1b47c6fa",
+      "fuzz_campagna_completa.log": "0e4f0b57a7ac96114a18c4f270deb2fd70044f3953a5a2c49ccb449473b5e2ee",
+      "fuzz_replay.log": "47bd081f3532f61d9bb493c60a1039036cc58690249e30feb9a842cb3cbf80d9",
+      "fuzz_smoke.log": "0e4f0b57a7ac96114a18c4f270deb2fd70044f3953a5a2c49ccb449473b5e2ee",
+      "lcov-completo.info": "a4f912182bb74035f152b25c0a66ad1f4fd8d2cfa953931d86b638325043e119",
+      "lcov.info": "93a21016c5e93a2f742bf7860558f1f33e80a35fbb98b3d16df81ea2405ec4e4",
+      "pacchetto_python_riproducibile.log": "c0de8b89f1f6db60629664c1aaa7819ce892e52cfd7d16c78e5b96df553eda0e",
+      "prove_di_confine.log": "c5940c13705c898c82789e260d4f53ebf0d2a303c64a620307e4b2dbbe2160c8",
+      "risultato.json": "b922d5e8d2165652de929752a911c200a2840ab7cb5ab5f06f9b26d5e1a57d16",
+      "semi_s12.log": "8d9c6ecbbcd5cb0251408811adda76ad9a8c52720c08a9ed4c2c89c25680ebfb",
+      "smoke_pacchetto_python.log": "5fcaa7e29816fdc595b12b323f0b41e143bb01257f5bc7cc5689d9e5bf50dc02",
+      "sonde_action_pins.log": "bf1d8186df2d63ab6beb6c5dbd7841764bfe6ec831b9b94b3acbe5cbc71d83a5",
+      "sonde_assurance_n1.log": "17ad9afb1b4ac5bcc26f8f2ac8d194c8bf9163a7d015e8295231312b5183d204",
+      "sonde_assurance_n1_prove.log": "7b7dc7b80a1526f8fbd83449d2a67622138309015a7ab0ae6c04e5a3b61eb1a8",
+      "sonde_audit_ignores.log": "b6b7c0e573230813f60ba9e8b13cfa0055d93f4c9c1a8593b23aaaaae6de50dd",
+      "sonde_buste_v2.log": "c2982255e0eacd6fcba7dbc604e483acc0eba266ad14d9144d775539cc2ddaa8",
+      "sonde_capability_ostile.log": "aa1fb95ee82243a9e465c03e4d0e54cef655eef66f955842e7db15590f9e63e9",
+      "sonde_categorie_di_perdita.log": "b9b4824f2735033f386102493dffbb5242f0f1828b9ad9d929a93a37050dbd90",
+      "sonde_checkpoint.log": "79cae44f3a62cfb3abbcaca06e3af75977937e3948c1430ed7c18eab12bfe690",
+      "sonde_commenti.log": "9bce9c2c1a7d214160ea2c5d6ca98079cdb8189146dbca1754fb839ae0d52545",
+      "sonde_conversioni.log": "acfb09536560388410092c5cee079b9ee896afa337322fef4582c0abab99ae18",
+      "sonde_coverage_excl.log": "b8cc0821a57e5052be6cd9de5791de1c187816b343140cd2bc21ae943fa2cae8",
+      "sonde_dependency_pins.log": "0fa6e9196f096183c02cc2acc9c66c1dc944647981973bb5cc84a89647a36d1e",
+      "sonde_dimensione.log": "547187608dd56bf5c4200ea1ab22db7b6c8b3df384fe4b32d2c46a5e1642951b",
+      "sonde_disposizione_prove.log": "f85520c98939999ee69d5476007fbf5626190608f25b515f2260bbc1d23ef312",
+      "sonde_dist_completa.log": "3a66c64bfa98c90aa397d0f3651e01a6fcead6c170cb9c5387950a0b2bc107d3",
+      "sonde_distribuzione.log": "cdd773a52875d0936c42f1e7246d7e4c3c2eea62e51138e05210b9e833879e04",
+      "sonde_docset.log": "8fd66c5d0de4746c6f22ef94832475d098f13a55991bbce20ca675729ede1325",
+      "sonde_errori_redatti.log": "b45cdc1a639291fb5ed5a9855bbc7652459ddd7595d2df36572d5495ffc63735",
+      "sonde_fallback.log": "55df81c03b1fc09a739803668e8b10b1a1cd87ac7e716666dddb1c968f87bb76",
+      "sonde_filegdb.log": "40e6a3053d86436d6aa245501343227a2e81436f4f14da71a21257468605aff6",
+      "sonde_finding_noti.log": "07547f1aafacfd1ca31e8aab16a36dd705864ba62132e018b885b2b918f19100",
+      "sonde_fixture_canoniche.log": "57256a13cfbd13539b3f6c3a9bd6c4cd9c1a8f25a390d6295b563a1d8a31853d",
+      "sonde_fork.log": "6758e3fdb851a55487b533b7ec7d193ebbaa29d2dcb1ad5d48f5377df7e7aafc",
+      "sonde_fuzz_release.log": "a8818789002fad1b3a974b04baaa84197d617524cd01d1607b1242371fae2b4a",
+      "sonde_identita.log": "d094b1bd2c8318c96097f80c50da282add5b2972970a77046de8db6c8935f6ca",
+      "sonde_licenze.log": "c0583f1f3e219630285c3872a0a336fb6b439e0f48a2f2843e922e65a7f89cb7",
+      "sonde_manifesto_adozione.log": "1ee2e1fe5178fcf580c486ddf69279744e595d54c6e2126af028d003491a0c53",
+      "sonde_metadati_geoparquet.log": "55df81c03b1fc09a739803668e8b10b1a1cd87ac7e716666dddb1c968f87bb76",
+      "sonde_niente_leak.log": "62e6bd3a77554540929dd26eab6204ab86056dc07bacce00a71e4482e9f4bcb8",
+      "sonde_prevalidazione.log": "cfb3954a5cd76fdf1976bc45a636e7b872b25b55888370e312f0dbc5c3066975",
+      "sonde_protocollo_v2.log": "ca2fb267574c69f774a9b5aaf487c510dfd4fdfeae7531bf52035947e7c48534",
+      "sonde_quarantena.log": "83166b089fbcb82fac63f22522fa6ae99bb5e46368cd35d756277fd463dd6346",
+      "sonde_quartetto.log": "46c74e95e49409273cff5b0d474bb3f780e57977a4af5da2071b99cd4731838f",
+      "sonde_registra_evidenza.log": "8a3e7cf00bf5ccc05e62643ed69dd3d821ab38df0f9d9de0e6a7fc7fb2cd8f82",
+      "sonde_release.log": "98a249f54cda63cf64be3c9fada88ead91a04200d244bf46db314cb570881b81",
+      "sonde_riuso_evidenze.log": "5f0635b83af38a6c5d516fcb60dc3fa63c9c6ca4854e51a6a29ca33c92ccef16",
+      "sonde_sbom.log": "2721b9c51286aaacfc5fa05b17afe3e508247e984d7ed50eb6cc6501b80ab01e",
+      "sonde_schemi_geoparquet.log": "66ad556cc307a7794071d6410ecd60e29111b73e53e9c53d11c50013a9d79b01",
+      "sonde_sdk_python.log": "9cd44ea8b483e7989b2987649c48b8c45ad8cae1704c475abec87f32e9dc18cb",
+      "sonde_semi_s12.log": "c9811dcd7d51683ba5e61910b5aa26e91e8766a287b6a6f52a04bac8ac9f3a3d",
+      "sonde_soak.log": "ddbc5bf15c26bf2c15a86c04aa1c4eb9dbb31a4d245c800b95a5282be426a476",
+      "sonde_toolchain.log": "2dfc52c2ecd3d9207cf921c9c2597d0ceb4802d7ba9a98a319755dfd4342fcf7",
+      "sonde_verificatori_nativi.log": "768bc541c282fbb67f99826331ad10000da1df0eaf608bd554c1db9f2b2d0cf7",
+      "sonde_wkb_condiviso.log": "a6707d4eff38012da33ddc34bc6dc076a3b17151cfc9aef223c8790cbe64c3da",
+      "sonde_wkb_limits.log": "5f0635b83af38a6c5d516fcb60dc3fa63c9c6ca4854e51a6a29ca33c92ccef16",
+      "sonde_wrapper_campagna.log": "cf6b5e125ade55b17157ea4f17748f5c5efe4731aa5c92e758b2c1fa347770b2",
+      "test.log": "19e45b39daf03c5deebf64d7837a13d1c108830879f6e2e2ec416ddc27535ad8",
+      "test_default.log": "6c7d779a791f99bdfeb33b6bf104fcbad7bc2dca5d9b58f5337697c0f74a371e"
+    }
+  },
+  "esito": "S9 checkpoint level 2 passed",
+  "distribuzione_candidate": {
+    "fonte": "target/rel1000/distribuzione-44782545519",
+    "corsa": 44782545519,
+    "canale": "candidate",
+    "esito_comunicato": "success",
+    "revisione": "e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f",
+    "limite": "Run verde comunicato dall operatore; verifica offline dei download, nessuna verifica API, bozza o release pubblicata.",
+    "artefatti_congelati": [
+      {
+        "nome": "plenora-io-10.0.0-linux-x86_64-base.tar.gz",
+        "sha256": "8dae3a3a9b27840b8d0160456eb2274babed5cffbbed7e95fc67d1a4201d95c8",
+        "dimensione": 9691053,
+        "revisione": "e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f"
+      },
+      {
+        "nome": "plenora-io-10.0.0-linux-x86_64-filegdb.tar.gz",
+        "sha256": "7da7b35e24556e38fa0f883f4ce7c275a0c9e2c8287051b9f34db8431749eeef",
+        "dimensione": 65615331,
+        "revisione": "e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f"
+      },
+      {
+        "nome": "plenora-io-10.0.0-src.tar.gz",
+        "sha256": "69acfad8be9c931d34a4164a25fa4e70140d18c5b9658d27c445159d65a720c7",
+        "dimensione": 21557031,
+        "revisione": "e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f"
+      },
+      {
+        "nome": "plenora-io-10.0.0-windows-x86_64-base.zip",
+        "sha256": "f58ab4b82b5ea61c8c20a62871922af6968224433e8069f034307b01d2f752c8",
+        "dimensione": 10895862,
+        "revisione": "e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f"
+      },
+      {
+        "nome": "plenora-io-10.0.0-windows-x86_64-filegdb.zip",
+        "sha256": "9967f279b1c336f975160fc7184e3b01baeee2f931e7bdb6866355bfd3cb110f",
+        "dimensione": 51367082,
+        "revisione": "e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f"
+      },
+      {
+        "nome": "plenora_io-10.0.0-py3-none-any.whl",
+        "sha256": "e28f0566f4dad84fb776354478bf47133eb27478db8ea2ebbcfb32a91a136eda",
+        "dimensione": 119169,
+        "revisione": "e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f"
+      },
+      {
+        "nome": "plenora_io-10.0.0.tar.gz",
+        "sha256": "949ea634ad9ba0eac5999d020619825e24e00e0358b7e7cd48d13079ea5299a1",
+        "dimensione": 231796,
+        "revisione": "e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f"
+      }
+    ],
+    "fonti": {
+      "deliverable-linux-base-10.0.0/plenora-io-10.0.0-linux-x86_64-base.tar.gz": {
+        "sha256": "8dae3a3a9b27840b8d0160456eb2274babed5cffbbed7e95fc67d1a4201d95c8",
+        "dimensione": 9691053
+      },
+      "deliverable-linux-base-10.0.0/plenora-io-10.0.0-linux-x86_64-base.tar.gz.provenance.json": {
+        "sha256": "59e1434854db0865eb3bb7e2728af2f8b231d672ea8a1a595a58b60f630c8591",
+        "dimensione": 2583
+      },
+      "deliverable-linux-base-10.0.0/plenora-io-10.0.0-linux-x86_64-base.tar.gz.sha256": {
+        "sha256": "30adaef90dd7df2238992bc0850b87cb69fb8e40fd4610778bca03c717f0167b",
+        "dimensione": 109
+      },
+      "deliverable-linux-filegdb-10.0.0/plenora-io-10.0.0-linux-x86_64-filegdb.tar.gz": {
+        "sha256": "7da7b35e24556e38fa0f883f4ce7c275a0c9e2c8287051b9f34db8431749eeef",
+        "dimensione": 65615331
+      },
+      "deliverable-linux-filegdb-10.0.0/plenora-io-10.0.0-linux-x86_64-filegdb.tar.gz.provenance.json": {
+        "sha256": "ae8d7e973c3e77d3b7c2cc30698ecd8e6be523f8fe11681ee3c73e2afc4a9dbe",
+        "dimensione": 2590
+      },
+      "deliverable-linux-filegdb-10.0.0/plenora-io-10.0.0-linux-x86_64-filegdb.tar.gz.sha256": {
+        "sha256": "6995f4226b8e533fe5aed854eb4b849a28d739afe88cbb226efb4e3681392b8a",
+        "dimensione": 112
+      },
+      "deliverable-python-10.0.0/licenze.json": {
+        "sha256": "3d13dba0b746a53f4e7d186658967aa6b93da2b0c2a300649b756008630547c4",
+        "dimensione": 1399
+      },
+      "deliverable-python-10.0.0/MANIFEST.json": {
+        "sha256": "b4c41fd14e49de094c87e798e571bf62855925406f0e95e9c05d00adff1bcbf6",
+        "dimensione": 1398
+      },
+      "deliverable-python-10.0.0/plenora_io-10.0.0-py3-none-any.whl": {
+        "sha256": "e28f0566f4dad84fb776354478bf47133eb27478db8ea2ebbcfb32a91a136eda",
+        "dimensione": 119169
+      },
+      "deliverable-python-10.0.0/plenora_io-10.0.0-py3-none-any.whl.sha256": {
+        "sha256": "74bbf6a10d7c2ec786a8dd5b48f516b6add2d61b221a0101b3e5ec1192b850ff",
+        "dimensione": 101
+      },
+      "deliverable-python-10.0.0/plenora_io-10.0.0.tar.gz": {
+        "sha256": "949ea634ad9ba0eac5999d020619825e24e00e0358b7e7cd48d13079ea5299a1",
+        "dimensione": 231796
+      },
+      "deliverable-python-10.0.0/plenora_io-10.0.0.tar.gz.sha256": {
+        "sha256": "fe6376c0428f5433f4aca2f4fc2f7252aae02aee222bff83a656274378dea203",
+        "dimensione": 91
+      },
+      "deliverable-python-10.0.0/provenance.json": {
+        "sha256": "0a269947a975ecc18ac355222509bd8c06846233038bbd2814916a49905d1bf8",
+        "dimensione": 772
+      },
+      "deliverable-python-10.0.0/sbom.json": {
+        "sha256": "5934577c02dda25fe663269f9dd0c2c22b3befd7651340e281aad0b2bcff9ed5",
+        "dimensione": 1106
+      },
+      "deliverable-sorgente-10.0.0/MANIFEST-sorgente.json": {
+        "sha256": "e280ee4b827770a532b3daeee9fcee85cd58f3cd62907c45082d2e923a268cf4",
+        "dimensione": 755
+      },
+      "deliverable-sorgente-10.0.0/plenora-io-10.0.0-src.tar.gz": {
+        "sha256": "69acfad8be9c931d34a4164a25fa4e70140d18c5b9658d27c445159d65a720c7",
+        "dimensione": 21557031
+      },
+      "deliverable-sorgente-10.0.0/plenora-io-10.0.0-src.tar.gz.sha256": {
+        "sha256": "079954284d555d2741971483b1b26b70fab0c12c27d28140951789af0bd403aa",
+        "dimensione": 95
+      },
+      "deliverable-windows-base-10.0.0/plenora-io-10.0.0-windows-x86_64-base.zip": {
+        "sha256": "f58ab4b82b5ea61c8c20a62871922af6968224433e8069f034307b01d2f752c8",
+        "dimensione": 10895862
+      },
+      "deliverable-windows-base-10.0.0/plenora-io-10.0.0-windows-x86_64-base.zip.provenance.json": {
+        "sha256": "81d7bdd8019e84e19046492c085c7e7d67fb4597449bc93f6702a832f55ffff6",
+        "dimensione": 2437
+      },
+      "deliverable-windows-base-10.0.0/plenora-io-10.0.0-windows-x86_64-base.zip.sha256": {
+        "sha256": "56f89366f39c184d89597338eebb847e4d140fc860d739eed415964a31bdf142",
+        "dimensione": 109
+      },
+      "deliverable-windows-filegdb-10.0.0/plenora-io-10.0.0-windows-x86_64-filegdb.zip": {
+        "sha256": "9967f279b1c336f975160fc7184e3b01baeee2f931e7bdb6866355bfd3cb110f",
+        "dimensione": 51367082
+      },
+      "deliverable-windows-filegdb-10.0.0/plenora-io-10.0.0-windows-x86_64-filegdb.zip.provenance.json": {
+        "sha256": "cde17d5370831f81b7e3aabb7949ad271a3117ee5b4560d12e0747c2f6be97d5",
+        "dimensione": 2443
+      },
+      "deliverable-windows-filegdb-10.0.0/plenora-io-10.0.0-windows-x86_64-filegdb.zip.sha256": {
+        "sha256": "53beadae3c0fcdcc78cd5156872fad03316695b6558e6da11f7e244bb8b99613",
+        "dimensione": 112
+      },
+      "discovery-windows-base/install-windows-gdal-base.log": {
+        "sha256": "18f9cfe4b365f083781062c962180bb1bd092bf643177a8bc14fde83f436e33b",
+        "dimensione": 2243
+      },
+      "discovery-windows-base/windows-base-discovery.json": {
+        "sha256": "b30ddef6c87900b7c763c333e75232aa594202722db9e98275a4b74483a25bb8",
+        "dimensione": 3086
+      },
+      "discovery-windows-base/windows-base-MANIFEST.json": {
+        "sha256": "b83e7e9f506e2f52f1a90a7df4483d68301a899fbc4ef4be2a0f6fe7d5f03651",
+        "dimensione": 67742
+      },
+      "discovery-windows-filegdb/install-windows-gdal-filegdb.log": {
+        "sha256": "a438da3616915c88880cc694c614a6e2234bd475ccf1dfaca2dc57c02236498b",
+        "dimensione": 2243
+      },
+      "discovery-windows-filegdb/windows-filegdb-discovery.json": {
+        "sha256": "ec7d72da99e8772bae8e8c20f29def711efcdc0bab62fa80695b9c557773924b",
+        "dimensione": 6775
+      },
+      "discovery-windows-filegdb/windows-filegdb-MANIFEST.json": {
+        "sha256": "991b71168817ceeba1320e7f568c7e44fdf9255d482024a472e135aa22f7690f",
+        "dimensione": 97451
+      },
+      "referti-di-tutta-la-distribuzione/referti-linux-base/linux-base-digest-manifesto.json": {
+        "sha256": "4742c8c9e996ed9428083ba1999572df9c6bce36ecf00c2fb7b3d3731f5ede2b",
+        "dimensione": 544
+      },
+      "referti-di-tutta-la-distribuzione/referti-linux-base/linux-base-licenze.json": {
+        "sha256": "4b5110a883f7fe215b97f93532b04a8fc177ba8b441ace6eeaa3c9a4c98e6b58",
+        "dimensione": 1444
+      },
+      "referti-di-tutta-la-distribuzione/referti-linux-base/linux-base-provenance.json": {
+        "sha256": "f50fa5199472f359ca74dfd97f327b879f277bb1d61f2ff1e44fc53e8167009e",
+        "dimensione": 646
+      },
+      "referti-di-tutta-la-distribuzione/referti-linux-base/linux-base-relocation.json": {
+        "sha256": "2d65b4446a7cae81ca7d2b86e9d8f6e4ab588f7cddce31be058eb63f46dce29c",
+        "dimensione": 506
+      },
+      "referti-di-tutta-la-distribuzione/referti-linux-base/linux-base-runtime.json": {
+        "sha256": "e4821d3c5dee11ddfb39415f0af7a0f13ee08c260794854d2b115bef749ad61b",
+        "dimensione": 578
+      },
+      "referti-di-tutta-la-distribuzione/referti-linux-base/linux-base-smoke.json": {
+        "sha256": "5cbdec01a42b334e1481a2435986004977c39a342b8b96ce0977d669c8d15b2e",
+        "dimensione": 1747
+      },
+      "referti-di-tutta-la-distribuzione/referti-linux-filegdb/linux-filegdb-digest-manifesto.json": {
+        "sha256": "6bae33b07dd21c9493b60614b25d95562bcd3b14b1583b20f8778197f2795810",
+        "dimensione": 547
+      },
+      "referti-di-tutta-la-distribuzione/referti-linux-filegdb/linux-filegdb-licenze.json": {
+        "sha256": "c75b782c55df8861dee2a475c17af9b97a739813204af7841459da5dec296e27",
+        "dimensione": 1449
+      },
+      "referti-di-tutta-la-distribuzione/referti-linux-filegdb/linux-filegdb-provenance.json": {
+        "sha256": "337f27fd5ad1591aaa78761054ebe942a147b3a0677235eb27c33cfc047492be",
+        "dimensione": 650
+      },
+      "referti-di-tutta-la-distribuzione/referti-linux-filegdb/linux-filegdb-relocation.json": {
+        "sha256": "fd4ba21a936a85010c46548db89382992451142b2a51efc8214aa8d5896ec0d8",
+        "dimensione": 511
+      },
+      "referti-di-tutta-la-distribuzione/referti-linux-filegdb/linux-filegdb-runtime.json": {
+        "sha256": "81d40bcefcf1864cfff84500862a67ad933e29d6d948f64afa7e6d646f4c3457",
+        "dimensione": 632
+      },
+      "referti-di-tutta-la-distribuzione/referti-linux-filegdb/linux-filegdb-smoke.json": {
+        "sha256": "9c90d6745369b1c783c31cff91ea3bab40da817d6954857fd1008a4253b2f145",
+        "dimensione": 1658
+      },
+      "referti-di-tutta-la-distribuzione/referti-python/python-sdist-licenze.json": {
+        "sha256": "79ced3e6fb3e7b8b12208ddde7b157e67dddcf3d9dfbc1973b1e6f84960d52f4",
+        "dimensione": 1258
+      },
+      "referti-di-tutta-la-distribuzione/referti-python/python-sdist-provenance.json": {
+        "sha256": "46a70516f752dea815664b765cefa8d530c89c343307225af3b2336041bd6764",
+        "dimensione": 434
+      },
+      "referti-di-tutta-la-distribuzione/referti-python/python-sdist-sbom.json": {
+        "sha256": "6fda75c8ffc6ad2d80a771fbbaa1bd7f5e0bdce4e6cc34f90381f0055ab3ef03",
+        "dimensione": 270
+      },
+      "referti-di-tutta-la-distribuzione/referti-python/python-sdist-smoke-installato.json": {
+        "sha256": "2792490f7789d1b1e2a5f2008ada8dccb869773dd3afa6ea211d1bb5f3ee04d7",
+        "dimensione": 940
+      },
+      "referti-di-tutta-la-distribuzione/referti-python/python-wheel-licenze.json": {
+        "sha256": "75bfae4ee3032c89da9c7a31f67b8f91aedb32f781fad2fe708ef71b8b3aad8a",
+        "dimensione": 1258
+      },
+      "referti-di-tutta-la-distribuzione/referti-python/python-wheel-provenance.json": {
+        "sha256": "e21200bc8e0d54861921749e942afc78d0374f76d515fca5b6c652ac954638aa",
+        "dimensione": 434
+      },
+      "referti-di-tutta-la-distribuzione/referti-python/python-wheel-sbom.json": {
+        "sha256": "b9bf13a9307e4bf51eb07af0b3f257549ae9d952ecfdcea6a31d71c3ed48c166",
+        "dimensione": 270
+      },
+      "referti-di-tutta-la-distribuzione/referti-python/python-wheel-smoke-installato.json": {
+        "sha256": "e042c7b23bc5dfffa5e67df7a8d26f8fd3f7fc6ef3a9ef73dedd1c056d84ecee",
+        "dimensione": 952
+      },
+      "referti-di-tutta-la-distribuzione/referti-windows-base/windows-base-digest-manifesto.json": {
+        "sha256": "d1d8c07be68f45df8c71d1646ba2b75dc7c502a1dd0a4229af0742c47e2ac1db",
+        "dimensione": 562
+      },
+      "referti-di-tutta-la-distribuzione/referti-windows-base/windows-base-licenze.json": {
+        "sha256": "9ef089390efdd54b3e9197e20eed825597d8f63ba1b2beeb8550bdc5438fbfcb",
+        "dimensione": 1245
+      },
+      "referti-di-tutta-la-distribuzione/referti-windows-base/windows-base-provenance.json": {
+        "sha256": "5144f47b50d1789ba757d46717f10f20a2cea1246705b47758b48968deecb6ef",
+        "dimensione": 488
+      },
+      "referti-di-tutta-la-distribuzione/referti-windows-base/windows-base-relocation.json": {
+        "sha256": "1faedd0749cab989385b3e3d0d06b879e6ffd1c00bb6eb16f5c1afa9d7aef85b",
+        "dimensione": 564
+      },
+      "referti-di-tutta-la-distribuzione/referti-windows-base/windows-base-runtime.json": {
+        "sha256": "72ca8b4420320e441741a12493eca57c65683a4f7cc02fbae7e5cc65dc74d387",
+        "dimensione": 2267
+      },
+      "referti-di-tutta-la-distribuzione/referti-windows-base/windows-base-smoke.json": {
+        "sha256": "ca687c3d8376927cafcfb4cbc2465aa487231a950a223a9f84d2e30903439212",
+        "dimensione": 1846
+      },
+      "referti-di-tutta-la-distribuzione/referti-windows-filegdb/windows-filegdb-digest-manifesto.json": {
+        "sha256": "3a2814d3b9c315ee756fd411ca965d220bd59cc42594079a2d87a3fb41743910",
+        "dimensione": 565
+      },
+      "referti-di-tutta-la-distribuzione/referti-windows-filegdb/windows-filegdb-licenze.json": {
+        "sha256": "aeabebdba734cf15701b1c1cdcc0eeb338467c2a1f0c13ae98f0da500efd717b",
+        "dimensione": 1250
+      },
+      "referti-di-tutta-la-distribuzione/referti-windows-filegdb/windows-filegdb-provenance.json": {
+        "sha256": "6c22e6f221481ecfd1ef93673e3e805e4650acacb1875e69c887efd24c15c484",
+        "dimensione": 491
+      },
+      "referti-di-tutta-la-distribuzione/referti-windows-filegdb/windows-filegdb-relocation.json": {
+        "sha256": "b83e11cae8a1da62dcf803f0d1490f848edb00049fe9011db8a6772d7b941667",
+        "dimensione": 568
+      },
+      "referti-di-tutta-la-distribuzione/referti-windows-filegdb/windows-filegdb-runtime.json": {
+        "sha256": "930c0159942257a8254db5145be90abebd46feb93bcfdb78fc11b46d93799cea",
+        "dimensione": 4305
+      },
+      "referti-di-tutta-la-distribuzione/referti-windows-filegdb/windows-filegdb-smoke.json": {
+        "sha256": "4249b5375a339adc1f0cdbae4c337e459236763c40711f377f3c7a17471f2dc2",
+        "dimensione": 1755
+      },
+      "referti-linux-base/linux-base-digest-manifesto.json": {
+        "sha256": "4742c8c9e996ed9428083ba1999572df9c6bce36ecf00c2fb7b3d3731f5ede2b",
+        "dimensione": 544
+      },
+      "referti-linux-base/linux-base-licenze.json": {
+        "sha256": "4b5110a883f7fe215b97f93532b04a8fc177ba8b441ace6eeaa3c9a4c98e6b58",
+        "dimensione": 1444
+      },
+      "referti-linux-base/linux-base-provenance.json": {
+        "sha256": "f50fa5199472f359ca74dfd97f327b879f277bb1d61f2ff1e44fc53e8167009e",
+        "dimensione": 646
+      },
+      "referti-linux-base/linux-base-relocation.json": {
+        "sha256": "2d65b4446a7cae81ca7d2b86e9d8f6e4ab588f7cddce31be058eb63f46dce29c",
+        "dimensione": 506
+      },
+      "referti-linux-base/linux-base-runtime.json": {
+        "sha256": "e4821d3c5dee11ddfb39415f0af7a0f13ee08c260794854d2b115bef749ad61b",
+        "dimensione": 578
+      },
+      "referti-linux-base/linux-base-smoke.json": {
+        "sha256": "5cbdec01a42b334e1481a2435986004977c39a342b8b96ce0977d669c8d15b2e",
+        "dimensione": 1747
+      },
+      "referti-linux-filegdb/linux-filegdb-digest-manifesto.json": {
+        "sha256": "6bae33b07dd21c9493b60614b25d95562bcd3b14b1583b20f8778197f2795810",
+        "dimensione": 547
+      },
+      "referti-linux-filegdb/linux-filegdb-licenze.json": {
+        "sha256": "c75b782c55df8861dee2a475c17af9b97a739813204af7841459da5dec296e27",
+        "dimensione": 1449
+      },
+      "referti-linux-filegdb/linux-filegdb-provenance.json": {
+        "sha256": "337f27fd5ad1591aaa78761054ebe942a147b3a0677235eb27c33cfc047492be",
+        "dimensione": 650
+      },
+      "referti-linux-filegdb/linux-filegdb-relocation.json": {
+        "sha256": "fd4ba21a936a85010c46548db89382992451142b2a51efc8214aa8d5896ec0d8",
+        "dimensione": 511
+      },
+      "referti-linux-filegdb/linux-filegdb-runtime.json": {
+        "sha256": "81d40bcefcf1864cfff84500862a67ad933e29d6d948f64afa7e6d646f4c3457",
+        "dimensione": 632
+      },
+      "referti-linux-filegdb/linux-filegdb-smoke.json": {
+        "sha256": "9c90d6745369b1c783c31cff91ea3bab40da817d6954857fd1008a4253b2f145",
+        "dimensione": 1658
+      },
+      "referti-python/python-sdist-licenze.json": {
+        "sha256": "79ced3e6fb3e7b8b12208ddde7b157e67dddcf3d9dfbc1973b1e6f84960d52f4",
+        "dimensione": 1258
+      },
+      "referti-python/python-sdist-provenance.json": {
+        "sha256": "46a70516f752dea815664b765cefa8d530c89c343307225af3b2336041bd6764",
+        "dimensione": 434
+      },
+      "referti-python/python-sdist-sbom.json": {
+        "sha256": "6fda75c8ffc6ad2d80a771fbbaa1bd7f5e0bdce4e6cc34f90381f0055ab3ef03",
+        "dimensione": 270
+      },
+      "referti-python/python-sdist-smoke-installato.json": {
+        "sha256": "2792490f7789d1b1e2a5f2008ada8dccb869773dd3afa6ea211d1bb5f3ee04d7",
+        "dimensione": 940
+      },
+      "referti-python/python-wheel-licenze.json": {
+        "sha256": "75bfae4ee3032c89da9c7a31f67b8f91aedb32f781fad2fe708ef71b8b3aad8a",
+        "dimensione": 1258
+      },
+      "referti-python/python-wheel-provenance.json": {
+        "sha256": "e21200bc8e0d54861921749e942afc78d0374f76d515fca5b6c652ac954638aa",
+        "dimensione": 434
+      },
+      "referti-python/python-wheel-sbom.json": {
+        "sha256": "b9bf13a9307e4bf51eb07af0b3f257549ae9d952ecfdcea6a31d71c3ed48c166",
+        "dimensione": 270
+      },
+      "referti-python/python-wheel-smoke-installato.json": {
+        "sha256": "e042c7b23bc5dfffa5e67df7a8d26f8fd3f7fc6ef3a9ef73dedd1c056d84ecee",
+        "dimensione": 952
+      },
+      "referti-windows-base/windows-base-digest-manifesto.json": {
+        "sha256": "d1d8c07be68f45df8c71d1646ba2b75dc7c502a1dd0a4229af0742c47e2ac1db",
+        "dimensione": 562
+      },
+      "referti-windows-base/windows-base-licenze.json": {
+        "sha256": "9ef089390efdd54b3e9197e20eed825597d8f63ba1b2beeb8550bdc5438fbfcb",
+        "dimensione": 1245
+      },
+      "referti-windows-base/windows-base-provenance.json": {
+        "sha256": "5144f47b50d1789ba757d46717f10f20a2cea1246705b47758b48968deecb6ef",
+        "dimensione": 488
+      },
+      "referti-windows-base/windows-base-relocation.json": {
+        "sha256": "1faedd0749cab989385b3e3d0d06b879e6ffd1c00bb6eb16f5c1afa9d7aef85b",
+        "dimensione": 564
+      },
+      "referti-windows-base/windows-base-runtime.json": {
+        "sha256": "72ca8b4420320e441741a12493eca57c65683a4f7cc02fbae7e5cc65dc74d387",
+        "dimensione": 2267
+      },
+      "referti-windows-base/windows-base-smoke.json": {
+        "sha256": "ca687c3d8376927cafcfb4cbc2465aa487231a950a223a9f84d2e30903439212",
+        "dimensione": 1846
+      },
+      "referti-windows-filegdb/windows-filegdb-digest-manifesto.json": {
+        "sha256": "3a2814d3b9c315ee756fd411ca965d220bd59cc42594079a2d87a3fb41743910",
+        "dimensione": 565
+      },
+      "referti-windows-filegdb/windows-filegdb-licenze.json": {
+        "sha256": "aeabebdba734cf15701b1c1cdcc0eeb338467c2a1f0c13ae98f0da500efd717b",
+        "dimensione": 1250
+      },
+      "referti-windows-filegdb/windows-filegdb-provenance.json": {
+        "sha256": "6c22e6f221481ecfd1ef93673e3e805e4650acacb1875e69c887efd24c15c484",
+        "dimensione": 491
+      },
+      "referti-windows-filegdb/windows-filegdb-relocation.json": {
+        "sha256": "b83e11cae8a1da62dcf803f0d1490f848edb00049fe9011db8a6772d7b941667",
+        "dimensione": 568
+      },
+      "referti-windows-filegdb/windows-filegdb-runtime.json": {
+        "sha256": "930c0159942257a8254db5145be90abebd46feb93bcfdb78fc11b46d93799cea",
+        "dimensione": 4305
+      },
+      "referti-windows-filegdb/windows-filegdb-smoke.json": {
+        "sha256": "4249b5375a339adc1f0cdbae4c337e459236763c40711f377f3c7a17471f2dc2",
+        "dimensione": 1755
+      }
+    },
+    "verifiche": {
+      "deliverable": {
+        "comando": "C:\\pg\\io-fix1000\\target\\r3-venv\\Scripts\\python.exe scripts/check-deliverable.py --directory target\\rel1000\\registrazione\\deliverable --versione 10.0.0 --canale candidate --revisione e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f",
+        "exit_code": 0
+      },
+      "referti": {
+        "comando": "C:\\pg\\io-fix1000\\target\\r3-venv\\Scripts\\python.exe scripts/check-distribuzione-completa.py --referti target\\rel1000\\distribuzione-44782545519\\referti-di-tutta-la-distribuzione --canale candidate",
+        "exit_code": 0
+      }
+    },
+    "attestazioni_profilo_pubblico": {
+      "stato": "assenti_nei_download",
+      "nota": "Nessun JSON con conforme/esigente nei download forniti. Le quattro attestazioni versionate sono ancora del 18/11, digest edb482d: non riutilizzate ne attribuite alla candidate corrente."
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "tipo": "registrazione_documentale_owner_non_checkpoint",
+  "ricevuta_il": "2026-11-21",
+  "autore": "titolare del prodotto",
+  "oggetto": "pubblicazione di IO 10.0.0",
+  "testo_autentico": "si procedi",
+  "fonte": "Decisione esplicita riportata dal titolare nella conversazione del 21/11/2026, dopo il riepilogo L2 110/110, distribuzione 44782545519 verde e registrazione e4646ed1.",
+  "tag": "v10.0.0",
+  "revisione_candidate": "e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f",
+  "riferimento_registrazione": "e4646ed1bac4daee2f0f3ec42b2781c6b11b0c42",
+  "ambito": "Autorizzazione del rilascio della candidate indicata; non attesta creazione del tag, verifica della bozza, superamento del gate completo o pubblicazione. Ora non fornita."
+}

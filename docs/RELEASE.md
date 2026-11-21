@@ -1,12 +1,14 @@
-# Rilascio — stato corrente
+# Rilascio ? stato corrente
 
-La candidate 10.0.0 `edb482d892da11ecb421d5441079209a65d61fa0` e ritirata
-su decisione del titolare per i difetti della raccolta indipendente.
-Il ritiro, i riferimenti ai tre elenchi e l'invalidazione di artefatti e bozza
-sono in [ritiro-candidate-1000.json](../assurance/evidence/ritiro-candidate-1000.json).
-Lo sviluppo riparte verso una nuova candidate 10.0.0 nello stato `iniziale`,
-non congelato. Le evidenze seguenti restano storiche: non qualificano le
-correzioni. Nessuna pubblicazione e autorizzata.
+La candidate corrente 10.0.0 e `e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f`,
+congelata e qualificata L2 nel tentativo 2. La candidate `edb482d8` e
+ritirata il 18/11 per difetti silenziosi, sostituita da e4c9762f.
+Il [verbale di ritiro](../assurance/evidence/ritiro-candidate-1000.json) e la
+registrazione del 18/11 restano storia. Il titolare ha autorizzato il rilascio
+della candidate corrente il 21/11/2026; tag, gate finale e pubblicazione restano da eseguire.
+L evidenza edb482d conserva le misure originali ed e classificata come
+registrazione documentale storica nel registro, con digest precedente
+alla classificazione conservato in `archiviazione`.
 
 ## Stato
 
@@ -19,43 +21,43 @@ correzioni. Nessuna pubblicazione e autorizzata.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `edb482d` |
-| revisione misurata | `edb482d` |
+| ultima qualificata | `e4c9762` |
+| revisione misurata | `e4c9762` |
 | passi del checkpoint | 110 |
 | passi verdi | 110 |
 | passi omessi | 0 |
 | passi falliti | 0 |
-| input di replay | 207 |
+| input di replay | 208 |
 | target di replay | 15 |
 | crash di replay | 0 |
 | target di smoke eseguiti | 15 |
 | target di smoke totali | 15 |
 | finding di smoke | 0 |
 | target in quarantena | 0 |
-| copertura LCOV | 88,90% |
-| righe coperte LCOV | 32 224 |
-| righe strumentate LCOV | 36 247 |
-| copertura cargo | 86,81% |
+| copertura LCOV | 90,02% |
+| righe coperte LCOV | 37 191 |
+| righe strumentate LCOV | 41 313 |
+| copertura cargo | 87,90% |
 | soglia di copertura | 80,00% |
 | baseline differenziale | `7314ca25b62788a3a9d2af0ec638d0d7f3bdffea` |
-| esito differenziale | 100.00% |
+| esito differenziale | 89.37% |
 | gruppi ASSURANCE-N1 | 50 |
 | gruppi ASSURANCE-N1 aperti | 0 |
 | blocchi | 2 |
 | capacità differite | 2 |
-| S9, qualificato su | `edb482d` |
+| S9, qualificato su | `e4c9762` |
 | candidate, versione del manifesto | `10.0.0` |
-| candidate, stato | iniziale |
-| candidate, revisione congelata | non congelata |
+| candidate, stato | attiva |
+| candidate, revisione congelata | `e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f` |
 | candidate, versione del workspace | `10.0.0` |
-| candidate, artefatti congelati | non congelati |
+| candidate, artefatti congelati | 7 |
 | candidate, tag previsto | `v10.0.0` |
 | candidate, tag creato | no |
 | candidate, revisione del tag | nessun tag |
 | candidate, tag sulla candidate | no |
-| candidate, assurance entro l'allowlist | non derivabile senza congelamento |
+| candidate, assurance entro l'allowlist | sì |
 | candidate, release_action consentita | no |
-| release_authorized | `false` |
+| release_authorized | `true` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
 [registro del contratto corrente](../assurance/registries/release-contract-current.json)
@@ -63,8 +65,8 @@ I blocchi sono l'elenco esatto dei `release_blocking` del
 
 | Blocco | Sintesi |
 |---|---|
-| `release.candidate-non-valida-per-head` | 10.0.0 in sviluppo: candidate edb482d ritirata per difetti della raccolta; artefatti e bozza non validi per il rilascio. |
-| `distribuzione.artefatti-qualificati` | 10.0.0 in sviluppo: candidate edb482d ritirata per difetti della raccolta; artefatti e bozza non validi per il rilascio. |
+| `release.candidate-non-valida-per-head` | Candidate e4c9762 qualificata L2 e autorizzata dal titolare: restano tag e condizioni finali di release. |
+| `distribuzione.artefatti-qualificati` | Sette artefatti e 32 referti verificati; attestazioni Windows correnti 32/32, manifesto generato; restano attestazioni Linux e confronto bozza. |
 
 Le capacità **differite** non sono blocchi chiusi: non sono richieste
 da questa release e **non sono verificate**. Ciascuna dichiara che cosa
@@ -206,6 +208,8 @@ La decisione esplicita del titolare riguarda soltanto gli artefatti qualificati 
 
 ### Registrazione distribuzione, replay finito e L2 della 10.0.0 - 2026-11-18
 
+**Storica: ritirata il 18/11 per difetti silenziosi, sostituita da e4c9762f.**
+
 La candidate congelata e distribuita e
 `edb482d892da11ecb421d5441079209a65d61fa0`. La qualifica riguarda questo SHA,
 non il futuro commit di registrazione. Nessun tag o permesso di pubblicazione
@@ -275,3 +279,83 @@ Comandi operativi e resoconto: `target/REGISTRA-1000.md`.
 Il checkpoint storico 9.0.0 resta nella storia Git e nella copia locale
 `target/rel1000/registrazione/checkpoint-7314ca2.json`; viene rimosso dalla
 directory corrente secondo il vincolo di insieme esatto del gate congelato.
+
+
+### Registrazione distribuzione e L2 della 10.0.0 - 2026-11-21
+
+Candidate: `e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f`. Precedente applicato:
+registrazione 9.0.0 `a6a334d`; nessun commit, tag o pubblicazione creato.
+L'[evidenza](../assurance/evidence/checkpoint-e4c9762.json) e generata con
+`scripts/registra-evidenza-s9.py` dal tentativo 2. Le fonti originali in
+`target/rel1000/` restano immutate; i log di passo sono copiati byte per byte
+in `target/rel1000/registrazione/corsa-contratto/`. `console.log` e hashato
+separatamente nella provenienza, come nel precedente del 18/11.
+
+Tutti e tre i tentativi sono dichiarati con percorso, esito e SHA-256 di ogni
+file nel `registro_dei_tentativi`, richiamato dalla provenienza:
+
+- Tentativo 1: 109/110, scartato per **AMBIENTE**. Solo `sonde_sdk_python`
+  fallisce: pyarrow 26.x nell'ambiente, mentre l'SDK e qualificato con
+  pyarrow 25.x. La causa ambientale e dichiarata dall'operatore; il risultato
+  rosso originale resta conservato, senza valore di qualifica.
+- Corsa `interrotto-0106`: interrotta dal riavvio della sessione a meta;
+  `risultato.json` resta `in_corso`, senza valore di qualifica.
+- Tentativo 2: 110/110, `S9 checkpoint level 2 passed`; unica fonte delle
+  misure correnti. Il registratore supporta gia il registro dei tentativi
+  nel giudizio: nessun vincolo di unico tentativo e nessuna estensione al codice.
+
+Ambiente dichiarato: **WSL Ubuntu 26.04, utente non root**, anziche la VM
+usata per la candidate storica. `.plenora-contracts` al pin
+`38d68b402389855edbcecb7ce57c31e91282cb4e`;
+`S9_CHECKPOINT_BASE=7314ca25b62788a3a9d2af0ec638d0d7f3bdffea` (9.0.0).
+Registrazione locale con Python 3.14.6 dal venv `C:/pg/io-fix1000/target/r3-venv`.
+
+| Misura | Esito |
+|---|---|
+| Passi distinti/verdi | 110/110; 0 omessi, falliti o duplicati |
+| Albero misurato | pulito; revisione e impronta invariate |
+| Replay | 208 input, 15 target, 0 crash |
+| Ricevuta fuzz | 15/15 target; 0 finding e quarantena; nessun secondo soak |
+| LCOV | 37 191/41 313, 90,02% |
+| Cargo | 87,90%; soglia 80% |
+| Differenziale | 5 994/6 707, 89,37%; 713 scoperte; 15 396 non eseguibili |
+
+Distribuzione GitHub `44782545519`, canale `candidate`, verde secondo
+l'operatore. I sette archivi hanno dimensioni e SHA-256 ricalcolati, checksum
+e revisione verificati da `check-deliverable.py`; `check-distribuzione-completa.py`
+verifica 32/32 referti. Inventario completo dei file e digest in
+`distribuzione_candidate` dell'evidenza. Verifica offline dei download,
+nessuna verifica API o confronto dei byte della bozza/release pubblicata.
+
+**Attestazioni:** nei download forniti non risultano attestazioni del profilo
+pubblico con `conforme`/`esigente`; le quattro gia versionate datano 18/11 e
+hanno i digest della candidate ritirata. Restano storiche, non qualificano
+questi archivi. Occorrono quelle della corsa corrente e il manifesto di adozione.
+
+Il cancello di verifica, senza pubblicazione, e:
+
+```powershell
+& C:/pg/io-fix1000/target/r3-venv/Scripts/python.exe scripts/check_release_contract.py --release
+```
+
+`release_authorized` resta `false`: la decisione scritta spetta al titolare.
+Restano inoltre il confronto della bozza, il tag e tutte le condizioni
+congiunte del gate. Esito e diagnostica della verifica locale sono riportati
+in `target/REGISTRAZIONE-1000.md` e nei log sotto `target/rel1000/registrazione/`.
+Il comando integrale e stato eseguito e interrotto senza verdetto completo.
+Le nove condizioni congiunte, eseguite separatamente con le funzioni dello
+stesso gate, danno esito bloccato: decisione, tag e manifesto mancanti,
+due invarianti aperti, e controllo ASan locale non eseguibile senza
+`gdal_i.lib`. Il risultato L2 WSL resta distinto da questa verifica locale.
+
+
+### Decisione del titolare 10.0.0 - 2026-11-21
+
+Decisione esplicita del titolare del 21/11/2026: «si procedi», dopo L2 110/110, distribuzione 44782545519 verde e registrazione e4646ed1. Fonte: assurance/evidence/autorizzazione-10.0.0.json. Autorizzazione registrata; attestazioni Windows correnti 32/32 per profilo e manifesto generati offline. Restano attestazioni Linux correnti, confronto bozza, tag e gate finale; pubblicazione e verifica dei byte pubblicati non eseguite. release_action_allowed resta false fino alla registrazione delle condizioni finali.
+
+Questa decisione supera le indicazioni precedenti di autorizzazione assente;
+i verbali storici restano invariati. Tag non creato e nessuna pubblicazione
+registrata. I due blocchi restano aperti per le condizioni non ancora eseguite.
+Le attestazioni Linux del 18/11 sono storiche e non qualificano questa candidate.
+Comandi per Linux e pubblicazione: `target/rel1000/attestazioni-linux.sh` e
+`target/rel1000/PUBBLICAZIONE.md`.
