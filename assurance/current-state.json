@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "descrizione": "Stato corrente in forma strutturata. docs/RELEASE.md riporta questi numeri e il gate check_docset verifica che coincidano: due verita' manuali divergono, e divergono in silenzio.",
-  "release_authorized": false,
+  "release_authorized": true,
   "revisioni": {
     "baseline_documentale": {
       "sha": "2fe9b54",
@@ -120,7 +120,7 @@
       "release_action_allowed": false,
       "release_blocking": true,
       "stato": "attiva",
-      "nota": "Candidate corrente congelata; L2 attempt-2 e distribuzione 44782545519 registrati. Tutti e tre i tentativi dichiarati. Restano attestazioni correnti, manifesto, bozza verificata, decisione titolare, tag e gate finale. Permessi false.",
+      "nota": "Decisione esplicita del titolare del 21/11/2026: «si procedi», dopo L2 110/110, distribuzione 44782545519 verde e registrazione e4646ed1. Fonte: assurance/evidence/autorizzazione-10.0.0.json. Autorizzazione registrata; attestazioni Windows correnti 32/32 per profilo e manifesto generati offline. Restano attestazioni Linux correnti, confronto bozza, tag e gate finale; pubblicazione e verifica dei byte pubblicati non eseguite. release_action_allowed resta false fino alla registrazione delle condizioni finali.",
       "revisione_candidate": "e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f",
       "assurance_entro_l_allowlist": true,
       "artefatti": [
@@ -188,6 +188,10 @@
       {
         "percorso": "assurance/evidence/checkpoint-edb482d.json",
         "sha256": "04625efc1d9ed9db2b227df6de3bd63068cff6842ad1162e46395d5a782c2454"
+      },
+      {
+        "percorso": "assurance/evidence/autorizzazione-10.0.0.json",
+        "sha256": "2b2c80970a253ffc998f8c1b6b50914a50332b0a00a633ac44330b987f8f2228"
       }
     ]
   },

@@ -4,7 +4,8 @@ La candidate corrente 10.0.0 e `e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f`,
 congelata e qualificata L2 nel tentativo 2. La candidate `edb482d8` e
 ritirata il 18/11 per difetti silenziosi, sostituita da e4c9762f.
 Il [verbale di ritiro](../assurance/evidence/ritiro-candidate-1000.json) e la
-registrazione del 18/11 restano storia. Nessuna pubblicazione e autorizzata.
+registrazione del 18/11 restano storia. Il titolare ha autorizzato il rilascio
+della candidate corrente il 21/11/2026; tag, gate finale e pubblicazione restano da eseguire.
 L evidenza edb482d conserva le misure originali ed e classificata come
 registrazione documentale storica nel registro, con digest precedente
 alla classificazione conservato in `archiviazione`.
@@ -56,7 +57,7 @@ alla classificazione conservato in `archiviazione`.
 | candidate, tag sulla candidate | no |
 | candidate, assurance entro l'allowlist | sì |
 | candidate, release_action consentita | no |
-| release_authorized | `false` |
+| release_authorized | `true` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
 [registro del contratto corrente](../assurance/registries/release-contract-current.json)
@@ -64,8 +65,8 @@ I blocchi sono l'elenco esatto dei `release_blocking` del
 
 | Blocco | Sintesi |
 |---|---|
-| `release.candidate-non-valida-per-head` | Candidate e4c9762 qualificata L2: restano decisione del titolare, tag e condizioni finali di release. |
-| `distribuzione.artefatti-qualificati` | Sette artefatti e 32 referti della distribuzione 44782545519 verificati; confronto bozza e attestazioni correnti mancanti. |
+| `release.candidate-non-valida-per-head` | Candidate e4c9762 qualificata L2 e autorizzata dal titolare: restano tag e condizioni finali di release. |
+| `distribuzione.artefatti-qualificati` | Sette artefatti e 32 referti verificati; attestazioni Windows correnti 32/32, manifesto generato; restano attestazioni Linux e confronto bozza. |
 
 Le capacità **differite** non sono blocchi chiusi: non sono richieste
 da questa release e **non sono verificate**. Ciascuna dichiara che cosa
@@ -346,3 +347,15 @@ Le nove condizioni congiunte, eseguite separatamente con le funzioni dello
 stesso gate, danno esito bloccato: decisione, tag e manifesto mancanti,
 due invarianti aperti, e controllo ASan locale non eseguibile senza
 `gdal_i.lib`. Il risultato L2 WSL resta distinto da questa verifica locale.
+
+
+### Decisione del titolare 10.0.0 - 2026-11-21
+
+Decisione esplicita del titolare del 21/11/2026: «si procedi», dopo L2 110/110, distribuzione 44782545519 verde e registrazione e4646ed1. Fonte: assurance/evidence/autorizzazione-10.0.0.json. Autorizzazione registrata; attestazioni Windows correnti 32/32 per profilo e manifesto generati offline. Restano attestazioni Linux correnti, confronto bozza, tag e gate finale; pubblicazione e verifica dei byte pubblicati non eseguite. release_action_allowed resta false fino alla registrazione delle condizioni finali.
+
+Questa decisione supera le indicazioni precedenti di autorizzazione assente;
+i verbali storici restano invariati. Tag non creato e nessuna pubblicazione
+registrata. I due blocchi restano aperti per le condizioni non ancora eseguite.
+Le attestazioni Linux del 18/11 sono storiche e non qualificano questa candidate.
+Comandi per Linux e pubblicazione: `target/rel1000/attestazioni-linux.sh` e
+`target/rel1000/PUBBLICAZIONE.md`.
