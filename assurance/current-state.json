@@ -1,21 +1,21 @@
 {
   "schema_version": 1,
   "descrizione": "Stato corrente in forma strutturata. docs/RELEASE.md riporta questi numeri e il gate check_docset verifica che coincidano: due verita' manuali divergono, e divergono in silenzio.",
-  "release_authorized": false,
+  "release_authorized": true,
   "revisioni": {
     "baseline_documentale": {
       "sha": "2fe9b54",
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "edb482d",
+      "sha": "e4c9762",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "edb482d",
-    "evidenza": "assurance/evidence/checkpoint-edb482d.json",
+    "sha": "e4c9762",
+    "evidenza": "assurance/evidence/checkpoint-e4c9762.json",
     "checkpoint": {
       "passi_eseguiti": 110,
       "passi_verdi": 110,
@@ -24,7 +24,7 @@
       "riconciliazione": "110 identificatori distinti, 0 duplicati; conteggi derivati da risultato.json."
     },
     "fuzz": {
-      "replay_input": 207,
+      "replay_input": 208,
       "replay_target": 15,
       "replay_crash": 0,
       "smoke_target_eseguiti": 15,
@@ -33,36 +33,36 @@
       "quarantena": 0
     },
     "copertura": {
-      "lcov_percentuale": 88.9,
-      "lcov_righe_coperte": 32224,
-      "lcov_righe_strumentate": 36247,
-      "cargo_lines_percentuale": 86.81,
+      "lcov_percentuale": 90.02,
+      "lcov_righe_coperte": 37191,
+      "lcov_righe_strumentate": 41313,
+      "cargo_lines_percentuale": 87.9,
       "soglia": 80.0,
       "misurata_con": "cargo llvm-cov --workspace --all-targets --all-features --locked --no-report; proiezione di libreria con esclusioni dello script congelato.",
       "nota": "LCOV e sommario cargo contano insiemi diversi dello stesso profdata."
     },
     "diagnostica_differenziale": {
-      "esito": "100.00%",
-      "righe_cambiate_eseguibili": 29,
-      "coperte": 29,
-      "scoperte": 0,
-      "cambiate_non_eseguibili": 146,
-      "ragione": "Confronto di libreria fra 7314ca2 e candidate edb482d.",
-      "che_cosa_sono_le_scoperte": "Righe cambiate ed eseguibili non esercitate dai test; non una misura del fuzzing.",
-      "baseline": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea"
+      "esito": "89.37%",
+      "righe_cambiate_eseguibili": 6707,
+      "coperte": 5994,
+      "scoperte": 713,
+      "cambiate_non_eseguibili": 15396,
+      "baseline": "7314ca25b62788a3a9d2af0ec638d0d7f3bdffea",
+      "ragione": "Confronto di libreria fra 7314ca2 (9.0.0) e candidate e4c9762.",
+      "che_cosa_sono_le_scoperte": "Righe cambiate ed eseguibili non esercitate dai test; non una misura del fuzzing."
     }
   },
   "ultima_campagna_fuzz": {
-    "sha": "edb482d892da11ecb421d5441079209a65d61fa0",
+    "sha": "e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f",
     "verbale": "assurance/evidence/fuzz-smoke-ultima.json",
-    "significato": "Replay finito ASan io-9-replay-v1; ricevuta L2 copiata byte per byte, riuso della ricevuta esterna verificato tramite source_sha256. Il passo fuzz_smoke verifica la ricevuta senza seconda campagna; nessun soak previsto o registrato."
+    "significato": "Replay finito ASan io-9-replay-v1; ricevuta attempt-2 copiata byte per byte dal registratore; nessun soak."
   },
   "chiuso": {
     "s9_errori_strutturati": {
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "edb482d"
+      "qualificato_su": "e4c9762"
     },
     "fuzz_reader_shapefile": {
       "stato": "chiuso",
@@ -119,8 +119,54 @@
       "tag_sulla_candidate": false,
       "release_action_allowed": false,
       "release_blocking": true,
-      "stato": "iniziale",
-      "nota": "Release fermata dal titolare per difetti silenziosi trovati nella raccolta indipendente del 18/11/2026; correzioni R1..R5 prima di una nuova candidate 10.0.0. Ritiro e invalidazione di artefatti e bozza: assurance/evidence/ritiro-candidate-1000.json. Le misure precedenti restano storiche e non qualificano lo sviluppo."
+      "stato": "attiva",
+      "nota": "Decisione esplicita del titolare del 21/11/2026: «si procedi», dopo L2 110/110, distribuzione 44782545519 verde e registrazione e4646ed1. Fonte: assurance/evidence/autorizzazione-10.0.0.json. Autorizzazione registrata; attestazioni Windows correnti 32/32 per profilo e manifesto generati offline. Restano attestazioni Linux correnti, confronto bozza, tag e gate finale; pubblicazione e verifica dei byte pubblicati non eseguite. release_action_allowed resta false fino alla registrazione delle condizioni finali.",
+      "revisione_candidate": "e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f",
+      "assurance_entro_l_allowlist": true,
+      "artefatti": [
+        {
+          "nome": "plenora-io-10.0.0-linux-x86_64-base.tar.gz",
+          "sha256": "8dae3a3a9b27840b8d0160456eb2274babed5cffbbed7e95fc67d1a4201d95c8",
+          "dimensione": 9691053,
+          "revisione": "e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f"
+        },
+        {
+          "nome": "plenora-io-10.0.0-linux-x86_64-filegdb.tar.gz",
+          "sha256": "7da7b35e24556e38fa0f883f4ce7c275a0c9e2c8287051b9f34db8431749eeef",
+          "dimensione": 65615331,
+          "revisione": "e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f"
+        },
+        {
+          "nome": "plenora-io-10.0.0-src.tar.gz",
+          "sha256": "69acfad8be9c931d34a4164a25fa4e70140d18c5b9658d27c445159d65a720c7",
+          "dimensione": 21557031,
+          "revisione": "e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f"
+        },
+        {
+          "nome": "plenora-io-10.0.0-windows-x86_64-base.zip",
+          "sha256": "f58ab4b82b5ea61c8c20a62871922af6968224433e8069f034307b01d2f752c8",
+          "dimensione": 10895862,
+          "revisione": "e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f"
+        },
+        {
+          "nome": "plenora-io-10.0.0-windows-x86_64-filegdb.zip",
+          "sha256": "9967f279b1c336f975160fc7184e3b01baeee2f931e7bdb6866355bfd3cb110f",
+          "dimensione": 51367082,
+          "revisione": "e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f"
+        },
+        {
+          "nome": "plenora_io-10.0.0-py3-none-any.whl",
+          "sha256": "e28f0566f4dad84fb776354478bf47133eb27478db8ea2ebbcfb32a91a136eda",
+          "dimensione": 119169,
+          "revisione": "e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f"
+        },
+        {
+          "nome": "plenora_io-10.0.0.tar.gz",
+          "sha256": "949ea634ad9ba0eac5999d020619825e24e00e0358b7e7cd48d13079ea5299a1",
+          "dimensione": 231796,
+          "revisione": "e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f"
+        }
+      ]
     }
   },
   "docset": {
@@ -138,6 +184,14 @@
       {
         "percorso": "assurance/evidence/ritiro-candidate-1000.json",
         "sha256": "01685ae698403dc69d99e063dce3230dba96a7d0f1da0bbd0361231f3f1a838c"
+      },
+      {
+        "percorso": "assurance/evidence/checkpoint-edb482d.json",
+        "sha256": "000926b9a688a244ef36bb24ac66ff660a7ebcc594dcfe7fd1f90adae011a53c"
+      },
+      {
+        "percorso": "assurance/evidence/autorizzazione-10.0.0.json",
+        "sha256": "2b2c80970a253ffc998f8c1b6b50914a50332b0a00a633ac44330b987f8f2228"
       }
     ]
   },
