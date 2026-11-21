@@ -2,12 +2,12 @@
 
 <!-- generato da codice/versione: inizio -->
 
-Versione del prodotto: **10.0.0**.
+Versione del prodotto: **10.1.0**.
 
 | Artefatto Python | Nome |
 | --- | --- |
-| wheel | plenora_io-10.0.0-py3-none-any.whl |
-| sdist | plenora_io-10.0.0.tar.gz |
+| wheel | plenora_io-10.1.0-py3-none-any.whl |
+| sdist | plenora_io-10.1.0.tar.gz |
 
 <!-- generato da codice/versione: fine -->
 
@@ -31,7 +31,7 @@ in [ENGINEERING.md](ENGINEERING.md); dove siamo nel percorso di rilascio sta in
 | geoparquet | ["parquet"] | bidirectional | assente | streaming_random | streaming_columnar | bounding_box_statistics / numeric_min_max_statistics | lossless | ["boolean","signed_integer","unsigned_integer","floating","utf8","binary","temporal","decimal","nested","other"] |
 | gpkg | ["gpkg"] | bidirectional | assente | streaming_random | streaming_sequential | optional_rtree_index / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","binary"] |
 | ipc | ["arrow","arrows"] | bidirectional | assente | streaming_random | streaming_sequential | none / none | lossless | ["boolean","signed_integer","unsigned_integer","floating","utf8","binary","temporal","decimal","nested","other"] |
-| kml | ["kml"] | bidirectional | assente | materialized | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
+| kml | ["kml","kmz"] | bidirectional | assente | materialized | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
 | shp | ["shp","shp.d"] | bidirectional | assente | streaming_sequential | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
 | xls | ["xlsx"] | bidirectional | assente | materialized | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
 
@@ -813,6 +813,7 @@ La superficie con garanzia di compatibilità è **il JSON della CLI**. L'API Rus
 
 | Comando | Contratto | Protocollo |
 | --- | --- | --- |
+| archive-list | plenora-io-archive-list-v1 | 2 |
 | catalog | plenora-io-catalog-v2 | 2 |
 | inspect | plenora-io-inspect-v1 | 2 |
 | layers | plenora-io-layers-v1 | 2 |
@@ -1730,6 +1731,12 @@ Il profilo base non abilita `gdal-backend`; il profilo `gdal-backend` abilita il
 | InvalidSpillDirectory | geoparquet | tutti | directory spill assente | invalid_configuration | validate | CLI_USAGE | 2 | PLENORA_SPILL_DIR non indica una directory utilizzabile |
 | InvalidSpillDirectory | ipc | tutti | directory spill assente | invalid_configuration | validate | CLI_USAGE | 2 | PLENORA_SPILL_DIR non indica una directory utilizzabile |
 | MissingWriteBackend | filegdb | base | build senza gdal-backend | unsupported | write | UNSUPPORTED | 3 | scrittura FileGDB non disponibile: compilare con --features gdal-backend |
+| InvalidArchive | csv | tutti | archivio troncato | data_mapping | read | FORMAT_ERROR | 3 | archivio ZIP non valido |
+| ArchiveEntryMissing | csv | tutti | voce assente | not_found | read | SOURCE_NOT_FOUND | 5 | voce dell'archivio non trovata |
+| NonPortableSourceName | csv | tutti | voce con .. | invalid_configuration | validate | CLI_USAGE | 2 | nome di sorgente o di voce non portabile |
+| NestedArchive | csv | tutti | zip dentro zip | unsupported | read | UNSUPPORTED | 3 | archivio annidato non supportato |
+| UnsupportedArchiveFeature | csv | tutti | metodo bzip2 | unsupported | read | UNSUPPORTED | 3 | ZIP cifrato o con metodo diverso da stored (0) e deflate (8) |
+| AmbiguousArchiveNames | csv | tutti | stesso nome con maiuscole diverse | data_mapping | read | FORMAT_ERROR | 3 | nomi dell'archivio che il filesystem confonde |
 
 <!-- generato da codice/errori: fine -->
 

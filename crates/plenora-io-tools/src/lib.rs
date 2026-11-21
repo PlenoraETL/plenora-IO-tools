@@ -613,6 +613,17 @@ fn open_source(cli: &Cli) -> Result<(Box<dyn FormatDriver>, PathBuf), (i32, Valu
             .first()
             .ok_or_else(|| usage_err(&PublicMessage::Curated("manca il percorso del file")))?,
     );
+    // Una voce ZIP dentro l'archivio e' un archivio annidato, prima della
+    // scelta del driver: altrimenti risulterebbe un'estensione ignota.
+    if cli.archive_entry.as_deref().is_some_and(|voce| {
+        std::path::Path::new(voce)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("zip"))
+    }) {
+        return Err(map_err(
+            plenora_io_model::error_table::Situation::NestedArchive.error(),
+        ));
+    }
     // Il driver lo sceglie il nome logico: la voce, se c'e', altrimenti il
     // posizionale -- anche quando i byte arrivano da stdin.
     let driver = driver_for_path(

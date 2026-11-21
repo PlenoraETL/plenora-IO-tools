@@ -2,12 +2,12 @@
 
 <!-- generato da codice/versione: inizio -->
 
-Versione del prodotto: **10.0.0**.
+Versione del prodotto: **10.1.0**.
 
 | Artefatto Python | Nome |
 | --- | --- |
-| wheel | plenora_io-10.0.0-py3-none-any.whl |
-| sdist | plenora_io-10.0.0.tar.gz |
+| wheel | plenora_io-10.1.0-py3-none-any.whl |
+| sdist | plenora_io-10.1.0.tar.gz |
 
 <!-- generato da codice/versione: fine -->
 
@@ -322,7 +322,7 @@ Non sono disponibili protocolli delle release Plenora precedenti.
 | geoparquet | ["parquet"] | bidirectional | assente | streaming_random | streaming_columnar | bounding_box_statistics / numeric_min_max_statistics | lossless | ["boolean","signed_integer","unsigned_integer","floating","utf8","binary","temporal","decimal","nested","other"] |
 | gpkg | ["gpkg"] | bidirectional | assente | streaming_random | streaming_sequential | optional_rtree_index / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","binary"] |
 | ipc | ["arrow","arrows"] | bidirectional | assente | streaming_random | streaming_sequential | none / none | lossless | ["boolean","signed_integer","unsigned_integer","floating","utf8","binary","temporal","decimal","nested","other"] |
-| kml | ["kml"] | bidirectional | assente | materialized | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
+| kml | ["kml","kmz"] | bidirectional | assente | materialized | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
 | shp | ["shp","shp.d"] | bidirectional | assente | streaming_sequential | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
 | xls | ["xlsx"] | bidirectional | assente | materialized | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
 

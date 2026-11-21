@@ -2,12 +2,12 @@
 
 <!-- generato da codice/versione: inizio -->
 
-Versione del prodotto: **10.0.0**.
+Versione del prodotto: **10.1.0**.
 
 | Artefatto Python | Nome |
 | --- | --- |
-| wheel | plenora_io-10.0.0-py3-none-any.whl |
-| sdist | plenora_io-10.0.0.tar.gz |
+| wheel | plenora_io-10.1.0-py3-none-any.whl |
+| sdist | plenora_io-10.1.0.tar.gz |
 
 <!-- generato da codice/versione: fine -->
 
@@ -41,7 +41,7 @@ che cosa serve per chiuderle, sono in [docs/RELEASE.md](docs/RELEASE.md).
 | geoparquet | ["parquet"] | bidirectional | assente | streaming_random | streaming_columnar | bounding_box_statistics / numeric_min_max_statistics | lossless | ["boolean","signed_integer","unsigned_integer","floating","utf8","binary","temporal","decimal","nested","other"] |
 | gpkg | ["gpkg"] | bidirectional | assente | streaming_random | streaming_sequential | optional_rtree_index / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","binary"] |
 | ipc | ["arrow","arrows"] | bidirectional | assente | streaming_random | streaming_sequential | none / none | lossless | ["boolean","signed_integer","unsigned_integer","floating","utf8","binary","temporal","decimal","nested","other"] |
-| kml | ["kml"] | bidirectional | assente | materialized | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
+| kml | ["kml","kmz"] | bidirectional | assente | materialized | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
 | shp | ["shp","shp.d"] | bidirectional | assente | streaming_sequential | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
 | xls | ["xlsx"] | bidirectional | assente | materialized | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
 
@@ -196,11 +196,11 @@ scoperta; `--version` non e un flag da aggiungere a read o convert.
 
 | Comando | Flag ammessi |
 | --- | --- |
-| inspect | --format, --opt, --in-opt, --assume-crs, --deadline-ms, --max-input-bytes, --max-input-entries, --max-output-bytes, --max-rows, --max-columns, --max-vertices, --max-geometry-components, --max-wkb-cell-bytes, --max-wkb-components, --max-wkb-depth, --memory-bytes, --spill-bytes, --output-expansion-ratio, --decompression-ratio |
-| layers | --format, --opt, --in-opt, --assume-crs, --deadline-ms, --max-input-bytes, --max-input-entries, --max-output-bytes, --max-rows, --max-columns, --max-vertices, --max-geometry-components, --max-wkb-cell-bytes, --max-wkb-components, --max-wkb-depth, --memory-bytes, --spill-bytes, --output-expansion-ratio, --decompression-ratio |
-| read | --format, --opt, --in-opt, --assume-crs, --deadline-ms, --max-input-bytes, --max-input-entries, --max-output-bytes, --max-rows, --max-columns, --max-vertices, --max-geometry-components, --max-wkb-cell-bytes, --max-wkb-components, --max-wkb-depth, --memory-bytes, --spill-bytes, --output-expansion-ratio, --decompression-ratio, --layer, --limit, --output, --durable, --out-opt |
-| write | --format, --opt, --in-opt, --assume-crs, --deadline-ms, --max-input-bytes, --max-input-entries, --max-output-bytes, --max-rows, --max-columns, --max-vertices, --max-geometry-components, --max-wkb-cell-bytes, --max-wkb-components, --max-wkb-depth, --memory-bytes, --spill-bytes, --output-expansion-ratio, --decompression-ratio, --to, --layer, --durable, --out-opt |
-| convert | --format, --opt, --in-opt, --assume-crs, --deadline-ms, --max-input-bytes, --max-input-entries, --max-output-bytes, --max-rows, --max-columns, --max-vertices, --max-geometry-components, --max-wkb-cell-bytes, --max-wkb-components, --max-wkb-depth, --memory-bytes, --spill-bytes, --output-expansion-ratio, --decompression-ratio, --from, --to, --layer, --durable, --out-opt |
+| inspect | --archive-entry, --opt, --in-opt, --assume-crs, --source-stdin, --archive-max-entries, --archive-max-bytes, --archive-max-ratio, --format, --deadline-ms, --max-input-bytes, --max-input-entries, --max-output-bytes, --max-rows, --max-columns, --max-vertices, --max-geometry-components, --max-wkb-cell-bytes, --max-wkb-components, --max-wkb-depth, --memory-bytes, --spill-bytes, --output-expansion-ratio, --decompression-ratio |
+| layers | --archive-entry, --opt, --in-opt, --assume-crs, --source-stdin, --archive-max-entries, --archive-max-bytes, --archive-max-ratio, --format, --deadline-ms, --max-input-bytes, --max-input-entries, --max-output-bytes, --max-rows, --max-columns, --max-vertices, --max-geometry-components, --max-wkb-cell-bytes, --max-wkb-components, --max-wkb-depth, --memory-bytes, --spill-bytes, --output-expansion-ratio, --decompression-ratio |
+| read | --archive-entry, --opt, --in-opt, --assume-crs, --source-stdin, --archive-max-entries, --archive-max-bytes, --archive-max-ratio, --format, --deadline-ms, --max-input-bytes, --max-input-entries, --max-output-bytes, --max-rows, --max-columns, --max-vertices, --max-geometry-components, --max-wkb-cell-bytes, --max-wkb-components, --max-wkb-depth, --memory-bytes, --spill-bytes, --output-expansion-ratio, --decompression-ratio, --layer, --limit, --output, --durable, --out-opt |
+| write | --archive-entry, --opt, --in-opt, --assume-crs, --source-stdin, --archive-max-entries, --archive-max-bytes, --archive-max-ratio, --format, --deadline-ms, --max-input-bytes, --max-input-entries, --max-output-bytes, --max-rows, --max-columns, --max-vertices, --max-geometry-components, --max-wkb-cell-bytes, --max-wkb-components, --max-wkb-depth, --memory-bytes, --spill-bytes, --output-expansion-ratio, --decompression-ratio, --to, --layer, --durable, --out-opt |
+| convert | --archive-entry, --opt, --in-opt, --assume-crs, --source-stdin, --archive-max-entries, --archive-max-bytes, --archive-max-ratio, --format, --deadline-ms, --max-input-bytes, --max-input-entries, --max-output-bytes, --max-rows, --max-columns, --max-vertices, --max-geometry-components, --max-wkb-cell-bytes, --max-wkb-components, --max-wkb-depth, --memory-bytes, --spill-bytes, --output-expansion-ratio, --decompression-ratio, --from, --to, --layer, --durable, --out-opt |
 | catalog, capabilities | --format json |
 | --help, -h; <comando> --help | help testuale |
 | --version, -V | busta versione |
