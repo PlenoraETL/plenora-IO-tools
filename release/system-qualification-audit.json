@@ -1269,7 +1269,7 @@
       "authority": "I campaign evidence inventory; missing/duplicate proofs block; lawful exclusions never rewrite recorded states."
     }
   ],
-  "exclusion_policy_sha256": "ed3fb03f0749a859e96de93decf99b7109528e1bd42a171c3270b52ea1086dad",
+  "exclusion_policy_sha256": "1a4a691dc134b2c7993f2dbd62edf9f48fffa642718e962d8d97ba9904c3f0f0",
   "gate_fields": {
     "manifest_version": {
       "sha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",

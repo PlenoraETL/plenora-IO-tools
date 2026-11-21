@@ -602,22 +602,20 @@ class Field:
     type: str
     nullable: bool
     geometry: bool
+    #: Metadati Arrow del campo, compresi alias e riferimento al dominio nativi.
+    metadata: dict[str, str] = field(default_factory=FrozenDict)
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
-    _OBBLIGATORI = ("name", "type", "nullable", "geometry")
+    _OBBLIGATORI = ("name", "type", "nullable", "geometry", "metadata")
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Field":
         documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "layer.fields[]", cls)
         return cls(
-            **{campo: documento[campo] for campo in _schema(cls)._OBBLIGATORI},
+            **{campo: documento[campo] for campo in _schema(cls)._OBBLIGATORI if campo != "metadata"},
+            metadata=_arrow_metadata(documento),
             raw=dict(documento),
         )
-
-    @property
-    def metadata(self) -> FrozenDict:
-        """Arrow field metadata, including the native alias and domain reference."""
-        return _arrow_metadata(self.raw)
 
     @property
     def alias(self) -> str | None:
@@ -722,11 +720,13 @@ class Layer:
     fields: list[Field]
     #: `None` per un layer senza geometria, che il binario legge e scrive.
     geometry: Geometry | None
+    #: Metadati Arrow dello schema: alias del layer, domini e sottotipi nativi.
+    metadata: dict[str, str] = field(default_factory=FrozenDict)
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     status: dict[str, Any]
 
-    _OBBLIGATORI = ("id", "name", "fields", "geometry", "status")
+    _OBBLIGATORI = ("id", "name", "fields", "geometry", "status", "metadata")
 
     @classmethod
     def from_json(cls, documento: dict[str, Any]) -> "Layer":
@@ -748,6 +748,7 @@ class Layer:
                 if documento["geometry"] is None
                 else Geometry.from_json(documento["geometry"])
             ),
+            metadata=_arrow_metadata(documento),
             raw=dict(documento),
         )
 
@@ -764,10 +765,6 @@ class Layer:
         """Le colonne che non sono la geometria."""
         return FrozenList([colonna for colonna in self.fields if not colonna.geometry])
 
-    @property
-    def metadata(self) -> FrozenDict:
-        """Arrow schema metadata, identical to the read stream."""
-        return _arrow_metadata(self.raw)
 
     def domini(self) -> dict[str, Any]:
         """Domains keyed by name; each code carries its native scalar type."""

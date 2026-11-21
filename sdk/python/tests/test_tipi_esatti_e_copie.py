@@ -222,7 +222,7 @@ class IlTipoSiConfrontaPerIdentita(unittest.TestCase):
                     busta(**campi)
 
     def test_anche_modelli_e_manifesto(self) -> None:
-        sano = {"name": "a", "type": "Utf8", "nullable": True, "geometry": False}
+        sano = {"name": "a", "type": "Utf8", "nullable": True, "geometry": False, "metadata": {}}
         with self.assertRaises(ProtocolError):
             Field.from_json({**sano, "name": Camaleonte("a")})
         with self.assertRaises(ManifestError):
@@ -288,7 +288,7 @@ class SoloTipiJsonEsatti(unittest.TestCase):
             ErrorEnvelope.from_json(DictBugiardo(status="error", error=errore()))
 
     def test_i_modelli_rifiutano_le_sottoclassi(self) -> None:
-        sano = {"name": "a", "type": "Utf8", "nullable": True, "geometry": False}
+        sano = {"name": "a", "type": "Utf8", "nullable": True, "geometry": False, "metadata": {}}
         Field.from_json(sano)
         for documento in (
             DictBugiardo(sano),

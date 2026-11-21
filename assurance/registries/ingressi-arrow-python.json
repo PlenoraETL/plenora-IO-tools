@@ -378,6 +378,14 @@
       "classificazione": "non riceve dati Arrow esterni",
       "motivazione": "Metadati, modelli e buste JSON, opzioni scalari, errori o utility standard esposte dal modulo. Nessuna importazione Arrow o lettura di buffer esterni; eventuali oggetti estranei non diventano dati tabellari."
     },
+    "plenora_io._models.Field.alias": {
+      "classificazione": "non riceve dati Arrow esterni",
+      "motivazione": "Metadati del layer e dei campi letti dalla busta JSON di inspect (alias, riferimenti ai domini, domini e sottotipi come documenti JSON validati, FrozenDict). Nessuna importazione Arrow o lettura di buffer esterni."
+    },
+    "plenora_io._models.Field.domain": {
+      "classificazione": "non riceve dati Arrow esterni",
+      "motivazione": "Metadati del layer e dei campi letti dalla busta JSON di inspect (alias, riferimenti ai domini, domini e sottotipi come documenti JSON validati, FrozenDict). Nessuna importazione Arrow o lettura di buffer esterni."
+    },
     "plenora_io._models.Field.from_json": {
       "classificazione": "non riceve dati Arrow esterni",
       "motivazione": "Metadati, modelli e buste JSON, opzioni scalari, errori o utility standard esposte dal modulo. Nessuna importazione Arrow o lettura di buffer esterni; eventuali oggetti estranei non diventano dati tabellari."
@@ -398,6 +406,10 @@
       "classificazione": "non riceve dati Arrow esterni",
       "motivazione": "Metadati, modelli e buste JSON, opzioni scalari, errori o utility standard esposte dal modulo. Nessuna importazione Arrow o lettura di buffer esterni; eventuali oggetti estranei non diventano dati tabellari."
     },
+    "plenora_io._models.Inspect.domini": {
+      "classificazione": "non riceve dati Arrow esterni",
+      "motivazione": "Metadati del layer e dei campi letti dalla busta JSON di inspect (alias, riferimenti ai domini, domini e sottotipi come documenti JSON validati, FrozenDict). Nessuna importazione Arrow o lettura di buffer esterni."
+    },
     "plenora_io._models.Inspect.from_json": {
       "classificazione": "non riceve dati Arrow esterni",
       "motivazione": "Metadati, modelli e buste JSON, opzioni scalari, errori o utility standard esposte dal modulo. Nessuna importazione Arrow o lettura di buffer esterni; eventuali oggetti estranei non diventano dati tabellari."
@@ -410,6 +422,10 @@
       "classificazione": "non riceve dati Arrow esterni",
       "motivazione": "Metadati, modelli e buste JSON, opzioni scalari, errori o utility standard esposte dal modulo. Nessuna importazione Arrow o lettura di buffer esterni; eventuali oggetti estranei non diventano dati tabellari."
     },
+    "plenora_io._models.Layer.domini": {
+      "classificazione": "non riceve dati Arrow esterni",
+      "motivazione": "Metadati del layer e dei campi letti dalla busta JSON di inspect (alias, riferimenti ai domini, domini e sottotipi come documenti JSON validati, FrozenDict). Nessuna importazione Arrow o lettura di buffer esterni."
+    },
     "plenora_io._models.Layer.field": {
       "classificazione": "non riceve dati Arrow esterni",
       "motivazione": "Metadati, modelli e buste JSON, opzioni scalari, errori o utility standard esposte dal modulo. Nessuna importazione Arrow o lettura di buffer esterni; eventuali oggetti estranei non diventano dati tabellari."
@@ -417,6 +433,10 @@
     "plenora_io._models.Layer.from_json": {
       "classificazione": "non riceve dati Arrow esterni",
       "motivazione": "Metadati, modelli e buste JSON, opzioni scalari, errori o utility standard esposte dal modulo. Nessuna importazione Arrow o lettura di buffer esterni; eventuali oggetti estranei non diventano dati tabellari."
+    },
+    "plenora_io._models.Layer.sottotipi": {
+      "classificazione": "non riceve dati Arrow esterni",
+      "motivazione": "Metadati del layer e dei campi letti dalla busta JSON di inspect (alias, riferimenti ai domini, domini e sottotipi come documenti JSON validati, FrozenDict). Nessuna importazione Arrow o lettura di buffer esterni."
     },
     "plenora_io._models.LayerSummary.from_json": {
       "classificazione": "non riceve dati Arrow esterni",
