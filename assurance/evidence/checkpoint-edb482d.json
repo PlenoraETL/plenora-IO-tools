@@ -1224,5 +1224,11 @@
         "trovati": 32
       }
     }
+  },
+  "tipo": "registrazione_documentale_owner_non_checkpoint",
+  "archiviazione": {
+    "stato": "storica_ritirata",
+    "nota": "Ritirata il 18/11 per difetti silenziosi, sostituita da e4c9762f. Le misure sottostanti restano storiche e non qualificano la candidate corrente. Tipo documentale aggiunto per conservarla nel registro documentale previsto dal gate congelato.",
+    "sha256_prima_della_classificazione": "083bb799260f754decdd452ce097495c3c3c981eecd09a0c1171f735fde1122c"
   }
 }
