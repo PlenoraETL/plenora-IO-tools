@@ -411,6 +411,21 @@ fn shp_polygon(path: &Path) -> Witness {
 fn payload_present(batch: &RecordBatch, element: E, payload: &str) -> bool {
     // A coincidentally equal value in an unrelated field (e.g. contract
     // version "1" versus paper-space flag 1) is not property preservation.
+    use plenora_io_model::domains::{
+        decode_domains, decode_subtypes, Code, Domain, DOMAINS_KEY, SUBTYPES_KEY,
+    };
+    let schema = batch.schema();
+    match element {
+        E::Aliases => return schema.metadata().get("plenora.layer.alias").is_some_and(|v| v == payload),
+        E::Domains => return schema.metadata().get(DOMAINS_KEY).is_some_and(|v| {
+            decode_domains(v).unwrap().get(payload).is_some_and(|d| matches!(d, Domain::Coded { values, .. } if values.len() == 1 && values[0].code == Code::Int32(1) && values[0].description.as_deref() == Some("Road")))
+        }),
+        E::Subtypes => return schema.metadata().get(SUBTYPES_KEY).is_some_and(|v| {
+            let subtypes = decode_subtypes(v).unwrap();
+            subtypes.field == "value" && subtypes.default == Some(1) && subtypes.values.len() == 1 && subtypes.values[0].code == 1 && subtypes.values[0].name == payload
+        }),
+        _ => {}
+    }
     let name = format!("{element:?}").to_ascii_lowercase();
     let schema = batch.schema();
     schema

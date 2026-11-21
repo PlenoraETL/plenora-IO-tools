@@ -205,11 +205,12 @@ def strato_sano(**modifiche):
         "id": 0,
         "name": "canonico",
         "fields": [
-            {"name": "geometry", "type": "Binary", "nullable": True, "geometry": True},
-            {"name": "codice", "type": "Utf8", "nullable": True, "geometry": False},
+            {"name": "geometry", "type": "Binary", "nullable": True, "geometry": True, "metadata": {}},
+            {"name": "codice", "type": "Utf8", "nullable": True, "geometry": False, "metadata": {}},
         ],
         "geometry": geometria_sana(),
         "status": {"readable": True},
+        "metadata": {},
     }
     documento.update(modifiche)
     return documento
@@ -607,13 +608,13 @@ class StratiSenzaGeometriaOSenzaCrs(unittest.TestCase):
     """
 
     SENZA_GEOMETRIA = {"status": {"readable": True}, "fields": [{"geometry": False, "name": "id", "nullable": False,
-                                   "type": "Int64"}],
-                       "geometry": None, "id": 0, "name": "tipi_comuni"}
+                                   "type": "Int64", "metadata": {}}],
+                       "geometry": None, "id": 0, "name": "tipi_comuni", "metadata": {}}
     SENZA_CRS = {"status": {"readable": True}, "fields": [{"geometry": True, "name": "geom", "nullable": True,
-                             "type": "Binary"}],
+                             "type": "Binary", "metadata": {}}],
                  "geometry": {"crs": None, "crs_resolution": {"status": "missing"},
                               "kind": "Unresolved", "name": "geom"},
-                 "id": 0, "name": "geo_senza_crs"}
+                 "id": 0, "name": "geo_senza_crs", "metadata": {}}
 
     def test_un_layer_senza_geometria_si_legge(self) -> None:
         strato = Inspect.from_json(inspect_sano(layers=[self.SENZA_GEOMETRIA])).layers[0]

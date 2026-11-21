@@ -162,6 +162,11 @@ impl<'a> Field<'a> {
         _string(rv).unwrap_or_default()
     }
 
+    /// Native domain reference (GDAL >= 3.3; minimum supported here is 3.4).
+    pub fn domain_name(&self) -> String {
+        _string(unsafe { gdal_sys::OGR_Fld_GetDomainName(self.c_field_defn) }).unwrap_or_default()
+    }
+
     /// Get the data type of this field.
     pub fn field_type(&'a self) -> OGRFieldType::Type {
         unsafe { gdal_sys::OGR_Fld_GetType(self.c_field_defn) }

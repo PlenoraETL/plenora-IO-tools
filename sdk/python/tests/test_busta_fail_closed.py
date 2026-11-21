@@ -236,7 +236,7 @@ class IModelliControllanoITipi(unittest.TestCase):
                     LayerSummary.from_json({**sano, "field_count": valore})
 
     def test_un_booleano_intero_e_rifiutato(self) -> None:
-        sano = {"name": "a", "type": "Utf8", "nullable": True, "geometry": False}
+        sano = {"name": "a", "type": "Utf8", "nullable": True, "geometry": False, "metadata": {}}
         Field.from_json(sano)
         for valore in (None, 1, "true"):
             with self.subTest(valore=valore):

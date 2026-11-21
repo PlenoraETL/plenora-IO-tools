@@ -18,6 +18,36 @@ pub enum TransportDirection {
 /// Only logical identity and contract version promise metadata preservation.
 pub const PROPERTIES: &[(&str, &str, Rule, Rule)] = &[
     (
+        "field_alias",
+        "plenora.field.alias",
+        Rule::Removed,
+        Rule::Preserved,
+    ),
+    (
+        "field_domain",
+        "plenora.field.domain",
+        Rule::Removed,
+        Rule::Preserved,
+    ),
+    (
+        "domains",
+        "plenora.dataset.domains",
+        Rule::Removed,
+        Rule::Preserved,
+    ),
+    (
+        "subtypes",
+        "plenora.layer.subtypes",
+        Rule::Removed,
+        Rule::Preserved,
+    ),
+    (
+        "layer_alias",
+        "plenora.layer.alias",
+        Rule::Removed,
+        Rule::Preserved,
+    ),
+    (
         "contract_version",
         "plenora.contract.version",
         Rule::Preserved,
@@ -340,6 +370,9 @@ pub fn metadata_rule(
 /// Native observations use the same rules as schema transport.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NativeChange {
+    DomainNotTransported,
+    SubtypeNotTransported,
+    AliasNotTransported,
     GpkgMetadata,
     CrsIdAbsent,
     SqlSchema,
@@ -372,6 +405,9 @@ pub enum NativeChange {
     GeometryType,
     AltitudeMode,
 }
+const NATIVE_DOMAIN: &str = "native_domain_not_transported";
+const NATIVE_SUBTYPE: &str = "native_subtype_not_transported";
+const NATIVE_ALIAS: &str = "native_alias_not_transported";
 const NATIVE_RINGORIENTATION: &str = "native_ring_orientation_changed";
 const NATIVE_COORDINATEPRECISION: &str = "native_coordinate_precision";
 const NATIVE_NATIVESTYLES: &str = "native_styles_not_preserved";
@@ -404,6 +440,9 @@ impl NativeChange {
     #[must_use]
     pub const fn category(self) -> &'static str {
         match self {
+            Self::DomainNotTransported => NATIVE_DOMAIN,
+            Self::SubtypeNotTransported => NATIVE_SUBTYPE,
+            Self::AliasNotTransported => NATIVE_ALIAS,
             Self::GpkgMetadata => "gpkg_metadata_not_preserved",
             Self::CrsIdAbsent => "crs_id_not_preserved_absent",
             Self::SqlSchema => "gpkg_schema_normalized",
@@ -478,9 +517,9 @@ native_elements! {
     NullGeometry => [P, P, P, P, P, P, R, R, P, P, P, P, P, P, P, P, P, P, P, P];
     EmptyPoint => [R, R, R, R, P, P, R, R, T(NativeChange::MissingValue), T(NativeChange::MissingValue), R, R, R, R, P, P, P, P, P, P];
     SignedZero => [P, P, P, P, P, P, P, T(NativeChange::CoordinatePrecision), P, T(NativeChange::CoordinatePrecision), P, P, P, P, P, P, P, P, P, P];
-    Subtypes => [R, R, R, R, R, R, R, R, T(NativeChange::LayerMetadata), T(NativeChange::ArrowMetadata), R, R, R, R, R, R, R, R, R, R];
-    Aliases => [R, R, R, R, R, R, R, R, T(NativeChange::LayerMetadata), T(NativeChange::ArrowMetadata), R, R, R, R, R, R, R, R, R, R];
-    Domains => [R, R, R, R, R, R, R, R, T(NativeChange::LayerMetadata), T(NativeChange::ArrowMetadata), R, R, R, R, R, R, R, R, R, R];
+    Subtypes => [R, T(NativeChange::SubtypeNotTransported), R, T(NativeChange::SubtypeNotTransported), R, T(NativeChange::SubtypeNotTransported), R, T(NativeChange::SubtypeNotTransported), P, T(NativeChange::SubtypeNotTransported), R, T(NativeChange::SubtypeNotTransported), R, T(NativeChange::SubtypeNotTransported), R, T(NativeChange::SubtypeNotTransported), T(NativeChange::ArrowMetadata), T(NativeChange::ArrowMetadata), T(NativeChange::ArrowMetadata), T(NativeChange::ArrowMetadata)];
+    Aliases => [R, T(NativeChange::AliasNotTransported), R, T(NativeChange::AliasNotTransported), R, T(NativeChange::AliasNotTransported), R, T(NativeChange::AliasNotTransported), P, T(NativeChange::AliasNotTransported), R, T(NativeChange::AliasNotTransported), R, T(NativeChange::AliasNotTransported), R, T(NativeChange::AliasNotTransported), T(NativeChange::ArrowMetadata), T(NativeChange::ArrowMetadata), T(NativeChange::ArrowMetadata), T(NativeChange::ArrowMetadata)];
+    Domains => [R, T(NativeChange::DomainNotTransported), R, T(NativeChange::DomainNotTransported), R, T(NativeChange::DomainNotTransported), R, T(NativeChange::DomainNotTransported), P, T(NativeChange::DomainNotTransported), R, T(NativeChange::DomainNotTransported), R, T(NativeChange::DomainNotTransported), R, T(NativeChange::DomainNotTransported), T(NativeChange::ArrowMetadata), T(NativeChange::ArrowMetadata), T(NativeChange::ArrowMetadata), T(NativeChange::ArrowMetadata)];
     TextStyle => [R, R, R, R, R, R, T(NativeChange::NativeStyles), T(NativeChange::ArrowMetadata), R, R, R, R, R, R, R, R, R, R, R, R];
     PaperSpace => [R, R, R, R, R, R, T(NativeChange::NativeHierarchy), T(NativeChange::ArrowMetadata), R, R, R, R, R, R, R, R, R, R, R, R];
     Xdata => [R, R, R, R, R, R, T(NativeChange::LayerMetadata), T(NativeChange::ArrowMetadata), R, R, R, R, R, R, R, R, R, R, R, R];
@@ -597,6 +636,12 @@ pub const fn native_write_transport_rule(
     element: NativeElement,
 ) -> NativeRule {
     let direction = TransportDirection::Write;
+    if matches!(
+        element,
+        NativeElement::Domains | NativeElement::Aliases | NativeElement::Subtypes
+    ) {
+        return native_rule(driver, direction, element);
+    }
     // Foreign native objects reach a writer through Arrow, not through the
     // destination grammar. Their transport follows metadata/scalar rules.
     if matches!(direction, TransportDirection::Write) {
@@ -744,6 +789,34 @@ pub fn observe_native(
             NativeChange::ExtendedData => "ExtendedData fields are emitted but not read, including SchemaData",
             _ => "native element transformed or omitted; structural indices only",
         }.to_owned() + &format!("; element={element:?}"),
+    });
+}
+
+/// Residual attribute loss after a native reader tried to transport a definition.
+/// The enum, never the diagnostic prose, identifies the loss category.
+pub fn observe_attribute_loss(
+    report: &mut crate::LossReport,
+    element: NativeElement,
+    count: u64,
+    layer: u64,
+) {
+    let change = match element {
+        NativeElement::Domains => NativeChange::DomainNotTransported,
+        NativeElement::Subtypes => NativeChange::SubtypeNotTransported,
+        NativeElement::Aliases => NativeChange::AliasNotTransported,
+        _ => return,
+    };
+    if count == 0 {
+        return;
+    }
+    report.record(change.category(), count);
+    report.add_example(crate::loss::LossExample {
+        category: change.category().to_owned(),
+        posizione: crate::loss::Posizione {
+            layer_index: Some(layer),
+            ..crate::loss::Posizione::default()
+        },
+        context: "metadato nativo non trasportato".to_owned(),
     });
 }
 
@@ -914,6 +987,9 @@ pub fn metadata_changes(
             }
             let element = match key.as_str() {
                 "plenora.contract.version" => NativeElement::ContractVersion,
+                "plenora.field.alias" | "plenora.layer.alias" => NativeElement::Aliases,
+                "plenora.field.domain" | "plenora.dataset.domains" => NativeElement::Domains,
+                "plenora.layer.subtypes" => NativeElement::Subtypes,
                 "plenora.field_id" => NativeElement::FieldIdentity,
                 "plenora.geometry.types_declaration" => NativeElement::TypesDeclaration,
                 "plenora.geometry.encoding" => NativeElement::GeometryEncoding,

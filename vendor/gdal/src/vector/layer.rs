@@ -567,6 +567,16 @@ impl MajorObject for FieldDefn {
 }
 
 impl FieldDefn {
+    pub fn set_alternative_name(&self, name: &str) -> Result<()> {
+        let name = CString::new(name)?;
+        unsafe { gdal_sys::OGR_Fld_SetAlternativeName(self.c_obj, name.as_ptr()) };
+        Ok(())
+    }
+    pub fn set_domain_name(&self, name: &str) -> Result<()> {
+        let name = CString::new(name)?;
+        unsafe { gdal_sys::OGR_Fld_SetDomainName(self.c_obj, name.as_ptr()) };
+        Ok(())
+    }
     pub fn new(name: &str, field_type: OGRFieldType::Type) -> Result<FieldDefn> {
         let c_str = CString::new(name)?;
         let c_obj = unsafe { gdal_sys::OGR_Fld_Create(c_str.as_ptr(), field_type) };

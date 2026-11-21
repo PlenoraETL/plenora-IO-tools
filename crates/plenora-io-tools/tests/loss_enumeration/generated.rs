@@ -299,6 +299,9 @@ struct Difference {
 fn metadata_element(key: &str, field: bool) -> E {
     match key {
         "plenora.contract.version" => E::ContractVersion,
+        "plenora.field.alias" | "plenora.layer.alias" => E::Aliases,
+        "plenora.field.domain" | "plenora.dataset.domains" => E::Domains,
+        "plenora.layer.subtypes" => E::Subtypes,
         "plenora.field_id" => E::FieldIdentity,
         "plenora.geometry.types_declaration" => E::TypesDeclaration,
         "plenora.geometry.types"

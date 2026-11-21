@@ -7,6 +7,33 @@ pub(super) fn generate(element: E) -> Option<Vec<RecordBatch>> {
     if let Some(batch) = group_a::factory(element) {
         return Some(batch);
     }
+    match element {
+        E::Aliases => {
+            return Some(vec![metadata(
+                &geometry_batch(WkbValue::Point(coordinate(1.0, 2.0)), GeometryType::Point),
+                "plenora.layer.alias",
+                "Road name",
+                true,
+            )])
+        }
+        E::Domains => {
+            return Some(vec![metadata(
+                &geometry_batch(WkbValue::Point(coordinate(1.0, 2.0)), GeometryType::Point),
+                "plenora.dataset.domains",
+                r#"{"RoadType":{"kind":"coded","code_type":"int32","values":[{"code":{"type":"int32","value":1},"description":"Road"}]}}"#,
+                true,
+            )])
+        }
+        E::Subtypes => {
+            return Some(vec![metadata(
+                &attribute(Arc::new(Int64Array::from(vec![1])), true),
+                "plenora.layer.subtypes",
+                r#"{"field":"value","default":1,"values":[{"code":1,"name":"Road","domains":{}}]}"#,
+                true,
+            )])
+        }
+        _ => {}
+    }
     let base = geometry_batch(WkbValue::Point(coordinate(1.0, 2.0)), GeometryType::Point);
     let (key, value, schema) = match element {
         E::DbfDate => return Some(vec![attribute(Arc::new(StringArray::from(vec!["1970-01-02"])), true)]),
@@ -14,9 +41,6 @@ pub(super) fn generate(element: E) -> Option<Vec<RecordBatch>> {
         E::Inference => return Some(vec![attribute(Arc::new(Int64Array::from(vec![7])), true)]),
         E::StructuredValue => return Some(vec![attribute(Arc::new(StringArray::from(vec![r#"{"items":[1,2]}"#])), true)]),
         E::MissingValue => return Some(super::generate(E::Null).unwrap()),
-        E::Subtypes => ("filegdb.subtypes", "<Subtypes><Subtype><SubtypeName>Road</SubtypeName><SubtypeCode>1</SubtypeCode></Subtype></Subtypes>", false),
-        E::Aliases => ("filegdb.aliases", r#"{"value":"Road name"}"#, false),
-        E::Domains => ("filegdb.domains", "<Domain><DomainName>RoadType</DomainName><CodedValues><CodedValue><Name>Road</Name><Code>1</Code></CodedValue></CodedValues></Domain>", false),
         E::TextStyle => ("dxf.text_style", "Standard", false),
         E::PaperSpace => ("dxf.paper_space", "1", false),
         E::Xdata => ("dxf.xdata", r#"[[1001,"APP"],[1000,"payload"]]"#, false),

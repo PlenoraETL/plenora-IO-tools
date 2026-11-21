@@ -30,7 +30,17 @@ fn native_field_order_reads_both_definition_vocabularies() {
 
 fn assert_native_alias(reader: &dyn LayerReader, index: usize) {
     let loss = reader.loss_report();
-    assert!(loss.counts["native_layer_metadata_not_preserved"] > 0);
+    assert!(!loss.counts.contains_key("native_alias_not_transported"));
+    assert_eq!(
+        reader
+            .contract()
+            .contract
+            .schema
+            .metadata()
+            .get("plenora.layer.alias")
+            .map(String::as_str),
+        Some("opaque_native_alias")
+    );
     assert!(loss
         .esempi_canonici()
         .all(|example| example.posizione.layer_index == Some(index as u64)));
@@ -39,14 +49,20 @@ fn assert_native_alias(reader: &dyn LayerReader, index: usize) {
 #[test]
 fn native_domains_aliases_and_subtypes_are_declared() {
     let mut report = LossReport::default();
-    observe_definition_xml(&mut report, "<DEFeatureClassInfo><AliasName>opaque_alias</AliasName><Fields><Field><DomainName>opaque_domain</DomainName></Field></Fields><Subtypes><Subtype><SubtypeName>opaque_subtype</SubtypeName></Subtype></Subtypes></DEFeatureClassInfo>", 3).unwrap();
-    assert_eq!(report.counts["native_layer_metadata_not_preserved"], 3);
+    observe_definition_xml_untransported(&mut report, "<DEFeatureClassInfo><AliasName>opaque_alias</AliasName><Fields><Field><DomainName>opaque_domain</DomainName></Field></Fields><Subtypes><Subtype><SubtypeName>opaque_subtype</SubtypeName></Subtype></Subtypes></DEFeatureClassInfo>", 3).unwrap();
+    for category in [
+        "native_domain_not_transported",
+        "native_subtype_not_transported",
+        "native_alias_not_transported",
+    ] {
+        assert_eq!(report.counts[category], 1);
+    }
     for example in report.esempi_canonici() {
         assert_eq!(example.posizione.layer_index, Some(3));
         assert!(!example.context.contains("opaque"));
     }
     let mut empty = LossReport::default();
-    observe_definition_xml(
+    observe_definition_xml_untransported(
         &mut empty,
         "<Definition><DomainName/><AliasName></AliasName><Subtypes/></Definition>",
         0,
@@ -54,14 +70,15 @@ fn native_domains_aliases_and_subtypes_are_declared() {
     .unwrap();
     assert!(empty.is_empty());
     let mut escaped = LossReport::default();
-    observe_definition_xml(&mut escaped, "<Definition><AliasName>A&amp;B<![CDATA[C]]></AliasName><DomainName><![CDATA[D]]></DomainName></Definition>", 0).unwrap();
-    assert_eq!(escaped.counts["native_layer_metadata_not_preserved"], 2);
+    observe_definition_xml_untransported(&mut escaped, "<Definition><AliasName>A&amp;B<![CDATA[C]]></AliasName><DomainName><![CDATA[D]]></DomainName></Definition>", 0).unwrap();
+    assert_eq!(escaped.counts["native_domain_not_transported"], 1);
+    assert_eq!(escaped.counts["native_alias_not_transported"], 1);
 }
 
 #[test]
 fn native_hierarchy_and_extension_payloads_are_counted_without_names() {
     let mut report = LossReport::default();
-    observe_definition_xml(&mut report, r"<Definition><CatalogPath>\private_group\features</CatalogPath><ExtensionProperties><PropertySetProperty><Key>private_key</Key><Value>private_payload</Value></PropertySetProperty></ExtensionProperties></Definition>", 4).unwrap();
+    observe_definition_xml_untransported(&mut report, r"<Definition><CatalogPath>\private_group\features</CatalogPath><ExtensionProperties><PropertySetProperty><Key>private_key</Key><Value>private_payload</Value></PropertySetProperty></ExtensionProperties></Definition>", 4).unwrap();
     assert_eq!(report.counts["native_hierarchy_flattened"], 1);
     assert_eq!(report.counts["native_layer_metadata_not_preserved"], 1);
     for example in report.esempi_canonici() {
@@ -69,7 +86,7 @@ fn native_hierarchy_and_extension_payloads_are_counted_without_names() {
         assert!(!example.context.contains("private"));
     }
     let mut empty = LossReport::default();
-    observe_definition_xml(&mut empty, r"<Definition><CatalogPath>\features</CatalogPath><ExtensionProperties>  </ExtensionProperties></Definition>", 0).unwrap();
+    observe_definition_xml_untransported(&mut empty, r"<Definition><CatalogPath>\features</CatalogPath><ExtensionProperties>  </ExtensionProperties></Definition>", 0).unwrap();
     assert!(empty.is_empty());
 }
 
@@ -665,4 +682,20 @@ fn explicit_selection_discovers_only_the_requested_object_with_stable_id() {
     let mut reader = dataset.open_layer_reader(&request).unwrap();
     drop(dataset);
     assert!(reader.next_batch().unwrap().is_some());
+}
+
+/// La lettura nativa senza domini, sottotipi e alias trasportati.
+fn observe_definition_xml_untransported(
+    report: &mut LossReport,
+    xml: &str,
+    layer: u64,
+) -> Result<()> {
+    observe_definition_xml_transported(
+        report,
+        xml,
+        layer,
+        &plenora_io_model::domains::Domains::new(),
+        &HashMap::new(),
+        false,
+    )
 }

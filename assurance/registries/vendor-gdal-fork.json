@@ -123,5 +123,6 @@
     ],
     "proposta_upstream": "contributi-upstream/gdal-campi-nativi/patch.diff",
     "prove": "driver-filegdb --features gdal-backend: valori nativi, null, indici invalidi, frazioni, offset; nessuna nuova misura fuzz o benchmark."
-  }
+  },
+  "lio7": "GDAL >= 3.4 (minimo del fork): snapshot posseduti dei domini codificati/a intervallo, lettura nome dominio e scrittura domini/alias. API introdotte in GDAL 3.3, nessun nuovo simbolo oltre il minimo. Handle nativi confinati al fork; errori redatti dal driver."
 }
