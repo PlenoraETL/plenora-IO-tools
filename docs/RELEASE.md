@@ -56,7 +56,7 @@ alla classificazione conservato in `archiviazione`.
 | candidate, revisione del tag | `e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f` |
 | candidate, tag sulla candidate | sì |
 | candidate, assurance entro l'allowlist | sì |
-| candidate, release_action consentita | sì |
+| candidate, release_action consentita | no |
 | release_authorized | `true` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del

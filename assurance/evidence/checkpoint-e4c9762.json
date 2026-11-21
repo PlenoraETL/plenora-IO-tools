@@ -3395,6 +3395,145 @@
         }
       },
       "confronto": "24/24 asset identici byte per byte agli originali; metadati e note verificati"
+    },
+    "published": {
+      "schema_version": 1,
+      "id": 453533887,
+      "tag_previsto": "v10.0.0",
+      "target": "e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f",
+      "draft": false,
+      "url": "https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/v10.0.0",
+      "created_at": "2026-11-21T16:03:10Z",
+      "published_at": "2026-11-21T16:06:05Z",
+      "numero_asset": 24,
+      "asset_riscaricati": {
+        "adoption-manifest-10.0.0.json": {
+          "dimensione": 12859,
+          "sha256": "4baf0d4beb0404602468574027ab3764ec943be58dfcde653e7ab54ba103a4c2",
+          "id_api": 774866375
+        },
+        "licenze.json": {
+          "dimensione": 1399,
+          "sha256": "3d13dba0b746a53f4e7d186658967aa6b93da2b0c2a300649b756008630547c4",
+          "id_api": 774866381
+        },
+        "MANIFEST-sorgente.json": {
+          "dimensione": 755,
+          "sha256": "e280ee4b827770a532b3daeee9fcee85cd58f3cd62907c45082d2e923a268cf4",
+          "id_api": 774866374
+        },
+        "MANIFEST.json": {
+          "dimensione": 1398,
+          "sha256": "b4c41fd14e49de094c87e798e571bf62855925406f0e95e9c05d00adff1bcbf6",
+          "id_api": 774866372
+        },
+        "plenora-io-10.0.0-linux-x86_64-base.tar.gz": {
+          "dimensione": 9691053,
+          "sha256": "8dae3a3a9b27840b8d0160456eb2274babed5cffbbed7e95fc67d1a4201d95c8",
+          "id_api": 774866373
+        },
+        "plenora-io-10.0.0-linux-x86_64-base.tar.gz.provenance.json": {
+          "dimensione": 2583,
+          "sha256": "59e1434854db0865eb3bb7e2728af2f8b231d672ea8a1a595a58b60f630c8591",
+          "id_api": 774866392
+        },
+        "plenora-io-10.0.0-linux-x86_64-base.tar.gz.sha256": {
+          "dimensione": 109,
+          "sha256": "30adaef90dd7df2238992bc0850b87cb69fb8e40fd4610778bca03c717f0167b",
+          "id_api": 774866393
+        },
+        "plenora-io-10.0.0-linux-x86_64-filegdb.tar.gz": {
+          "dimensione": 65615331,
+          "sha256": "7da7b35e24556e38fa0f883f4ce7c275a0c9e2c8287051b9f34db8431749eeef",
+          "id_api": 774866409
+        },
+        "plenora-io-10.0.0-linux-x86_64-filegdb.tar.gz.provenance.json": {
+          "dimensione": 2590,
+          "sha256": "ae8d7e973c3e77d3b7c2cc30698ecd8e6be523f8fe11681ee3c73e2afc4a9dbe",
+          "id_api": 774866421
+        },
+        "plenora-io-10.0.0-linux-x86_64-filegdb.tar.gz.sha256": {
+          "dimensione": 112,
+          "sha256": "6995f4226b8e533fe5aed854eb4b849a28d739afe88cbb226efb4e3681392b8a",
+          "id_api": 774866425
+        },
+        "plenora-io-10.0.0-src.tar.gz": {
+          "dimensione": 21557031,
+          "sha256": "69acfad8be9c931d34a4164a25fa4e70140d18c5b9658d27c445159d65a720c7",
+          "id_api": 774866431
+        },
+        "plenora-io-10.0.0-src.tar.gz.sha256": {
+          "dimensione": 95,
+          "sha256": "079954284d555d2741971483b1b26b70fab0c12c27d28140951789af0bd403aa",
+          "id_api": 774866432
+        },
+        "plenora-io-10.0.0-windows-x86_64-base.zip": {
+          "dimensione": 10895862,
+          "sha256": "f58ab4b82b5ea61c8c20a62871922af6968224433e8069f034307b01d2f752c8",
+          "id_api": 774866447
+        },
+        "plenora-io-10.0.0-windows-x86_64-base.zip.provenance.json": {
+          "dimensione": 2437,
+          "sha256": "81d7bdd8019e84e19046492c085c7e7d67fb4597449bc93f6702a832f55ffff6",
+          "id_api": 774866452
+        },
+        "plenora-io-10.0.0-windows-x86_64-base.zip.sha256": {
+          "dimensione": 109,
+          "sha256": "56f89366f39c184d89597338eebb847e4d140fc860d739eed415964a31bdf142",
+          "id_api": 774866451
+        },
+        "plenora-io-10.0.0-windows-x86_64-filegdb.zip": {
+          "dimensione": 51367082,
+          "sha256": "9967f279b1c336f975160fc7184e3b01baeee2f931e7bdb6866355bfd3cb110f",
+          "id_api": 774866475
+        },
+        "plenora-io-10.0.0-windows-x86_64-filegdb.zip.provenance.json": {
+          "dimensione": 2443,
+          "sha256": "cde17d5370831f81b7e3aabb7949ad271a3117ee5b4560d12e0747c2f6be97d5",
+          "id_api": 774866476
+        },
+        "plenora-io-10.0.0-windows-x86_64-filegdb.zip.sha256": {
+          "dimensione": 112,
+          "sha256": "53beadae3c0fcdcc78cd5156872fad03316695b6558e6da11f7e244bb8b99613",
+          "id_api": 774866506
+        },
+        "plenora_io-10.0.0-py3-none-any.whl": {
+          "dimensione": 119169,
+          "sha256": "e28f0566f4dad84fb776354478bf47133eb27478db8ea2ebbcfb32a91a136eda",
+          "id_api": 774866528
+        },
+        "plenora_io-10.0.0-py3-none-any.whl.sha256": {
+          "dimensione": 101,
+          "sha256": "74bbf6a10d7c2ec786a8dd5b48f516b6add2d61b221a0101b3e5ec1192b850ff",
+          "id_api": 774866564
+        },
+        "plenora_io-10.0.0.tar.gz": {
+          "dimensione": 231796,
+          "sha256": "949ea634ad9ba0eac5999d020619825e24e00e0358b7e7cd48d13079ea5299a1",
+          "id_api": 774866575
+        },
+        "plenora_io-10.0.0.tar.gz.sha256": {
+          "dimensione": 91,
+          "sha256": "fe6376c0428f5433f4aca2f4fc2f7252aae02aee222bff83a656274378dea203",
+          "id_api": 774866585
+        },
+        "provenance.json": {
+          "dimensione": 772,
+          "sha256": "0a269947a975ecc18ac355222509bd8c06846233038bbd2814916a49905d1bf8",
+          "id_api": 774866589
+        },
+        "sbom.json": {
+          "dimensione": 1106,
+          "sha256": "5934577c02dda25fe663269f9dd0c2c22b3befd7651340e281aad0b2bcff9ed5",
+          "id_api": 774866600
+        }
+      },
+      "confronto": "24/24 asset identici byte per byte agli originali; metadati e note verificati"
+    },
+    "gate_release": {
+      "esito": "release autorizzabile: 36 invarianti, nessun blocco, 9 condizioni verificate; differiti sistema.qualifica-cross-component e distribuzione.licenza-first-party",
+      "concluso": "2026-11-21T16:09:56Z",
+      "nota": "Deviazione dichiarata: la pubblicazione (PATCH draft=false, 2026-11-21T16:06:05Z) e avvenuta mentre il gate --release era ancora in esecuzione; il gate si e concluso dopo, verde, sullo stesso albero (tag sulla candidate, registrazione della bozza). Il primo tentativo del gate era fallito per ambiente (cargo assente dal PATH)."
     }
   }
 }

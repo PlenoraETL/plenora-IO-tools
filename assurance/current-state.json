@@ -117,10 +117,10 @@
       "tag_previsto": "v10.0.0",
       "tag_creato": true,
       "tag_sulla_candidate": true,
-      "release_action_allowed": true,
+      "release_action_allowed": false,
       "release_blocking": false,
       "stato": "attiva",
-      "nota": "Decisione del 21/11 registrata; quattro attestazioni correnti, 24 asset della bozza verificati e tag locale sulla candidate. Restano gate completo e pubblicazione con verifica successiva.",
+      "nota": "Pubblicata il 2026-11-21T16:06:05Z dalla bozza 453533887 immutata (solo PATCH draft=false): https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/v10.0.0, tag annotato v10.0.0 sulla candidate e4c9762f. Verifica dopo la pubblicazione: 24/24 asset identici alla bozza verificata. Gate --release verde (36 invarianti, nessun blocco), concluso dopo la pubblicazione: deviazione dichiarata in checkpoint-e4c9762.json. release_authorized resta decisione storica; release_action_allowed consumato.",
       "revisione_candidate": "e4c9762f77d36486fc1f1acb8f5fb9ccfc7c882f",
       "assurance_entro_l_allowlist": true,
       "artefatti": [
