@@ -33,7 +33,31 @@ La versione dello SDK e' quella del workspace, cioe' del CLI:
 * `version()` del pacchetto e `Client.capabilities()` del binario;
 * i comandi -- `--version`, `catalog`, `inspect`, `layers`, `validate`,
   `read`, `write`, `convert` -- con i modelli tipizzati e i tetti in `Limits`;
-* con l'extra `pyarrow`, `read_table()` e `write()` da un oggetto Arrow.
+* con l'extra `pyarrow`, `read_table()` e `write()` da un oggetto Arrow;
+* sorgenti senza percorso (10.1.0): `Bytes(nome, dati)` e
+  `Archivio(archivio, voce, limiti)` in ogni metodo che legge, e
+  `elenca_archivio()` per le voci di uno ZIP (`ElencoArchivio`, `VoceArchivio`,
+  `LimiteArchivio`; comando locale `archive-list`, non un'operazione del
+  catalogo comune).
+
+## Sorgenti da byte e da archivio
+
+```python
+from plenora_io import Archivio, Bytes, Client, LimitiArchivio
+
+client = Client()
+client.validate(Bytes("dati.geojson", contenuto))  # il nome sceglie il driver
+client.validate(Archivio("consegna.zip", "cartella/dati.shp", LimitiArchivio(max_voci=100)))
+elenco = client.elenca_archivio("consegna.zip")  # dimensioni dichiarate, limiti effettivi
+```
+
+I byte non passano mai negli argomenti: il processo li riceve su stdin
+(`--source-stdin`), il modulo nativo in memoria; `AsyncClient` usa la stessa
+via. Nomi, ZIP e limiti li giudica il core, con gli stessi codici della CLI:
+voce assente `SOURCE_NOT_FOUND`, nome non portabile e limite zero `CLI_USAGE`,
+KMZ dentro uno ZIP `UNSUPPORTED`, limite superato `LIMIT_EXCEEDED`. L'SDK
+verifica solo i tipi, con `InvalidArgumentError`; un `Archivio` dentro un
+`Archivio` non ha forma sulla riga di comando ed e' rifiutato prima di eseguire.
 
 Il pacchetto non e' pubblicato su un indice: wheel e sdist si consegnano con
 gli artefatti della release.

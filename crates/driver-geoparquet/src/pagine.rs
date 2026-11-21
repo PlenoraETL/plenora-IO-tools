@@ -61,7 +61,6 @@
 //! * la ricorsione ha una profondita' massima;
 //! * la catena delle pagine deve finire **esattamente** sulla fine del chunk.
 
-use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 
 use plenora_io_model::{PlenoraIoError, Result};
@@ -354,7 +353,7 @@ pub fn leggi_intestazione(dati: &[u8]) -> Result<Intestazione> {
 /// `DataMapping` con messaggio statico. Il file non viene letto oltre gli
 /// header: nessuna pagina viene decompressa qui.
 pub fn valida_chunk(
-    sorgente: &File,
+    sorgente: &super::ParquetInput,
     primo_byte: u64,
     byte_compressi: u64,
     non_compressi_del_chunk: i64,
@@ -364,7 +363,7 @@ pub fn valida_chunk(
         return Ok(());
     }
     let mut lettore = sorgente
-        .try_clone()
+        .reader()
         .map_err(|_| errore(MSG_HEADER_PAGINA_ILLEGGIBILE))?;
     let mut finestra = vec![0_u8; FINESTRA_HEADER];
     let fine = primo_byte
@@ -431,7 +430,7 @@ pub fn valida_chunk(
 
 /// Riempie il buffer per quanto il file consente, senza pretendere che sia
 /// pieno: l'ultimo header di un chunk sta vicino alla fine del file.
-fn leggi_al_piu(lettore: &mut File, buffer: &mut [u8]) -> Result<usize> {
+fn leggi_al_piu(lettore: &mut impl Read, buffer: &mut [u8]) -> Result<usize> {
     let mut letti = 0;
     while letti < buffer.len() {
         match lettore.read(&mut buffer[letti..]) {

@@ -287,7 +287,7 @@ fn workbook_esterni_date_durate_errori_e_vuoti() {
             cella("A2", "POINT (1 2)")
         );
         let path = xlsx_con_foglio(dir.path(), "errore.xlsx", &foglio_xml("A1:B2", &rows));
-        let mut parsed: Xlsx<_> = open_workbook(&path).unwrap();
+        let mut parsed: Xlsx<_> = calamine::open_workbook(&path).unwrap();
         assert_eq!(
             parsed.worksheet_range("Sheet1").unwrap().get_value((1, 1)),
             Some(&Data::Error(expected))
@@ -304,7 +304,7 @@ fn workbook_esterni_date_durate_errori_e_vuoti() {
         cella("A2", "POINT (1 2)")
     );
     let path = xlsx_con_foglio(dir.path(), "vuoto.xlsx", &foglio_xml("A1:B2", &rows));
-    let mut parsed: Xlsx<_> = open_workbook(&path).unwrap();
+    let mut parsed: Xlsx<_> = calamine::open_workbook(&path).unwrap();
     assert_eq!(
         parsed.worksheet_range("Sheet1").unwrap().get_value((1, 1)),
         Some(&Data::Empty)
@@ -648,7 +648,7 @@ fn epoca_excel_extlst_booleani_e_namespace() {
     let path = dir.path().join("prefissi.xlsx");
     std::fs::write(&path, &bytes).unwrap();
     assert!(
-        NativeStyles::read(&path, "Sheet1", opzioni_lettura_wkt().budget())
+        NativeStyles::read(&(&path).into(), "Sheet1", opzioni_lettura_wkt().budget())
             .unwrap()
             .epoch
     );
@@ -824,7 +824,8 @@ fn metadati_xml_ignorano_omonimi_estranei_e_discendenti() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("namespace.xlsx");
     std::fs::write(&path, &source).unwrap();
-    let styles = NativeStyles::read(&path, "Sheet1", opzioni_lettura_wkt().budget()).unwrap();
+    let styles =
+        NativeStyles::read(&(&path).into(), "Sheet1", opzioni_lettura_wkt().budget()).unwrap();
     assert!(styles.epoch);
     assert!(styles.date_only(1, 1));
     assert!(!styles.date_only(98, 25));

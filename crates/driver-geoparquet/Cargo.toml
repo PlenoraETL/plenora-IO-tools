@@ -27,3 +27,5 @@ geo-types.workspace = true
 # sull'unificazione delle feature. Non porta dipendenze.
 serde_json = { workspace = true, features = ["raw_value"] }
 tempfile.workspace = true
+
+bytes = "=1.12.1"

@@ -29,11 +29,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from . import _sources as sorgenti
+from ._sources import LimitiArchivio, source_args
 from . import _argomenti as arg
 from . import _arrow as arrow
 from ._confine import nome_sdk
 from ._discovery import VARIABILE, modulo_nativo, Manifest, leggi_manifesto, trova_binario, verifica_profilo
-from ._errors import ProtocolError, _copia_json
+from ._errors import InvalidArgumentError, ProtocolError, _copia_json
 from ._errors import _dallo_sdk
 from ._contenitori import _memo, _protocollo
 from ._limits import Limits
@@ -41,6 +43,7 @@ from ._models import (
     Capabilities,
     Catalog,
     ConvertResult,
+    ElencoArchivio,
     Inspect,
     Layers,
     Validation,
@@ -71,6 +74,15 @@ OPERAZIONI: dict[str, str] = {
     "read_table": "io.read",
     "write": "io.write",
     "convert": "io.convert",
+}
+
+
+#: I metodi che invocano un comando **locale** della CLI, non un'operazione
+#: del catalogo comune: `archive-list` e' scoperta come `version`, e il
+#: catalogo fissato non lo conosce. Il contratto e' nostro
+#: (`plenora-io-archive-list-v1`), uguale in Rust, CLI e SDK.
+SUPERFICI_LOCALI: dict[str, str] = {
+    "elenca_archivio": "archive-list",
 }
 
 
@@ -259,9 +271,25 @@ class Client:
         self._decodifica(documento, Capabilities, argv)
         return self._decodifica(con_superficie_python(documento), Capabilities, argv)
 
+    def elenca_archivio(
+        self,
+        source: str | os.PathLike[str] | sorgenti.Bytes,
+        *,
+        limiti: LimitiArchivio | None = None,
+        limits: Limits | None = None,
+    ) -> ElencoArchivio:
+        """Le voci di uno ZIP, con lo stesso preflight dei driver e senza
+        decompressione: dimensioni **dichiarate**, limiti effettivi e chi li
+        impone. `source` e' l'archivio, un percorso o `Bytes`."""
+        if type(source) is sorgenti.Archivio:
+            raise _dallo_sdk(InvalidArgumentError, "sorgente.annidata", nome="source")
+        argv = ["archive-list", *source_args(source, limiti)]
+        argv += arg.argv_dei_limiti(arg.limiti(limits))
+        return self._esegui(argv, ElencoArchivio, source)
+
     def inspect(
         self,
-        source: str | os.PathLike[str],
+        source: str | os.PathLike[str] | sorgenti.Bytes | sorgenti.Archivio,
         *,
         assume_crs: str | None = None,
         options: dict[str, str] | None = None,
@@ -278,11 +306,12 @@ class Client:
         e' dire «lo so io», e resta distinguibile nella busta -- `crs_resolution`
         porta lo `status` che dice da dove il CRS viene.
         """
-        return self._chiama(self._argomenti("inspect", source, assume_crs, options), Inspect)
+        return self._esegui(
+            self._argomenti("inspect", source, assume_crs, options), Inspect, source)
 
     def layers(
         self,
-        source: str | os.PathLike[str],
+        source: str | os.PathLike[str] | sorgenti.Bytes | sorgenti.Archivio,
         *,
         assume_crs: str | None = None,
         options: dict[str, str] | None = None,
@@ -292,11 +321,12 @@ class Client:
         Non porta lo schema, ed e' il motivo per cui esiste accanto a
         `inspect()`.
         """
-        return self._chiama(self._argomenti("layers", source, assume_crs, options), Layers)
+        return self._esegui(
+            self._argomenti("layers", source, assume_crs, options), Layers, source)
 
     def validate(
         self,
-        source: str | os.PathLike[str],
+        source: str | os.PathLike[str] | sorgenti.Bytes | sorgenti.Archivio,
         *,
         layer: int | None = None,
         limit: int | None = None,
@@ -340,11 +370,11 @@ class Client:
         if limit is not None:
             argomenti += ["--limit", arg.intero(limit, "limit")]
         argomenti += arg.argv_dei_limiti(arg.limiti(limits))
-        return self._chiama(argomenti, Validation)
+        return self._esegui(argomenti, Validation, source)
 
     def read(
         self,
-        source: str | os.PathLike[str],
+        source: str | os.PathLike[str] | sorgenti.Bytes | sorgenti.Archivio,
         output: str | os.PathLike[str],
         *,
         layer: int | None = None,
@@ -394,11 +424,11 @@ class Client:
         if layer is not None:
             argomenti += ["--layer", arg.intero(layer, "layer")]
         argomenti += arg.argv_dei_limiti(arg.limiti(limits))
-        return self._chiama(argomenti, Validation)
+        return self._esegui(argomenti, Validation, source)
 
     def read_table(
         self,
-        source: str | os.PathLike[str],
+        source: str | os.PathLike[str] | sorgenti.Bytes | sorgenti.Archivio,
         *,
         layer: int | None = None,
         assume_crs: str | None = None,
@@ -437,9 +467,8 @@ class Client:
         # nella directory temporanea resta sul disco.
         with arrow.cartella_temporanea(temp_dir, effetto="committed") as cartella:
             consegna = Path(cartella) / "consegna.arrow"
-            esito = self._chiama(
-                [*testa, "--output", arg.percorso(consegna, "output"), *coda], Validation
-            )
+            esito = self._esegui(
+                [*testa, "--output", arg.percorso(consegna, "output"), *coda], Validation, source)
             # Da qui `read` ha gia' scritto: una consegna non dichiarata o un
             # file che non si legge come la busta dice sono `ProtocolError`
             # con effetto `unknown`, non `none` -- il file consegnato c'e', o
@@ -465,7 +494,7 @@ class Client:
 
     def write(
         self,
-        source: str | os.PathLike[str] | Any,
+        source: str | os.PathLike[str] | sorgenti.Bytes | sorgenti.Archivio | Any,
         destination: str | os.PathLike[str],
         *,
         format: str,
@@ -541,18 +570,19 @@ class Client:
         coda += self._tre_famiglie(options, read_options, write_options)
         coda += arg.argv_dei_limiti(arg.limiti(limits))
         temp_dir = None if temp_dir is None else arg.percorso(temp_dir, "temp_dir")
-        if not arrow.e_un_percorso(source):
+        if not arrow.e_un_percorso(source) and not sorgenti.sorgente_non_percorso(source):
             # `committed`: se la pulizia fallisce, `write` ha gia' pubblicato.
             with arrow.cartella_temporanea(temp_dir, effetto="committed") as cartella:
                 ingresso = arrow.scrivi_ipc(source, Path(cartella))
                 return self._chiama(
                     ["write", arg.percorso(ingresso, "source"), *crs, *coda], WriteResult
                 )
-        return self._chiama(["write", arg.percorso(source, "source"), *crs, *coda], WriteResult)
+        return self._esegui(
+            ["write", *source_args(source), *crs, *coda], WriteResult, source)
 
     def convert(
         self,
-        source: str | os.PathLike[str],
+        source: str | os.PathLike[str] | sorgenti.Bytes | sorgenti.Archivio,
         target: str | os.PathLike[str],
         *,
         source_format: str,
@@ -618,7 +648,7 @@ class Client:
         """
         argomenti = [
             "convert",
-            arg.percorso(source, "source"),
+            *source_args(source),
             arg.percorso(target, "target"),
             "--from",
             arg.testo(source_format, "source_format"),
@@ -632,7 +662,7 @@ class Client:
             argomenti.append("--durable")
         argomenti += self._tre_famiglie(options, read_options, write_options)
         argomenti += arg.argv_dei_limiti(arg.limiti(limits))
-        return self._chiama(argomenti, ConvertResult)
+        return self._esegui(argomenti, ConvertResult, source)
 
     @property
     def cancellable(self) -> bool:
@@ -657,6 +687,14 @@ class Client:
         busta stessa non si legge.
         """
         return self._decodifica(self._runner.run(argv), modello, argv)
+
+    def _esegui(self, argv: list[str], modello: Any, source: Any) -> Any:
+        """`_chiama`, con i byte di una sorgente `Bytes` sullo stdin del
+        processo -- o in memoria nel modulo nativo --, mai negli argomenti."""
+        dati = sorgenti.ingresso(source)
+        if dati is None:
+            return self._chiama(argv, modello)
+        return self._decodifica(self._runner.run(argv, dati), modello, argv)
 
     @staticmethod
     def _decodifica(risultato: Any, modello: Any, argv: list[str]) -> Any:
@@ -702,7 +740,7 @@ class Client:
     @staticmethod
     def _argomenti(
         comando: str,
-        source: str | os.PathLike[str],
+        source: str | os.PathLike[str] | sorgenti.Bytes | sorgenti.Archivio,
         assume_crs: str | None,
         options: dict[str, str] | None,
     ) -> list[str]:
@@ -720,6 +758,6 @@ class Client:
         sbagliata passava in silenzio. Ora il driver la vede, e
         `test_una_opzione_ignota_e_rifiutata` lo esercita dalla wheel.
         """
-        argomenti = [comando, arg.percorso(source, "source"), *Client._crs(assume_crs)]
+        argomenti = [comando, *source_args(source), *Client._crs(assume_crs)]
         argomenti += arg.righe_di_opzioni("--in-opt", arg.opzioni(options, "options"))
         return argomenti

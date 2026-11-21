@@ -11,11 +11,12 @@
 //! builder tipizzati (niente intermedio `serde_json::Value`). Scrittura streaming
 //! per righe (niente buffering dei batch).
 #![forbid(unsafe_code)]
+use plenora_io_core::{SourceData, SourceReader};
 
 use std::collections::{BTreeSet, HashSet};
 use std::fmt::Write as _;
 use std::fs::File;
-use std::path::{Path, PathBuf};
+
 use std::sync::Arc;
 
 use arrow_array::builder::BinaryBuilder;
@@ -57,7 +58,7 @@ use plenora_io_model::contract::{
 use plenora_io_model::crs::ResolvedCrs;
 
 fn native_read_loss(
-    path: &Path,
+    path: &SourceData,
     delim: u8,
     headers: &[String],
     geom: Option<GeomSpec>,
@@ -392,9 +393,10 @@ const fn csv_attribute_type(data_type: &arrow_schema::DataType) -> bool {
     }
 }
 
-fn csv_reader(path: &Path, delim: u8) -> Result<wire::Reader<File>> {
-    let file =
-        File::open(path).map_err(|_| err(&PublicMessage::Curated("apertura del CSV fallita")))?;
+fn csv_reader(path: &SourceData, delim: u8) -> Result<wire::Reader<SourceReader>> {
+    let file = path
+        .open()
+        .map_err(|_| err(&PublicMessage::Curated("apertura del CSV fallita")))?;
     let mut reader = wire::Reader::new(file, delim);
     let mut header = csv::StringRecord::new();
     reader.read_record(&mut header).map_err(|_| {
@@ -417,12 +419,13 @@ impl FormatDriver for CsvDriver {
     }
 
     fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = driver_common::structure::preflight(self.descriptor(), source, &mut opts)?;
+        let path = driver_common::structure::preflight_data(self.descriptor(), source, &mut opts)?;
         let delim = delimiter(&opts.format_options).ok_or_else(delimiter_non_valido)?;
 
         // Intestazione (nomi colonna).
         let headers: Vec<String> = {
-            let file = File::open(&path)
+            let file = path
+                .open()
                 .map_err(|_| err(&PublicMessage::Curated("apertura del CSV fallita")))?;
             let mut rdr = wire::Reader::new(file, delim);
             let mut first = csv::StringRecord::new();
@@ -645,7 +648,7 @@ impl FormatDriver for CsvDriver {
 
 struct CsvDataset {
     loss: LossReport,
-    path: PathBuf,
+    path: SourceData,
     delim: u8,
     geom: Option<GeomSpec>,
     /// Le quote WKB configurate, non i default del contratto: il dataset
@@ -779,7 +782,7 @@ fn oltre_le_righe(_righe: usize) -> PlenoraIoError {
 }
 
 fn infer_types(
-    path: &Path,
+    path: &SourceData,
     delim: u8,
     headers: &[String],
     geom_cols: &HashSet<usize>,
@@ -828,7 +831,7 @@ fn infer_types(
 }
 
 fn infer_wkt_geometry(
-    path: &Path,
+    path: &SourceData,
     delim: u8,
     wkt_index: usize,
     quote: QuoteInferenza,
@@ -899,7 +902,7 @@ fn infer_wkt_geometry(
 /// insieme e che nessun chiamante deve poter accoppiare male — un delimitatore
 /// di un file con il tetto di un altro sarebbe un difetto silenzioso.
 struct SorgenteCsv {
-    path: PathBuf,
+    path: SourceData,
     delim: u8,
     cella_wkt: WkbLimits,
 }

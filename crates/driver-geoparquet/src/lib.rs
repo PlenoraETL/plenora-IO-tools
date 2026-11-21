@@ -5,9 +5,11 @@
 //! snappy default, oppure zstd/gzip/brotli/lz4) — zstd via zstd-sys.
 #![forbid(unsafe_code)]
 
+use plenora_io_core::SourceData;
 use std::collections::{BTreeSet, HashMap};
 use std::fs::File;
-use std::path::PathBuf;
+mod source_input;
+use source_input::ParquetInput;
 use std::sync::Arc;
 
 use arrow_array::{
@@ -166,7 +168,7 @@ const MAX_BIT_WIDTH_INDICI: u8 = 32;
 /// vengono trattenute; la validazione guarda un byte per pagina. Nessuna
 /// allocazione proporzionale al file.
 fn valida_bit_width_dizionario(
-    sorgente: &Arc<File>,
+    sorgente: &Arc<ParquetInput>,
     metadati: &parquet::file::metadata::ParquetMetaData,
     maschera: &ProjectionMask,
     gruppi: Option<&[usize]>,
@@ -281,7 +283,7 @@ fn valida_bit_width_dizionario(
 /// `DataMapping` con messaggio statico se una pagina dichiara piu' byte non
 /// compressi del tetto o del proprio chunk.
 fn valida_dimensioni_pagine(
-    sorgente: &Arc<File>,
+    sorgente: &Arc<ParquetInput>,
     metadati: &parquet::file::metadata::ParquetMetaData,
     maschera: &ProjectionMask,
     gruppi: Option<&[usize]>,
@@ -376,7 +378,7 @@ fn tetto_pagina(context: &plenora_io_model::budget::PipelineContext) -> u64 {
 ///
 /// Il primo rifiuto delle due, con il proprio messaggio statico.
 fn prevalida_cio_che_il_decoder_leggera(
-    sorgente: &Arc<File>,
+    sorgente: &Arc<ParquetInput>,
     metadati: &parquet::file::metadata::ParquetMetaData,
     maschera: &ProjectionMask,
     gruppi: Option<&[usize]>,
@@ -770,13 +772,13 @@ const fn opzioni_del_footer(tetto: u64) -> (u64, usize) {
 /// Il decoder addebita poi il footer due volte (il buffer e le copie dei suoi
 /// testi): un footer piu' grande di meta' del tetto non puo' essere decodificato,
 /// e si rifiuta prima di leggerlo.
-fn valida_lunghezza_del_footer(file: &File, dimensione: u64, tetto: u64) -> Result<()> {
+fn valida_lunghezza_del_footer(file: &ParquetInput, dimensione: u64, tetto: u64) -> Result<()> {
     use std::io::{Read as _, Seek as _, SeekFrom};
 
     const CODA: u64 = 8;
     let illeggibile = || fmt_err(&PublicMessage::Curated(MSG_FOOTER_NON_VALIDO));
     let inizio_coda = dimensione.checked_sub(CODA).ok_or_else(illeggibile)?;
-    let mut lettore = file.try_clone().map_err(|_| illeggibile())?;
+    let mut lettore = file.reader().map_err(|_| illeggibile())?;
     let mut coda = [0_u8; 8];
     lettore
         .seek(SeekFrom::Start(inizio_coda))
@@ -808,7 +810,7 @@ fn valida_lunghezza_del_footer(file: &File, dimensione: u64, tetto: u64) -> Resu
 pub const MSG_FOOTER_OLTRE_IL_TETTO: &str =
     plenora_io_model::quota::Quota::MemoryBytes.rule().message;
 
-fn valida_schema_arrow_incorporato(file: File, dimensione: u64, tetto: u64) -> Result<()> {
+fn valida_schema_arrow_incorporato(file: ParquetInput, dimensione: u64, tetto: u64) -> Result<()> {
     use base64::Engine as _;
     use parquet::file::reader::FileReader as _;
 
@@ -1097,8 +1099,8 @@ pub struct GeoParquetDriver;
 /// S4.d il cambio semantico del preflight — enumerazione via il modello
 /// unificato e rimozione dei controlli legacy — dovra' avvenire in un punto
 /// solo per driver, non sparso nel corpo di `open`.
-fn percorso_verificato(source: Source, opts: &mut ReadOptions) -> Result<PathBuf> {
-    driver_common::structure::preflight(&DESCRIPTOR, source, opts)
+fn percorso_verificato(source: Source, opts: &mut ReadOptions) -> Result<SourceData> {
+    driver_common::structure::preflight_data(&DESCRIPTOR, source, opts)
 }
 
 // Un Parquet con schema Arrow geometrico non usa il fallback legacy per nome.
@@ -1108,7 +1110,7 @@ fn validate_primary_before_retag(schema: &Schema) -> Result<()> {
 }
 
 fn open_arrow_parquet(
-    path: PathBuf,
+    path: SourceData,
     schema: &SchemaRef,
     opts: &ReadOptions,
 ) -> Result<Box<dyn OpenDatasetHandle>> {
@@ -1183,13 +1185,13 @@ impl FormatDriver for GeoParquetDriver {
         // cadere su due file diversi se il percorso viene sostituito fra l'uno
         // e l'altro, e la verifica varrebbe per un file che non e' quello
         // letto.
-        let sorgente = File::open(&path)?;
-        let dimensione = sorgente.metadata()?.len();
+        let sorgente = ParquetInput::open(&path)?;
+        let dimensione = sorgente.length();
         let tetto = tetto_pagina(opts.budget().context());
-        valida_schema_arrow_incorporato(sorgente.try_clone()?, dimensione, tetto)?;
+        valida_schema_arrow_incorporato(sorgente.clone(), dimensione, tetto)?;
         let builder = plenora_io_core::driver::leggendo_arrow("parquet", || {
             ParquetRecordBatchReaderBuilder::try_new_with_options(
-                sorgente.try_clone()?,
+                sorgente.clone(),
                 opzioni_arrow_del_footer(tetto),
             )
             .map_err(|_| fmt_err(&PublicMessage::Curated("Parquet non valido")))
@@ -1876,7 +1878,7 @@ fn identificatore_del_documento(documento: &serde_json::Value) -> Option<String>
 
 struct GeoParquetDataset {
     loss: LossReport,
-    path: PathBuf,
+    path: SourceData,
     out_schema: SchemaRef,
     /// Nomi delle colonne bbox del covering spaziale, se il file dichiara
     /// `covering.bbox` nel metadata `GeoParquet` 1.1 o, in fallback, se sono
@@ -1917,11 +1919,16 @@ impl GeoParquetDataset {
     /// essere cambiato. Gli handle sono cloni della stessa apertura, cosi'
     /// verifica e lettura non possono finire su due file diversi — cosa che due
     /// `open` distinti non garantiscono.
-    fn apri_verificato(&self) -> Result<(Arc<File>, ParquetRecordBatchReaderBuilder<File>)> {
-        let sorgente = Arc::new(File::open(&self.path)?);
-        let dimensione = sorgente.metadata()?.len();
-        valida_schema_arrow_incorporato(sorgente.try_clone()?, dimensione, self.tetto_pagina)?;
-        let per_builder = sorgente.try_clone()?;
+    fn apri_verificato(
+        &self,
+    ) -> Result<(
+        Arc<ParquetInput>,
+        ParquetRecordBatchReaderBuilder<ParquetInput>,
+    )> {
+        let sorgente = Arc::new(ParquetInput::open(&self.path)?);
+        let dimensione = sorgente.length();
+        valida_schema_arrow_incorporato(sorgente.as_ref().clone(), dimensione, self.tetto_pagina)?;
+        let per_builder = sorgente.as_ref().clone();
         let opzioni = opzioni_arrow_del_footer(self.tetto_pagina);
         let builder = plenora_io_core::driver::leggendo_arrow("parquet", move || {
             ParquetRecordBatchReaderBuilder::try_new_with_options(per_builder, opzioni)
@@ -1944,7 +1951,7 @@ impl GeoParquetDataset {
     /// dichiarato ammesso: era lavoro fatto per niente.
     fn gruppi_da_leggere(
         &self,
-        builder: &ParquetRecordBatchReaderBuilder<File>,
+        builder: &ParquetRecordBatchReaderBuilder<ParquetInput>,
         request: &ReadRequest,
     ) -> Option<Vec<usize>> {
         let numerici = gruppi_dopo_pruning(
@@ -2637,7 +2644,9 @@ fn compression_from(opts: &WriteOptions) -> Result<Compression> {
 /// veniva letto come Parquet semplice -- con la colonna indovinata per nome,
 /// che poteva non essere quella dichiarata da `primary_column`. Ora un
 /// documento presente viene validato, e se non regge il file e' rifiutato.
-fn read_geo_meta(builder: &ParquetRecordBatchReaderBuilder<File>) -> Result<Option<MetadatiGeo>> {
+fn read_geo_meta(
+    builder: &ParquetRecordBatchReaderBuilder<ParquetInput>,
+) -> Result<Option<MetadatiGeo>> {
     let Some(kv) = builder.metadata().file_metadata().key_value_metadata() else {
         return Ok(None);
     };

@@ -4,10 +4,10 @@
 //! reale (il `FileReader` è un iteratore pull, nessun thread). È il formato di
 //! interscambio canonico fra plenora-IO-tools e plenora-data-tools.
 #![forbid(unsafe_code)]
+use plenora_io_core::{SourceData, SourceReader};
 
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Write as _};
-use std::path::PathBuf;
 
 use arrow_array::RecordBatch;
 use arrow_ipc::reader::{FileReader, StreamReader};
@@ -145,8 +145,8 @@ static OPZIONI: plenora_io_model::format_options::SchemaOpzioniFormato =
 /// # Errors
 ///
 /// Quando il file non si apre.
-pub fn serializzazione_del_file(percorso: &std::path::Path) -> Result<Serializzazione> {
-    let mut file = File::open(percorso)?;
+pub fn serializzazione_del_file(percorso: impl Into<SourceData>) -> Result<Serializzazione> {
+    let mut file = percorso.into().open()?;
     let mut magic = [0_u8; 6];
     // Due rami con lo stesso esito, e la ragione e' la stessa: cio' che non
     // comincia con `ARROW1` -- perche' porta altri byte, o perche' di byte non
@@ -194,11 +194,8 @@ impl FormatDriver for IpcDriver {
     }
 
     fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = driver_common::structure::preflight_with(
-            self.descriptor(),
-            source,
-            &mut opts,
-            |path, options| match serializzazione_del_file(path)? {
+        let path = source.into_data_observed(self.descriptor(), &mut opts, |path, options| {
+            match serializzazione_del_file(path)? {
                 Serializzazione::File => driver_common::prevalida_arrow::valida_file_ipc_prefix(
                     "arrow",
                     path,
@@ -211,8 +208,9 @@ impl FormatDriver for IpcDriver {
                         options.row_limit,
                     )
                 }
-            },
-        )?;
+            }
+        })
+        .map_err(|error| driver_common::structure::con_formato_atteso("ipc", error))?;
         // FZ-0: schema e buffer dichiarati vengono verificati **prima** che
         // arrow li converta. `try_new` restituisce `Result`, ma la conversione
         // dello schema e l'affettamento del corpo sono infallibili nel tipo e
@@ -220,14 +218,12 @@ impl FormatDriver for IpcDriver {
         // resta come difesa in profondita', non come mitigazione.
         let serializzazione = serializzazione_del_file(&path)?;
         let schema = plenora_io_core::driver::leggendo_arrow("arrow", || match serializzazione {
-            Serializzazione::File => FileReader::try_new(File::open(&path)?, None)
+            Serializzazione::File => FileReader::try_new(path.open()?, None)
                 .map(|lettore| lettore.schema())
                 .map_err(|_| err(&PublicMessage::Curated("Arrow IPC non valido"))),
-            Serializzazione::Flusso => {
-                StreamReader::try_new(BufReader::new(File::open(&path)?), None)
-                    .map(|lettore| lettore.schema())
-                    .map_err(|_| err(&PublicMessage::Curated("flusso Arrow IPC non valido")))
-            }
+            Serializzazione::Flusso => StreamReader::try_new(BufReader::new(path.open()?), None)
+                .map(|lettore| lettore.schema())
+                .map_err(|_| err(&PublicMessage::Curated("flusso Arrow IPC non valido"))),
         })?;
         // Arrow Geometry Semantics 1.0, REJ-001/002: versione, vocabolario, CRS e
         // supporto nelle loro classi e nel loro ordine, prima di ogni altra lettura.
@@ -390,7 +386,7 @@ impl FormatDriver for IpcDriver {
 }
 
 struct IpcDataset {
-    path: PathBuf,
+    path: SourceData,
     received_schema: SchemaRef,
     layers: Vec<LayerContract>,
 }
@@ -448,7 +444,7 @@ impl OpenDatasetHandle for IpcDataset {
         }
         let reader = plenora_io_core::driver::leggendo_arrow("arrow", move || {
             match serializzazione {
-                Serializzazione::File => FileReader::try_new(File::open(&path)?, None)
+                Serializzazione::File => FileReader::try_new(path.open()?, None)
                     .map(|lettore| LettoreIpc::File {
                         lettore,
                         proiezione: projection,
@@ -457,7 +453,7 @@ impl OpenDatasetHandle for IpcDataset {
                 // Entrambe le serializzazioni decodificano tutte le colonne:
                 // il decoder deve verificare anche quelle escluse dal risultato.
                 Serializzazione::Flusso => {
-                    StreamReader::try_new(BufReader::new(File::open(&path)?), None)
+                    StreamReader::try_new(BufReader::new(path.open()?), None)
                         .map(|lettore| LettoreIpc::Flusso {
                             lettore: Box::new(lettore),
                             proiezione: projection,
@@ -545,11 +541,11 @@ fn read_metadata_changes(
 /// dimensione della piu' grande.
 enum LettoreIpc {
     File {
-        lettore: FileReader<File>,
+        lettore: FileReader<SourceReader>,
         proiezione: Option<Vec<usize>>,
     },
     Flusso {
-        lettore: Box<StreamReader<BufReader<File>>>,
+        lettore: Box<StreamReader<BufReader<SourceReader>>>,
         /// Gli indici delle colonne richieste, applicati al batch invece che
         /// alla sorgente: il flusso non ha un indice da cui saltarle.
         proiezione: Option<Vec<usize>>,

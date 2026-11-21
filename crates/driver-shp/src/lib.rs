@@ -635,6 +635,7 @@ impl FormatDriver for ShpDriver {
     }
 
     fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
+        // Il nome logico, anche per byte e voci d'archivio (`x.shp.d` in uno ZIP).
         let source_name = match &source {
             Source::Path(p) => p
                 .file_name()

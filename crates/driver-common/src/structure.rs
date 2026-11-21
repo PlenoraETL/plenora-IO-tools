@@ -3,7 +3,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
-use plenora_io_core::{FormatDescriptor, ReadOptions, Source};
+use plenora_io_core::{FormatDescriptor, ReadOptions, Source, SourceData};
 use plenora_io_model::error_table::Situation;
 use plenora_io_model::{PlenoraIoError, PublicMessage, Result};
 
@@ -56,37 +56,55 @@ pub fn preflight_with(
 ) -> Result<PathBuf> {
     let id = descriptor.id();
     plenora_io_core::driver::preflight_source_validated(descriptor, source, opts, &|path, opts| {
-        validate(id, path, opts)?;
+        validate(id, &path.into(), opts)?;
         catalog(path, opts)
     })
-    .map_err(|error| {
-        if error.category == plenora_io_model::ErrorCategory::InvalidConfiguration
-            && error.message == Situation::DirectoryInsteadOfFile.rule().message
-        {
-            Situation::DirectoryInsteadOfFile.error_with(&PublicMessage::CuratedPair(
-                "directory al posto del file; formato atteso:",
-                label(id),
-            ))
-        } else {
-            error
-        }
-    })
+    .map_err(|error| con_formato_atteso(id, error))
 }
 
-fn header<const N: usize>(path: &Path, id: &str) -> Result<([u8; N], u64)> {
-    let metadata = std::fs::symlink_metadata(path)?;
-    require(metadata.is_file(), id)?;
-    let mut file = File::open(path)?;
+/// La directory al posto del file nomina il formato atteso, per ogni via di
+/// preflight: su disco e riapribile da memoria.
+#[must_use]
+pub fn con_formato_atteso(id: &str, error: PlenoraIoError) -> PlenoraIoError {
+    if error.category == plenora_io_model::ErrorCategory::InvalidConfiguration
+        && error.message == Situation::DirectoryInsteadOfFile.rule().message
+    {
+        Situation::DirectoryInsteadOfFile.error_with(&PublicMessage::CuratedPair(
+            "directory al posto del file; formato atteso:",
+            label(id),
+        ))
+    } else {
+        error
+    }
+}
+
+/// La sorgente come file: in memoria lo e' per costruzione, sul disco deve
+/// esserlo davvero -- una directory al posto di un membro e' contenuto non
+/// valido del formato, non un errore del filesystem.
+fn un_file(source: &(impl IntoSourceData + ?Sized), id: &str) -> Result<SourceData> {
+    let path = source.to_source_data();
+    if !path.in_memory() {
+        require(std::fs::symlink_metadata(&*path)?.is_file(), id)?;
+    }
+    Ok(path)
+}
+
+fn header<const N: usize>(
+    source: &(impl IntoSourceData + ?Sized),
+    id: &str,
+) -> Result<([u8; N], u64)> {
+    let path = un_file(source, id)?;
+    let mut file = path.open()?;
     let mut bytes = [0; N];
     file.read_exact(&mut bytes).map_err(|_| invalid(id))?;
-    Ok((bytes, metadata.len()))
+    Ok((bytes, path.length()?))
 }
-fn tail<const N: usize>(path: &Path, id: &str) -> Result<[u8; N]> {
-    let mut file = File::open(path)?;
+fn tail<const N: usize>(source: &(impl IntoSourceData + ?Sized), id: &str) -> Result<[u8; N]> {
+    let path = un_file(source, id)?;
+    let mut file = path.open()?;
     let mut bytes = [0; N];
-    let start = file
-        .metadata()?
-        .len()
+    let start = path
+        .length()?
         .checked_sub(N as u64)
         .ok_or_else(|| invalid(id))?;
     file.seek(SeekFrom::Start(start))?;
@@ -100,10 +118,9 @@ const fn le64(b: &[u8]) -> u64 {
     u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]])
 }
 
-fn validate(id: &str, path: &Path, opts: &ReadOptions) -> Result<()> {
+fn validate(id: &str, path: &SourceData, opts: &ReadOptions) -> Result<()> {
     opts.ensure_active()?;
-    let metadata = std::fs::symlink_metadata(path)?;
-    if metadata.is_file() && metadata.len() > opts.max_input_bytes() {
+    if path.length().unwrap_or(0) > opts.max_input_bytes() {
         return Err(
             plenora_io_model::quota::Quota::InputBytes.exceeded(plenora_io_model::ErrorPhase::Read)
         );
@@ -116,7 +133,7 @@ fn validate(id: &str, path: &Path, opts: &ReadOptions) -> Result<()> {
         "filegdb" => filegdb(path, opts),
         "csv" => csv(path, opts),
         "geojson" => {
-            let mut reader = BufReader::new(File::open(path)?);
+            let mut reader = BufReader::new(path.open()?);
             if reader.fill_buf()?.starts_with(b"\xef\xbb\xbf") {
                 reader.consume(3);
             }
@@ -147,7 +164,7 @@ fn validate(id: &str, path: &Path, opts: &ReadOptions) -> Result<()> {
         // Il driver IPC fornisce i due validatori completi a preflight_with.
         "ipc" => Ok(()),
         "xls" => {
-            let archive = zip::ZipArchive::new(File::open(path)?).map_err(|_| invalid(id))?;
+            let archive = zip::ZipArchive::new(path.open()?).map_err(|_| invalid(id))?;
             for member in [
                 "[Content_Types].xml",
                 "xl/workbook.xml",
@@ -167,7 +184,7 @@ fn validate(id: &str, path: &Path, opts: &ReadOptions) -> Result<()> {
     }
 }
 
-fn csv(path: &Path, opts: &ReadOptions) -> Result<()> {
+fn csv(path: &SourceData, opts: &ReadOptions) -> Result<()> {
     let delimiter = opts
         .format_options
         .get("delimiter")
@@ -175,7 +192,7 @@ fn csv(path: &Path, opts: &ReadOptions) -> Result<()> {
         .and_then(|s| s.as_bytes().first())
         .copied()
         .unwrap_or(b',');
-    let mut reader = crate::csv_wire::Reader::new(File::open(path)?, delimiter);
+    let mut reader = crate::csv_wire::Reader::new(path.open()?, delimiter);
     let mut record = csv::StringRecord::new();
     let mut rows = 0;
     while opts.row_limit.is_none_or(|limit| rows <= limit)
@@ -195,10 +212,10 @@ fn csv(path: &Path, opts: &ReadOptions) -> Result<()> {
     }
     require(rows > 0, "csv")
 }
-fn xml(path: &Path, opts: &ReadOptions) -> Result<()> {
+fn xml(path: &SourceData, opts: &ReadOptions) -> Result<()> {
     use quick_xml::events::Event;
     let mut reader = quick_xml::Reader::from_reader(quick_xml::encoding::DecodingReader::new(
-        BufReader::new(File::open(path)?),
+        BufReader::new(path.open()?),
     ));
     let mut buffer = Vec::new();
     let mut depth = 0_u64;
@@ -240,7 +257,7 @@ fn xml(path: &Path, opts: &ReadOptions) -> Result<()> {
         buffer.clear();
     }
 }
-fn dxf(path: &Path, opts: &ReadOptions) -> Result<()> {
+fn dxf(path: &SourceData, opts: &ReadOptions) -> Result<()> {
     let (h, _) = header::<2>(path, "dxf")?;
     if h == *b"Au" {
         let (h, _) = header::<22>(path, "dxf")?;
@@ -248,7 +265,7 @@ fn dxf(path: &Path, opts: &ReadOptions) -> Result<()> {
         let t = tail::<4>(path, "dxf")?;
         return require(&t == b"EOF\0", "dxf");
     }
-    let mut lines = BufReader::new(File::open(path)?).lines();
+    let mut lines = BufReader::new(path.open()?).lines();
     let mut section = false;
     let mut eof = false;
     while let Some(code) = lines.next() {
@@ -495,4 +512,37 @@ fn filegdb_indexes(path: &Path) -> Result<()> {
         }
     }
     require(position == length, "filegdb")
+}
+
+trait IntoSourceData {
+    fn to_source_data(&self) -> SourceData;
+}
+impl IntoSourceData for Path {
+    fn to_source_data(&self) -> SourceData {
+        self.into()
+    }
+}
+impl IntoSourceData for PathBuf {
+    fn to_source_data(&self) -> SourceData {
+        self.into()
+    }
+}
+impl IntoSourceData for SourceData {
+    fn to_source_data(&self) -> SourceData {
+        self.clone()
+    }
+}
+/// Preflight dei driver riapribili da memoria.
+/// # Errors
+/// Struttura, archivio, quota, cancellazione o configurazione non valida.
+pub fn preflight_data(
+    descriptor: &FormatDescriptor,
+    source: Source,
+    opts: &mut ReadOptions,
+) -> Result<SourceData> {
+    source
+        .into_data_observed(descriptor, opts, |data, opts| {
+            validate(descriptor.id(), data, opts)
+        })
+        .map_err(|error| con_formato_atteso(descriptor.id(), error))
 }

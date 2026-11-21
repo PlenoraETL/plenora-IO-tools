@@ -2,7 +2,8 @@
 //!
 //! # Che cosa espone, e perche' cosi' poco
 //!
-//! Una funzione, `esegui`, che prende gli argomenti della riga di comando e
+//! Una funzione, `esegui`, che prende gli argomenti della riga di comando --
+//! e, con `--source-stdin`, i byte della sorgente in `ingresso` -- e
 //! rende il codice d'uscita e lo stdout che il binario `plenora-io` avrebbe
 //! prodotto. Lo SDK Python resta un client del **protocollo v2**: costruisce
 //! gli stessi argomenti, decodifica le stesse buste, solleva gli stessi
@@ -57,7 +58,7 @@ const INTERVALLO: Duration = Duration::from_millis(50);
 /// comando non e' un'eccezione: e' una busta d'errore con il suo codice, come
 /// per il binario.
 #[pyfunction]
-#[pyo3(signature = (argomenti, timeout=None, interrotto=None))]
+#[pyo3(signature = (argomenti, timeout=None, interrotto=None, ingresso=None))]
 // PyO3 consegna gli argomenti per valore, e il thread del comando li deve
 // possedere: un prestito non attraversa `spawn`.
 #[allow(clippy::needless_pass_by_value)]
@@ -66,7 +67,13 @@ fn esegui(
     argomenti: Vec<String>,
     timeout: Option<f64>,
     interrotto: Option<Py<PyAny>>,
+    ingresso: Option<&[u8]>,
 ) -> PyResult<(i32, String, bool)> {
+    // I byte di `--source-stdin` restano in memoria: copiati una volta nel
+    // processo, mai codificati negli argomenti.
+    let ingresso = ingresso.map_or(plenora_io_tools::Ingresso::Nessuno, |dati| {
+        plenora_io_tools::Ingresso::Byte(dati.into())
+    });
     let limite = timeout
         .map(|secondi| {
             Duration::try_from_secs_f64(secondi)
@@ -81,9 +88,10 @@ fn esegui(
         .name("plenora-io-comando".to_owned())
         .spawn(move || {
             let esito = std::panic::catch_unwind(AssertUnwindSafe(|| {
-                plenora_io_tools::uscita_del_processo(plenora_io_tools::esegui(
+                plenora_io_tools::uscita_del_processo(plenora_io_tools::esegui_con_ingresso(
                     &argomenti,
                     &del_comando,
+                    ingresso,
                 ))
             }))
             .unwrap_or_else(|payload| plenora_io_tools::uscita_del_panico(payload.as_ref()));

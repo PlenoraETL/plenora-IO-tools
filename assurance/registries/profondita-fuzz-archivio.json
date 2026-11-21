@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "target": "archive_reader",
+  "stato": "da_misurare_al_congelamento_10.1.0",
+  "perimetro": {
+    "percorsi": ["Cargo.lock", "crates/plenora-io-core/Cargo.toml", "crates/plenora-io-core/src/archivio.rs", "crates/plenora-io-core/src/archivio", "crates/plenora-io-core/src/source_data.rs", "crates/plenora-io-core/src/dataset_files.rs", "crates/plenora-io-core/src/filegdb_names.rs", "fuzz/Cargo.toml", "fuzz/Cargo.lock", "fuzz/fuzz_targets/archive_reader.rs", "fuzz/seeds/archive_reader"]
+  },
+  "nota": "Nuovo lettore ZIP. Nessuna misura storica qualifica questo perimetro. Eseguire campagna, replay, copertura e misura di profondita al congelamento."
+}

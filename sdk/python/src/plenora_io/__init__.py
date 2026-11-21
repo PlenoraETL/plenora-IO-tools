@@ -122,7 +122,7 @@ PROFILES = FrozenList(list(_PROFILI))
 #:
 #: E' la versione del workspace e della wheel nativa; il gate SDK verifica
 #: l'allineamento. Client.version() interroga invece il backend in uso.
-__version__ = "10.0.0"
+__version__ = "10.1.0"
 
 #: Il protocollo verificato su ogni busta, inclusa quella di versione.
 #: l'SDK non pretende di capire una busta che ne dichiari un altro.
@@ -155,7 +155,16 @@ def version() -> str:
         raise _dallo_sdk(PackageMetadataError, "pacchetto.senza_versione")
     return letta
 
+from ._sources import Archivio, Bytes, LimitiArchivio
+from ._models import ElencoArchivio, LimiteArchivio, VoceArchivio
+
 __all__ = [
+    "Archivio",
+    "Bytes",
+    "ElencoArchivio",
+    "LimiteArchivio",
+    "LimitiArchivio",
+    "VoceArchivio",
     "DISTRIBUTION",
     "AuthenticationError",
     "AuthorizationError",

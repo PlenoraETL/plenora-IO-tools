@@ -61,3 +61,11 @@ pub mod geometry_cardinality;
 
 #[cfg(test)]
 mod test_contract;
+
+pub mod archivio;
+pub use archivio::{elenca_archivio, LimitiArchivio, QuotaArchivio, VoceArchivio};
+pub mod sorgente;
+pub use sorgente::Sorgente;
+pub mod filegdb_names;
+pub mod source_data;
+pub use source_data::{SourceData, SourceReader};

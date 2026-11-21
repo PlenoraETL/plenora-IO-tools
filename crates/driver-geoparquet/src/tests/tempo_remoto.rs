@@ -61,7 +61,7 @@ fn tempo_remoto_int96_data_and_statistics() {
         assert_eq!(statistics.min_opt(), Some(&value));
         assert_eq!(statistics.max_opt(), Some(&value));
         let error = valida_schema_arrow_incorporato(
-            File::open(&path).unwrap(),
+            ingresso(&path),
             std::fs::metadata(&path).unwrap().len(),
             16 * 1024 * 1024,
         )

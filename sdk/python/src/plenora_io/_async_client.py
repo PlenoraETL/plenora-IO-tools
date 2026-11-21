@@ -7,7 +7,7 @@ from functools import wraps
 import threading
 from typing import Any
 
-from ._client import Client, OPERAZIONI
+from ._client import Client, OPERAZIONI, SUPERFICI_LOCALI
 
 _cancellation: ContextVar[threading.Event | None] = ContextVar("io_cancellation", default=None)
 
@@ -71,6 +71,8 @@ def _async_method(name: str):
     return call
 
 
-# La copertura delle operazioni deriva dal catalogo del client sincrono.
-for _name in (*OPERAZIONI, "version", "capabilities"):
+# La copertura delle operazioni deriva dal catalogo del client sincrono, con
+# i comandi locali: i byte di `Bytes` passano dallo stesso `Client`, quindi
+# dallo stdin del processo o dalla memoria del modulo nativo.
+for _name in (*OPERAZIONI, *SUPERFICI_LOCALI, "version", "capabilities"):
     setattr(AsyncClient, _name, _async_method(_name))

@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://plenora.dev/io-tools/schemas/plenora-io-archive-list-input-v1.schema.json",
+  "title": "plenora-io-archive-list-input-v1",
+  "$comment": "Contratto d'ingresso del comando locale archive-list (non un'operazione del catalogo comune: e' scoperta della CLI, come version). La sorgente e' l'archivio ZIP: un percorso, oppure il nome logico dei byte consegnati su stdin con --source-stdin. Una voce non si elenca: elencare la voce di un archivio vorrebbe dire aprire un archivio annidato. I limiti zero sono CLI_USAGE; un limite oltre la quota della pipeline corrispondente e' stretto a quella, e il risultato lo dichiara in `limits[].bound_by`.",
+  "type": "object",
+  "required": [
+    "source"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "source": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_stdin": {
+      "type": "boolean",
+      "$comment": "I byte dell'archivio arrivano su stdin (--source-stdin), mai negli argomenti; `source` ne e' il nome logico."
+    },
+    "archive_limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_entries": {
+          "type": "integer",
+          "minimum": 1,
+          "$comment": "--archive-max-entries; stretto da max_input_entries."
+        },
+        "max_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "$comment": "--archive-max-bytes, byte decompressi dichiarati; stretto da max_input_bytes."
+        },
+        "max_ratio": {
+          "type": "integer",
+          "minimum": 1,
+          "$comment": "--archive-max-ratio, per voce e sull'archivio intero; stretto da decompression_ratio."
+        }
+      }
+    },
+    "deadline_ms": {
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "examples": [
+    {
+      "source": "dati/consegna.zip"
+    },
+    {
+      "source": "consegna.zip",
+      "source_stdin": true,
+      "archive_limits": {
+        "max_entries": 100
+      }
+    }
+  ]
+}

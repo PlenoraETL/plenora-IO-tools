@@ -164,7 +164,7 @@ fn same_name(a: &std::ffi::OsStr, b: &std::ffi::OsStr) -> bool {
     name_key(a) == name_key(b)
 }
 
-fn name_key(name: &std::ffi::OsStr) -> Vec<u8> {
+pub(crate) fn name_key(name: &std::ffi::OsStr) -> Vec<u8> {
     name.to_str().map_or_else(
         || name.as_encoded_bytes().to_ascii_lowercase(),
         |s| s.to_lowercase().into_bytes(),

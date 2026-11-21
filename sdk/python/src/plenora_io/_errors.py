@@ -37,7 +37,8 @@ from typing import Any
 #: primo argomento -- anche alfanumerico, anche un `Runner.run(["SEGRETO"])` --
 #: e' un dato di chi chiama, e compare come `?`.
 SOTTOCOMANDI: frozenset[str] = frozenset(
-    {"--version", "catalog", "capabilities", "inspect", "layers", "read", "write", "convert"}
+    {"--version", "catalog", "capabilities", "inspect", "layers", "read", "write", "convert",
+     "archive-list"}
 )
 
 #: I profili che la distribuzione produce: l'elenco chiuso di `discovery.PROFILI`,
@@ -321,6 +322,15 @@ MESSAGGI: dict[str, str] = {
     "arg.non_secondi": "`{nome}` non e' un numero di secondi.",
     "arg.numero_illeggibile": "`{nome}` non si lascia leggere come numero.",
     "arg.secondi_non_positivi": "`{nome}` non e' un numero di secondi positivo e finito.",
+    # Le sorgenti senza percorso: solo i tipi; nomi, ZIP e limiti li giudica il core.
+    "sorgente.dati_non_bytes": "`{nome}` non e' `bytes`.",
+    "sorgente.annidata": (
+        "`{nome}` e' un `Archivio`: un archivio dentro un archivio non e' supportato."
+    ),
+    "sorgente.limiti": "`{nome}` non e' un `LimitiArchivio`.",
+    "sorgente.limiti_doppi": (
+        "`{nome}` e' indicato due volte, nell'`Archivio` e nella chiamata."
+    ),
     # l'adattatore Arrow
     "arrow.assente": (
         "l'adattatore Arrow richiede pyarrow, che non e' installato o non "
@@ -537,6 +547,7 @@ MESSAGGI: dict[str, str] = {
     ),
     # il processo
     "processo.argv": "`argv` non e' una lista di stringhe.",
+    "processo.ingresso": "l'ingresso di `--source-stdin` non e' `bytes`.",
     "processo.argomento_non_passabile": (
         "un argomento di `plenora-io {comando}` non si puo' passare a un "
         "processo: contiene un carattere NUL o non e' testo."
@@ -1180,6 +1191,8 @@ CONTESTI_DEL_PROTOCOLLO: frozenset[str] = frozenset({
     "write", "write.input", "write.layers", "capabilities", "capabilities.interfaces[]",
     "capabilities.operations[]", "capabilities.operations[].controls",
     "capabilities.operations[].input",
+    "archive-list", "archive-list.entries[]", "archive-list.entries",
+    "archive-list.limits[]", "archive-list.limits",
 })
 
 #: I contenitori che `_copia_json` nomina: i contesti del protocollo, la busta
@@ -1195,6 +1208,9 @@ ARGOMENTI: frozenset[str] = frozenset({
     "destination", "source", "target", "source_format", "target_format", "assume_crs",
     "durable", "layer", "limit", "limits", "timeout", "argv", "format", "profile",
     "name", "identificatore", "categoria",
+    # Le sorgenti senza percorso (`Bytes`, `Archivio`, `LimitiArchivio`).
+    "nome", "dati", "voce", "archivio", "limiti",
+    "limiti.max_voci", "limiti.max_byte_decompressi", "limiti.max_rapporto",
 })
 
 #: Che cosa la scoperta del binario esamina.
@@ -1391,6 +1407,11 @@ PARAMETRI: dict[str, dict[str, Any]] = {
         chiave: {"nome": _ARGOMENTO}
         for chiave in MESSAGGI
         if chiave.startswith("arg.")
+    },
+    **{
+        chiave: {"nome": _ARGOMENTO}
+        for chiave in MESSAGGI
+        if chiave.startswith("sorgente.")
     },
     "arrow.serie": {"attesa": _Intero(0, 10_000), "serie": _Intero(0, 10_000)},
     "client.non_decodifica": {"comando": _COMANDO, "modello": _CLASSE},

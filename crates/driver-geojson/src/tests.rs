@@ -360,6 +360,7 @@ use plenora_io_model::contract::{CoordinateDimensions, GeometryType};
 use plenora_io_model::wkb::{from_wkb, WkbCoordinate, WkbValue};
 use plenora_io_model::CancellationToken;
 use std::fmt::Write as _;
+use std::path::Path;
 
 fn read_all(driver: &GeoJsonDriver, path: &Path) -> (RecordBatch, LayerContract) {
     let ds = driver
@@ -552,8 +553,10 @@ fn source_property_order_does_not_change_inferred_schema_order() {
     )
     .unwrap();
 
-    let (za_schema, za_columns, _, _) = infer_schema(&za, quote_di_prova()).unwrap();
-    let (az_schema, az_columns, _, _) = infer_schema(&az, quote_di_prova()).unwrap();
+    let (za_schema, za_columns, _, _) =
+        infer_schema(&SourceData::from(&za), quote_di_prova()).unwrap();
+    let (az_schema, az_columns, _, _) =
+        infer_schema(&SourceData::from(&az), quote_di_prova()).unwrap();
     assert_eq!(za_schema, az_schema);
     assert_eq!(za_columns, az_columns);
     assert_eq!(

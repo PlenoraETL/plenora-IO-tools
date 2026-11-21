@@ -12,6 +12,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import zipfile
+
+ARCHIVE = os.environ.get("PLENORA_FILEGDB_ARCHIVE") == "1"
 
 BASELINES = []
 
@@ -135,12 +138,19 @@ def execute(binary, output, index, case):
             catalog_bad = True
         if defect == 'similar_name' and not native and owner in OBJECTS:
             local_bad = OBJECTS.index(owner)
+        if ARCHIVE:
+            packed = folder / 'case.zip'
+            with zipfile.ZipFile(packed, 'w', compression=zipfile.ZIP_STORED) as archive:
+                for physical in dataset.iterdir():
+                    archive.write(physical, 'case.gdb/' + physical.name)
         lock = inaccessible(member) if defect.startswith('locked') else contextlib.nullcontext()
         with lock:
             operations = [('layers', None), ('inspect', None), ('implicit_read', None)]
             operations += [(op, layer) for layer in range(5) for op in ('read', 'convert')]
             for operation, layer in operations:
-                args = ['read' if operation == 'implicit_read' else operation, str(dataset)]
+                args = ['read' if operation == 'implicit_read' else operation, str(packed if ARCHIVE else dataset)]
+                if ARCHIVE:
+                    args += ['--archive-entry', 'case.gdb']
                 if operation == 'convert':
                     args += [str(folder/f'out-{layer}.arrow'), '--from', 'filegdb', '--to', 'ipc']
                 if layer is not None:
@@ -220,6 +230,11 @@ def main():
             with pa.memory_map(str(destination), 'r') as stream:
                 BASELINES.append(pa.ipc.open_file(stream).read_all())
     all_cases = list(cases())
+    # A ZIP member has no OS handle or ACL. Access denial remains covered by
+    # the directory matrix; ZIP CRC and truncation are covered by archive tests.
+    not_applicable = sum(case[-1].startswith('locked') for case in all_cases) if ARCHIVE else 0
+    if ARCHIVE:
+        all_cases = [case for case in all_cases if not case[-1].startswith('locked')]
     failures = []
     count = 0
     with (output/'cells.jsonl').open('w', encoding='utf8') as log:
@@ -239,7 +254,7 @@ def main():
                 count += len(cells)
                 if count // 600 != previous_count // 600:
                     print(f'{count} cells; {len(failures)} failures', flush=True)
-    summary = dict(cases=len(all_cases), cells=count, failures=len(failures), platform=sys.platform,
+    summary = dict(archive=ARCHIVE, os_lock_cases_not_applicable=not_applicable, cases=len(all_cases), cells=count, failures=len(failures), platform=sys.platform,
                    oracle='catalog global; member local; unowned diagnostic; unambiguous ASCII case accepted')
     (output/'summary.json').write_text(json.dumps(summary, indent=2), encoding='utf8')
     (output/'failures.json').write_text(json.dumps(failures, indent=2), encoding='utf8')

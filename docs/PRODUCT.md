@@ -2,12 +2,12 @@
 
 <!-- generato da codice/versione: inizio -->
 
-Versione del prodotto: **10.0.0**.
+Versione del prodotto: **10.1.0**.
 
 | Artefatto Python | Nome |
 | --- | --- |
-| wheel | plenora_io-10.0.0-py3-none-any.whl |
-| sdist | plenora_io-10.0.0.tar.gz |
+| wheel | plenora_io-10.1.0-py3-none-any.whl |
+| sdist | plenora_io-10.1.0.tar.gz |
 
 <!-- generato da codice/versione: fine -->
 
@@ -31,7 +31,7 @@ in [ENGINEERING.md](ENGINEERING.md); dove siamo nel percorso di rilascio sta in
 | geoparquet | ["parquet"] | bidirectional | assente | streaming_random | streaming_columnar | bounding_box_statistics / numeric_min_max_statistics | lossless | ["boolean","signed_integer","unsigned_integer","floating","utf8","binary","temporal","decimal","nested","other"] |
 | gpkg | ["gpkg"] | bidirectional | assente | streaming_random | streaming_sequential | optional_rtree_index / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","binary"] |
 | ipc | ["arrow","arrows"] | bidirectional | assente | streaming_random | streaming_sequential | none / none | lossless | ["boolean","signed_integer","unsigned_integer","floating","utf8","binary","temporal","decimal","nested","other"] |
-| kml | ["kml"] | bidirectional | assente | materialized | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
+| kml | ["kml","kmz"] | bidirectional | assente | materialized | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
 | shp | ["shp","shp.d"] | bidirectional | assente | streaming_sequential | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
 | xls | ["xlsx"] | bidirectional | assente | materialized | streaming_sequential | none / none | conditional | ["boolean","signed_integer","unsigned_integer","floating","utf8","temporal"] |
 
@@ -813,6 +813,7 @@ La superficie con garanzia di compatibilità è **il JSON della CLI**. L'API Rus
 
 | Comando | Contratto | Protocollo |
 | --- | --- | --- |
+| archive-list | plenora-io-archive-list-v1 | 2 |
 | catalog | plenora-io-catalog-v2 | 2 |
 | inspect | plenora-io-inspect-v1 | 2 |
 | layers | plenora-io-layers-v1 | 2 |
@@ -1025,6 +1026,66 @@ geometria ai fini di validazione, quote e perdite. I sink singoli rifiutano
 `none` perche' non possono conservarne lo stato. Vedere `../CHANGELOG.md`
 per i nuovi rifiuti e la migrazione dalla 7.x. La matrice interop e le campagne
 8.0.0 richiedono esecuzione sul nuovo congelamento.
+
+## Sorgenti da byte e da archivio ZIP (10.1.0)
+
+Ogni comando che legge (`inspect`, `layers`, `read`, `write`, `convert`)
+accetta, oltre a un percorso, byte in memoria e la voce di uno ZIP, con gli
+stessi driver e gli stessi risultati di un file.
+
+| Superficie | Byte in memoria | Voce d'archivio | Elenco |
+|---|---|---|---|
+| CLI | `--source-stdin`: il posizionale e' il nome logico, i byte su stdin | `--archive-entry VOCE` | `archive-list ARCHIVIO` |
+| Rust | `Richiesta::con_byte_sorgente`; `Sorgente::byte` + `per_lettura` | `con_voce_archivio`; `Sorgente::voce` | `operazioni::elenca_archivio` |
+| SDK | `Bytes(nome, dati)`: stdin del processo, memoria nel modulo nativo | `Archivio(archivio, voce)` | `Client.elenca_archivio` |
+
+I byte non passano mai negli argomenti. Il nome logico sceglie il driver
+(`.kmz` compreso) e non si apre mai sul disco.
+
+**Una regola per i nomi.** Un nome e' fatto di componenti separate da `/`, ognuna
+portabile: niente assoluti, `\`, `:`, NUL, `.`/`..`, punti o spazi finali,
+caratteri riservati di Windows ne' dispositivi (`CON`, `PRN`, `AUX`, `NUL`,
+`CONIN$`, `CONOUT$`, `COM0-9`, `COM¹-³`, `LPT0-9`, `LPT¹-³`, anche con
+estensione). Voci e prefissi si confrontano per componente, con la chiave
+senza maiuscole; due nomi con la stessa chiave rendono l'archivio ambiguo. Nella
+vista ogni file nasce con `create_new`: un alias del filesystem (nomi brevi 8.3,
+normalizzazioni Unicode) e' un errore, mai una sovrascrittura. I nomi sono UTF-8
+con il bit 11, il campo Info-ZIP 0x7075 se il suo CRC corrisponde, altrimenti
+CP437.
+
+**Una regola per gli errori.**
+
+| Situazione | Codice | Categoria |
+|---|---|---|
+| archivio non valido (struttura, CRC, dimensione falsa, voci sovrapposte, nome non portabile dentro l'archivio) | `FORMAT_ERROR` | `data_mapping` |
+| nomi che il filesystem confonde | `FORMAT_ERROR` | `data_mapping` |
+| voce assente, KMZ senza `.kml` alla radice | `SOURCE_NOT_FOUND` | `not_found` |
+| nome scelto dal chiamante non portabile, limite zero | `CLI_USAGE` | `invalid_configuration` |
+| archivio annidato (anche un KMZ dentro uno ZIP), cifrato, metodo diverso da stored e deflate | `UNSUPPORTED` | `unsupported` |
+| limite superato | `LIMIT_EXCEEDED`, `details.quota` = limite vincolante | `resource_limit` |
+
+**Una regola per i limiti.** `archive_max_entries` (`--archive-max-entries`,
+default 10 000), `archive_max_bytes` (`--archive-max-bytes`, 512 MiB dichiarati
+decompressi) e `archive_max_ratio` (`--archive-max-ratio`, 100, per voce e
+sull'archivio intero) valgono su tutte le voci, anche quelle non selezionate.
+Ognuno e' stretto dalla quota della pipeline corrispondente
+(`max_input_entries`, `max_input_bytes`, `decompression_ratio`): `archive-list`
+dichiara in `limits[]` il valore effettivo e chi lo impone (`bound_by`), e
+l'errore lo nomina in `details.quota`.
+
+**Le voci non vanno in RAM.** Un driver legge una voce da una vista privata
+nella directory di spill (`PLENORA_SPILL_DIR`), con quota di spill e pulizia
+RAII; i byte in memoria restano in memoria. Shapefile porta con la voce i
+companion della sua cartella; una voce directory (`x.shp.d/`, `x.gdb/`) porta il
+sottoalbero. KMZ legge il primo `.kml` alla radice in ordine di directory
+centrale e dichiara gli altri come perdita `kml.kmz_document_not_read`.
+
+Limiti dichiarati: solo metodi stored e deflate; un nome CP850 senza bit 11 si
+legge con i glifi CP437; dati anteposti senza offset corretti sono rifiutati;
+le dimensioni di `archive-list` sono dichiarate (`declared_*`), verificate solo
+alla lettura; una vista resta come `plenora-source-*` nella directory di spill
+dopo un `SIGKILL`. `archive-list` non e' un'operazione del catalogo comune: non
+compare in `capabilities.operations` ne' nel binding runtime.
 
 ## Limitazioni di prodotto
 
@@ -1670,6 +1731,12 @@ Il profilo base non abilita `gdal-backend`; il profilo `gdal-backend` abilita il
 | InvalidSpillDirectory | geoparquet | tutti | directory spill assente | invalid_configuration | validate | CLI_USAGE | 2 | PLENORA_SPILL_DIR non indica una directory utilizzabile |
 | InvalidSpillDirectory | ipc | tutti | directory spill assente | invalid_configuration | validate | CLI_USAGE | 2 | PLENORA_SPILL_DIR non indica una directory utilizzabile |
 | MissingWriteBackend | filegdb | base | build senza gdal-backend | unsupported | write | UNSUPPORTED | 3 | scrittura FileGDB non disponibile: compilare con --features gdal-backend |
+| InvalidArchive | csv | tutti | archivio troncato | data_mapping | read | FORMAT_ERROR | 3 | archivio ZIP non valido |
+| ArchiveEntryMissing | csv | tutti | voce assente | not_found | read | SOURCE_NOT_FOUND | 5 | voce dell'archivio non trovata |
+| NonPortableSourceName | csv | tutti | voce con .. | invalid_configuration | validate | CLI_USAGE | 2 | nome di sorgente o di voce non portabile |
+| NestedArchive | csv | tutti | zip dentro zip | unsupported | read | UNSUPPORTED | 3 | archivio annidato non supportato |
+| UnsupportedArchiveFeature | csv | tutti | metodo bzip2 | unsupported | read | UNSUPPORTED | 3 | ZIP cifrato o con metodo diverso da stored (0) e deflate (8) |
+| AmbiguousArchiveNames | csv | tutti | stesso nome con maiuscole diverse | data_mapping | read | FORMAT_ERROR | 3 | nomi dell'archivio che il filesystem confonde |
 
 <!-- generato da codice/errori: fine -->
 

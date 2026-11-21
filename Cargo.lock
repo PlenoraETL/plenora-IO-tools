@@ -478,7 +478,7 @@ dependencies = [
 
 [[package]]
 name = "driver-common"
-version = "10.0.0"
+version = "10.1.0"
 dependencies = [
  "arrow-array",
  "arrow-ipc",
@@ -496,7 +496,7 @@ dependencies = [
 
 [[package]]
 name = "driver-csv"
-version = "10.0.0"
+version = "10.1.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -510,7 +510,7 @@ dependencies = [
 
 [[package]]
 name = "driver-dxf"
-version = "10.0.0"
+version = "10.1.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -523,7 +523,7 @@ dependencies = [
 
 [[package]]
 name = "driver-filegdb"
-version = "10.0.0"
+version = "10.1.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -538,7 +538,7 @@ dependencies = [
 
 [[package]]
 name = "driver-geojson"
-version = "10.0.0"
+version = "10.1.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -554,12 +554,13 @@ dependencies = [
 
 [[package]]
 name = "driver-geoparquet"
-version = "10.0.0"
+version = "10.1.0"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
  "arrow-schema",
  "base64",
+ "bytes",
  "driver-common",
  "geo-types",
  "jsonschema",
@@ -572,7 +573,7 @@ dependencies = [
 
 [[package]]
 name = "driver-gpkg"
-version = "10.0.0"
+version = "10.1.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -588,7 +589,7 @@ dependencies = [
 
 [[package]]
 name = "driver-ipc"
-version = "10.0.0"
+version = "10.1.0"
 dependencies = [
  "arrow-array",
  "arrow-ipc",
@@ -603,7 +604,7 @@ dependencies = [
 
 [[package]]
 name = "driver-kml"
-version = "10.0.0"
+version = "10.1.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -618,7 +619,7 @@ dependencies = [
 
 [[package]]
 name = "driver-shp"
-version = "10.0.0"
+version = "10.1.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -634,7 +635,7 @@ dependencies = [
 
 [[package]]
 name = "driver-xls"
-version = "10.0.0"
+version = "10.1.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -1395,7 +1396,7 @@ checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
 name = "plenora-bench"
-version = "10.0.0"
+version = "10.1.0"
 dependencies = [
  "arrow-array",
  "arrow-ipc",
@@ -1485,7 +1486,7 @@ dependencies = [
 
 [[package]]
 name = "plenora-fuzz"
-version = "10.0.0"
+version = "10.1.0"
 dependencies = [
  "driver-common",
  "driver-geojson",
@@ -1499,12 +1500,14 @@ dependencies = [
 
 [[package]]
 name = "plenora-io-core"
-version = "10.0.0"
+version = "10.1.0"
 dependencies = [
  "arrow-array",
  "arrow-ipc",
  "arrow-schema",
  "atomicwrites",
+ "crc32fast",
+ "flate2",
  "plenora-io-model",
  "rustix 1.1.6",
  "serde",
@@ -1514,7 +1517,7 @@ dependencies = [
 
 [[package]]
 name = "plenora-io-model"
-version = "10.0.0"
+version = "10.1.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -1525,7 +1528,7 @@ dependencies = [
 
 [[package]]
 name = "plenora-io-py"
-version = "10.0.0"
+version = "10.1.0"
 dependencies = [
  "plenora-io-model",
  "plenora-io-tools",
@@ -1534,7 +1537,7 @@ dependencies = [
 
 [[package]]
 name = "plenora-io-tools"
-version = "10.0.0"
+version = "10.1.0"
 dependencies = [
  "arrow-array",
  "arrow-ipc",

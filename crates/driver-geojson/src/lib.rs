@@ -10,6 +10,7 @@
 //! direttamente a WKB, attributi in builder tipizzati (niente intermedio
 //! `serde_json::Value` per colonna). La scrittura resta bufferizzante nella v1.
 #![forbid(unsafe_code)]
+use plenora_io_core::{SourceData, SourceReader};
 
 use plenora_io_model::diagnostics::DiagnosticCause;
 pub(crate) mod geometry;
@@ -24,7 +25,7 @@ pub(crate) mod crs_storico;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
-use std::path::{Path, PathBuf};
+
 use std::sync::Arc;
 
 use arrow_array::builder::BinaryBuilder;
@@ -158,7 +159,7 @@ impl FormatDriver for GeoJsonDriver {
     }
 
     fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = driver_common::structure::preflight(self.descriptor(), source, &mut opts)?;
+        let path = driver_common::structure::preflight_data(self.descriptor(), source, &mut opts)?;
         // Pass 1: inferenza schema in streaming (RAM O(1)).
         let quote = QuoteInferenza::from_read_options(&opts);
         let (schema, cols, tipi, loss) = infer_schema(&path, quote)?;
@@ -286,7 +287,7 @@ impl FormatDriver for GeoJsonDriver {
 // --- lettura streaming -----------------------------------------------------
 
 struct GeoJsonDataset {
-    path: PathBuf,
+    path: SourceData,
     /// Le quote configurate, portate dal dataset: senza, la lettura tornerebbe
     /// al default proprio dopo che l'inferenza ha rispettato il flag.
     quote: QuoteInferenza,
@@ -389,8 +390,8 @@ type SchemaInferito = (
     LossReport,
 );
 
-fn infer_schema(path: &Path, quote: QuoteInferenza) -> Result<SchemaInferito> {
-    let file = File::open(path)?;
+fn infer_schema(path: &SourceData, quote: QuoteInferenza) -> Result<SchemaInferito> {
+    let file = path.open()?;
     let mut accs = SchemaAccumulators {
         row_limit: quote.row_limit,
         max_feature: quote.feature,
@@ -1030,7 +1031,7 @@ impl Visitor<'_> for SchemaKeyVisitor<'_> {
 /// consentirebbe di accoppiare il file di un dataset con il tetto di un altro,
 /// ed e' anche cio' che tiene la lista dei parametri sotto il tetto di clippy.
 fn spawn_parser(
-    sorgente: (PathBuf, QuoteInferenza),
+    sorgente: (SourceData, QuoteInferenza),
     schema: SchemaRef,
     cols: Vec<(String, ColType)>,
     property_names: Vec<String>,
@@ -1040,7 +1041,7 @@ fn spawn_parser(
 ) -> Result<Box<dyn LayerReader>> {
     let (path, quote) = sorgente;
     spawn_batch_reader(DESCRIPTOR.id(), layer, 2, move |emitter: BatchEmitter| {
-        let file = File::open(&path)?;
+        let file = path.open()?;
         let ncols = cols.len();
         let col_idx: HashMap<String, usize> = cols
             .iter()
@@ -2034,7 +2035,7 @@ fn parse_features(text: &str) -> Result<Vec<geojson::Feature>> {
 mod tests;
 
 /// Salta soltanto il BOM UTF-8, prima di entrambe le passate streaming.
-fn json_input(file: File) -> Result<BufReader<File>> {
+fn json_input(file: SourceReader) -> Result<BufReader<SourceReader>> {
     let mut reader = BufReader::new(file);
     if reader.fill_buf()?.starts_with(&[0xef, 0xbb, 0xbf]) {
         reader.consume(3);

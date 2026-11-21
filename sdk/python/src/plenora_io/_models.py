@@ -747,6 +747,86 @@ class LayerSummary:
         )
 
 
+# --- archive-list ------------------------------------------------------------
+
+
+@dataclass(frozen=True, kw_only=True)
+class VoceArchivio:
+    """Una voce della directory centrale di uno ZIP.
+
+    Le dimensioni sono **dichiarate** dall'archivio, e il nome dei campi lo
+    dice: CRC e lunghezza reale si verificano solo leggendo la voce.
+    """
+
+    name: str
+    declared_compressed_bytes: int
+    declared_uncompressed_bytes: int
+    directory: bool
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    _OBBLIGATORI = (
+        "name", "declared_compressed_bytes", "declared_uncompressed_bytes", "directory",
+    )
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "VoceArchivio":
+        documento = _pretendi(
+            documento, _schema(cls)._OBBLIGATORI, "archive-list.entries[]", cls)
+        return cls(
+            **{campo: documento[campo] for campo in _schema(cls)._OBBLIGATORI},
+            raw=dict(documento),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class LimiteArchivio:
+    """Un limite effettivo dell'elenco e chi lo impone: il limite d'archivio
+    o la quota della pipeline che lo stringe (`bound_by`)."""
+
+    quota: str
+    limit: int
+    bound_by: str
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    _OBBLIGATORI = ("quota", "limit", "bound_by")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "LimiteArchivio":
+        documento = _pretendi(
+            documento, _schema(cls)._OBBLIGATORI, "archive-list.limits[]", cls)
+        return cls(
+            **{campo: documento[campo] for campo in _schema(cls)._OBBLIGATORI},
+            raw=dict(documento),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class ElencoArchivio:
+    """La busta di `plenora-io archive-list` (`plenora-io-archive-list-v1`)."""
+
+    entries: list[VoceArchivio]
+    limits: list[LimiteArchivio]
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    _OBBLIGATORI = ("entries", "limits")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "ElencoArchivio":
+        documento = _pretendi(documento, _schema(cls)._OBBLIGATORI, "archive-list", cls)
+        for chiave in _schema(cls)._OBBLIGATORI:
+            if _tipo(documento[chiave]) != "array":
+                raise _dallo_sdk(
+                    ProtocolError, "protocollo.non_elenco",
+                    dove=f"archive-list.{chiave}",
+                    tipo=_tipo(documento[chiave]),
+                )
+        return cls(
+            entries=[VoceArchivio.from_json(voce) for voce in documento["entries"]],
+            limits=[LimiteArchivio.from_json(voce) for voce in documento["limits"]],
+            raw=dict(documento),
+        )
+
+
 # --- le due buste di questo ciclo -------------------------------------------
 
 

@@ -613,7 +613,9 @@ def product_blocks(binary):
         names = re.findall(r'"(--[\w-]+)"', arm[1])
         expression = arm[2]
         for cmd in flags:
-            if expression == "true" or f'"{cmd}"' in expression:
+            # `command != "x"`: tutti i comandi documentati tranne `x`.
+            escluso = re.fullmatch(r'command != "([\w-]+)"', expression)
+            if expression == "true" or f'"{cmd}"' in expression or (escluso and escluso[1] != cmd):
                 flags[cmd].extend(names)
     declared_flags = set(re.search(r'const OPZIONI_AMMESSE: &str = "([^"]+)"', source)[1].split(", "))
     if set(flag for names in flags.values() for flag in names) != declared_flags:

@@ -27,7 +27,7 @@
 
 use std::path::PathBuf;
 
-use plenora_io_tools::operazioni::{self, Esito, Richiesta};
+use plenora_io_tools::operazioni::{self, Esito, LimitiArchivio, QuotaArchivio, Richiesta};
 use plenora_io_tools::runtime::{
     capacita, BindingRuntime, CancellationToken, Carico, Invocazione, RifiutoArtefatto,
     RisolutoreArtefatti,
@@ -106,6 +106,29 @@ fn main() {
     ] {
         verifica_gli_assi(nome, &esito);
     }
+
+    // Le sorgenti senza percorso: byte in memoria e voce d'archivio, con
+    // limiti validati. I byte non sono uno ZIP: l'errore resta un documento.
+    let limiti = LimitiArchivio::nuovi(10, 1 << 20, 10)
+        .and_then(|l| l.con(QuotaArchivio::Rapporto, 20))
+        .expect("limiti positivi");
+    assert!(LimitiArchivio::default().con(QuotaArchivio::Voci, 0).is_err());
+    verifica_gli_assi(
+        "archive-list",
+        &operazioni::elenca_archivio(
+            Richiesta::sulla_sorgente("archivio.zip")
+                .con_byte_sorgente(b"non uno zip".to_vec())
+                .con_limiti_archivio(limiti),
+        ),
+    );
+    verifica_gli_assi(
+        "io.read da voce",
+        &operazioni::read(
+            Richiesta::sulla_sorgente("archivio.zip")
+                .con_byte_sorgente(b"non uno zip".to_vec())
+                .con_voce_archivio("dati.geojson"),
+        ),
+    );
 
     // La superficie runtime: il documento capability e un'invocazione che
     // l'applicazione rifiuta di risolvere. L'errore arriva come risultato,

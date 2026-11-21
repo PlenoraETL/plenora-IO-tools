@@ -276,10 +276,10 @@ pub fn valida_flusso_ipc(driver: &'static str, percorso: &Path) -> Result<()> {
 #[allow(clippy::too_many_lines)] // Framing, schema and block bounds share one streaming cursor.
 pub fn valida_flusso_ipc_prefix(
     driver: &'static str,
-    percorso: &Path,
+    percorso: impl Into<plenora_io_core::SourceData>,
     row_limit: Option<u64>,
 ) -> Result<()> {
-    let mut file = std::fs::File::open(percorso)?;
+    let mut file = percorso.into().open()?;
     let dimensione = file.seek(SeekFrom::End(0))?;
     file.seek(SeekFrom::Start(0))?;
 
@@ -428,10 +428,10 @@ pub fn valida_file_ipc(driver: &'static str, percorso: &Path) -> Result<()> {
 /// Invalid container, schema or required block.
 pub fn valida_file_ipc_prefix(
     driver: &'static str,
-    percorso: &Path,
+    percorso: impl Into<plenora_io_core::SourceData>,
     row_limit: Option<u64>,
 ) -> Result<()> {
-    let mut file = std::fs::File::open(percorso)?;
+    let mut file = percorso.into().open()?;
     let dimensione = file.seek(SeekFrom::End(0))?;
 
     // Contenitore: `ARROW1` in testa, `ARROW1` piu' la lunghezza del footer in
@@ -510,7 +510,7 @@ pub fn valida_file_ipc_prefix(
 fn valida_blocco(
     driver: &'static str,
     schema: FbSchema<'_>,
-    file: &mut std::fs::File,
+    file: &mut plenora_io_core::SourceReader,
     dimensione: u64,
     offset: i64,
     lunghezza_metadati: i32,
@@ -782,7 +782,7 @@ impl Layout {
 
 /// Accesso puntuale al corpo, senza allocarlo o decodificarlo.
 struct Corpo<'a> {
-    file: &'a mut std::fs::File,
+    file: &'a mut plenora_io_core::SourceReader,
     inizio: u64,
 }
 

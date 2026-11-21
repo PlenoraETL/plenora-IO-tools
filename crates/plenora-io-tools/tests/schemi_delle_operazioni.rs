@@ -248,6 +248,15 @@ fn ogni_busta_reale_valida_contro_lo_schema_della_sua_operazione() {
                 "geojson".to_owned(),
             ],
         ),
+        // Il comando locale `archive-list`: non e' del catalogo, ma il suo
+        // contratto e' nostro e si prova allo stesso modo.
+        (
+            "plenora-io-archive-list-v1",
+            vec![
+                "archive-list".to_owned(),
+                archivio_di_prova(dove).display().to_string(),
+            ],
+        ),
     ];
 
     let mut coperti = std::collections::BTreeSet::new();
@@ -286,9 +295,22 @@ fn ogni_busta_reale_valida_contro_lo_schema_della_sua_operazione() {
 
     assert_eq!(
         coperti.len(),
-        6,
-        "le sei uscite del catalogo sono coperte tutte: {coperti:?}"
+        7,
+        "le sei uscite del catalogo e archive-list sono coperte tutte: {coperti:?}"
     );
+}
+
+/// Uno ZIP con una cartella e un file, per `archive-list`.
+fn archivio_di_prova(dove: &Path) -> PathBuf {
+    use std::io::Write as _;
+    let percorso = dove.join("archivio.zip");
+    let mut zip = zip::ZipWriter::new(std::fs::File::create(&percorso).unwrap());
+    let opzioni = zip::write::SimpleFileOptions::default();
+    zip.add_directory("dati/", opzioni).unwrap();
+    zip.start_file("dati/a.csv", opzioni).unwrap();
+    zip.write_all(b"x,y\n1,2\n").unwrap();
+    zip.finish().unwrap();
+    percorso
 }
 
 /// IO-SER-001: i risultati stream validano contro v2; gli schemi v1 restano congelati.

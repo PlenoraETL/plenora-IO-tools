@@ -1,6 +1,7 @@
 //! Oracoli lessicali indipendenti e dominio dei tipi del writer CSV.
 use super::*;
 use arrow_schema::{DataType, IntervalUnit, TimeUnit, UnionFields, UnionMode};
+use std::path::Path;
 
 fn write_attribute(path: &Path, column: ArrayRef) -> Result<Published> {
     let schema = Arc::new(Schema::new(vec![Field::new(
@@ -461,8 +462,14 @@ fn tutta_la_colonna_deve_essere_lessicalmente_esatta() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("column.csv");
         std::fs::write(&path, format!("value\n{rows}")).unwrap();
-        let inferred =
-            infer_types(&path, b',', &["value".into()], &HashSet::new(), quote(100)).unwrap();
+        let inferred = infer_types(
+            &SourceData::from(&path),
+            b',',
+            &["value".into()],
+            &HashSet::new(),
+            quote(100),
+        )
+        .unwrap();
         assert_eq!(inferred, vec![(0, expected)], "{rows}");
     }
 }

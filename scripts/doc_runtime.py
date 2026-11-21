@@ -52,8 +52,48 @@ def cases(tables):
     add('InvalidQuota', FORMATS, 'max_rows zero', 'max_rows deve essere un intero positivo e coerente con le altre quote')
     add('InvalidSpillDirectory', [d for d in FORMATS if d != 'filegdb'], 'directory spill assente')
     add('MissingWriteBackend', ['filegdb'], 'build senza gdal-backend')
+    # Le situazioni dell'archivio ZIP, con una voce CSV (L-IO1).
+    add('InvalidArchive', ['csv'], 'archivio troncato')
+    add('ArchiveEntryMissing', ['csv'], 'voce assente')
+    add('NonPortableSourceName', ['csv'], 'voce con ..')
+    add('NestedArchive', ['csv'], 'zip dentro zip')
+    add('UnsupportedArchiveFeature', ['csv'], 'metodo bzip2')
+    add('AmbiguousArchiveNames', ['csv'], 'stesso nome con maiuscole diverse')
     assert set(rules) == {r['situation'] for r in result}
     return result
+
+
+ARCHIVE_CASES = ('InvalidArchive', 'ArchiveEntryMissing', 'NonPortableSourceName',
+                 'NestedArchive', 'UnsupportedArchiveFeature', 'AmbiguousArchiveNames')
+
+
+def archive_case(work, situation, index):
+    """Uno zip costruito dalla libreria standard per ogni situazione dell'archivio."""
+    import zipfile
+    path = work / f'archive-{index}.zip'
+    csv = b'wkt,value\nPOINT(1 2),1\n'
+    entry = 'dati.csv'
+    if situation == 'InvalidArchive':
+        path.write_bytes(b'PK\x03\x04 troncato')
+    elif situation == 'UnsupportedArchiveFeature':
+        with zipfile.ZipFile(path, 'w', compression=zipfile.ZIP_BZIP2) as z:
+            z.writestr(entry, csv)
+    elif situation == 'NestedArchive':
+        inner = work / f'inner-{index}.zip'
+        with zipfile.ZipFile(inner, 'w') as z:
+            z.writestr(entry, csv)
+        with zipfile.ZipFile(path, 'w') as z:
+            z.write(inner, 'interno.zip')
+        entry = 'interno.zip'
+    elif situation == 'AmbiguousArchiveNames':
+        with zipfile.ZipFile(path, 'w') as z:
+            z.writestr('Dati.csv', csv)
+            z.writestr('dati.csv', csv)
+    else:
+        with zipfile.ZipFile(path, 'w') as z:
+            z.writestr(entry, csv)
+        entry = {'ArchiveEntryMissing': 'assente.csv', 'NonPortableSourceName': '../dati.csv'}.get(situation, entry)
+    return ['read', path, '--archive-entry', entry, '--opt', 'wkt_column=wkt', '--assume-crs', 'EPSG:4326']
 
 
 def active_cases(tables, catalog):
@@ -165,6 +205,8 @@ def verify(binary, tables):
                 args += ['--max-rows', '0']
             elif situation == 'InvalidSpillDirectory':
                 env['PLENORA_SPILL_DIR'] = str(work / 'absent-spill')
+            elif situation in ARCHIVE_CASES:
+                args = archive_case(work, situation, i)
             code, observed = run(binary, args, env)
             actual = observed.get('error', {})
             for key in ('category', 'phase', 'code', 'message'):

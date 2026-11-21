@@ -28,6 +28,12 @@ use crate::{usage_err, FORMATO_JSON, OPZIONI_AMMESSE};
 
 #[derive(Default)]
 pub struct Cli {
+    /// I byte della sorgente: da stdin con `--source-stdin`, o dalla
+    /// `Richiesta` Rust. Il primo posizionale ne e' il nome logico.
+    pub(crate) source_bytes: Option<std::sync::Arc<[u8]>>,
+    /// La voce dell'archivio ZIP nominato dal primo posizionale.
+    pub(crate) archive_entry: Option<String>,
+    pub(crate) archive_limits: plenora_io_core::LimitiArchivio,
     pub(crate) flags: std::collections::BTreeSet<String>,
     pub(crate) positionals: Vec<String>,
     /// Dove `read` consegna il dataset Arrow.
@@ -164,6 +170,41 @@ fn limite_da_flag<'a>(
     Ok(Some(aggiornati))
 }
 
+/// I flag della sorgente: `--source-stdin`, `--archive-entry` e i limiti
+/// d'archivio della tabella `archivio::REGOLE`. `true` se `flag` e' uno di loro.
+fn sorgente_da_flag(
+    flag: &str,
+    cli: &mut Cli,
+    it: &mut std::slice::Iter<'_, String>,
+) -> Result<bool, (i32, Value)> {
+    // `--source-stdin` e' un flag: i byte li legge `esegui` dopo la
+    // validazione del comando, mai il parser.
+    if flag == "--source-stdin" {
+        return Ok(true);
+    }
+    if flag == "--archive-entry" {
+        let voce = it.next().ok_or_else(|| {
+            usage_err(&PublicMessage::Curated("--archive-entry richiede la voce"))
+        })?;
+        cli.archive_entry = Some(voce.clone());
+        return Ok(true);
+    }
+    let Some(regola) = plenora_io_core::archivio::REGOLE
+        .iter()
+        .find(|r| r.flag_cli == flag)
+    else {
+        return Ok(false);
+    };
+    let value = parse_u64(it.next(), regola.flag_cli)?;
+    cli.archive_limits = cli.archive_limits.con(regola.quota, value).map_err(|_| {
+        usage_err(&PublicMessage::CuratedPair(
+            regola.nome,
+            "deve essere un intero positivo",
+        ))
+    })?;
+    Ok(true)
+}
+
 /// Legge gli argomenti in una `Cli`.
 ///
 /// # Errors
@@ -186,6 +227,9 @@ pub fn parse(args: &[String]) -> Result<Cli, (i32, Value)> {
         // aggiungere niente a chi la legge.
         if let Some(aggiornati) = limite_da_flag(a.as_str(), cli.limits, &mut it)? {
             cli.limits = aggiornati;
+            continue;
+        }
+        if sorgente_da_flag(a.as_str(), &mut cli, &mut it)? {
             continue;
         }
         match a.as_str() {
@@ -302,10 +346,14 @@ pub fn validate_command(command: &str, cli: &Cli) -> Result<(), (i32, Value)> {
     }
     for flag in &cli.flags {
         let allowed = match flag.as_str() {
-            "--format"
-            | "--opt"
-            | "--in-opt"
-            | "--assume-crs"
+            // La voce e' di una lettura (elencarne una vorrebbe dire aprire un
+            // archivio annidato), e CRS e opzioni sono dei driver.
+            "--archive-entry" | "--opt" | "--in-opt" | "--assume-crs" => command != "archive-list",
+            "--source-stdin"
+            | "--archive-max-entries"
+            | "--archive-max-bytes"
+            | "--archive-max-ratio"
+            | "--format"
             | "--deadline-ms"
             | "--max-input-bytes"
             | "--max-input-entries"

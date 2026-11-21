@@ -1228,6 +1228,7 @@ fn concurrency_budget_is_acquired_before_reader_creation() {
     };
     let opens = Arc::new(AtomicUsize::new(0));
     let dataset = BudgetedDataset {
+        vista: None,
         dataset: Box::new(CountingDataset {
             layers: vec![validating_contract()],
             opens: opens.clone(),
