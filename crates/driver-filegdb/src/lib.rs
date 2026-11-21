@@ -575,6 +575,7 @@ mod backend {
     use plenora_io_core::publish::publish_dir_atomic;
     use plenora_io_core::{SingleReaderGate, WriteLayer, WritePlan};
 
+    #[path = "../attribute_metadata.rs"]
     mod attribute_metadata;
 
     const OGR_FIELD_TYPE_KEY: &str = "plenora.filegdb.ogr_field_type";
@@ -2142,7 +2143,13 @@ mod backend {
         let mut time_in_utc = None;
         let mut field_order = Vec::new();
         let mut aliases = std::collections::BTreeMap::new();
-        let domains = attribute_metadata::domains(ds)?;
+        let (domains, untransported) = attribute_metadata::domains(ds)?;
+        plenora_io_core::loss_table::observe_attribute_loss(
+            &mut report,
+            NativeElement::Domains,
+            untransported,
+            layer,
+        );
         let mut schema_metadata = HashMap::new();
         if !domains.is_empty() {
             schema_metadata.insert(

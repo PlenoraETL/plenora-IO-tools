@@ -45,13 +45,15 @@ def generate(destination: Path, *, empty: bool = False) -> None:
                                   Coded(b"2", "Chiuso 水".encode()), Coded(None, None))
             coded = bind("OGR_CodedFldDomain_Create", pointer, C.c_char_p, C.c_char_p,
                          C.c_int, C.c_int, C.POINTER(Coded))(
-                             coded_name.encode(), b"", 0, 0, entries)
+                             coded_name.encode(), "Stato è".encode(), 0, 0, entries)
+            bind("OGR_FldDomain_SetSplitPolicy", None, pointer, C.c_int)(coded, 1)
             minimum, maximum = Scalar(), Scalar()
             minimum.real, maximum.real = -12.5, 105.25
             interval = bind("OGR_RangeFldDomain_Create", pointer, C.c_char_p, C.c_char_p,
                             C.c_int, C.c_int, pointer, C.c_bool, pointer, C.c_bool)(
                                 range_name.encode(), b"", 2, 0, C.byref(minimum), True,
                                 C.byref(maximum), True)
+            bind("OGR_FldDomain_SetMergePolicy", None, pointer, C.c_int)(interval, 1)
             for domain in [coded, interval]:
                 reason = C.c_char_p()
                 assert bind("GDALDatasetAddFieldDomain", C.c_bool, pointer, pointer,

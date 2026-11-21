@@ -3,7 +3,9 @@
 #[cfg(feature = "gdal-backend")]
 fn domains_subtypes_aliases_cross_public_borders() {
     use plenora_io_core::{FormatDriver, ReadOptions, Source};
-    use plenora_io_model::domains::{Code, CodeType, Domain};
+    use plenora_io_model::domains::{
+        Code, CodeType, Domain, DomainAttributes, MergePolicy, SplitPolicy,
+    };
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("metadata.gdb");
@@ -32,7 +34,7 @@ fn domains_subtypes_aliases_cross_public_borders() {
     let domains = dataset.domini().unwrap();
     assert_eq!(domains.len(), 2);
     assert!(
-        matches!(&domains["stato_è"], Domain::Coded { code_type: CodeType::Int32, values } if values.len() == 2 && values[0].code == Code::Int32(1) && values[1].description.as_deref() == Some("Chiuso 水"))
+        matches!(&domains["stato_è"], Domain::Coded { code_type: CodeType::Int32, values, attributes } if attributes.description.as_deref() == Some("Stato è") && attributes.split_policy == SplitPolicy::Duplicate && values.len() == 2 && values[0].code == Code::Int32(1) && values[1].description.as_deref() == Some("Chiuso 水"))
     );
     assert_eq!(
         domains["intervallo_量"],
@@ -40,7 +42,11 @@ fn domains_subtypes_aliases_cross_public_borders() {
             min: Code::Float64(-12.5),
             max: Code::Float64(105.25),
             min_inclusive: true,
-            max_inclusive: true
+            max_inclusive: true,
+            attributes: DomainAttributes {
+                merge_policy: MergePolicy::Sum,
+                ..DomainAttributes::default()
+            }
         }
     );
     drop(dataset);

@@ -69,13 +69,82 @@ pub enum Domain {
     Coded {
         code_type: CodeType,
         values: Vec<CodedValue>,
+        #[serde(default, skip_serializing_if = "DomainAttributes::is_default")]
+        attributes: DomainAttributes,
     },
     Range {
         min: Code,
         max: Code,
         min_inclusive: bool,
         max_inclusive: bool,
+        #[serde(default, skip_serializing_if = "DomainAttributes::is_default")]
+        attributes: DomainAttributes,
     },
+}
+
+impl Domain {
+    #[must_use]
+    pub const fn attributes(&self) -> &DomainAttributes {
+        match self {
+            Self::Coded { attributes, .. } | Self::Range { attributes, .. } => attributes,
+        }
+    }
+}
+
+/// What a split of the feature does to the field value (GDAL `OGRFieldDomainSplitPolicy`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SplitPolicy {
+    #[default]
+    DefaultValue,
+    Duplicate,
+    GeometryRatio,
+}
+
+/// What a merge of features does to the field value (GDAL `OGRFieldDomainMergePolicy`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MergePolicy {
+    #[default]
+    DefaultValue,
+    Sum,
+    GeometryWeighted,
+}
+
+/// The narrower native field type of the domain (GDAL `OGRFieldSubType`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FieldSubtype {
+    Boolean,
+    Int16,
+    Float32,
+    Json,
+    Uuid,
+}
+
+/// Native attributes shared by every domain kind; the defaults are not serialized.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DomainAttributes {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub field_subtype: Option<FieldSubtype>,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub split_policy: SplitPolicy,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub merge_policy: MergePolicy,
+}
+
+fn is_default<T: Default + PartialEq>(value: &T) -> bool {
+    *value == T::default()
+}
+
+impl DomainAttributes {
+    #[must_use]
+    pub fn is_default(&self) -> bool {
+        is_default(self)
+    }
 }
 
 pub type Domains = BTreeMap<String, Domain>;
@@ -113,8 +182,18 @@ pub fn validate_domains(domains: &Domains) -> Result<()> {
         if !name(key) {
             return Err(invalid());
         }
+        if domain
+            .attributes()
+            .description
+            .as_ref()
+            .is_some_and(|value| !name(value))
+        {
+            return Err(invalid());
+        }
         match domain {
-            Domain::Coded { code_type, values } => {
+            Domain::Coded {
+                code_type, values, ..
+            } => {
                 let mut codes = BTreeSet::new();
                 for value in values {
                     if !value.code.valid()

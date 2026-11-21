@@ -132,7 +132,14 @@ pub mod domains {
     #[derive(Clone, Debug)]
     pub struct FieldDomain {
         pub name: String,
+        pub description: Option<String>,
         pub field_type: u32,
+        /// `OGRFieldSubType`.
+        pub field_subtype: u32,
+        /// `OGRFieldDomainSplitPolicy`.
+        pub split_policy: u32,
+        /// `OGRFieldDomainMergePolicy`.
+        pub merge_policy: u32,
         pub values: FieldDomainValues,
     }
 
@@ -144,7 +151,7 @@ pub mod domains {
         /// Adds a copied domain. The caller retains ownership of the Rust snapshot.
         pub fn add_field_domain(&mut self, domain: &FieldDomain) -> Result<bool> {
             let name = CString::new(domain.name.as_str())?;
-            let description = CString::new("")?;
+            let description = CString::new(domain.description.as_deref().unwrap_or(""))?;
             let handle = match &domain.values {
                 FieldDomainValues::Coded(values) => {
                     let strings: Vec<_> = values
@@ -177,7 +184,7 @@ pub mod domains {
                             name.as_ptr(),
                             description.as_ptr(),
                             domain.field_type,
-                            0,
+                            domain.field_subtype,
                             entries.as_ptr(),
                         )
                     }
@@ -209,7 +216,7 @@ pub mod domains {
                             name.as_ptr(),
                             description.as_ptr(),
                             domain.field_type,
-                            0,
+                            domain.field_subtype,
                             &min,
                             *min_inclusive,
                             &max,
@@ -221,6 +228,10 @@ pub mod domains {
             };
             if handle.is_null() {
                 return Err(invalid());
+            }
+            unsafe {
+                gdal_sys::OGR_FldDomain_SetSplitPolicy(handle, domain.split_policy);
+                gdal_sys::OGR_FldDomain_SetMergePolicy(handle, domain.merge_policy);
             }
             let mut reason = std::ptr::null_mut();
             let result = unsafe {
@@ -253,6 +264,11 @@ pub mod domains {
                         return Err(invalid());
                     }
                     let field_type = unsafe { gdal_sys::OGR_FldDomain_GetFieldType(handle) };
+                    let field_subtype = unsafe { gdal_sys::OGR_FldDomain_GetFieldSubType(handle) };
+                    let split_policy = unsafe { gdal_sys::OGR_FldDomain_GetSplitPolicy(handle) };
+                    let merge_policy = unsafe { gdal_sys::OGR_FldDomain_GetMergePolicy(handle) };
+                    let description = _string(unsafe { gdal_sys::OGR_FldDomain_GetDescription(handle) })
+                        .filter(|value| !value.is_empty());
                     let kind = unsafe { gdal_sys::OGR_FldDomain_GetDomainType(handle) };
                     let values = match kind {
                         gdal_sys::OGRFieldDomainType::OFDT_CODED => {
@@ -321,7 +337,11 @@ pub mod domains {
                     };
                     Ok(FieldDomain {
                         name,
+                        description,
                         field_type,
+                        field_subtype,
+                        split_policy,
+                        merge_policy,
                         values,
                     })
                 })

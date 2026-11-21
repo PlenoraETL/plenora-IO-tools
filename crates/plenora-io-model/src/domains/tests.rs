@@ -11,6 +11,12 @@ fn typed_domains_round_trip_without_precision_loss() {
                     code: Code::Int64(i64::MAX),
                     description: Some("Città 水".into()),
                 }],
+                attributes: DomainAttributes {
+                    description: Some("Stato della città".into()),
+                    field_subtype: None,
+                    split_policy: SplitPolicy::Duplicate,
+                    merge_policy: MergePolicy::Sum,
+                },
             },
         ),
         (
@@ -20,6 +26,11 @@ fn typed_domains_round_trip_without_precision_loss() {
                 max: Code::Float64(105.25),
                 min_inclusive: true,
                 max_inclusive: false,
+                attributes: DomainAttributes {
+                    field_subtype: Some(FieldSubtype::Float32),
+                    merge_policy: MergePolicy::GeometryWeighted,
+                    ..DomainAttributes::default()
+                },
             },
         ),
         (
@@ -27,6 +38,7 @@ fn typed_domains_round_trip_without_precision_loss() {
             Domain::Coded {
                 code_type: CodeType::Int32,
                 values: vec![],
+                attributes: DomainAttributes::default(),
             },
         ),
     ]);
@@ -35,6 +47,21 @@ fn typed_domains_round_trip_without_precision_loss() {
         domains
     );
     assert!(decode_domains("{}").unwrap().is_empty());
+    // Default attributes are not serialized: the earlier shape still decodes.
+    let encoded = encode_domains(&domains).unwrap();
+    assert!(!encoded
+        .contains(r#""vuoto":{"kind":"coded","code_type":"int32","values":[],"attributes""#));
+}
+
+#[test]
+fn domain_attributes_are_validated() {
+    for input in [
+        r#"{"d":{"kind":"coded","code_type":"int32","values":[],"attributes":{"description":""}}}"#,
+        r#"{"d":{"kind":"coded","code_type":"int32","values":[],"attributes":{"split_policy":"other"}}}"#,
+        r#"{"d":{"kind":"coded","code_type":"int32","values":[],"attributes":{"unknown":1}}}"#,
+    ] {
+        assert!(decode_domains(input).is_err(), "{input}");
+    }
 }
 
 #[test]

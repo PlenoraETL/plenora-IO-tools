@@ -37,6 +37,7 @@ from __future__ import annotations
 import types
 import typing
 from dataclasses import dataclass, field, replace
+from collections.abc import Mapping
 from typing import Any
 
 from ._argomenti import testo
@@ -45,9 +46,9 @@ from ._errors import _dallo_sdk
 from ._contenitori import FrozenList
 
 
-def _arrow_metadata(raw: dict[str, Any]) -> dict[str, str]:
+def _arrow_metadata(raw: Mapping[str, Any]) -> dict[str, str]:
     value = raw.get("metadata", {})
-    if not isinstance(value, dict) or any(
+    if not isinstance(value, Mapping) or any(
         not isinstance(k, str) or not isinstance(v, str) for k, v in value.items()
     ):
         raise _dallo_sdk(ProtocolError, "layer.stato")
