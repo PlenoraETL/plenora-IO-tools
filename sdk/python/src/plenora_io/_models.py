@@ -43,16 +43,16 @@ from typing import Any
 from ._argomenti import testo
 from ._errors import InvalidArgumentError, ProtocolError, ResultLookupError, _copia_json, _tipo
 from ._errors import _dallo_sdk
-from ._contenitori import FrozenList
+from ._contenitori import FrozenDict, FrozenList
 
 
-def _arrow_metadata(raw: Mapping[str, Any]) -> dict[str, str]:
+def _arrow_metadata(raw: Mapping[str, Any]) -> FrozenDict:
     value = raw.get("metadata", {})
     if not isinstance(value, Mapping) or any(
         not isinstance(k, str) or not isinstance(v, str) for k, v in value.items()
     ):
         raise _dallo_sdk(ProtocolError, "layer.stato")
-    return dict(value)
+    return FrozenDict(dict(value))
 
 
 def _attribute_document(value: str, *, subtypes: bool = False) -> dict[str, Any]:
@@ -615,7 +615,7 @@ class Field:
         )
 
     @property
-    def metadata(self) -> dict[str, str]:
+    def metadata(self) -> FrozenDict:
         """Arrow field metadata, including the native alias and domain reference."""
         return _arrow_metadata(self.raw)
 
@@ -765,7 +765,7 @@ class Layer:
         return FrozenList([colonna for colonna in self.fields if not colonna.geometry])
 
     @property
-    def metadata(self) -> dict[str, str]:
+    def metadata(self) -> FrozenDict:
         """Arrow schema metadata, identical to the read stream."""
         return _arrow_metadata(self.raw)
 

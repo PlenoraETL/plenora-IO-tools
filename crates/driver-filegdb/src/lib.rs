@@ -2282,18 +2282,6 @@ mod backend {
         }
     }
 
-    #[cfg(test)]
-    fn observe_definition_xml(report: &mut LossReport, xml: &str, layer: u64) -> Result<()> {
-        observe_definition_xml_transported(
-            report,
-            xml,
-            layer,
-            &plenora_io_model::domains::Domains::new(),
-            &HashMap::new(),
-            false,
-        )
-    }
-
     fn observe_definition_xml_transported(
         report: &mut LossReport,
         xml: &str,

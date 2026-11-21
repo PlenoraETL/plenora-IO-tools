@@ -24,11 +24,16 @@ LIMITI_SORGENTE_SQL = {
 }
 
 
+# I metadati nativi del formato (regola Removed/Preserved della tabella delle
+# proprieta): una sorgente SQL non li ha, come `native_metadata`.
+METADATI_NATIVI = ['native_metadata', 'field_alias', 'field_domain', 'domains', 'subtypes', 'layer_alias']
+
+
 def limiti_sql(nome, properties):
     if nome not in LIMITI_SORGENTE_SQL:
         return {}
     reason = 'limite sorgente SQL: ' + LIMITI_SORGENTE_SQL[nome]
-    keys = list(properties) if nome == 'uint64_ordering' else ['axis_order', 'native_metadata']
+    keys = list(properties) if nome == 'uint64_ordering' else ['axis_order', *METADATI_NATIVI]
     if nome == 'conflicting_crs':
         keys += ['crs_id', 'crs_resolution', 'crs_definition', 'crs_definition_format']
     if nome == 'dimensions_unknown':

@@ -192,6 +192,71 @@
       },
       {
         "hop": "io.read",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.read",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.read",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.read",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.read",
+        "proprieta": "layer_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.read",
         "proprieta": "native_metadata",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
@@ -387,6 +452,71 @@
       },
       {
         "hop": "data.run",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "layer_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
         "proprieta": "native_metadata",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
@@ -582,6 +712,71 @@
       },
       {
         "hop": "database.write/read",
+        "proprieta": "field_alias",
+        "stato": "SALTATO",
+        "motivo": "rifiuto atteso verificato separatamente; conservazione non eseguita",
+        "assi": {
+          "category": "unsupported",
+          "phase": "validate",
+          "remote_effect": "none",
+          "retry": "never",
+          "code": null
+        }
+      },
+      {
+        "hop": "database.write/read",
+        "proprieta": "field_domain",
+        "stato": "SALTATO",
+        "motivo": "rifiuto atteso verificato separatamente; conservazione non eseguita",
+        "assi": {
+          "category": "unsupported",
+          "phase": "validate",
+          "remote_effect": "none",
+          "retry": "never",
+          "code": null
+        }
+      },
+      {
+        "hop": "database.write/read",
+        "proprieta": "domains",
+        "stato": "SALTATO",
+        "motivo": "rifiuto atteso verificato separatamente; conservazione non eseguita",
+        "assi": {
+          "category": "unsupported",
+          "phase": "validate",
+          "remote_effect": "none",
+          "retry": "never",
+          "code": null
+        }
+      },
+      {
+        "hop": "database.write/read",
+        "proprieta": "subtypes",
+        "stato": "SALTATO",
+        "motivo": "rifiuto atteso verificato separatamente; conservazione non eseguita",
+        "assi": {
+          "category": "unsupported",
+          "phase": "validate",
+          "remote_effect": "none",
+          "retry": "never",
+          "code": null
+        }
+      },
+      {
+        "hop": "database.write/read",
+        "proprieta": "layer_alias",
+        "stato": "SALTATO",
+        "motivo": "rifiuto atteso verificato separatamente; conservazione non eseguita",
+        "assi": {
+          "category": "unsupported",
+          "phase": "validate",
+          "remote_effect": "none",
+          "retry": "never",
+          "code": null
+        }
+      },
+      {
+        "hop": "database.write/read",
         "proprieta": "native_metadata",
         "stato": "SALTATO",
         "motivo": "rifiuto atteso verificato separatamente; conservazione non eseguita",
@@ -765,6 +960,71 @@
       {
         "hop": "io.write ipc",
         "proprieta": "axis_order",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "field_alias",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "field_domain",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "domains",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "subtypes",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "layer_alias",
         "stato": "SALTATO",
         "motivo": "hop non raggiunto: dipendenza fallita",
         "assi": {
@@ -1064,6 +1324,71 @@
       },
       {
         "hop": "database.read",
+        "proprieta": "field_alias",
+        "stato": "SALTATO",
+        "motivo": "limite sorgente SQL: PostgreSQL richiede assi east-first: lat_lon non registrabile senza trasformare le coordinate",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read",
+        "proprieta": "field_domain",
+        "stato": "SALTATO",
+        "motivo": "limite sorgente SQL: PostgreSQL richiede assi east-first: lat_lon non registrabile senza trasformare le coordinate",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read",
+        "proprieta": "domains",
+        "stato": "SALTATO",
+        "motivo": "limite sorgente SQL: PostgreSQL richiede assi east-first: lat_lon non registrabile senza trasformare le coordinate",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read",
+        "proprieta": "subtypes",
+        "stato": "SALTATO",
+        "motivo": "limite sorgente SQL: PostgreSQL richiede assi east-first: lat_lon non registrabile senza trasformare le coordinate",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read",
+        "proprieta": "layer_alias",
+        "stato": "SALTATO",
+        "motivo": "limite sorgente SQL: PostgreSQL richiede assi east-first: lat_lon non registrabile senza trasformare le coordinate",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read",
         "proprieta": "native_metadata",
         "stato": "SALTATO",
         "motivo": "limite sorgente SQL: PostgreSQL richiede assi east-first: lat_lon non registrabile senza trasformare le coordinate",
@@ -1259,6 +1584,71 @@
       },
       {
         "hop": "database.read stabile",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read stabile",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read stabile",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read stabile",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read stabile",
+        "proprieta": "layer_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read stabile",
         "proprieta": "native_metadata",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
@@ -1454,6 +1844,71 @@
       },
       {
         "hop": "data.run",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "layer_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
         "proprieta": "native_metadata",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
@@ -1637,6 +2092,71 @@
       {
         "hop": "io.write ipc",
         "proprieta": "axis_order",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "layer_alias",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
         "assi": {
@@ -1965,6 +2485,71 @@
       },
       {
         "hop": "io.read",
+        "proprieta": "field_alias",
+        "stato": "SALTATO",
+        "motivo": "rifiuto atteso verificato separatamente; conservazione non eseguita",
+        "assi": {
+          "category": "crs",
+          "phase": "validate",
+          "remote_effect": "none",
+          "retry": "never",
+          "code": "CRS_REQUIRED"
+        }
+      },
+      {
+        "hop": "io.read",
+        "proprieta": "field_domain",
+        "stato": "SALTATO",
+        "motivo": "rifiuto atteso verificato separatamente; conservazione non eseguita",
+        "assi": {
+          "category": "crs",
+          "phase": "validate",
+          "remote_effect": "none",
+          "retry": "never",
+          "code": "CRS_REQUIRED"
+        }
+      },
+      {
+        "hop": "io.read",
+        "proprieta": "domains",
+        "stato": "SALTATO",
+        "motivo": "rifiuto atteso verificato separatamente; conservazione non eseguita",
+        "assi": {
+          "category": "crs",
+          "phase": "validate",
+          "remote_effect": "none",
+          "retry": "never",
+          "code": "CRS_REQUIRED"
+        }
+      },
+      {
+        "hop": "io.read",
+        "proprieta": "subtypes",
+        "stato": "SALTATO",
+        "motivo": "rifiuto atteso verificato separatamente; conservazione non eseguita",
+        "assi": {
+          "category": "crs",
+          "phase": "validate",
+          "remote_effect": "none",
+          "retry": "never",
+          "code": "CRS_REQUIRED"
+        }
+      },
+      {
+        "hop": "io.read",
+        "proprieta": "layer_alias",
+        "stato": "SALTATO",
+        "motivo": "rifiuto atteso verificato separatamente; conservazione non eseguita",
+        "assi": {
+          "category": "crs",
+          "phase": "validate",
+          "remote_effect": "none",
+          "retry": "never",
+          "code": "CRS_REQUIRED"
+        }
+      },
+      {
+        "hop": "io.read",
         "proprieta": "native_metadata",
         "stato": "SALTATO",
         "motivo": "rifiuto atteso verificato separatamente; conservazione non eseguita",
@@ -2160,6 +2745,71 @@
       },
       {
         "hop": "data.run",
+        "proprieta": "field_alias",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "field_domain",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "domains",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "subtypes",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "layer_alias",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
         "proprieta": "native_metadata",
         "stato": "SALTATO",
         "motivo": "hop non raggiunto: dipendenza fallita",
@@ -2355,6 +3005,71 @@
       },
       {
         "hop": "database.write/read",
+        "proprieta": "field_alias",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.write/read",
+        "proprieta": "field_domain",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.write/read",
+        "proprieta": "domains",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.write/read",
+        "proprieta": "subtypes",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.write/read",
+        "proprieta": "layer_alias",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.write/read",
         "proprieta": "native_metadata",
         "stato": "SALTATO",
         "motivo": "hop non raggiunto: dipendenza fallita",
@@ -2538,6 +3253,71 @@
       {
         "hop": "io.write ipc",
         "proprieta": "axis_order",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "field_alias",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "field_domain",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "domains",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "subtypes",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "layer_alias",
         "stato": "SALTATO",
         "motivo": "hop non raggiunto: dipendenza fallita",
         "assi": {
@@ -2896,6 +3676,71 @@
       },
       {
         "hop": "database.read",
+        "proprieta": "field_alias",
+        "stato": "SALTATO",
+        "motivo": "limite sorgente SQL: GEO-005: dichiarazione CRS conflittuale non registrabile lecitamente",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read",
+        "proprieta": "field_domain",
+        "stato": "SALTATO",
+        "motivo": "limite sorgente SQL: GEO-005: dichiarazione CRS conflittuale non registrabile lecitamente",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read",
+        "proprieta": "domains",
+        "stato": "SALTATO",
+        "motivo": "limite sorgente SQL: GEO-005: dichiarazione CRS conflittuale non registrabile lecitamente",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read",
+        "proprieta": "subtypes",
+        "stato": "SALTATO",
+        "motivo": "limite sorgente SQL: GEO-005: dichiarazione CRS conflittuale non registrabile lecitamente",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read",
+        "proprieta": "layer_alias",
+        "stato": "SALTATO",
+        "motivo": "limite sorgente SQL: GEO-005: dichiarazione CRS conflittuale non registrabile lecitamente",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read",
         "proprieta": "native_metadata",
         "stato": "SALTATO",
         "motivo": "limite sorgente SQL: GEO-005: dichiarazione CRS conflittuale non registrabile lecitamente",
@@ -3091,6 +3936,71 @@
       },
       {
         "hop": "database.read stabile",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read stabile",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read stabile",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read stabile",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read stabile",
+        "proprieta": "layer_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read stabile",
         "proprieta": "native_metadata",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
@@ -3286,6 +4196,71 @@
       },
       {
         "hop": "data.run",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "layer_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
         "proprieta": "native_metadata",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
@@ -3469,6 +4444,71 @@
       {
         "hop": "io.write ipc",
         "proprieta": "axis_order",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "layer_alias",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
         "assi": {
@@ -3898,6 +4938,71 @@
       },
       {
         "hop": "io.read",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.read",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.read",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.read",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.read",
+        "proprieta": "layer_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.read",
         "proprieta": "native_metadata",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
@@ -4093,6 +5198,71 @@
       },
       {
         "hop": "data.run",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "layer_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
         "proprieta": "native_metadata",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
@@ -4288,6 +5458,71 @@
       },
       {
         "hop": "database.write/read",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.write/read",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.write/read",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.write/read",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.write/read",
+        "proprieta": "layer_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.write/read",
         "proprieta": "native_metadata",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
@@ -4471,6 +5706,71 @@
       {
         "hop": "io.write ipc",
         "proprieta": "axis_order",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "layer_alias",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
         "assi": {
@@ -4831,6 +6131,71 @@
       },
       {
         "hop": "database.read",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read",
+        "proprieta": "layer_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read",
         "proprieta": "native_metadata",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
@@ -5026,6 +6391,71 @@
       },
       {
         "hop": "database.read stabile",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read stabile",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read stabile",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read stabile",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read stabile",
+        "proprieta": "layer_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read stabile",
         "proprieta": "native_metadata",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
@@ -5221,6 +6651,71 @@
       },
       {
         "hop": "data.run",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "layer_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
         "proprieta": "native_metadata",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
@@ -5404,6 +6899,71 @@
       {
         "hop": "io.write ipc",
         "proprieta": "axis_order",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "layer_alias",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
         "assi": {
@@ -5758,6 +7318,71 @@
       },
       {
         "hop": "io.read",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.read",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.read",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.read",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.read",
+        "proprieta": "layer_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.read",
         "proprieta": "native_metadata",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
@@ -5953,6 +7578,71 @@
       },
       {
         "hop": "data.run",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "layer_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
         "proprieta": "native_metadata",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
@@ -6148,6 +7838,71 @@
       },
       {
         "hop": "database.write/read",
+        "proprieta": "field_alias",
+        "stato": "SALTATO",
+        "motivo": "rifiuto atteso verificato separatamente; conservazione non eseguita",
+        "assi": {
+          "category": "crs",
+          "phase": "validate",
+          "remote_effect": "none",
+          "retry": "never",
+          "code": null
+        }
+      },
+      {
+        "hop": "database.write/read",
+        "proprieta": "field_domain",
+        "stato": "SALTATO",
+        "motivo": "rifiuto atteso verificato separatamente; conservazione non eseguita",
+        "assi": {
+          "category": "crs",
+          "phase": "validate",
+          "remote_effect": "none",
+          "retry": "never",
+          "code": null
+        }
+      },
+      {
+        "hop": "database.write/read",
+        "proprieta": "domains",
+        "stato": "SALTATO",
+        "motivo": "rifiuto atteso verificato separatamente; conservazione non eseguita",
+        "assi": {
+          "category": "crs",
+          "phase": "validate",
+          "remote_effect": "none",
+          "retry": "never",
+          "code": null
+        }
+      },
+      {
+        "hop": "database.write/read",
+        "proprieta": "subtypes",
+        "stato": "SALTATO",
+        "motivo": "rifiuto atteso verificato separatamente; conservazione non eseguita",
+        "assi": {
+          "category": "crs",
+          "phase": "validate",
+          "remote_effect": "none",
+          "retry": "never",
+          "code": null
+        }
+      },
+      {
+        "hop": "database.write/read",
+        "proprieta": "layer_alias",
+        "stato": "SALTATO",
+        "motivo": "rifiuto atteso verificato separatamente; conservazione non eseguita",
+        "assi": {
+          "category": "crs",
+          "phase": "validate",
+          "remote_effect": "none",
+          "retry": "never",
+          "code": null
+        }
+      },
+      {
+        "hop": "database.write/read",
         "proprieta": "native_metadata",
         "stato": "SALTATO",
         "motivo": "rifiuto atteso verificato separatamente; conservazione non eseguita",
@@ -6331,6 +8086,71 @@
       {
         "hop": "io.write ipc",
         "proprieta": "axis_order",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "field_alias",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "field_domain",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "domains",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "subtypes",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "layer_alias",
         "stato": "SALTATO",
         "motivo": "hop non raggiunto: dipendenza fallita",
         "assi": {
@@ -6630,6 +8450,71 @@
       },
       {
         "hop": "database.read",
+        "proprieta": "field_alias",
+        "stato": "SALTATO",
+        "motivo": "rifiuto atteso verificato separatamente; conservazione non eseguita",
+        "assi": {
+          "category": "crs",
+          "phase": "read",
+          "remote_effect": "rolled_back",
+          "retry": "never",
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read",
+        "proprieta": "field_domain",
+        "stato": "SALTATO",
+        "motivo": "rifiuto atteso verificato separatamente; conservazione non eseguita",
+        "assi": {
+          "category": "crs",
+          "phase": "read",
+          "remote_effect": "rolled_back",
+          "retry": "never",
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read",
+        "proprieta": "domains",
+        "stato": "SALTATO",
+        "motivo": "rifiuto atteso verificato separatamente; conservazione non eseguita",
+        "assi": {
+          "category": "crs",
+          "phase": "read",
+          "remote_effect": "rolled_back",
+          "retry": "never",
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read",
+        "proprieta": "subtypes",
+        "stato": "SALTATO",
+        "motivo": "rifiuto atteso verificato separatamente; conservazione non eseguita",
+        "assi": {
+          "category": "crs",
+          "phase": "read",
+          "remote_effect": "rolled_back",
+          "retry": "never",
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read",
+        "proprieta": "layer_alias",
+        "stato": "SALTATO",
+        "motivo": "rifiuto atteso verificato separatamente; conservazione non eseguita",
+        "assi": {
+          "category": "crs",
+          "phase": "read",
+          "remote_effect": "rolled_back",
+          "retry": "never",
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read",
         "proprieta": "native_metadata",
         "stato": "SALTATO",
         "motivo": "rifiuto atteso verificato separatamente; conservazione non eseguita",
@@ -6825,6 +8710,71 @@
       },
       {
         "hop": "database.read stabile",
+        "proprieta": "field_alias",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read stabile",
+        "proprieta": "field_domain",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read stabile",
+        "proprieta": "domains",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read stabile",
+        "proprieta": "subtypes",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read stabile",
+        "proprieta": "layer_alias",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read stabile",
         "proprieta": "native_metadata",
         "stato": "SALTATO",
         "motivo": "hop non raggiunto: dipendenza fallita",
@@ -7020,6 +8970,71 @@
       },
       {
         "hop": "data.run",
+        "proprieta": "field_alias",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "field_domain",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "domains",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "subtypes",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "layer_alias",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
         "proprieta": "native_metadata",
         "stato": "SALTATO",
         "motivo": "hop non raggiunto: dipendenza fallita",
@@ -7203,6 +9218,71 @@
       {
         "hop": "io.write ipc",
         "proprieta": "axis_order",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "field_alias",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "field_domain",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "domains",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "subtypes",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "layer_alias",
         "stato": "SALTATO",
         "motivo": "hop non raggiunto: dipendenza fallita",
         "assi": {
@@ -7461,6 +9541,71 @@
       },
       {
         "hop": "io.read",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.read",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.read",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.read",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.read",
+        "proprieta": "layer_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.read",
         "proprieta": "native_metadata",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
@@ -7656,6 +9801,71 @@
       },
       {
         "hop": "data.run",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "layer_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
         "proprieta": "native_metadata",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
@@ -7851,6 +10061,71 @@
       },
       {
         "hop": "database.write/read",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.write/read",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.write/read",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.write/read",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.write/read",
+        "proprieta": "layer_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.write/read",
         "proprieta": "native_metadata",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
@@ -8034,6 +10309,71 @@
       {
         "hop": "io.write ipc",
         "proprieta": "axis_order",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "layer_alias",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
         "assi": {
@@ -8446,6 +10786,71 @@
       },
       {
         "hop": "database.read",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read",
+        "proprieta": "layer_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read",
         "proprieta": "native_metadata",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
@@ -8641,6 +11046,71 @@
       },
       {
         "hop": "database.read stabile",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read stabile",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read stabile",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read stabile",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read stabile",
+        "proprieta": "layer_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read stabile",
         "proprieta": "native_metadata",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
@@ -8836,6 +11306,71 @@
       },
       {
         "hop": "data.run",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "layer_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
         "proprieta": "native_metadata",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
@@ -9019,6 +11554,71 @@
       {
         "hop": "io.write ipc",
         "proprieta": "axis_order",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "layer_alias",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
         "assi": {
@@ -9425,6 +12025,71 @@
       },
       {
         "hop": "io.read",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.read",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.read",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.read",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.read",
+        "proprieta": "layer_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.read",
         "proprieta": "native_metadata",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
@@ -9620,6 +12285,71 @@
       },
       {
         "hop": "data.run",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "layer_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
         "proprieta": "native_metadata",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
@@ -9815,6 +12545,71 @@
       },
       {
         "hop": "database.write/read",
+        "proprieta": "field_alias",
+        "stato": "SALTATO",
+        "motivo": "rifiuto atteso verificato separatamente; conservazione non eseguita",
+        "assi": {
+          "category": "data_mapping",
+          "phase": "prepare",
+          "remote_effect": "none",
+          "retry": "never",
+          "code": null
+        }
+      },
+      {
+        "hop": "database.write/read",
+        "proprieta": "field_domain",
+        "stato": "SALTATO",
+        "motivo": "rifiuto atteso verificato separatamente; conservazione non eseguita",
+        "assi": {
+          "category": "data_mapping",
+          "phase": "prepare",
+          "remote_effect": "none",
+          "retry": "never",
+          "code": null
+        }
+      },
+      {
+        "hop": "database.write/read",
+        "proprieta": "domains",
+        "stato": "SALTATO",
+        "motivo": "rifiuto atteso verificato separatamente; conservazione non eseguita",
+        "assi": {
+          "category": "data_mapping",
+          "phase": "prepare",
+          "remote_effect": "none",
+          "retry": "never",
+          "code": null
+        }
+      },
+      {
+        "hop": "database.write/read",
+        "proprieta": "subtypes",
+        "stato": "SALTATO",
+        "motivo": "rifiuto atteso verificato separatamente; conservazione non eseguita",
+        "assi": {
+          "category": "data_mapping",
+          "phase": "prepare",
+          "remote_effect": "none",
+          "retry": "never",
+          "code": null
+        }
+      },
+      {
+        "hop": "database.write/read",
+        "proprieta": "layer_alias",
+        "stato": "SALTATO",
+        "motivo": "rifiuto atteso verificato separatamente; conservazione non eseguita",
+        "assi": {
+          "category": "data_mapping",
+          "phase": "prepare",
+          "remote_effect": "none",
+          "retry": "never",
+          "code": null
+        }
+      },
+      {
+        "hop": "database.write/read",
         "proprieta": "native_metadata",
         "stato": "SALTATO",
         "motivo": "rifiuto atteso verificato separatamente; conservazione non eseguita",
@@ -9998,6 +12793,71 @@
       {
         "hop": "io.write ipc",
         "proprieta": "axis_order",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "field_alias",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "field_domain",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "domains",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "subtypes",
+        "stato": "SALTATO",
+        "motivo": "hop non raggiunto: dipendenza fallita",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "layer_alias",
         "stato": "SALTATO",
         "motivo": "hop non raggiunto: dipendenza fallita",
         "assi": {
@@ -10333,6 +13193,71 @@
       },
       {
         "hop": "database.read",
+        "proprieta": "field_alias",
+        "stato": "SALTATO",
+        "motivo": "limite sorgente SQL: PostgreSQL non offre uint64: numeric(20,0) non e una sorgente Arrow equivalente",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read",
+        "proprieta": "field_domain",
+        "stato": "SALTATO",
+        "motivo": "limite sorgente SQL: PostgreSQL non offre uint64: numeric(20,0) non e una sorgente Arrow equivalente",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read",
+        "proprieta": "domains",
+        "stato": "SALTATO",
+        "motivo": "limite sorgente SQL: PostgreSQL non offre uint64: numeric(20,0) non e una sorgente Arrow equivalente",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read",
+        "proprieta": "subtypes",
+        "stato": "SALTATO",
+        "motivo": "limite sorgente SQL: PostgreSQL non offre uint64: numeric(20,0) non e una sorgente Arrow equivalente",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read",
+        "proprieta": "layer_alias",
+        "stato": "SALTATO",
+        "motivo": "limite sorgente SQL: PostgreSQL non offre uint64: numeric(20,0) non e una sorgente Arrow equivalente",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read",
         "proprieta": "native_metadata",
         "stato": "SALTATO",
         "motivo": "limite sorgente SQL: PostgreSQL non offre uint64: numeric(20,0) non e una sorgente Arrow equivalente",
@@ -10528,6 +13453,71 @@
       },
       {
         "hop": "database.read stabile",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read stabile",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read stabile",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read stabile",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read stabile",
+        "proprieta": "layer_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read stabile",
         "proprieta": "native_metadata",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
@@ -10723,6 +13713,71 @@
       },
       {
         "hop": "data.run",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "layer_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
         "proprieta": "native_metadata",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
@@ -10906,6 +13961,71 @@
       {
         "hop": "io.write ipc",
         "proprieta": "axis_order",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "layer_alias",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
         "assi": {
@@ -11270,6 +14390,71 @@
       },
       {
         "hop": "io.read",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.read",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.read",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.read",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.read",
+        "proprieta": "layer_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.read",
         "proprieta": "native_metadata",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
@@ -11465,6 +14650,71 @@
       },
       {
         "hop": "data.run",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "layer_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
         "proprieta": "native_metadata",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
@@ -11660,6 +14910,71 @@
       },
       {
         "hop": "database.write/read",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.write/read",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.write/read",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.write/read",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.write/read",
+        "proprieta": "layer_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.write/read",
         "proprieta": "native_metadata",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
@@ -11843,6 +15158,71 @@
       {
         "hop": "io.write ipc",
         "proprieta": "axis_order",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "layer_alias",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
         "assi": {
@@ -12207,6 +15587,71 @@
       },
       {
         "hop": "database.read",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read",
+        "proprieta": "layer_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read",
         "proprieta": "native_metadata",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
@@ -12402,6 +15847,71 @@
       },
       {
         "hop": "database.read stabile",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read stabile",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read stabile",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read stabile",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read stabile",
+        "proprieta": "layer_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "database.read stabile",
         "proprieta": "native_metadata",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
@@ -12597,6 +16107,71 @@
       },
       {
         "hop": "data.run",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
+        "proprieta": "layer_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "data.run",
         "proprieta": "native_metadata",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
@@ -12780,6 +16355,71 @@
       {
         "hop": "io.write ipc",
         "proprieta": "axis_order",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "field_alias",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "field_domain",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "domains",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "subtypes",
+        "stato": "VERDE",
+        "motivo": "byte identici (incluse assenze)",
+        "assi": {
+          "category": null,
+          "phase": null,
+          "remote_effect": null,
+          "retry": null,
+          "code": null
+        }
+      },
+      {
+        "hop": "io.write ipc",
+        "proprieta": "layer_alias",
         "stato": "VERDE",
         "motivo": "byte identici (incluse assenze)",
         "assi": {
