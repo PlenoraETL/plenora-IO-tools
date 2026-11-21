@@ -59,32 +59,48 @@ pub fn preflight_with(
         validate(id, &path.into(), opts)?;
         catalog(path, opts)
     })
-    .map_err(|error| {
-        if error.category == plenora_io_model::ErrorCategory::InvalidConfiguration
-            && error.message == Situation::DirectoryInsteadOfFile.rule().message
-        {
-            Situation::DirectoryInsteadOfFile.error_with(&PublicMessage::CuratedPair(
-                "directory al posto del file; formato atteso:",
-                label(id),
-            ))
-        } else {
-            error
-        }
-    })
+    .map_err(|error| con_formato_atteso(id, error))
+}
+
+/// La directory al posto del file nomina il formato atteso, per ogni via di
+/// preflight: su disco e riapribile da memoria.
+#[must_use]
+pub fn con_formato_atteso(id: &str, error: PlenoraIoError) -> PlenoraIoError {
+    if error.category == plenora_io_model::ErrorCategory::InvalidConfiguration
+        && error.message == Situation::DirectoryInsteadOfFile.rule().message
+    {
+        Situation::DirectoryInsteadOfFile.error_with(&PublicMessage::CuratedPair(
+            "directory al posto del file; formato atteso:",
+            label(id),
+        ))
+    } else {
+        error
+    }
+}
+
+/// La sorgente come file: in memoria lo e' per costruzione, sul disco deve
+/// esserlo davvero -- una directory al posto di un membro e' contenuto non
+/// valido del formato, non un errore del filesystem.
+fn un_file(source: &(impl IntoSourceData + ?Sized), id: &str) -> Result<SourceData> {
+    let path = source.to_source_data();
+    if !path.in_memory() {
+        require(std::fs::symlink_metadata(&*path)?.is_file(), id)?;
+    }
+    Ok(path)
 }
 
 fn header<const N: usize>(
     source: &(impl IntoSourceData + ?Sized),
     id: &str,
 ) -> Result<([u8; N], u64)> {
-    let path = source.to_source_data();
+    let path = un_file(source, id)?;
     let mut file = path.open()?;
     let mut bytes = [0; N];
     file.read_exact(&mut bytes).map_err(|_| invalid(id))?;
     Ok((bytes, path.length()?))
 }
 fn tail<const N: usize>(source: &(impl IntoSourceData + ?Sized), id: &str) -> Result<[u8; N]> {
-    let path = source.to_source_data();
+    let path = un_file(source, id)?;
     let mut file = path.open()?;
     let mut bytes = [0; N];
     let start = path
@@ -524,7 +540,9 @@ pub fn preflight_data(
     source: Source,
     opts: &mut ReadOptions,
 ) -> Result<SourceData> {
-    source.into_data_observed(descriptor, opts, |data, opts| {
-        validate(descriptor.id(), data, opts)
-    })
+    source
+        .into_data_observed(descriptor, opts, |data, opts| {
+            validate(descriptor.id(), data, opts)
+        })
+        .map_err(|error| con_formato_atteso(descriptor.id(), error))
 }

@@ -1081,10 +1081,15 @@ fn materialize_point_dataset(driver: &dyn FormatDriver, directory: &tempfile::Te
     output
 }
 
-fn read_all_batches(driver: &dyn FormatDriver, source: impl Into<Source>) -> Vec<RecordBatch> {
+fn read_all_batches(
+    driver: &dyn FormatDriver,
+    source: impl Into<plenora_io_core::Sorgente>,
+) -> Vec<RecordBatch> {
     let descriptor = driver.descriptor();
+    let mut opts = read_options(descriptor.id());
+    let source = source.into().per_lettura(&mut opts);
     let dataset = require_ok(
-        driver.open(source.into(), read_options(descriptor.id())),
+        driver.open(source, opts),
         descriptor.id(),
         "open determinismo",
     );
@@ -2495,10 +2500,10 @@ fn l_io1_bytes_use_same_drivers_and_batches() {
         }
         let temp = tempfile::tempdir().unwrap();
         let path = materialize_point_dataset(driver.as_ref(), &temp);
-        let bytes = Source::Bytes {
-            nome: path.file_name().unwrap().to_str().unwrap().to_owned(),
-            dati: std::fs::read(&path).unwrap().into(),
-        };
+        let bytes = plenora_io_core::Sorgente::byte(
+            path.file_name().unwrap().to_str().unwrap(),
+            std::fs::read(&path).unwrap(),
+        );
         assert_eq!(
             read_all_batches(driver.as_ref(), path),
             read_all_batches(driver.as_ref(), bytes),
@@ -2507,7 +2512,7 @@ fn l_io1_bytes_use_same_drivers_and_batches() {
     }
 }
 
-fn l_io1_zip(files: &[(String, Vec<u8>)]) -> Source {
+fn l_io1_zip(files: &[(String, Vec<u8>)]) -> plenora_io_core::Sorgente {
     use std::io::Write as _;
     let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
     for (name, bytes) in files {
@@ -2519,12 +2524,11 @@ fn l_io1_zip(files: &[(String, Vec<u8>)]) -> Source {
         .unwrap();
         zip.write_all(bytes).unwrap();
     }
-    Source::Bytes {
-        nome: "data.zip".into(),
-        dati: zip.finish().unwrap().into_inner().into(),
-    }
+    plenora_io_core::Sorgente::byte("data.zip", zip.finish().unwrap().into_inner())
 }
 
+/// Ogni driver legge la stessa voce d'archivio come legge il file: stessi
+/// batch, in una cartella dell'archivio e con le maiuscole cambiate.
 #[test]
 fn l_io1_archives_use_same_drivers_including_shapefile() {
     for driver in drivers() {
@@ -2532,22 +2536,32 @@ fn l_io1_archives_use_same_drivers_including_shapefile() {
         if id == "filegdb" {
             continue;
         }
-        let path = structural_fixture(id);
+        let temp = tempfile::tempdir().unwrap();
+        let path = materialize_point_dataset(driver.as_ref(), &temp);
         let name = path.file_name().unwrap().to_str().unwrap().to_owned();
-        let paths = driver.descriptor().files().input(&path).unwrap();
-        let files: Vec<_> = paths
-            .iter()
-            .map(|p| {
-                (
-                    p.file_name().unwrap().to_str().unwrap().to_owned(),
-                    std::fs::read(p).unwrap(),
-                )
-            })
-            .collect();
-        let source = Source::Archivio {
-            archivio: Box::new(l_io1_zip(&files)),
-            voce: name,
-        };
+        // Tutto cio' che il writer ha prodotto, con la struttura: anche una
+        // directory `x.shp.d` finisce nello ZIP come sottoalbero.
+        let mut files = Vec::new();
+        let mut pending = vec![temp.path().to_owned()];
+        while let Some(dir) = pending.pop() {
+            for entry in std::fs::read_dir(dir).unwrap() {
+                let p = entry.unwrap().path();
+                if p.is_dir() {
+                    pending.push(p);
+                    continue;
+                }
+                let rel = p.strip_prefix(temp.path()).unwrap().to_str().unwrap();
+                files.push((
+                    format!("Cartella/{}", rel.replace('\\', "/")),
+                    std::fs::read(&p).unwrap(),
+                ));
+            }
+        }
+        assert!(
+            id != "shp" || files.len() > 2,
+            "l'insieme Shapefile ha i suoi membri"
+        );
+        let source = l_io1_zip(&files).voce(format!("cartella/{name}"));
         assert_eq!(
             read_all_batches(driver.as_ref(), path),
             read_all_batches(driver.as_ref(), source),
@@ -2556,28 +2570,54 @@ fn l_io1_archives_use_same_drivers_including_shapefile() {
     }
 }
 
+fn l_io1_open(
+    driver: &dyn FormatDriver,
+    sorgente: plenora_io_core::Sorgente,
+) -> plenora_io_model::Result<Box<dyn plenora_io_core::driver::OpenDatasetHandle>> {
+    let mut opts = read_options(driver.descriptor().id());
+    let source = sorgente.per_lettura(&mut opts);
+    driver.open(source, opts)
+}
+
 #[test]
 fn l_io1_shapefile_missing_dbf_and_kmz() {
+    use plenora_io_model::error_table::Situation;
     let path = structural_fixture("shp");
-    let source = Source::Archivio {
-        archivio: Box::new(l_io1_zip(&[("a.shp".into(), std::fs::read(path).unwrap())])),
-        voce: "a.shp".into(),
-    };
-    assert!(driver_shp::ShpDriver
-        .open(source, read_options("shp"))
-        .is_err());
+    let source = l_io1_zip(&[("a.shp".into(), std::fs::read(path).unwrap())]).voce("a.shp");
+    assert!(l_io1_open(&driver_shp::ShpDriver, source).is_err());
     let kml = std::fs::read(structural_fixture("kml")).unwrap();
-    let Source::Bytes { dati, .. } = l_io1_zip(&[("doc.kml".into(), kml)]) else {
+    // Il primo .kml alla radice, non per forza doc.kml; gli altri sono perdita dichiarata.
+    let kmz = l_io1_zip(&[
+        ("files/altro.kml".into(), kml.clone()),
+        ("Principale.kml".into(), kml.clone()),
+        ("secondo.kml".into(), kml.clone()),
+    ]);
+    let plenora_io_core::Sorgente::Byte { dati, .. } = kmz else {
         unreachable!()
     };
-    let dataset = driver_kml::KmlDriver
-        .open(
-            Source::Bytes {
-                nome: "data.kmz".into(),
-                dati,
-            },
-            read_options("kml"),
-        )
-        .unwrap();
-    assert!(!dataset.layers().is_empty());
+    let dataset = l_io1_open(
+        &driver_kml::KmlDriver,
+        plenora_io_core::Sorgente::byte("data.kmz", std::sync::Arc::clone(&dati)),
+    )
+    .unwrap();
+    let mut reader = dataset.open_layer_reader(&read_request()).unwrap();
+    while reader.next_batch().unwrap().is_some() {}
+    assert_eq!(reader.loss_report().counts["kml.kmz_document_not_read"], 2);
+    // KMZ dentro uno ZIP: annidato, mai un errore di formato KML.
+    let zip = l_io1_zip(&[("a.kmz".into(), dati.to_vec())]).voce("a.kmz");
+    let error = l_io1_open(&driver_kml::KmlDriver, zip).err().unwrap();
+    let rule = Situation::NestedArchive.rule();
+    assert_eq!((error.category, error.code), (rule.category, rule.code));
+    // KMZ senza .kml alla radice: voce assente.
+    let vuoto = l_io1_zip(&[("files/x.kml".into(), kml)]);
+    let plenora_io_core::Sorgente::Byte { dati, .. } = vuoto else {
+        unreachable!()
+    };
+    let error = l_io1_open(
+        &driver_kml::KmlDriver,
+        plenora_io_core::Sorgente::byte("v.kmz", dati),
+    )
+    .err()
+    .unwrap();
+    assert_eq!(error.message, Situation::ArchiveEntryMissing.rule().message);
 }

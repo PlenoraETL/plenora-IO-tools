@@ -48,6 +48,12 @@ rules! {
     (InvalidQuota, InvalidConfiguration, Validate, Generic, "CLI_USAGE", "le quote devono essere positive e coerenti"),
     (InvalidSpillDirectory, InvalidConfiguration, Validate, Generic, "CLI_USAGE", "PLENORA_SPILL_DIR non indica una directory utilizzabile"),
     (MissingWriteBackend, Unsupported, Write, Unsupported, "UNSUPPORTED", "scrittura FileGDB non disponibile: compilare con --features gdal-backend"),
+    (InvalidArchive, DataMapping, Read, Format, "FORMAT_ERROR", "archivio ZIP non valido"),
+    (ArchiveEntryMissing, NotFound, Read, Io, "SOURCE_NOT_FOUND", "voce dell'archivio non trovata"),
+    (NonPortableSourceName, InvalidConfiguration, Validate, Generic, "CLI_USAGE", "nome di sorgente o di voce non portabile"),
+    (NestedArchive, Unsupported, Read, Unsupported, "UNSUPPORTED", "archivio annidato non supportato"),
+    (UnsupportedArchiveFeature, Unsupported, Read, Unsupported, "UNSUPPORTED", "ZIP cifrato o con metodo diverso da stored (0) e deflate (8)"),
+    (AmbiguousArchiveNames, DataMapping, Read, Format, "FORMAT_ERROR", "nomi dell'archivio che il filesystem confonde"),
 }
 
 impl Situation {

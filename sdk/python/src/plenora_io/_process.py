@@ -618,6 +618,45 @@ def _ricrea_runner(binario: Any, timeout: Any) -> "Runner":
     return Runner(Path(binario), timeout=timeout)
 
 
+def _ingresso_esatto(ingresso: Any) -> bytes | None:
+    """I byte di `--source-stdin`: `bytes` esatti, o nessun ingresso."""
+    if ingresso is not None and type(ingresso) is not bytes:
+        raise _dallo_sdk(InvalidArgumentError, "processo.ingresso")
+    return ingresso
+
+
+class _Scrittore:
+    """Il thread dell'SDK che consegna i byte di `--source-stdin` e chiude.
+
+    Come `_Lettore` non stampa e non solleva: un figlio che rifiuta prima di
+    leggere tutto chiude il tubo, e quel `BrokenPipeError` non e' un guasto
+    del run -- l'esito lo dice la busta. Daemon: un figlio ucciso non lascia
+    un thread appeso.
+    """
+
+    def __init__(self, flusso: Any, dati: bytes) -> None:
+        self._flusso = flusso
+        self._dati = dati
+        self._thread = threading.Thread(target=self._scrivi, daemon=True)
+
+    def _scrivi(self) -> None:
+        try:
+            vista = memoryview(self._dati)
+            for inizio in range(0, len(vista), 65536):
+                self._flusso.write(vista[inizio:inizio + 65536])
+        except BaseException:  # noqa: BLE001, S110 - lo dice la busta del figlio
+            pass
+        finally:
+            self._dati = b""
+            try:
+                self._flusso.close()
+            except BaseException:  # noqa: BLE001, S110 - nessuno aspetta piu' il flusso
+                pass
+
+    def avvia(self) -> None:
+        self._thread.start()
+
+
 def _argv_esatto(argv: Any) -> list[str]:
     """Una lista nuova di `str` esatte.
 
@@ -665,9 +704,10 @@ class Runner:
         _memo(memo)
         return _ricrea_runner(str(self._binary), self._timeout)
 
-    def run(self, argv: list[str]) -> FrozenDict:
+    def run(self, argv: list[str], ingresso: bytes | None = None) -> FrozenDict:
         """Il risultato della busta di successo, o `CommandFailed` con quella
-        d'errore.
+        d'errore. `ingresso` sono i byte di `--source-stdin`, sullo stdin del
+        figlio: mai negli argomenti.
 
         Un `FrozenDict`, congelato in profondita' (`FrozenList` per gli
         elenchi), come ogni altra risposta dell'SDK: prima era il `dict`
@@ -675,6 +715,7 @@ class Runner:
         confine (diciottesimo giro). I modelli lo leggono con `from_json`.
         """
         argv = _argv_esatto(argv)
+        ingresso = _ingresso_esatto(ingresso)
         scrittura = scrive(argv)
         # Prima di `Popen`, **tutti** gli oggetti del run: una costruzione
         # che fallisce qui non lascia un processo senza pulizia (ventisettesimo
@@ -687,7 +728,7 @@ class Runner:
         gettone = _GettoneDelRun()
         riferimento = weakref.ref(gettone)
         primaria = None
-        processo = self._avvia(argv)
+        processo = self._avvia(argv) if ingresso is None else self._avvia(argv, ingresso)
         # Il confine: `Popen` ha reso il processo. Da qui **tutto** passa da
         # un solo gestore, e la chiusura del processo gira su ogni uscita.
         #
@@ -703,7 +744,8 @@ class Runner:
         # Da qui al `try`, niente. La fine del run per i lettori si
         # imposta nel `finally`, dopo la chiusura; `Event.set` non aspetta.
         try:
-            return self._esito(processo, argv, lettori, conclusione, guasto, riferimento, scrittura)
+            return self._esito(
+                processo, argv, lettori, conclusione, guasto, riferimento, scrittura, ingresso)
         except BaseException as errore:  # noqa: BLE001 - anche nel finally resta primaria
             primaria = errore
             raise
@@ -734,13 +776,15 @@ class Runner:
     def _esito(
         self, processo: Any, argv: list[str], lettori: list["_Lettore"],
         conclusione: threading.Event, guasto: threading.Event, gettone: Any,
-        scrittura: bool,
+        scrittura: bool, ingresso: bytes | None = None,
     ) -> FrozenDict:
         """Il resto di `run`, dentro il `finally` che conclude i lettori."""
         primaria: BaseException | None = None
         risultato: Any = None
         try:
             registra_avvio(argv)
+            if ingresso is not None:
+                _Scrittore(processo.stdin, ingresso).avvia()
             lettori += [
                 _Lettore(processo.stdout, guasto, conclusione, gettone),
                 _Lettore(processo.stderr, guasto, conclusione, gettone),
@@ -820,7 +864,7 @@ class Runner:
         """
         return sigint_inoltrabile()
 
-    def _avvia(self, argv: list[str]) -> Any:
+    def _avvia(self, argv: list[str], ingresso: bytes | None = None) -> Any:
         # `Popen` e non `run`: senza il pid non c'e' niente a cui inoltrare il
         # segnale, e l'inoltro e' il modo in cui un Ctrl-C diventa una
         # cancellazione cooperativa invece di un file mezzo scritto.
@@ -832,6 +876,7 @@ class Runner:
                 [str(self._binary), *argv],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
+                **({} if ingresso is None else {"stdin": subprocess.PIPE}),
             )
         except (ValueError, TypeError):
             # Un argomento che il sistema non sa passare -- un NUL in un
@@ -1080,12 +1125,19 @@ class NativeRunner(Runner):
         _memo(memo)
         return self.__copy__()
 
-    def run(self, argv: list[str]) -> FrozenDict:
+    def run(self, argv: list[str], ingresso: bytes | None = None) -> FrozenDict:
         argv = _argv_esatto(argv)
+        ingresso = _ingresso_esatto(ingresso)
         try:
             registra_avvio(argv)
             with _sigint_nativo() as interrotto:
-                codice, stdout, scaduto = self._nativo.esegui(list(argv), self._timeout, interrotto)
+                # I byte restano in memoria: nessuno stdin, nessun argomento.
+                if ingresso is None:
+                    codice, stdout, scaduto = self._nativo.esegui(
+                        list(argv), self._timeout, interrotto)
+                else:
+                    codice, stdout, scaduto = self._nativo.esegui(
+                        list(argv), self._timeout, interrotto, ingresso)
             if scaduto:
                 raise _dallo_sdk(
                     ProtocolError, "nativo.timeout", comando=_nome_del_comando(argv)

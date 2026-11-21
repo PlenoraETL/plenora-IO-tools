@@ -117,7 +117,7 @@ fn crs_geoarrow_per_colonna_round_trip_con_coordinate_asimmetriche() {
 
 #[test]
 fn footer_e_dichiarazioni_arrow_in_conflitto_su_ogni_colonna_sono_rifiutati() {
-    let builder = ParquetRecordBatchReaderBuilder::try_new(File::open(fixture()).unwrap()).unwrap();
+    let builder = ParquetRecordBatchReaderBuilder::try_new(ingresso(fixture())).unwrap();
     let geo = read_geo_meta(&builder).unwrap().unwrap();
     for index in [0, 2] {
         for key in ["crs", "ARROW:extension:metadata"] {
@@ -161,7 +161,7 @@ fn leggi(percorso: PathBuf) -> (DataContract, RecordBatch) {
 #[test]
 fn un_nome_sconosciuto_non_eredita_i_metadati_della_primaria() {
     let (contratto, _) = leggi(fixture());
-    let builder = ParquetRecordBatchReaderBuilder::try_new(File::open(fixture()).unwrap()).unwrap();
+    let builder = ParquetRecordBatchReaderBuilder::try_new(ingresso(fixture())).unwrap();
     let geo = read_geo_meta(&builder).unwrap().unwrap();
     for nome in ["posizione-segreta", "traccia-segreta", ""] {
         let mut geometria = contratto.geometry.clone().unwrap();
@@ -223,7 +223,7 @@ fn pyarrow_multigeometria_round_trip_esatto_con_primaria_non_iniziale() {
         assert_eq!(prima.geometry_types, dopo.geometry_types);
         assert_eq!(prima.nullable, dopo.nullable);
     }
-    let builder = ParquetRecordBatchReaderBuilder::try_new(File::open(uscita).unwrap()).unwrap();
+    let builder = ParquetRecordBatchReaderBuilder::try_new(ingresso(uscita)).unwrap();
     let geo = read_geo_meta(&builder).unwrap().unwrap();
     assert_eq!(geo.nome_primaria, "posizione");
     assert!(geo.primaria.covering.is_some());
@@ -522,7 +522,7 @@ fn covering_second_primary_nonpositional_ids_and_secondary_projection() {
 
 #[test]
 fn ogni_proprieta_footer_campo_discorde_rifiutata_per_primaria_e_secondaria() {
-    let builder = ParquetRecordBatchReaderBuilder::try_new(File::open(fixture()).unwrap()).unwrap();
+    let builder = ParquetRecordBatchReaderBuilder::try_new(ingresso(fixture())).unwrap();
     let geo = read_geo_meta(&builder).unwrap().unwrap();
     for index in [0, 2] {
         for (key, value) in [
@@ -563,7 +563,7 @@ fn ogni_proprieta_footer_campo_discorde_rifiutata_per_primaria_e_secondaria() {
 
 #[test]
 fn dimensioni_miste_del_footer_non_annullano_il_vincolo_del_campo() {
-    let builder = ParquetRecordBatchReaderBuilder::try_new(File::open(fixture()).unwrap()).unwrap();
+    let builder = ParquetRecordBatchReaderBuilder::try_new(ingresso(fixture())).unwrap();
     for index in [0, 2] {
         let mut geo = read_geo_meta(&builder).unwrap().unwrap();
         let name = builder.schema().field(index).name();
@@ -590,7 +590,7 @@ fn dimensioni_miste_del_footer_non_annullano_il_vincolo_del_campo() {
 
 #[test]
 fn unresolved_and_declared_srid_survive_full_reader_completion() {
-    let builder = ParquetRecordBatchReaderBuilder::try_new(File::open(fixture()).unwrap()).unwrap();
+    let builder = ParquetRecordBatchReaderBuilder::try_new(ingresso(fixture())).unwrap();
     let geo = read_geo_meta(&builder).unwrap().unwrap();
     for index in [0, 2] {
         for unresolved in [false, true] {
@@ -656,7 +656,7 @@ fn unresolved_and_declared_srid_survive_full_reader_completion() {
 
 #[test]
 fn empty_footer_types_preserve_resolved_field_and_crs() {
-    let builder = ParquetRecordBatchReaderBuilder::try_new(File::open(fixture()).unwrap()).unwrap();
+    let builder = ParquetRecordBatchReaderBuilder::try_new(ingresso(fixture())).unwrap();
     let mut geo = read_geo_meta(&builder).unwrap().unwrap();
     geo.primaria.tipi.clear();
     geo.primaria.crs = metadati::Crs::Nullo;
@@ -692,7 +692,7 @@ fn empty_footer_types_preserve_resolved_field_and_crs() {
 fn historical_703_geojson_point_unknown_dimensions_is_readable() {
     // Exact 7.0.3 matrix output, SHA256 ba4f871acc239bbe946a205ada66f53737ae65d5c4645fa20d3238e2210b7265.
     let path = fixture().with_file_name("historical-7.0.3-geojson-point.parquet");
-    let builder = ParquetRecordBatchReaderBuilder::try_new(File::open(&path).unwrap()).unwrap();
+    let builder = ParquetRecordBatchReaderBuilder::try_new(ingresso(&path)).unwrap();
     assert_eq!(
         builder
             .schema()
@@ -713,7 +713,7 @@ fn historical_703_geojson_point_unknown_dimensions_is_readable() {
 #[test]
 fn unresolved_field_crs_is_completed_by_resolved_footer() {
     let (contract, batch) = leggi(fixture());
-    let builder = ParquetRecordBatchReaderBuilder::try_new(File::open(fixture()).unwrap()).unwrap();
+    let builder = ParquetRecordBatchReaderBuilder::try_new(ingresso(fixture())).unwrap();
     let geo = read_geo_meta(&builder).unwrap().unwrap();
     for index in [0, 2] {
         for missing in [false, true] {

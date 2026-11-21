@@ -85,7 +85,10 @@ impl Seek for SourceReader {
     }
 }
 impl Source {
-    /// Preflight dei file singoli, senza materializzare le sorgenti in memoria.
+    /// Preflight dei driver riapribili. I byte in memoria restano in memoria
+    /// (li ha gia' il chiamante); percorsi e voci d'archivio passano dal
+    /// preflight su disco, le voci in una vista con quota di spill: nessuna
+    /// voce d'archivio si materializza in RAM.
     /// # Errors
     /// Errori di struttura, archivio, quota, cancellazione e I/O.
     pub fn into_data_observed(
@@ -94,46 +97,47 @@ impl Source {
         opts: &mut ReadOptions,
         validate: impl Fn(&SourceData, &ReadOptions) -> Result<()>,
     ) -> Result<SourceData> {
-        if let Self::Path(_) = &self {
-            let path = crate::driver::preflight_source_validated(
-                descriptor,
-                self,
-                opts,
-                &|path, opts| validate(&path.into(), opts),
-            )?;
-            return Ok(path.into());
-        }
-        opts.ensure_active()?;
-        let (nome, dati, lease) = match self {
-            Self::Bytes { nome, dati } => {
-                crate::archivio::valida_nome(&nome)?;
-                let lease = opts
-                    .budget()
-                    .context()
-                    .lease_memory_internal((dati.len() as u64).max(1))?;
-                (nome, dati, lease)
-            }
-            Self::Archivio { archivio, voce } => {
-                let (bytes, lease) = crate::archivio::leggi_custodita(
-                    &archivio,
-                    &voce,
-                    &opts.limiti_archivio,
+        let (nome, dati) = match opts.sorgente_di(self)? {
+            crate::Sorgente::Byte { nome, dati } => (nome, dati),
+            altra => {
+                let path = crate::driver::osserva_sorgente(
+                    altra,
                     opts,
+                    Some(descriptor.files()),
+                    Some(&|path: &Path, opts: &ReadOptions| validate(&path.into(), opts)),
                 )?;
-                (voce, bytes, lease)
-            }
-            Self::Path(_) => {
-                return Err(PlenoraIoError::non_supportato_redatto(
-                    &PublicMessage::Curated("sorgente non valida"),
-                ))
+                plenora_io_model::format_options::valida_opzioni(
+                    descriptor.id(),
+                    descriptor.format_options(),
+                    &opts.format_options,
+                    plenora_io_model::format_options::FaseOpzione::Lettura,
+                )?;
+                crate::driver::spool::spill_directory()?;
+                return Ok(path.into());
             }
         };
+        opts.ensure_active()?;
+        crate::archivio::valida_nome(&nome)?;
+        let length = dati.len() as u64;
+        if length > opts.max_input_bytes() {
+            return Err(
+                plenora_io_model::quota::Quota::InputBytes.exceeded_measured(
+                    plenora_io_model::ErrorPhase::Read,
+                    length,
+                    opts.max_input_bytes(),
+                ),
+            );
+        }
+        let lease = opts
+            .budget()
+            .context()
+            .lease_memory_internal(length.max(1))?;
         let permit = opts.take_input_permit().ok_or_else(|| {
             PlenoraIoError::limite_redatto(&PublicMessage::Curated("permit input gia' speso"))
         })?;
         opts.budget()
             .context()
-            .note_entry_visited(&SourceEntry::file(nome.as_bytes(), dati.len() as u64, None))?;
+            .note_entry_visited(&SourceEntry::file(nome.as_bytes(), length, None))?;
         opts.budget().context().observe_input(permit)?;
         let prepared = SourceData {
             nome: nome.into(),

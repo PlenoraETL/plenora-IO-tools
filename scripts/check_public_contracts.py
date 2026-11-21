@@ -1026,7 +1026,9 @@ def sonda_nomi_dei_contratti(artefatto: Artefatto, vocabolario: Vocabolario) -> 
         if atteso is None:
             atteso = dalle_specifiche.get(comando)
         if atteso is None:
-            if comando != "version":
+            # Le buste locali (`version`, `archive-list`) lo dichiarano nel
+            # registro: un nome senza fonte non passa per omissione.
+            if voce.get("senza_fonte_fissata") is not True:
                 problemi.append(f"{comando}: nessuna fonte fissata trovata")
             continue
         if dichiarato != atteso:

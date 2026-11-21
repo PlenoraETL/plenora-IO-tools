@@ -1820,7 +1820,13 @@ class IlSettimoGiro(unittest.TestCase):
         """La stessa classe su ogni modello che definisce `__post_init__`."""
         from plenora_io._confine import MODELLI
 
-        istanze = {"ErrorEnvelope": _busta(), "Limits": Limits(max_rows=3)}
+        from plenora_io import LimitiArchivio
+
+        istanze = {
+            "ErrorEnvelope": _busta(),
+            "Limits": Limits(max_rows=3),
+            "LimitiArchivio": LimitiArchivio(max_voci=3),
+        }
         con_post_init = sorted(c.__name__ for c in MODELLI if "__post_init__" in vars(c))
         self.assertEqual(con_post_init, sorted(istanze))
         for nome, istanza in istanze.items():

@@ -357,29 +357,21 @@ impl FormatDriver for KmlDriver {
 
     #[allow(clippy::too_many_lines)] // Catalog and spool are discovered in one bounded pass.
     fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let source = match source {
-            Source::Path(ref path)
-                if path
-                    .extension()
-                    .is_some_and(|e| e.eq_ignore_ascii_case("kmz")) =>
-            {
-                Source::Archivio {
-                    archivio: Box::new(source),
-                    voce: "doc.kml".to_owned(),
-                }
-            }
-            Source::Bytes { ref nome, .. }
-                if std::path::Path::new(nome)
-                    .extension()
-                    .is_some_and(|e| e.eq_ignore_ascii_case("kmz")) =>
-            {
-                Source::Archivio {
-                    archivio: Box::new(source),
-                    voce: "doc.kml".to_owned(),
-                }
-            }
-            other => other,
-        };
+        // KMZ: il primo `.kml` alla radice, per qualunque origine. Dentro uno ZIP
+        // la riscrittura produce un archivio annidato, rifiutato come tale.
+        let mut sorgente = opts.sorgente_di(source)?;
+        let mut kml_non_letti = 0;
+        if sorgente
+            .nome()
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("kmz"))
+        {
+            let (voce, altri) =
+                plenora_io_core::archivio::documento_kmz(&sorgente, &opts.limiti_archivio, &opts)?;
+            kml_non_letti = altri;
+            sorgente = sorgente.voce(voce);
+        }
+        let source = sorgente.per_lettura(&mut opts);
         let path = driver_common::structure::preflight_data(self.descriptor(), source, &mut opts)?;
         let mut stream = PlacemarkStream::open(&path)?;
         let mut stats = KmlContractStats::default();
@@ -469,7 +461,13 @@ impl FormatDriver for KmlDriver {
                     .map_err(|_| err(&PublicMessage::Curated("conteggio KML fuori intervallo")))?,
             ));
         }
-        let losses = native_layer_losses(&mut stream.native_losses, &ranges, &unsupported_prefix);
+        let mut losses =
+            native_layer_losses(&mut stream.native_losses, &ranges, &unsupported_prefix);
+        if kml_non_letti > 0 {
+            // Gli altri documenti del KMZ non si leggono: perdita dichiarata sul
+            // layer del documento principale, come ogni perdita del driver.
+            losses[0].record("kml.kmz_document_not_read", kml_non_letti);
+        }
         plenora_io_core::with_read_budget(
             Box::new(KmlDataset {
                 layers,

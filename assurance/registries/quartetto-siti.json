@@ -382,6 +382,11 @@
       "ResourceLimit/Validate/LimitExceeded/Never"
     ]
   },
+  "crates/plenora-io-core/src/archivio.rs": {
+    "superato": [
+      "esplicito/esplicito/LimitExceeded/esplicito"
+    ]
+  },
   "crates/plenora-io-core/src/capabilities.rs": {
     "validate_write": [
       "Unsupported/Validate/Unsupported/Never",
@@ -563,6 +568,11 @@
   "crates/plenora-io-core/src/request.rs": {
     "project_layer_contract": [
       "InvalidPlan/Validate/Contract/Never"
+    ]
+  },
+  "crates/plenora-io-core/src/source_data.rs": {
+    "into_data_observed": [
+      "ResourceLimit/Validate/LimitExceeded/Never"
     ]
   },
   "crates/plenora-io-model/src/budget.rs": {

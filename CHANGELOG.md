@@ -2,19 +2,78 @@
 
 ## 10.1.0 - in sviluppo (L-IO1, 2026-11-21)
 
-- Sorgenti Rust `Path`, `Bytes` e `Archivio`; ingressi equivalenti nei driver,
-  CLI (`--source-base64`, `--archive-entry`, `archive-list`) e SDK Python
-  (`Bytes`, `Archivio`, `LimitiArchivio`, `Client.elenca_archivio`).
-- Lettore ZIP comune con preflight centrale, ZIP64, nomi portabili e univoci,
-  limiti cumulativi, rapporto, verifica CRC e dimensioni effettive a blocchi.
-  Archivi annidati non ammessi. KMZ legge `doc.kml`.
-- Sorgenti in memoria per CSV, GeoJSON, KML, DXF, XLSX, IPC e Parquet;
-  viste temporanee con quota e pulizia RAII per i driver basati su file.
-  Shapefile seleziona i companion con la regola condivisa; FileGDB riusa il
-  parser dei membri e le viste native per oggetto.
+Minor: nessuna rottura dell'API Rust 10.0.0. `Source` resta l'enum con la sola
+variante `Path`; `Richiesta.source` resta `Option<PathBuf>` e `sulla_sorgente`
+accetta gli stessi tipi di prima.
+
+### Sorgenti senza percorso
+
+- Rust: `plenora_io_core::Sorgente` (`Percorso`, `Byte`, `Archivio`, non
+  esaustivo) con `Sorgente::per_lettura`, che passa a qualunque driver il nome
+  logico in `Source::Path` e affida i byte alle opzioni di lettura; un solo
+  preflight comune li legge per tutti i driver. `Richiesta::con_byte_sorgente`,
+  `con_voce_archivio`, `con_limiti_archivio`; `operazioni::elenca_archivio`,
+  `LimitiArchivio`, `QuotaArchivio`.
+- CLI: `--source-stdin` (i byte arrivano su stdin, entro `--max-input-bytes`;
+  il posizionale ne e' il nome logico), `--archive-entry`, `--archive-max-entries`,
+  `--archive-max-bytes`, `--archive-max-ratio`, comando locale `archive-list`
+  (contratti `plenora-io-archive-list-input-v1` e `plenora-io-archive-list-v1`).
+  `--source-base64` della bozza non esiste: i byte non passano mai in argv.
+- SDK Python: `Bytes`, `Archivio`, `LimitiArchivio`, `Client.elenca_archivio`
+  (modelli `ElencoArchivio`, `VoceArchivio`, `LimiteArchivio`), anche in
+  `AsyncClient`; `inspect`, `layers`, `validate`, `read`, `read_table`, `write`
+  e `convert` accettano `Bytes` e `Archivio`. Il processo riceve i byte su
+  stdin, il modulo nativo in memoria. I tipi sbagliati sono
+  `InvalidArgumentError` con chiave stabile (`sorgente.*`).
+- `archive-list` non e' un'operazione del catalogo comune e non e' annunciata
+  in `capabilities.operations` ne' nel binding runtime: e' scoperta locale,
+  come `version`, con contratto nostro.
+
+### Una regola per nomi, errori e limiti
+
+- Nomi: componenti portabili (anche `CONIN$`, `CONOUT$`, `COM¹-³`, `LPT¹-³`,
+  spazi prima dell'estensione), chiave per componente, prefissi confrontati per
+  componente e mai per lunghezza in byte; ogni file della vista nasce con
+  `create_new`, quindi un alias del filesystem e' un errore e mai una
+  sovrascrittura. Nomi UTF-8 (bit 11), Info-ZIP 0x7075 con CRC, altrimenti
+  CP437 come APPNOTE.
+- Errori dalla tabella unica (`error_table`): archivio non valido
+  `FORMAT_ERROR`, voce assente `SOURCE_NOT_FOUND`, nome scelto dal chiamante
+  non portabile `CLI_USAGE`, archivio annidato e metodi diversi da stored e
+  deflate `UNSUPPORTED`, nomi confusi dal filesystem `FORMAT_ERROR`, limite
+  `LIMIT_EXCEEDED` con `details.quota` del limite vincolante.
+- Limiti: `LimitiArchivio` si costruisce solo validato (zero e' `CLI_USAGE`);
+  ogni limite e' stretto dalla quota della pipeline corrispondente
+  (`max_input_entries`, `max_input_bytes`, `decompression_ratio`) e la
+  riduzione e' dichiarata (`archive-list`.`limits[].bound_by`, `details.quota`).
+  Il rapporto vale per voce e sull'archivio intero, anche per le voci non
+  selezionate; le voci devono essere disgiunte.
+
+### Driver
+
+- Le voci d'archivio si leggono da una vista nella directory di spill
+  (`PLENORA_SPILL_DIR`) con quota di spill, mai materializzate in RAM; i byte
+  in memoria restano in memoria. Una vista resta dopo un `SIGKILL` come
+  directory `plenora-source-*` (limite dichiarato).
+- KMZ: il primo `.kml` alla radice in ordine di directory centrale; gli altri
+  `.kml` sono la perdita dichiarata `kml.kmz_document_not_read`. `.kmz` e'
+  riconosciuto dal suffisso; un KMZ dentro uno ZIP e' un archivio annidato.
+- Shapefile in uno ZIP: companion nella cartella del principale, per chiave;
+  `x.shp.d/` come sottoalbero.
+- `write` misura il content type sui byte della sorgente (file, stdin o voce),
+  non sul posizionale.
 - Nuovo target `archive_reader`, semi e perimetro registrati. Campagna e
   misure di copertura/profondita da eseguire al congelamento 10.1.0;
   le evidenze 10.0.0 non qualificano queste modifiche.
+
+### Limiti dichiarati
+
+- Metodi ZIP: solo stored (0) e deflate (8); cifratura rifiutata.
+- Un nome scritto in CP850 senza bit 11 si legge con i glifi CP437: il
+  codepage OEM non e' scritto nell'archivio.
+- Dimensioni di `archive-list` dichiarate, non verificate (i campi si chiamano
+  `declared_*`); CRC e lunghezza reale si verificano alla lettura.
+- Dati anteposti a uno ZIP senza offset corretti (autoestraenti) sono rifiutati.
 
 ## 10.0.0 - 2026-11-18
 

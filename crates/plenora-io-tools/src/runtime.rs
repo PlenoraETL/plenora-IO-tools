@@ -671,14 +671,14 @@ impl<'a> BindingRuntime<'a> {
                 .artefatti
                 .sorgente(riferimento)
                 .map_err(errore_del_risolutore)?;
-            richiesta.source = Some(nome_coerente(riferimento, percorso)?.into());
+            richiesta.source = Some(nome_coerente(riferimento, percorso)?);
         }
         if let Some(riferimento) = destinazione {
             let percorso = self
                 .artefatti
                 .destinazione(riferimento)
                 .map_err(errore_del_risolutore)?;
-            richiesta.destination = Some(nome_coerente(riferimento, percorso)?.into());
+            richiesta.destination = Some(nome_coerente(riferimento, percorso)?);
         }
         // `limit` non si trasferisce: lo schema lo ammette soltanto in
         // `io.read`, e su questa superficie `io.read` lo rifiuta prima di

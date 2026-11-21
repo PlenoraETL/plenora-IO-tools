@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://plenora.dev/io-tools/schemas/plenora-io-archive-list-v1.schema.json",
+  "title": "plenora-io-archive-list-v1",
+  "$comment": "Contratto d'uscita del comando locale archive-list: le voci della directory centrale dopo il preflight completo (nomi portabili e univoci, metodi stored/deflate, voci disgiunte, limiti cumulativi), senza decompressione. Le dimensioni sono quelle DICHIARATE dall'archivio, e il nome dei campi lo dice: CRC e lunghezza reale si verificano solo leggendo la voce, con l'errore dell'archivio non valido se mentono. I nomi delle voci sono UTF-8 (bit 11), il campo Info-ZIP 0x7075 se il suo CRC corrisponde, altrimenti CP437 come prescrive APPNOTE.",
+  "type": "object",
+  "required": [
+    "entries",
+    "limits"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "declared_compressed_bytes",
+          "declared_uncompressed_bytes",
+          "directory"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "declared_compressed_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "declared_uncompressed_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "directory": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "limits": {
+      "type": "array",
+      "$comment": "Un elemento per limite d'archivio, nell'ordine della tabella archivio::REGOLE: il valore effettivo e chi lo impone, il limite d'archivio stesso o la quota della pipeline che lo stringe.",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "required": [
+          "quota",
+          "limit",
+          "bound_by"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "quota": {
+            "enum": [
+              "archive_max_entries",
+              "archive_max_bytes",
+              "archive_max_ratio"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "bound_by": {
+            "enum": [
+              "archive_max_entries",
+              "archive_max_bytes",
+              "archive_max_ratio",
+              "max_input_entries",
+              "max_input_bytes",
+              "decompression_ratio"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "entries": [
+        {
+          "name": "dati/a.csv",
+          "declared_compressed_bytes": 12,
+          "declared_uncompressed_bytes": 40,
+          "directory": false
+        }
+      ],
+      "limits": [
+        {
+          "quota": "archive_max_entries",
+          "limit": 10000,
+          "bound_by": "archive_max_entries"
+        },
+        {
+          "quota": "archive_max_bytes",
+          "limit": 268435456,
+          "bound_by": "max_input_bytes"
+        },
+        {
+          "quota": "archive_max_ratio",
+          "limit": 100,
+          "bound_by": "archive_max_ratio"
+        }
+      ]
+    }
+  ]
+}

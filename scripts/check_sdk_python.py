@@ -94,8 +94,25 @@ NON_SONO_TETTI = frozenset(
         # Il formato della sorgente di `convert`, esplicito per la stessa
         # ragione di `--to`: l'SDK lo offre come `source_format=` obbligatorio.
         "--from",
+        # Le sorgenti senza percorso: `Bytes` (i byte sullo stdin, mai in
+        # argv) e `Archivio` (la voce). Sono la sorgente, non un tetto.
+        "--source-stdin",
+        "--archive-entry",
     }
 )
+
+def limiti_d_archivio_dell_sdk() -> set[str]:
+    """Le opzioni che `LimitiArchivio` produce, lette dal sorgente dell'SDK."""
+    import ast  # noqa: PLC0415
+
+    albero = ast.parse(
+        (ROOT / "sdk" / "python" / "src" / "plenora_io" / "_sources.py").read_text(encoding="utf-8"))
+    for nodo in albero.body:
+        if (isinstance(nodo, ast.AnnAssign) and isinstance(nodo.target, ast.Name)
+                and nodo.target.id == "FLAG_DEI_LIMITI"):
+            return set(ast.literal_eval(nodo.value).values())
+    return set()
+
 
 #: Dove ciascun modello va confrontato: la busta e il prefisso nella sua
 #: struttura. Il livello e' quello **immediato**: la profondita' la governano i
@@ -632,7 +649,8 @@ def main() -> int:
     # raggiungibile solo scrivendo la riga a mano, cioe' facendo a mano il
     # lavoro per cui l'SDK esiste.
     ammesse = opzioni_della_cli()
-    offerte = tetti_dell_sdk()
+    # I limiti d'archivio sono i campi di `LimitiArchivio`, dalla stessa tabella.
+    offerte = tetti_dell_sdk() | limiti_d_archivio_dell_sdk()
     for opzione in sorted(offerte - ammesse):
         problemi.append(
             f"l'SDK offre il tetto «{opzione}», che la CLI non ammette: chi lo "

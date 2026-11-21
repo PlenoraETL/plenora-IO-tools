@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 import unittest
+
+from plenora_io._sources import FLAG_DEI_LIMITI
 from datetime import timedelta
 from pathlib import Path
 
@@ -102,8 +104,11 @@ class ITettiEsistonoNellaCli(unittest.TestCase):
             "--to",  # il formato del sink: parametro obbligatorio di write()
             "--from",  # il formato della sorgente: obbligatorio in convert()
             "--version",  # e' un comando, non un'opzione
+            "--source-stdin",  # la sorgente `Bytes`: i byte vanno sullo stdin
+            "--archive-entry",  # la sorgente `Archivio`
         }
-        offerte = set(Limits.opzioni())
+        # I limiti degli archivi sono i campi di `LimitiArchivio`.
+        offerte = set(Limits.opzioni()) | set(FLAG_DEI_LIMITI.values())
         mancanti = self.opzioni_della_cli() - offerte - non_sono_tetti
         self.assertEqual(mancanti, set())
 

@@ -79,10 +79,23 @@ fn infer_types_si_ferma_al_tetto_di_righe() {
     let headers = vec!["id".to_owned(), "geometry".to_owned()];
     let geom_cols = HashSet::from([1_usize]);
 
-    assert!(infer_types(&percorso, b',', &headers, &geom_cols, quote(8)).is_ok());
+    assert!(infer_types(
+        &SourceData::from(&percorso),
+        b',',
+        &headers,
+        &geom_cols,
+        quote(8)
+    )
+    .is_ok());
 
-    let errore = infer_types(&percorso, b',', &headers, &geom_cols, quote(7))
-        .expect_err("otto righe con tetto sette devono fermare la passata");
+    let errore = infer_types(
+        &SourceData::from(&percorso),
+        b',',
+        &headers,
+        &geom_cols,
+        quote(7),
+    )
+    .expect_err("otto righe con tetto sette devono fermare la passata");
     assert_eq!(errore.code, plenora_io_model::IoErrorCode::LimitExceeded);
 }
 
@@ -92,9 +105,9 @@ fn infer_wkt_geometry_si_ferma_al_tetto_di_righe() {
     let dir = tempfile::tempdir().expect("tempdir");
     let percorso = csv_con_righe(&dir, 8);
 
-    assert!(infer_wkt_geometry(&percorso, b',', 1, quote(8)).is_ok());
+    assert!(infer_wkt_geometry(&SourceData::from(&percorso), b',', 1, quote(8)).is_ok());
 
-    let errore = infer_wkt_geometry(&percorso, b',', 1, quote(7))
+    let errore = infer_wkt_geometry(&SourceData::from(&percorso), b',', 1, quote(7))
         .expect_err("otto righe con tetto sette devono fermare la passata");
     assert_eq!(errore.code, plenora_io_model::IoErrorCode::LimitExceeded);
 }
@@ -105,10 +118,21 @@ fn infer_wkt_geometry_applica_il_tetto_per_cella() {
     let dir = tempfile::tempdir().expect("tempdir");
     let percorso = csv_con_wkt(&dir, "POINT (1 2)");
 
-    assert!(infer_wkt_geometry(&percorso, b',', 1, quote_con_cella(con_byte(11), 100)).is_ok());
+    assert!(infer_wkt_geometry(
+        &SourceData::from(&percorso),
+        b',',
+        1,
+        quote_con_cella(con_byte(11), 100)
+    )
+    .is_ok());
 
-    let errore = infer_wkt_geometry(&percorso, b',', 1, quote_con_cella(con_byte(10), 100))
-        .expect_err("undici caratteri con tetto dieci devono fallire");
+    let errore = infer_wkt_geometry(
+        &SourceData::from(&percorso),
+        b',',
+        1,
+        quote_con_cella(con_byte(10), 100),
+    )
+    .expect_err("undici caratteri con tetto dieci devono fallire");
     assert_eq!(errore.code, plenora_io_model::IoErrorCode::LimitExceeded);
 }
 

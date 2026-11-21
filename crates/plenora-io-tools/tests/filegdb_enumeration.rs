@@ -31,10 +31,25 @@ fn generated_filegdb_ownership_matrix() {
 fn generated_filegdb_archive_ownership_matrix() {
     let python = std::env::var_os("PLENORA_ENUM_PYTHON").unwrap_or_else(|| "python".into());
     let output = std::process::Command::new(python)
-        .arg(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/filegdb_enumeration.py"))
+        .arg(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/filegdb_enumeration.py"
+        ))
         .arg(env!("CARGO_BIN_EXE_plenora-io"))
         .env("PLENORA_FILEGDB_ARCHIVE", "1")
-        .env("PLENORA_FILEGDB_ENUM_OUTPUT", concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/filegdb-archive-enumeration"))
-        .output().expect("launch archived FileGDB ownership matrix");
-    assert!(output.status.success(), "{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        .env(
+            "PLENORA_FILEGDB_ENUM_OUTPUT",
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../target/filegdb-archive-enumeration"
+            ),
+        )
+        .output()
+        .expect("launch archived FileGDB ownership matrix");
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 }

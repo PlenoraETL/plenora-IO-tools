@@ -6,6 +6,12 @@
 
 use super::*;
 use plenora_io_model::crs::CrsKind;
+use std::path::PathBuf;
+
+/// Il file come lo apre il driver: la stessa `ParquetInput` di una sorgente.
+fn ingresso(path: impl AsRef<std::path::Path>) -> ParquetInput {
+    ParquetInput::open(&plenora_io_core::SourceData::from(path.as_ref())).unwrap()
+}
 
 /// Opzioni di lettura sul modello unificato.
 ///
@@ -1227,7 +1233,7 @@ fn la_catena_delle_pagine_deve_chiudere_esatta() {
     let scrivi = |nome: &str, dati: &[u8]| {
         let path = dir.path().join(nome);
         std::fs::write(&path, dati).unwrap();
-        File::open(path).unwrap()
+        ingresso(path)
     };
 
     // Chunk lungo esattamente quanto la pagina: chiude.
@@ -1297,8 +1303,8 @@ fn una_pagina_oltre_il_proprio_chunk_e_rifiutata_prima_dell_allocazione() {
     let copia = tempfile::tempdir().unwrap();
     let seme = copia_seme_con_footer_corrente(&seme, copia.path());
 
-    let file = File::open(seme).unwrap();
-    let builder = ParquetRecordBatchReaderBuilder::try_new(file.try_clone().unwrap()).unwrap();
+    let file = ingresso(seme);
+    let builder = ParquetRecordBatchReaderBuilder::try_new(file.clone()).unwrap();
     let errore = prevalida_cio_che_il_decoder_leggera(
         &Arc::new(file),
         builder.metadata(),
@@ -1411,8 +1417,8 @@ fn un_bit_width_di_dizionario_fuori_intervallo_e_rifiutato_prima_del_decoder() {
 
     // Il seme storico ha anche assi CRS contraddittori: la sonda del
     // decoder raggiunge direttamente la prevalidazione, senza mascherarla.
-    let file = File::open(seme).unwrap();
-    let builder = ParquetRecordBatchReaderBuilder::try_new(file.try_clone().unwrap()).unwrap();
+    let file = ingresso(seme);
+    let builder = ParquetRecordBatchReaderBuilder::try_new(file.clone()).unwrap();
     let errore = prevalida_cio_che_il_decoder_leggera(
         &Arc::new(file),
         builder.metadata(),

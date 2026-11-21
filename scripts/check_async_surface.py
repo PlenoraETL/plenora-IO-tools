@@ -8,13 +8,19 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def render(root: Path = ROOT) -> str:
     source = ast.parse((root / 'sdk/python/src/plenora_io/_client.py').read_text(encoding='utf-8'))
-    operations = next(n.value for n in source.body if isinstance(n, ast.AnnAssign)
-                      and isinstance(n.target, ast.Name) and n.target.id == 'OPERAZIONI')
-    names = set(ast.literal_eval(operations)) | {'version', 'capabilities'}
+    def mappa(nome: str) -> set[str]:
+        return set(ast.literal_eval(next(
+            n.value for n in source.body if isinstance(n, ast.AnnAssign)
+            and isinstance(n.target, ast.Name) and n.target.id == nome)))
+
+    # Le operazioni del catalogo e i comandi locali (`archive-list`).
+    names = mappa('OPERAZIONI') | mappa('SUPERFICI_LOCALI') | {'version', 'capabilities'}
     client = next(n for n in source.body if isinstance(n, ast.ClassDef) and n.name == 'Client')
     lines = ['# Generated from Client signatures; checked by scripts/check_async_surface.py.',
              'from ._client import *', 'from typing import Any', 'import os',
-             'from ._limits import Limits', 'from ._models import *', '', 'class AsyncClient:',
+             'from ._limits import Limits', 'from ._models import *',
+             'from . import _sources as sorgenti', 'from ._sources import LimitiArchivio', '',
+             'class AsyncClient:',
              '    def __init__(self, binary: Any = None, *, timeout: float | None = None) -> None: ...']
     for node in client.body:
         if isinstance(node, ast.FunctionDef) and node.name in names:

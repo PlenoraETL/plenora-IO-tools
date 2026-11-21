@@ -46,7 +46,6 @@ driver-dxf = { path = "../driver-dxf" }
 driver-filegdb = { path = "../driver-filegdb" }
 driver-ipc = { path = "../driver-ipc" }
 serde_json.workspace = true
-base64.workspace = true
 ctrlc.workspace = true
 # La superficie runtime (`src/runtime.rs`) legge i metadati e i payload con
 # struct a campi chiusi: `deny_unknown_fields` e il rifiuto di `null` stanno

@@ -46,18 +46,10 @@ pub use reader_adapters::{
     with_batch_target, with_cancellation, with_read_budget, SingleReaderGate,
 };
 
-/// Sorgente di lettura, indipendente dal filesystem.
-#[derive(Clone, Debug)]
+/// Sorgente di lettura: il nome logico. Byte in memoria e voci d'archivio
+/// passano da [`crate::Sorgente::per_lettura`], che lascia questo enum com'era.
 pub enum Source {
     Path(PathBuf),
-    Bytes {
-        nome: String,
-        dati: std::sync::Arc<[u8]>,
-    },
-    Archivio {
-        archivio: Box<Self>,
-        voce: String,
-    },
 }
 
 impl From<PathBuf> for Source {
@@ -86,13 +78,11 @@ impl From<String> for Source {
     }
 }
 impl Source {
+    /// Il nome logico della sorgente.
     #[must_use]
     pub fn nome(&self) -> &std::path::Path {
-        match self {
-            Self::Path(path) => path,
-            Self::Bytes { nome, .. } => std::path::Path::new(nome),
-            Self::Archivio { voce, .. } => std::path::Path::new(voce),
-        }
+        let Self::Path(path) = self;
+        path
     }
     /// Preflight della sorgente: enumera, addebita e pubblica il footprint.
     ///
@@ -140,8 +130,22 @@ impl Source {
         files: Option<&crate::dataset_files::FileSet>,
         validate: Option<&StructureValidator<'_>>,
     ) -> Result<PathBuf> {
+        let sorgente = opts.sorgente_di(self)?;
+        osserva_sorgente(sorgente, opts, files, validate)
+    }
+}
+
+/// Il preflight comune su una [`crate::Sorgente`]: la vista per byte e voci,
+/// poi l'enumerazione e l'osservazione come per un percorso.
+pub(crate) fn osserva_sorgente(
+    sorgente: crate::Sorgente,
+    opts: &mut ReadOptions,
+    files: Option<&crate::dataset_files::FileSet>,
+    validate: Option<&StructureValidator<'_>>,
+) -> Result<PathBuf> {
+    {
         let (path, vista) = crate::archivio::prepara_percorso(
-            self,
+            sorgente,
             files.unwrap_or(&crate::dataset_files::SINGLE),
             opts,
         )?;
@@ -337,8 +341,11 @@ impl WriteLimitsView {
 /// fino a S4.d la seconda strada era quella presa: costruiva un ramo legacy
 /// con i valori storici, che nessun chiamante aveva chiesto.
 pub struct ReadOptions {
+    /// Limiti degli archivi ZIP, stretti dalle quote della pipeline.
     pub limiti_archivio: crate::LimitiArchivio,
     pub(crate) vista: Option<std::sync::Arc<crate::archivio::Vista>>,
+    /// I byte dietro il nome logico della `Source`, affidati da `per_lettura`.
+    pub(crate) sorgente: Option<crate::Sorgente>,
     /// Optional prefix to inspect and decode, including schema inference.
     pub row_limit: Option<u64>,
     /// CRS dichiarato per i formati che non lo portano (CSV/XLSX) — `PRODUCT.md § CRS`.
@@ -366,6 +373,7 @@ impl ReadOptions {
         Self {
             limiti_archivio: crate::LimitiArchivio::default(),
             vista: None,
+            sorgente: None,
             row_limit: None,
             assume_crs: None,
             format_options: BTreeMap::new(),

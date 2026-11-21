@@ -190,6 +190,11 @@
       "forma": "literal"
     },
     {
+      "id": "kml.kmz_document_not_read",
+      "superficie": "driver-kml",
+      "forma": "literal"
+    },
+    {
       "id": "native_not_null_not_preserved",
       "superficie": "plenora-io-core",
       "forma": "costante"

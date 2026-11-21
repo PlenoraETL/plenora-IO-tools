@@ -66,7 +66,7 @@
     {
       "export": "plenora_io_tools::operazioni::Richiesta",
       "ruolo": "l'ingresso delle cinque operazioni che ne hanno uno, con i campi che gli schemi `*-input-v1` dichiarano.",
-      "nota": "`#[non_exhaustive]`: il letterale `Richiesta { .. }` non compila da fuori, e non e' una limitazione ma il punto -- un campo aggiunto in futuro non rompe chi la costruisce. Si costruisce con `sulla_sorgente` e i metodi `con_*`, che si concatenano. La prima stesura di questa riga documentava `..Default::default()` come idioma, e non compilava nemmeno nelle prove d'integrazione del crate stesso, che per Rust sono gia' «fuori»."
+      "nota": "`#[non_exhaustive]`: il letterale `Richiesta { .. }` non compila da fuori, e non e' una limitazione ma il punto -- un campo aggiunto in futuro non rompe chi la costruisce. Si costruisce con `sulla_sorgente` e i metodi `con_*`, che si concatenano. La prima stesura di questa riga documentava `..Default::default()` come idioma, e non compilava nemmeno nelle prove d'integrazione del crate stesso, che per Rust sono gia' «fuori». Dalla 10.1.0 porta anche le sorgenti senza percorso, con campi e metodi in piu' e nessuna rottura: `source` resta un `PathBuf` (il nome logico), `con_byte_sorgente` affida i byte in memoria (`--source-stdin`), `con_voce_archivio` sceglie una voce ZIP (`--archive-entry`), `con_limiti_archivio` i limiti."
     },
     {
       "export": "plenora_io_tools::operazioni::Esito",
@@ -103,6 +103,20 @@
     {
       "export": "plenora_io_tools::runtime::capacita",
       "ruolo": "il documento capability della superficie runtime, `plenora.io-tools#capabilities@1`."
+    },
+    {
+      "export": "plenora_io_tools::operazioni::elenca_archivio",
+      "ruolo": "il comando locale `archive-list`, `fn(Richiesta) -> Esito`: le voci di uno ZIP con dimensioni dichiarate e limiti effettivi, contratto `plenora-io-archive-list-v1`.",
+      "nota": "non e' un'operazione del catalogo comune e per questo non sta fra le `operazioni`: e' scoperta locale, come `version`. La stessa via in CLI (`archive-list`) e SDK (`Client.elenca_archivio`)."
+    },
+    {
+      "export": "plenora_io_tools::operazioni::LimitiArchivio",
+      "ruolo": "i limiti degli archivi ZIP (`Richiesta::con_limiti_archivio`, `--archive-max-*`): voci, byte decompressi dichiarati, rapporto. Si costruiscono solo validati (`nuovi`, `con`): zero e' `CLI_USAGE`.",
+      "nota": "ogni limite e' stretto dalla quota della pipeline corrispondente, e chi lo impone si legge nel risultato di `archive-list` (`limits[].bound_by`) e in `details.quota` dell'errore."
+    },
+    {
+      "export": "plenora_io_tools::operazioni::QuotaArchivio",
+      "ruolo": "il nome di un limite d'archivio, per `LimitiArchivio::con` e `LimitiArchivio::valore`."
     }
   ],
   "che_cosa_questa_superficie_non_promette": {

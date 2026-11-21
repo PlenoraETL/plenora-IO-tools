@@ -209,7 +209,8 @@ impl FormatDriver for IpcDriver {
                     )
                 }
             }
-        })?;
+        })
+        .map_err(|error| driver_common::structure::con_formato_atteso("ipc", error))?;
         // FZ-0: schema e buffer dichiarati vengono verificati **prima** che
         // arrow li converta. `try_new` restituisce `Result`, ma la conversione
         // dello schema e l'affettamento del corpo sono infallibili nel tipo e

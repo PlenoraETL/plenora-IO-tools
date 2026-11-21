@@ -57,10 +57,19 @@
       "nota": "senza `io`: SURF-015 dice che i fallimenti pubblici mappano sul **contratto d'errore comune**, e quel contratto ha un nome suo. Emettere `plenora-io-error-v1` diceva che ne avevamo uno nostro, e mandava chi lo riceve a cercare uno schema che non esiste. Resta nostro `plenora-io-error-details-v1`, che e' il contenuto facoltativo di `details` e non la busta."
     },
     {
+      "comando": "archive-list",
+      "contratto": "plenora-io-archive-list-v1",
+      "fonte": "nessuna: `archive-list` non e' un'operazione del catalogo comune",
+      "senza_fonte_fissata": true,
+      "prima_della_4_0_0": null,
+      "nota": "scoperta locale della CLI, come `version`: elenca le voci di uno ZIP con lo stesso preflight dei driver. Il catalogo fissato non conosce `io.archive-list`, e annunciarla fra le `operations` di `capabilities` inventerebbe un'operazione del profilo: per questo non c'e'. Il contratto e' nostro e pubblicato (`contracts/schemas/plenora-io-archive-list-v1.schema.json`), uguale in Rust (`operazioni::elenca_archivio`), CLI e SDK (`Client.elenca_archivio`)."
+    },
+    {
       "comando": "version",
       "contratto": "plenora-io-version-v2",
       "fonte": "nessuna: `--version` non e' un'operazione del catalogo",
       "prima_della_4_0_0": "plenora-io-version-v2",
+      "senza_fonte_fissata": true,
       "nota": "l'unica busta senza un contratto fissato a cui allinearsi. E' una superficie di scoperta della CLI, non un'operazione, quindi il nome e il suffisso restano nostri e seguono il protocollo. Lasciarla `-v2` non e' una dimenticanza: e' l'unico caso in cui `-v2` significa ancora quello che dice."
     }
   ]

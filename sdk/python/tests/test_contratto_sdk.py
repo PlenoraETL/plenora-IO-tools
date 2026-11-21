@@ -41,7 +41,7 @@ from plenora_io import (
     PlenoraError,
     ProtocolError,
 )
-from plenora_io._client import OPERAZIONI
+from plenora_io._client import OPERAZIONI, SUPERFICI_LOCALI
 from plenora_io._discovery import NOME, VARIABILE
 
 from _repository import CANONICHE, RADICE, serve_le_fixture
@@ -187,7 +187,10 @@ class IMetodiSonoOperazioni(unittest.TestCase):
             for nome, valore in inspect.getmembers(Client, inspect.isfunction)
             if not nome.startswith("_")
         }
-        self.assertEqual(metodi - self.SCOPERTA, set(OPERAZIONI))
+        # I comandi locali (`archive-list`) non sono operazioni del catalogo
+        # comune: stanno in una mappa loro, e insieme coprono ogni metodo.
+        self.assertEqual(metodi - self.SCOPERTA, set(OPERAZIONI) | set(SUPERFICI_LOCALI))
+        self.assertFalse(set(OPERAZIONI) & set(SUPERFICI_LOCALI))
 
     def test_le_operazioni_sono_quelle_del_catalogo(self) -> None:
         self.assertEqual(
